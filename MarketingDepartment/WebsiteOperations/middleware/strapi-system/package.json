@@ -1,5 +1,5 @@
 {
-  "name": "website-operations",
+  "name": "strapi-system",
   "version": "0.1.0",
   "private": true,
   "description": "A Strapi application",
@@ -39,7 +39,7 @@
     "npm": ">=6.0.0"
   },
   "strapi": {
-    "uuid": "a22b1cdb-280c-415c-9f49-e29cfc599830",
-    "installId": "6d50b310e01f545ab4d88c3c49e4e9dd3defe4a319b7050413b64bb8fbd82872"
+    "uuid": "13bf3c01-c81e-43d0-8ed5-5342afedf3c8",
+    "installId": "7a9ae165c06abaa90f59d36be1d91c851b97d14dcb031caca63bebb1b13bdf01"
   }
 }
