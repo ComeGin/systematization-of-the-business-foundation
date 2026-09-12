@@ -39,7 +39,7 @@
     "npm": ">=6.0.0"
   },
   "strapi": {
-    "uuid": "13bf3c01-c81e-43d0-8ed5-5342afedf3c8",
-    "installId": "7a9ae165c06abaa90f59d36be1d91c851b97d14dcb031caca63bebb1b13bdf01"
+    "uuid": "06562b41-c1ec-49bb-9966-e45ff29952a2",
+    "installId": "838d0df07ed1aed6ac074c14fbbfe21dbe0ae873d9026dba99c58c4ded8f136d"
   }
 }
