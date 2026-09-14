@@ -7,7 +7,7 @@ export interface MauticTokenResponse {
 
 /** Mautic API のエラーレスポンス */
 export interface MauticErrorBody {
-  errors?: { message: string; code: number; type: string | null }[];
+  errors?: { message: string; code: number; type: string | null; details?: Record<string, unknown> }[];
 }
 
 export interface MauticContact {
@@ -21,12 +21,6 @@ export interface MauticContact {
   tags: { tag: string }[];
   doNotContact?: { channel: string; reason: number; comments: string | null }[];
   fields: { all: Record<string, unknown> };
-}
-
-export interface MauticContactListResponse {
-  total: number | string;
-  // 該当 0 件の場合、Mautic は {} ではなく [] を返す
-  contacts: Record<string, MauticContact> | MauticContact[];
 }
 
 export interface MauticContactResponse {

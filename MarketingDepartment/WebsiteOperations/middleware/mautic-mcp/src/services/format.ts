@@ -73,7 +73,7 @@ export function renderContactList(output: ListContactsOutput, search: string | u
     `Showing ${output.offset + 1}-${output.offset + output.count} of ${output.total}`,
     "",
   ];
-  for (const contact of output.contacts) {
+  for (const contact of output.items) {
     lines.push(...summaryLines(contact), "");
   }
   if (output.has_more) lines.push(`More results available: call again with offset=${output.next_offset}.`);

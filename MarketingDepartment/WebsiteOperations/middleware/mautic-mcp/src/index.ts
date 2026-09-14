@@ -17,6 +17,11 @@ import { loadConfig, type Config } from "./config.js";
 import { SERVER_NAME, SERVER_VERSION, STATIC_TOKEN_TTL_SEC } from "./constants.js";
 import { MauticClient } from "./services/mautic-client.js";
 import { registerContactTools } from "./tools/contacts.js";
+import { registerRecordTools } from "./tools/records.js";
+import { registerRelatedTools } from "./tools/related.js";
+import { registerReportingTools } from "./tools/reporting.js";
+import { registerSystemTools } from "./tools/system.js";
+import { registerWriteTools } from "./tools/write.js";
 
 const config = loadConfig();
 
@@ -30,8 +35,16 @@ const mautic = new MauticClient({
 function buildServer(): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   registerContactTools(server, mautic);
+  registerRecordTools(server, mautic);
+  registerRelatedTools(server, mautic);
+  registerReportingTools(server, mautic);
+  registerSystemTools(server, mautic);
+  // MAUTIC_ACCESS_LEVEL で許可された書き込みツールだけを登録する（read_only なら何も登録しない）
+  registerWriteTools(server, mautic, config.MAUTIC_ACCESS_LEVEL);
   return server;
 }
+
+const startupInfo = `Mautic: ${config.MAUTIC_BASE_URL}, access: ${config.MAUTIC_ACCESS_LEVEL}`;
 
 function createStaticTokenVerifier(expected: string): OAuthTokenVerifier {
   // 長さの違いで比較時間が変わらないよう、ハッシュ同士を定数時間で比較する
@@ -62,7 +75,7 @@ async function runHttp(config: Config & { MCP_AUTH_TOKEN: string }): Promise<voi
   app.all("/mcp", auth, (req, res) => void node(req, res, req.body));
 
   const httpServer = app.listen(config.PORT, config.HOST, () => {
-    console.error(`[${SERVER_NAME}] listening on http://${config.HOST}:${config.PORT}/mcp (Mautic: ${config.MAUTIC_BASE_URL})`);
+    console.error(`[${SERVER_NAME}] listening on http://${config.HOST}:${config.PORT}/mcp (${startupInfo})`);
   });
 
   const shutdown = async () => {
@@ -76,7 +89,7 @@ async function runHttp(config: Config & { MCP_AUTH_TOKEN: string }): Promise<voi
 async function runStdio(): Promise<void> {
   await buildServer().connect(new StdioServerTransport());
   // stdout は MCP の通信に使うため、ログは stderr に出す
-  console.error(`[${SERVER_NAME}] running on stdio (Mautic: ${config.MAUTIC_BASE_URL})`);
+  console.error(`[${SERVER_NAME}] running on stdio (${startupInfo})`);
 }
 
 if (config.TRANSPORT === "stdio") {

@@ -1,9 +1,6 @@
 import * as z from "zod/v4";
 
-export const ResponseFormatSchema = z
-  .enum(["markdown", "json"])
-  .default("markdown")
-  .describe("'markdown' (default) for a readable summary, 'json' for machine-readable output");
+import { DateSchema, IdSchema, LimitSchema, OffsetSchema, PagedOutputSchema, ResponseFormatSchema } from "./common.js";
 
 // Mautic の orderBy は DB の列名（leads テーブル）で指定する
 const CONTACT_ORDER_COLUMNS = ["id", "date_added", "date_modified", "last_active", "email", "firstname", "lastname", "points"] as const;
@@ -19,16 +16,48 @@ export const ListContactsInputSchema = z.strictObject({
         "'tag:vip', 'segment:<segment-alias>', 'company:Acme', 'stage:<name>', 'owner:<name>', 'is:anonymous', " +
         "'is:unowned', 'dnc:email'. Prefix '!' to negate (e.g. '!is:anonymous'). Omit to list all contacts.",
     ),
-  limit: z.number().int().min(1).max(100).default(20).describe("Maximum contacts to return (1-100, default 20)"),
-  offset: z.number().int().min(0).default(0).describe("Number of contacts to skip for pagination (default 0)"),
+  limit: LimitSchema(100, 20),
+  offset: OffsetSchema,
   order_by: z.enum(CONTACT_ORDER_COLUMNS).default("last_active").describe("Sort column (default 'last_active')"),
   order_direction: z.enum(["asc", "desc"]).default("desc").describe("Sort direction (default 'desc')"),
   response_format: ResponseFormatSchema,
 });
 
 export const GetContactInputSchema = z.strictObject({
-  contact_id: z.number().int().positive().describe("Mautic contact ID (e.g. 42). Find IDs with mautic_list_contacts."),
+  contact_id: IdSchema("Mautic contact").describe("Mautic contact ID (e.g. 42). Find IDs with mautic_list_contacts."),
   response_format: ResponseFormatSchema,
+});
+
+export const GetContactActivityInputSchema = z.strictObject({
+  contact_id: IdSchema("Mautic contact"),
+  search: z.string().trim().max(200).optional().describe("Free text to match in event names/details"),
+  include_event_types: z
+    .array(z.string().max(100))
+    .max(20)
+    .optional()
+    .describe("Only these event types, e.g. ['email.read', 'page.hit', 'form.submitted']. Every response lists available types in event_types."),
+  exclude_event_types: z.array(z.string().max(100)).max(20).optional().describe("Event types to leave out"),
+  date_from: DateSchema.optional().describe("Only events on or after this date (YYYY-MM-DD)"),
+  date_to: DateSchema.optional().describe("Only events on or before this date (YYYY-MM-DD)"),
+  limit: LimitSchema(100, 25),
+  page: z.number().int().min(1).default(1).describe("Page number, starting at 1 (default 1)"),
+  order_direction: z.enum(["asc", "desc"]).default("desc").describe("Timestamp order (default 'desc': newest first)"),
+});
+
+export const CONTACT_RELATIONS = {
+  notes: { path: "notes", description: "notes written about the contact" },
+  segments: { path: "segments", description: "segments the contact belongs to" },
+  campaigns: { path: "campaigns", description: "campaigns the contact is a member of" },
+  companies: { path: "companies", description: "companies linked to the contact (primary flag included)" },
+  devices: { path: "devices", description: "devices the contact used (browser, OS)" },
+  point_groups: { path: "points/groups", description: "point scores per point group" },
+} as const;
+
+export const GetContactRelationsInputSchema = z.strictObject({
+  contact_id: IdSchema("Mautic contact"),
+  relation: z
+    .enum(Object.keys(CONTACT_RELATIONS) as [keyof typeof CONTACT_RELATIONS, ...(keyof typeof CONTACT_RELATIONS)[]])
+    .describe(Object.entries(CONTACT_RELATIONS).map(([name, relation]) => `'${name}': ${relation.description}`).join("; ")),
 });
 
 export const ContactSummarySchema = z.object({
@@ -45,15 +74,7 @@ export const ContactSummarySchema = z.object({
   date_added: z.string().nullable(),
 });
 
-export const ListContactsOutputSchema = z.object({
-  total: z.number(),
-  count: z.number(),
-  offset: z.number(),
-  has_more: z.boolean(),
-  next_offset: z.number().optional(),
-  truncation_message: z.string().optional(),
-  contacts: z.array(ContactSummarySchema),
-});
+export const ListContactsOutputSchema = PagedOutputSchema(ContactSummarySchema);
 
 export const ContactDetailSchema = ContactSummarySchema.extend({
   date_modified: z.string().nullable(),
@@ -63,8 +84,6 @@ export const ContactDetailSchema = ContactSummarySchema.extend({
   ),
 });
 
-export type ContactOrderColumn = (typeof CONTACT_ORDER_COLUMNS)[number];
-export type ListContactsInput = z.infer<typeof ListContactsInputSchema>;
 export type ContactSummary = z.infer<typeof ContactSummarySchema>;
 export type ListContactsOutput = z.infer<typeof ListContactsOutputSchema>;
 export type ContactDetail = z.infer<typeof ContactDetailSchema>;

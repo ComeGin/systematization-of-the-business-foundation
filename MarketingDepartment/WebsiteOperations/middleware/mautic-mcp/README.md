@@ -13,12 +13,44 @@ MCP クライアント ──(Bearer: MCP_AUTH_TOKEN)──▶ mautic-mcp-server
 
 ## ツール
 
-| ツール | 内容 |
-|---|---|
-| `mautic_list_contacts` | コンタクトの検索・一覧（`search` は Mautic の検索構文。`limit` / `offset` でページング） |
-| `mautic_get_contact` | コンタクト 1 件の全フィールドと Do Not Contact 状態 |
+秘匿情報らしいキー（`secret` / `password` / `token` / `apiKey`）の値は伏せ字にし、1,000 文字を超える文字列（メール本文の HTML など）は `include_long_text=true` を指定しない限り省略する。
 
-いずれも読み取り専用。`response_format` で `markdown`（既定）/ `json` を切り替えられる。
+### アクセスレベル（`MAUTIC_ACCESS_LEVEL`）
+
+許可されていない書き込みツールは **ツール一覧に登録しない**（モデルからは存在しないように見える）。
+
+| 値 | 公開されるツール |
+|---|---|
+| `read_only`（既定） | 参照系 14 ツール |
+| `read_write` | + `mautic_create_record`、`mautic_update_record` |
+| `full` | + `mautic_delete_record` |
+
+- 書き込み対象の `resource` は、下表の参照用 `resource` に `contacts` を加えたもの。
+- 更新は `PATCH`（指定したフィールドだけを変更）。Mautic の `PUT` は存在しない ID で新規作成してしまうため使わない。
+- 更新・削除のツールには `destructiveHint: true` を付けており、MCP クライアントが実行前に確認を求められる。
+- メール / SMS の送信、セグメント・キャンペーンへの追加などの操作系 API は対象外。
+
+### 参照系ツール
+
+| ツール | 対象 |
+|---|---|
+| `mautic_list_contacts` / `mautic_get_contact` | コンタクトの検索・一覧（Mautic の検索構文）、1 件の全フィールドと Do Not Contact 状態 |
+| `mautic_get_contact_activity` | コンタクトのタイムライン（イベント種別・期間で絞り込み） |
+| `mautic_get_contact_relations` | コンタクトのノート・セグメント・キャンペーン・会社・デバイス・ポイントグループ |
+| `mautic_list_records` / `mautic_get_record` | 標準エンティティの一覧・1 件取得（下表の `resource`） |
+| `mautic_list_campaign_contacts` | キャンペーンの参加コンタクト |
+| `mautic_list_form_submissions` | フォームの送信内容（コンタクト単位でも可） |
+| `mautic_run_report` | 保存済みレポートの実行結果 |
+| `mautic_get_dashboard_widget_data` | ダッシュボードウィジェットのデータ（引数なしで種別一覧） |
+| `mautic_query_stats` | 統計テーブルの検索（引数なしでテーブル・列一覧） |
+| `mautic_list_files` / `mautic_list_themes` | メディアファイル名・テーマ一覧 |
+| `mautic_list_lookup` | ポイントアクション種別、ポイントトリガーのイベント種別、Webhook トリガー、コンタクト担当者 |
+
+`mautic_list_records` / `mautic_get_record` の `resource`:
+
+`assets`, `campaigns`, `campaign_events`, `categories`, `companies`, `contact_fields`, `company_fields`, `dynamic_content`, `emails`, `focus`, `forms`, `marketing_messages`, `notes`, `notifications`, `pages`, `point_actions`, `point_groups`, `point_insights`, `point_triggers`, `reports`（一覧のみ）, `roles`, `segments`, `stages`, `tags`, `text_messages`, `tweets`, `users`, `webhooks`
+
+Mautic API の `GET /api/smses/{id}/contact/{contactId}/send` は GET でも SMS を送信するため、対象外にしている。
 
 ## セットアップ
 

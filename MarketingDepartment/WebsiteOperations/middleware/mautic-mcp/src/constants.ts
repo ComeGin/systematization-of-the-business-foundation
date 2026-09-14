@@ -1,8 +1,11 @@
 export const SERVER_NAME = "mautic-mcp-server";
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.3.0";
 
 /** ツール応答の最大文字数。超えた場合は件数を減らして返す */
 export const CHARACTER_LIMIT = 25_000;
+
+/** これより長い文字列（メール本文の HTML など）は、明示されない限り省略して返す */
+export const LONG_TEXT_LIMIT = 1_000;
 
 /** Mautic への HTTP リクエストのタイムアウト */
 export const HTTP_TIMEOUT_MS = 30_000;

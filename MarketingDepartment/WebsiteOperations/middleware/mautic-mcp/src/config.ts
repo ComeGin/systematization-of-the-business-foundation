@@ -5,6 +5,8 @@ const EnvSchema = z
     MAUTIC_BASE_URL: z.url().transform((url) => url.replace(/\/+$/, "")),
     MAUTIC_CLIENT_ID: z.string().min(1),
     MAUTIC_CLIENT_SECRET: z.string().min(1),
+    // 公開するツールの範囲: read_only（参照のみ）| read_write（作成・更新も）| full（削除も）
+    MAUTIC_ACCESS_LEVEL: z.enum(["read_only", "read_write", "full"]).default("read_only"),
     TRANSPORT: z.enum(["http", "stdio"]).default("http"),
     HOST: z.string().min(1).default("127.0.0.1"),
     PORT: z.coerce.number().int().min(1).max(65_535).default(3100),
