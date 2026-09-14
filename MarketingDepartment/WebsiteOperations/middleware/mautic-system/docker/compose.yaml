@@ -1,0 +1,49 @@
+# Mautic 用 MySQL（ホストの PHP から 127.0.0.1:${MYSQL_PORT} で接続する）
+# Mautic 7 の最小要件は MySQL 8.4.0（app/release_metadata.json）
+name: mautic
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: mautic-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?docker/.env に MYSQL_ROOT_PASSWORD を設定してください}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mautic}
+      MYSQL_USER: ${MYSQL_USER:-mautic}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?docker/.env に MYSQL_PASSWORD を設定してください}
+      TZ: Asia/Tokyo
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      # 外部ネットワークに公開しないようループバックのみにバインド
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # TCP で ping することで、初期化用の一時サーバー起動中は healthy にならない
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ローカル開発用のメール受信箱（送信メールは外部に出ず、http://localhost:8025 で閲覧する）
+  # v1.0.1 が最終リリースで、イメージは amd64 のみ。受信メールはメモリ保持のためコンテナ再作成で消える
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: mautic-mailhog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILHOG_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILHOG_UI_PORT:-8025}:8025"
+    healthcheck:
+      # イメージに healthcheck がないため、busybox の wget で Web API の応答を確認する
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8025/api/v2/messages?limit=1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:

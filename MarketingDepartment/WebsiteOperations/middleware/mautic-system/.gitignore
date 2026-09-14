@@ -1,0 +1,95 @@
+# Mautic 7.x（リリース zip を展開したもの）用
+# 方針: Mautic 本体ソースと自作ファイルは追跡し、依存パッケージ・ビルド生成物・実行時データ・秘密情報は追跡しない
+# clone 後の復元: composer install → npm ci → bin/console mautic:assets:generate
+
+# ---------------------------------------------------------------------
+# 秘密情報・環境ごとの設定
+# ---------------------------------------------------------------------
+
+# local.php は DB 接続情報や secret_key を含む。dev/reset.sh が作る local.php.bak-* も同様
+/config/*
+!/config/.gitkeep
+
+# docker/.env は docker/.gitignore で除外している
+/.env
+/.env.test
+.env.local
+.env.local.php
+.env.*.local
+
+# ---------------------------------------------------------------------
+# 依存パッケージ（composer install / npm ci で復元）
+# ---------------------------------------------------------------------
+
+/vendor/
+/node_modules/
+/composer.phar
+
+# composer が置くコマンドのプロキシ。console と .htaccess は本体の一部
+/bin/*
+!/bin/.htaccess
+!/bin/console
+
+# ---------------------------------------------------------------------
+# ビルド生成物（bin/console mautic:assets:generate / npm run build で再生成）
+# ---------------------------------------------------------------------
+
+# AssetMapper のコンパイル結果（ファイル名にハッシュが付く）
+/assets/build/
+/bundles/
+
+/media/bundles/
+/media/libraries/ckeditor/
+/media/js/
+/media/css/app.css
+/media/css/libraries.css
+/media/css/mediaelementplayer.min.css
+/media/css/modal.min.css
+
+# ---------------------------------------------------------------------
+# 実行時データ
+# ---------------------------------------------------------------------
+
+# cache / logs / spool / tmp のほか、sass-bundle が取得する dart-sass バイナリとコンパイル済み CSS
+/var/*
+!/var/.htaccess
+
+# 管理画面からアップロードされたファイル
+/media/files/*
+!/media/files/.htaccess
+/media/images/*
+!/media/images/.htaccess
+/media/dashboards/*
+!/media/dashboards/*.json
+
+# 管理画面からダウンロードする言語パック
+/translations/*
+!/translations/.htaccess
+
+# Mautic のアップグレード処理が残すファイル
+/upgrade/
+/upgrade_errors.txt
+/deleted_files.txt
+
+# ---------------------------------------------------------------------
+# 開発ツール
+# ---------------------------------------------------------------------
+
+/.php-cs-fixer.cache
+/.phpunit.cache/
+/.phpunit.result.cache
+/app/phpunit.xml
+/coverage.xml
+/build/
+tests/**/*.sql
+
+# ---------------------------------------------------------------------
+# OS・エディタ
+# ---------------------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+*.swp
+*~
+/.idea/
+/.vscode/
