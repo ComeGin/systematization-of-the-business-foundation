@@ -15,6 +15,15 @@ const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Admin => 
   secrets: {
     encryptionKey: env('ENCRYPTION_KEY')!,
   },
+  // Preview is unused; disabling it stops the content manager's
+  // "Preview config not found" 404 on every edit view.
+  preview: {
+    enabled: false,
+    config: {
+      // Required by the type; never called while preview is disabled.
+      handler: () => null,
+    },
+  },
   flags: {
     nps: env.bool('FLAG_NPS', true),
     promoteEE: env.bool('FLAG_PROMOTE_EE', true),
