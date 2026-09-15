@@ -114,6 +114,31 @@ HTTP で使う場合は `.env` に `TRANSPORT=http` と `MCP_AUTH_TOKEN`（32 �
 
 ## 動作確認
 
+`scripts/verify/` に、MCP クライアント（`@modelcontextprotocol/client`）で `dist/index.js` を stdio 起動し、
+実際の Chatwoot に対してツールを呼ぶ確認スクリプトがある。**先に `pnpm build` が必要**。
+
+```bash
+pnpm verify                  # 参照のみ（Chatwoot の状態を変えない）16 項目
+pnpm verify -- --write       # 上記 + 書き込み 14 項目（テストデータを作り、最後に削除する）
+pnpm verify -- --write --keep  # 作ったデータを残す（失敗時の調査用）
+pnpm verify -- --verbose     # 各ツールの応答も表示する
+```
+
+確認する内容:
+
+| 区分 | 内容 |
+|---|---|
+| ツール定義 | 説明・入力スキーマ・注釈が全ツールにあること、`CHATWOOT_ACCESS_LEVEL` で公開範囲が read_only ⊂ read_write ⊂ full になること |
+| 参照 | アカウント情報、会話・コンタクト・全設定リソースの一覧、レポート 4 種（管理者トークンでないときはスキップ） |
+| エラー | 存在しない ID・未知の属性キー・ありえない日付・誤った関連指定で、次の手順を示すエラーになること |
+| 書き込み | 受信箱・ラベル・チーム・コンタクト・会話の作成 → 返信と社内メモ → 会話のまとめて更新（担当者がチーム変更で外れないこと）→ フィルタ検索 → メッセージ削除 → レポート反映 → 後片付け |
+
+- `--write` は**実際に Chatwoot へ書き込む**ため、本番アカウントに向けて実行しないこと。作成するデータは `mcp-verify-<英数字>` の名前で、最後に削除する（失敗しても後片付けは実行される）。
+- 受信箱は、API チャネルの受信箱があればそれを使い、無いときだけ作成する。受信箱の削除ツールは公開していないため、その場合の後片付けだけ REST API を直接呼ぶ。
+- Chatwoot の 15 秒打ち切り（`Rack::Timeout`）に当たった場合は、3 秒待って 1 度だけ再試行する。
+
+手動で個々のツールを試す場合は MCP Inspector を使う。
+
 ```bash
 npx @modelcontextprotocol/inspector
 ```
