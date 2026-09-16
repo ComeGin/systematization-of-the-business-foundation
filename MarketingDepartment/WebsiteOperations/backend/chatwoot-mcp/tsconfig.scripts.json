@@ -1,0 +1,10 @@
+// 動作確認スクリプト（tsx で直接実行する .mts）の型チェック用。ビルド成果物には含めない
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rootDir": "."
+  },
+  "include": ["scripts/**/*.mts", "src/**/*"]
+}

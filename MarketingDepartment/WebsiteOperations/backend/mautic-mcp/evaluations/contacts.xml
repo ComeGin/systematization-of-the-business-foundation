@@ -1,0 +1,47 @@
+<!--
+  mautic-mcp-server の評価セット（mcp-builder Skill の Phase 4）
+  前提: `pnpm seed:test` で投入した mcp-test タグのコンタクト 12 件（答えはこのデータで固定）
+  回答はすべて MCP ツール（mautic_list_contacts / mautic_get_contact）の出力から検証済み
+-->
+<evaluation>
+  <qa_pair>
+    <question>Consider only Mautic contacts tagged "mcp-test". Summing lead points per company (ignore contacts without a company), which company has the highest total? Answer with the company name only.</question>
+    <answer>Globex</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test", some attended the webinar held in August 2026. Of those attendees, the one who was active most recently lives in which city? Answer with the city name only.</question>
+    <answer>Fukuoka</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test", exactly one contact is blocked from email because messages to them hard-bounced. Which company does that contact work for? Answer with the company name only.</question>
+    <answer>Umbrella</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test" that are assigned to a Mautic user (have an owner), which one has the fewest points? Answer with their last name only.</question>
+    <answer>Tanaka</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test" that are on a trial, how many are located in Japan and can still be emailed (no do-not-contact entry)? Answer with a number only.</question>
+    <answer>2</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test" that have any recorded activity, whose last activity is the oldest? Answer with that contact's email address only.</question>
+    <answer>frank.mueller@initech.example.com</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test" who subscribe to the newsletter and are based outside Japan, who has the most points? Answer with their first name only.</question>
+    <answer>Isabel</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test", find the company that has exactly two contacts. On what date was the higher-scoring of those two contacts last active? Answer in YYYY-MM-DD format.</question>
+    <answer>2026-09-05</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>True or False: every contact tagged "mcp-test" who works at Acme Corp and is on a trial has a do-not-contact entry for email. Answer True or False only.</question>
+    <answer>True</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among contacts tagged "mcp-test", what is the total number of points of the contacts that have no company set? Answer with a number only.</question>
+    <answer>107</answer>
+  </qa_pair>
+</evaluation>
