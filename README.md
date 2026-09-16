@@ -30,7 +30,7 @@
 ## システム（組み込むツール群）
 
 - CMS: Strapi
-- MA: Strapi
+- MA: Mautic
 - アクセス解析: Umami
 - 行動分析 / ABテスト: PostHog
 - Web接客 / チャット: Chatwoot
