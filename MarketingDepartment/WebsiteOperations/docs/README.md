@@ -66,6 +66,23 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | [TA/04-security-and-secrets.md](TA/04-security-and-secrets.md) | 秘匿値、**ngrok の経路分離**、MCP の権限 |
 | [TA/05-observability-and-ops.md](TA/05-observability-and-ops.md) | 監視、バックアップ、構成管理 |
 
+### 詳細設計（`DetailedDesign/`）
+
+上の 4 層が「何を作るか」を決めたのに対し、**連携点 `I-01`〜`I-20` とループ 6 段階を実装着手できる粒度まで下ろした**もの。AA-02 のカタログと AA-04 の制御仕様が入口にあたる。
+
+| ファイル | 内容 |
+|---|---|
+| [DetailedDesign/README.md](DetailedDesign/README.md) | 索引、連携点とファイルの対応、**詳細設計の完成度** |
+| [DetailedDesign/01-flow-specification-rules.md](DetailedDesign/01-flow-specification-rules.md) | **横断規約。** 相関 ID、失敗分類 9 値、リトライ、冪等キー、タイムアウト、`E-13` の状態遷移 |
+| [DetailedDesign/02-public-path-flows.md](DetailedDesign/02-public-path-flows.md) | 公開経路（ブラウザ発信の 4 本） |
+| [DetailedDesign/03-operation-path-flows.md](DetailedDesign/03-operation-path-flows.md) | 運用経路（エージェント発信の 4 本） |
+| [DetailedDesign/04-server-to-server-flows.md](DetailedDesign/04-server-to-server-flows.md) | サーバ間通知の 6 本 |
+| [DetailedDesign/05-build-and-delivery-flows.md](DetailedDesign/05-build-and-delivery-flows.md) | ビルドと配信の 3 本 |
+| [DetailedDesign/06-proposal-loop-flows.md](DetailedDesign/06-proposal-loop-flows.md) | 提案と承認、**起票前チェックリスト 14 項目** |
+| [DetailedDesign/07-failure-and-degradation.md](DetailedDesign/07-failure-and-degradation.md) | 異常系、縮退運転、**暴走条件 10 件と検出手段の対応** |
+
+**実装状態（`実装済み` / `未配線` / `未着手`）の正本はこの 4 層側にあり、詳細設計層では繰り返さない。** 詳細設計層は「仕様が確定しているか」という別の軸（`仕様確定` / `条件付き` / `前提待ち`）で状態を持つ。
+
 ## 層間トレーサビリティ
 
 この表が EA 全体の**目次でありチェックサム**である。ある Capability に対応する役割・データ・アプリ・基盤のいずれかが空欄なら、そこが設計漏れになる。
