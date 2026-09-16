@@ -40,6 +40,8 @@ All commands are run from the root of the project, from a terminal:
 | `pnpm preview`         | Preview your build locally, before deploying     |
 | `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `pnpm astro -- --help` | Get help using the Astro CLI                     |
+| `pnpm lh`              | Build, then measure the production preview with Lighthouse CI |
+| `pnpm lh:report`       | Open the latest Lighthouse HTML report            |
 
 ## 👀 Want to learn more?
 

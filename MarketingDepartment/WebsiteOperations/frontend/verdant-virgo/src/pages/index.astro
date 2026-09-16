@@ -4,8 +4,14 @@ import Layout from '../layouts/Layout.astro';
 
 // Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
 // Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+
+// TODO: 実際のサービス内容に合わせて差し替える。検索結果に表示される文面。
+// description は全角 60〜70 文字程度が目安（それ以上は Google に省略される）。
+const title = 'Astro Basics';
+const description =
+	'Astro で構築した Web サイトです。サービス紹介、導入事例、お問い合わせはこちらから。';
 ---
 
-<Layout>
+<Layout title={title} description={description}>
 	<Welcome />
 </Layout>
