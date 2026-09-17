@@ -30,41 +30,58 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 
 | ファイル | 内容 |
 |---|---|
-| [BA/01-business-model.md](BA/01-business-model.md) | 事業目的、バリューストリーム、KPI ツリー |
-| [BA/02-capability-map.md](BA/02-capability-map.md) | ケイパビリティマップ、外注 → 内製の対応 |
-| [BA/03-roles-and-raci.md](BA/03-roles-and-raci.md) | 役割定義の正規化、RACI |
-| [BA/04-business-processes.md](BA/04-business-processes.md) | 更新ワークフロー、PDCA、キーワード＆CV 設計 |
-| [BA/05-governance.md](BA/05-governance.md) | SSO、権限、担当者変更、**承認ゲートの一覧** |
+| [BA/01-business-model.md](RequirementDefinition/BA/01-business-model.md) | 事業目的、バリューストリーム、KPI ツリー |
+| [BA/02-capability-map.md](RequirementDefinition/BA/02-capability-map.md) | ケイパビリティマップ、外注 → 内製の対応 |
+| [BA/03-roles-and-raci.md](RequirementDefinition/BA/03-roles-and-raci.md) | 役割定義の正規化、RACI |
+| [BA/04-business-processes.md](RequirementDefinition/BA/04-business-processes.md) | 更新ワークフロー、PDCA、キーワード＆CV 設計 |
+| [BA/05-governance.md](RequirementDefinition/BA/05-governance.md) | SSO、権限、担当者変更、**承認ゲートの一覧** |
 
 ### DA — Data Architecture
 
 | ファイル | 内容 |
 |---|---|
-| [DA/01-conceptual-data-model.md](DA/01-conceptual-data-model.md) | 概念データモデル、**`E-13` の型定義** |
-| [DA/02-metrics-and-kpi.md](DA/02-metrics-and-kpi.md) | CVR の定義、指標一覧、データ契約 |
-| [DA/03-identity-resolution.md](DA/03-identity-resolution.md) | ID 統合、匿名から実名への昇格 |
-| [DA/04-data-flow.md](DA/04-data-flow.md) | データフロー、System of Record |
-| [DA/05-data-governance.md](DA/05-data-governance.md) | 個人情報の区分、保持期間、`sanitize()` |
+| [DA/01-conceptual-data-model.md](RequirementDefinition/DA/01-conceptual-data-model.md) | 概念データモデル、**`E-13` の型定義** |
+| [DA/02-metrics-and-kpi.md](RequirementDefinition/DA/02-metrics-and-kpi.md) | CVR の定義、指標一覧、データ契約 |
+| [DA/03-identity-resolution.md](RequirementDefinition/DA/03-identity-resolution.md) | ID 統合、匿名から実名への昇格 |
+| [DA/04-data-flow.md](RequirementDefinition/DA/04-data-flow.md) | データフロー、System of Record |
+| [DA/05-data-governance.md](RequirementDefinition/DA/05-data-governance.md) | 個人情報の区分、保持期間、`sanitize()` |
 
 ### AA — Application Architecture
 
 | ファイル | 内容 |
 |---|---|
-| [AA/01-application-landscape.md](AA/01-application-landscape.md) | C4 コンテキスト／コンテナ図、アプリ一覧 |
-| [AA/02-integration-architecture.md](AA/02-integration-architecture.md) | 連携点カタログ、露出経路の 2 分類、**着手順** |
-| [AA/03-agent-architecture.md](AA/03-agent-architecture.md) | **エージェント 12 本の設計と権限** |
-| [AA/04-recursive-improvement-loop.md](AA/04-recursive-improvement-loop.md) | **改善ループの制御仕様、安全装置、暴走条件** |
-| [AA/05-application-decisions.md](AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜06） |
+| [AA/01-application-landscape.md](RequirementDefinition/AA/01-application-landscape.md) | C4 コンテキスト／コンテナ図、アプリ一覧 |
+| [AA/02-integration-architecture.md](RequirementDefinition/AA/02-integration-architecture.md) | 連携点カタログ、露出経路の 2 分類、**着手順** |
+| [AA/03-agent-architecture.md](RequirementDefinition/AA/03-agent-architecture.md) | **エージェント 12 本の設計と権限** |
+| [AA/04-recursive-improvement-loop.md](RequirementDefinition/AA/04-recursive-improvement-loop.md) | **改善ループの制御仕様、安全装置、暴走条件** |
+| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜08） |
 
 ### TA — Technology Architecture
 
 | ファイル | 内容 |
 |---|---|
-| [TA/01-deployment-topology.md](TA/01-deployment-topology.md) | 配置境界、ポート割当、境界越え通信 |
-| [TA/02-aws-product-delivery.md](TA/02-aws-product-delivery.md) | Astro の AWS 構成、Cloudflare 代替 |
-| [TA/03-triggers-and-cicd.md](TA/03-triggers-and-cicd.md) | トリガー 4 系統、n8n の Git 管理外問題 |
-| [TA/04-security-and-secrets.md](TA/04-security-and-secrets.md) | 秘匿値、**ngrok の経路分離**、MCP の権限 |
-| [TA/05-observability-and-ops.md](TA/05-observability-and-ops.md) | 監視、バックアップ、構成管理 |
+| [TA/01-deployment-topology.md](RequirementDefinition/TA/01-deployment-topology.md) | 配置境界、ポート割当、境界越え通信 |
+| [TA/02-aws-product-delivery.md](RequirementDefinition/TA/02-aws-product-delivery.md) | Astro の AWS 構成、Cloudflare 代替 |
+| [TA/03-triggers-and-cicd.md](RequirementDefinition/TA/03-triggers-and-cicd.md) | トリガー 4 系統、n8n の Git 管理外問題 |
+| [TA/04-security-and-secrets.md](RequirementDefinition/TA/04-security-and-secrets.md) | 秘匿値、**ngrok の経路分離**、MCP の権限 |
+| [TA/05-observability-and-ops.md](RequirementDefinition/TA/05-observability-and-ops.md) | 監視、バックアップ、構成管理 |
+
+### 詳細設計（`DetailedDesign/`）
+
+上の 4 層が「何を作るか」を決めたのに対し、**連携点 `I-01`〜`I-20` とループ 6 段階を実装着手できる粒度まで下ろした**もの。AA-02 のカタログと AA-04 の制御仕様が入口にあたる。
+
+| ファイル | 内容 |
+|---|---|
+| [DetailedDesign/README.md](DetailedDesign/README.md) | 索引、連携点とファイルの対応、**詳細設計の完成度** |
+| [DetailedDesign/01-flow-specification-rules.md](DetailedDesign/01-flow-specification-rules.md) | **横断規約。** 相関 ID、失敗分類 9 値、リトライ、冪等キー、タイムアウト、`E-13` の状態遷移 |
+| [DetailedDesign/02-public-path-flows.md](DetailedDesign/02-public-path-flows.md) | 公開経路（ブラウザ発信の 4 本） |
+| [DetailedDesign/03-operation-path-flows.md](DetailedDesign/03-operation-path-flows.md) | 運用経路（エージェント発信の 4 本） |
+| [DetailedDesign/04-server-to-server-flows.md](DetailedDesign/04-server-to-server-flows.md) | サーバ間通知の 6 本 |
+| [DetailedDesign/05-build-and-delivery-flows.md](DetailedDesign/05-build-and-delivery-flows.md) | ビルドと配信の 3 本 |
+| [DetailedDesign/06-proposal-loop-flows.md](DetailedDesign/06-proposal-loop-flows.md) | 提案と承認、**起票前チェックリスト 14 項目** |
+| [DetailedDesign/07-failure-and-degradation.md](DetailedDesign/07-failure-and-degradation.md) | 異常系、縮退運転、**暴走条件 10 件と検出手段の対応** |
+
+**実装状態（`実装済み` / `未配線` / `未着手`）の正本はこの 4 層側にあり、詳細設計層では繰り返さない。** 詳細設計層は「仕様が確定しているか」という別の軸（`仕様確定` / `条件付き` / `前提待ち`）で状態を持つ。
 
 ## 層間トレーサビリティ
 
@@ -82,14 +99,14 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | `CAP-08` エッジ配信・可用性 | `R1` | `E-05` | CloudFront（Cloudflare の代替） | AWS | `未着手` |
 | `CAP-09` テクニカル SEO | `R1` | `E-12` | Lighthouse CI + Astro | ローカル | **`実装済み`** |
 | `CAP-10` 行動観測・効果測定 | `R3` | `E-07` `E-08` `E-12` | Umami（母数）+ PostHog（行動） | オンプレ + **ngrok** | `未着手` |
-| `CAP-11` リード獲得・育成 | `R3` | `E-06` `E-09` | Mautic + mautic-mcp | オンプレ + ngrok | `未配線` |
-| `CAP-12` Web 接客 | `R3` | `E-10` | Chatwoot + chatwoot-mcp | オンプレ + ngrok | `未配線` |
-| `CAP-13` 監視・障害対応 | `R1` | `E-12` | PostHog（Error Tracking） | SaaS + healthcheck | `未配線` |
+| `CAP-11` リード獲得・育成 | `R3` | `E-06` `E-09` | Mautic + mautic-mcp + **Amazon SNS**（通知） | オンプレ + ngrok + AWS | `未配線` |
+| `CAP-12` Web 接客 | `R3` | `E-10` | Chatwoot + chatwoot-mcp + **Amazon SNS**（通知） | オンプレ + ngrok + AWS | `未配線` |
+| `CAP-13` 監視・障害対応 | `R1` | `E-12` | PostHog（Error Tracking） + **Amazon SNS**（障害通知） | SaaS + healthcheck + AWS | `未配線` |
 | `CAP-14` 改善提案の生成と承認 | `R2` | `E-13` `E-14` `E-15` | Git / GitHub | GitHub | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | `R1` | **未定義**（下記参照） | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システム個別 | `実装済み`（MCP 側のみ） |
 | `CAP-16` 戦略知見の獲得 | `R2` | `E-01` `E-03`（知見メモは**未定義**） | Claude Code | Git（`docs/knowledge/`） | `未着手` |
 
-ロール（`R1` Web マスター / `R2` SEO ディレクター / `R3` データアナリスト / `R4` コンテンツエディター）の定義は [BA/03](BA/03-roles-and-raci.md)、エンティティ（`E-01`〜`E-15`）の定義は [DA/01](DA/01-conceptual-data-model.md) にある。
+ロール（`R1` Web マスター / `R2` SEO ディレクター / `R3` データアナリスト / `R4` コンテンツエディター）の定義は [BA/03](RequirementDefinition/BA/03-roles-and-raci.md)、エンティティ（`E-01`〜`E-15`）の定義は [DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) にある。
 
 **`R4` は原則エージェントに委任し、承認責任は `R2` が持つ。** RACI の Accountable は全 16 Capability で人間にあり、エージェントには置かない。
 
@@ -106,18 +123,19 @@ EA の記述のうち、実行環境に対して実際に確認した事実を�
 | n8n のワークフロー | リポジトリに 0 件（実体は n8n の DB 内のみ。Git 管理外） |
 | `.claude/agents/` | 存在しない。AA-03 で設計した 12 本はすべて `未着手` |
 | Google Search Console | 認証情報・所有権確認ファイルともに無し |
-| Umami の compose | **他スタックと異なり `0.0.0.0` バインドで、鍵がプレースホルダのまま**（[TA/04](TA/04-security-and-secrets.md) の 3 節） |
-| リポジトリ管理外の MCP | **`strapi-mcp` と Umami MCP が実行環境に設定され、書き込みツールを含めて実際に呼べる。** リポジトリの `ACCESS_LEVEL` と `sanitize()` の保証が及ばない。**2026-09-17 に `R1` が「現状のまま使い続ける」と判断**（[ADR-07](AA/05-application-decisions.md)。リスク受容） |
+| Umami の compose | **他スタックと異なり `0.0.0.0` バインドで、鍵がプレースホルダのまま**（[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 3 節） |
+| リポジトリ管理外の MCP | **`strapi-mcp` と Umami MCP が実行環境に設定され、書き込みツールを含めて実際に呼べる。** リポジトリの `ACCESS_LEVEL` と `sanitize()` の保証が及ばない。**2026-09-17 に `R1` が「現状のまま使い続ける」と判断**（[ADR-07](RequirementDefinition/AA/05-application-decisions.md)。リスク受容） |
 | **AWS アカウント** | `798560359429`（`ComeGin`）、**2026-09-16 作成**。`accountPlanType: PAID`。IAM ユーザー `comegin-iam` が `Developer` グループ経由で、この設計に必要な 17 アクションすべてを `allowed` |
 | **公開ドメイン** | **`comegin.com` を取得済み**（Route 53 登録、有効期限 2027-09-16、ホストゾーン作成済み）。EA 執筆時点では「未取得」としていたが誤りだった |
 | AWS リソース | S3・CloudFront・ACM・WAF・OAC とも **0 件**。`cloud/` が空であることと整合する |
-| **CloudFront の課金方式** | フラットレートプランの **Free（$0/月）**を採用する。CDN・WAF・DDoS 対策・Route 53 DNS・TLS 証明書・S3 クレジットを含み、**超過課金が無い**（[TA/02](TA/02-aws-product-delivery.md) の 8 節） |
+| **Amazon SNS** | **トピック 0 件・サブスクリプション 0 件**（東京リージョン）。`CreateTopic` / `Subscribe` / `Publish` / `SetTopicAttributes` / `ListSubscriptionsByTopic` の権限は**すべて `allowed`**。通知の宛先として採用（[ADR-08](RequirementDefinition/AA/05-application-decisions.md)） |
+| **CloudFront の課金方式** | フラットレートプランの **Free（$0/月）**を採用する。CDN・WAF・DDoS 対策・Route 53 DNS・TLS 証明書・S3 クレジットを含み、**超過課金が無い**（[TA/02](RequirementDefinition/TA/02-aws-product-delivery.md) の 8 節） |
 
 BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` のみ」としているが、**その実測値も 0 である**。
 
 ## 配線ギャップと着手順
 
-詳細は [AA/02](AA/02-integration-architecture.md) の 4 節。
+詳細は [AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 4 節。
 
 | 順 | やること | これが通ると何ができるか |
 |---|---|---|
@@ -130,10 +148,11 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 | 6 | Google Search Console | 平均検索順位が測れる。**SEO という目的に対する測定が初めて成立する** |
 | 7 | webhook → n8n | 観測の日次バッチと通知が自動化できる |
 | 8 | 提案の起票と通知 | ループが 1 周する |
+| 9 | **Amazon SNS の通知**（`I-21`） | **顧客からの要求に気づけるようになる。** BA-04 のトスアップ条件の「通知」が初めて成立する |
 
 ### ループを最初に 1 周させる最短経路
 
-**全部を揃える必要は無い。Lighthouse CI だけで 1 周できる。** Umami・PostHog・Mautic・Chatwoot・GSC・n8n をいずれも必要とせず、**ngrok のトンネルも必要としない**（Lighthouse CI だけが同一ホスト内で完結するため）。手順は [AA/04](AA/04-recursive-improvement-loop.md) の 5.2 にある。
+**全部を揃える必要は無い。Lighthouse CI だけで 1 周できる。** Umami・PostHog・Mautic・Chatwoot・GSC・n8n をいずれも必要とせず、**ngrok のトンネルも必要としない**（Lighthouse CI だけが同一ホスト内で完結するため）。手順は [AA/04](RequirementDefinition/AA/04-recursive-improvement-loop.md) の 5.2 にある。
 
 人間の手作業（コミットと PR レビュー）は**最初の 1 周から含める**。後から人間ゲートを足すと、動いている自動化に人間を割り込ませることになり、外す圧力が生じる。
 
@@ -152,6 +171,7 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 | **Chatwoot の監査ログ** | Enterprise 機能のため使えない場合、「`E-13` を経由しない変更の検出」が成立しない | `R1` |
 | **Google Search Console** | SEO が目的なのに検索順位を測る手段が無い。**ドメイン `comegin.com` は取得済みなので前提は解けた**が、配信に使うホスト名（apex か `www` か）の確定が残る | `R2` |
 | **ngrok の認証方式** | OAuth / Basic 認証 / IP 制限の選択。OAuth を選ぶと IdP が要り、SSO を導入しないという結論と絡む | `R1` |
+| **通知経路の監視をどう閉じるか** | 通知を Amazon SNS に集約した（[ADR-08](RequirementDefinition/AA/05-application-decisions.md)）ことで「監視対象が通知経路を兼ねる」問題は解けたが、**SNS の購読が解除されたことを SNS 自身では知らせられない**。監視の連鎖が閉じていないのはこの 1 点だけ（[TA/05](RequirementDefinition/TA/05-observability-and-ops.md) の 8 節） | `R1` |
 
 ## 書式の規約
 

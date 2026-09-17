@@ -76,12 +76,14 @@ flowchart LR
 | `E-10` | `Conversation` | Chatwoot | なし | — | — | 未配線 |
 | `E-11` | `Experiment` | PostHog | `E-13` の `expectation` に転記 | 正本 → 複製先 | 提案起票時に転記 | 未着手 |
 | `E-12` | `AuditResult` | Lighthouse は `.lighthouse/` の JSON、他は各ツールの API | `E-13` の `evidence[]` に参照として転記 | 正本 → 複製先 | 起票時に `ref` を記録（値そのものは複製しない） | 一部実装済み |
-| `E-13` | `ImprovementProposal` | Git（`docs/proposals/` の Markdown） | 通知として Chatwoot の社内メモ | 正本 → 複製先 | n8n から送信 | 未着手 |
+| `E-13` | `ImprovementProposal` | Git（`docs/proposals/` の Markdown） | **なし**（通知は GitHub の PR の機能に任せ、複製を作らない） | — | — | 未着手 |
 | `E-14` | `ApprovalRecord` | Git / GitHub の PR レビュー | `E-13` の frontmatter に転記 | 正本 → 複製先 | n8n から書き戻す | 未着手 |
 | `E-15` | `AgentRun` | n8n の実行履歴（`execution_entity`） | `E-13` の `agent_run_id` に参照として転記 | 正本 → 複製先 | 起票時に ID を記録 | 未配線 |
 
 - `E-12` を「参照として転記」するのは、観測値そのものを提案にコピーすると元データが更新されたときに矛盾が生じるため。`E-13` には `ref`（再取得できるクエリ）と `summary`（人間が読む要約）だけを置く。
-- `E-13` の通知を Chatwoot の**社内メモ**（`private=true`）に送るのは、`private=false` が顧客に即時送信されるため（誤って顧客に改善提案を送る事故を構造的に防ぐ）。
+- **`E-13` の通知は GitHub の PR の機能に任せ、複製を作らない**（**`R1` の 2026-09-17 の決定**。5 節の未決定事項を解決した）。PR の Reviewer に `R2` を指定すれば、起票・レビュー依頼・マージ・クローズが GitHub の標準通知で届く。`E-14` の正本が PR のレビューであるため、**承認を求める通知も正本と同じ場所から出る**。
+- 当初案の Chatwoot の社内メモは採らない。Chatwoot は顧客対応のツールであり、内部統制の記録を持ち込むと `CAP-12` のレポート（未解決件数・応答時間）と `E-10 Conversation` の正本が汚れる。加えて `agent/conversation-triage` の取得範囲（直近の未解決の会話）が承認待ちの提案で埋まる。
+- **`private` を固定する規則そのものは残る。** `agent/conversation-triage` が顧客対応の中で書く社内メモでは `private` を固定値 `true` とする（`private=false` は顧客に即時送信されるため）。
 
 ## 3. Umami と PostHog の役割分担
 
@@ -125,7 +127,6 @@ DA-02 の 3 節で決めたとおり、指標ごとに正本を 1 つに固定�
 ## 5. 未決定事項
 
 - 観測の日次バッチをどこで走らせるか。n8n のスケジュールトリガーが有力だが、`E-15 AgentRun` の正本を n8n にするかどうか自体が未確定（DA-01 の未決定事項）。
-- `E-13` を Git に置いた場合の通知経路。Chatwoot の社内メモに送る案を挙げたが、Chatwoot は顧客対応のためのツールであり社内通知に使うのが適切かは `R1` の判断待ち。メール（Mautic）や n8n から直接という選択肢もある。
 - 作用の自動適用をどこまで許すか。`change.kind` が `content_rewrite`（Strapi のコンテンツ変更）なら承認後に自動適用できるが、`technical_seo`（コード変更）はビルドとデプロイを伴うため、人間の実行を挟むかどうかが未定。
 - Google Search Console の配線後、`E-12` の日次取得に GSC を含めるかどうか。GSC のデータは 2〜3 日遅れて確定するため、日次の観測に混ぜると「昨日のデータが無い」状態が常態化する。遅延を前提にした別サイクルにする必要があるかもしれない。
 - Umami と PostHog の数字が実際にどれだけ乖離するかは、両方を配線して計測するまで分からない。乖離が大きい場合、役割分担の切り分け方（特に Core Web Vitals を Umami に寄せた判断）を見直す必要がある。

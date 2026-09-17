@@ -22,8 +22,8 @@ TA（Technology Architecture）層。ID は EA 共通用語集の定義をその
 | `article_published` | Event | 同上 | 同上 | PostHog | 公開ごと | `実装済み` |
 | Strapi の例外 | Event | `global::posthog-error`（`backend/strapi-system/src/middlewares/posthog-error.ts`） | `captureException`。`ApplicationError` と 4xx の `HttpError` は送らない | PostHog | 例外ごと | `実装済み` |
 | 記事公開 → 再ビルド | Webhook | Strapi の Webhook 設定 | n8n がビルドとデプロイを起動する | AWS（S3 / CloudFront） | 公開ごと | `未着手` |
-| Mautic のフォーム送信 | Webhook | Mautic | BA-04 のトスアップ処理（セグメント追加・ポイント加算・通知） | Mautic / Chatwoot | CV ごと | `未着手` |
-| Chatwoot の会話イベント | Webhook | Chatwoot | 一次対応と記事化候補の抽出 | n8n / Chatwoot の社内メモ | 会話ごと | `未着手` |
+| Mautic のフォーム送信 | Webhook | Mautic | BA-04 のトスアップ処理（セグメント追加・ポイント加算・通知） | Mautic / **Amazon SNS**（`comegin-lead-alert`） | CV ごと | `未着手` |
+| Chatwoot の会話イベント | Webhook | Chatwoot | 一次対応と記事化候補の抽出、**顧客からの要求の通知** | n8n / Chatwoot の社内メモ / **Amazon SNS**（`comegin-lead-alert`） | 会話ごと | `未着手` |
 | n8n の Webhook 受け口 | Webhook | 外部（ngrok 経由、`N8N_WEBHOOK_URL`） | 対応するワークフローの実行 | 各システム | 随時 | `未配線` |
 | PostHog Scout の検知 | Event | PostHog の Scout・Replay Vision スキャナ | 検知を受け取り `E-13` の候補にする | `docs/proposals/` | Scout の実行に依存（1 日 100 回の予算） | `未配線` |
 | 日次 観測の収集 | スケジュール | n8n の Schedule Trigger | Umami・PostHog・Lighthouse から `E-12` を集める | `E-13` の `evidence[]` | 日次（DA-04 の鮮度要件） | `未着手` |

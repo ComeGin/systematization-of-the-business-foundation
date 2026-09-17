@@ -190,7 +190,7 @@ erDiagram
 | `E-03 ContentPlan` | Strapi（`api::content-plan.content-plan`） | `E-01` と `E-04` の両方に relation を張る中間型であり、3 つを同じ DB に置くのが最も単純（正本が分かれると企画から記事への追跡が API 跨ぎになる）。企画の承認は Strapi の draft / publish にそのまま対応させられる。さらに既存のライフサイクル購読を流用して企画イベントを PostHog に送れる |
 | `E-13 ImprovementProposal` | Git（`docs/proposals/<proposal_id>.md`。承認は PR のレビュー） | 提案の要件は「履歴が残る」「差し戻せる」「取り消せる」の 3 つで、これらは Git / PR が既に持っている。適用対象が Astro のコード・Strapi のコンテンツ・Mautic の設定と多岐にわたり、コード変更を伴う提案では PR がそのまま適用手段になるため、提案と作用が同じ場所に収まる。Strapi に置くと「外部に公開するコンテンツ」の正本に内部統制の記録が混ざり、権限設計が複雑になる（公開 API から統制記録が読めてしまう事故を避ける） |
 
-`E-13` を Git に置く代償として、`R2` が GitHub を直接見に行く必要が生じる。これは n8n から GitHub API で起票し、起票・承認待ち・適用完了の通知を Chatwoot の社内メモ側へ流すことで補う（DA-04 の 3 節を参照）。
+`E-13` を Git に置く代償として、`R2` が GitHub を直接見に行く必要が生じる。これは n8n から GitHub API で起票し、**PR の Reviewer に `R2` を指定して GitHub の標準通知で補う**（`R1` の 2026-09-17 の決定。AA-02 の 3.4）。`E-14 ApprovalRecord` の正本が PR のレビューであるため、**承認を求める通知も正本と同じ場所から出る**ことになる。
 
 ## 6. `E-13 ImprovementProposal` の型定義
 
