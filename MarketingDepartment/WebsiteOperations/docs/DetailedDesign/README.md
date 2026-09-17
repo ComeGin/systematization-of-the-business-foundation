@@ -2,7 +2,7 @@
 
 `RequirementDefinition/` の 4 層（BA / DA / AA / TA）が「何を作るか」を決めたのに対し、この文書群は **「システムとシステムをどう繋ぐか」** を実装着手できる粒度まで下ろしたものである。
 
-出発点は **AA-02 の連携点カタログ（`I-01`〜`I-20`）** と **AA-04 のループ 6 段階**。その 2 つに、実装に必要な次の 7 項目を与えるのがこの層の仕事にあたる。
+出発点は **AA-02 の連携点カタログ（`I-01`〜`I-21`。うち `I-14` は廃止したため実質 20 本）** と **AA-04 のループ 6 段階**。その 2 つに、実装に必要な次の 7 項目を与えるのがこの層の仕事にあたる。
 
 - ペイロードのスキーマ（項目名・型・必須）
 - 冪等キーの具体（何をキーにし、どこに保存し、いつまで保持するか）
@@ -35,14 +35,14 @@
 | [01-flow-specification-rules.md](01-flow-specification-rules.md) | **横断規約。** フロー仕様の書式、相関 ID、失敗分類、リトライ、冪等キー、タイムアウト、`E-13` の状態遷移 |
 | [02-public-path-flows.md](02-public-path-flows.md) | **公開経路。** ブラウザが発信元の 4 本（`I-05` `I-06` `I-07` `I-08`） |
 | [03-operation-path-flows.md](03-operation-path-flows.md) | **運用経路。** エージェントが発信元の 4 本（`I-03` `I-04` `I-16` `I-17`） |
-| [04-server-to-server-flows.md](04-server-to-server-flows.md) | **サーバ間通知。** ブラウザもエージェントも介さない 6 本（`I-01` `I-02` `I-11` `I-12` `I-18` `I-19`） |
+| [04-server-to-server-flows.md](04-server-to-server-flows.md) | **サーバ間通知。** ブラウザもエージェントも介さない 7 本（`I-01` `I-02` `I-11` `I-12` `I-18` `I-19` `I-21`）。**`I-21` は Amazon SNS への通知** |
 | [05-build-and-delivery-flows.md](05-build-and-delivery-flows.md) | **ビルドと配信。** `I-09` `I-10` `I-20` |
-| [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-14` `I-15` と、ループ 6 段階の実行仕様 |
+| [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化） |
 | [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** トンネル断・欠測・二重送信の検出仕様と縮退運転 |
 
 ## 連携点とファイルの対応
 
-AA-02 のカタログ 20 本すべての行き先。**どの連携も必ず 1 つのファイルに属する**（漏れの検査に使う）。
+AA-02 のカタログ 21 本すべての行き先。**どの連携も必ず 1 つのファイルに属する**（漏れの検査に使う）。廃止した `I-14` も、廃止したこと自体を追えるように行を残す。
 
 | # | 連携（AA-02） | ファイル | 詳細設計の完成度 | 確定を止めているもの |
 |---|---|---|---|---|
@@ -59,15 +59,16 @@ AA-02 のカタログ 20 本すべての行き先。**どの連携も必ず 1 �
 | `I-11` | Mautic → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | n8n のワークフロー作成（`承認` 分類・`R1`） |
 | `I-12` | Chatwoot → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | 同上 |
 | `I-13` | n8n → GitHub（起票） | [06](06-proposal-loop-flows.md) | `条件付き` | 同上／GitHub の細粒度トークン発行 |
-| `I-14` | n8n → Chatwoot（社内メモ） | [06](06-proposal-loop-flows.md) | `条件付き` | 同上／通知専用エージェントユーザーの作成 |
+| `I-14` | ~~n8n → Chatwoot（社内メモ）~~ | [06 の 3 節](06-proposal-loop-flows.md) | **`廃止`** | **通知は GitHub の PR に一本化**（`R1` の 2026-09-17 の決定）。Chatwoot は顧客対応の用途に限る |
 | `I-15` | Search Console → 観測エージェント | [06](06-proposal-loop-flows.md) | `条件付き` | 配信ホスト名の確定（apex か `www` か）／所有権確認（**人間の作業**） |
 | `I-16` | エージェント → Strapi（`strapi-mcp`） | [03](03-operation-path-flows.md) | `仕様確定` | —（ADR-07 でリスク受容済み。権限は Strapi 側の API トークンで絞る） |
 | `I-17` | エージェント → Umami（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | —（同上。ただし `I-05` が通るまで空を返す） |
 | `I-18` | Mautic → PostHog（書き戻し） | [04](04-server-to-server-flows.md) | **`前提待ち`** | **越境の可否（DA-03・DA-05 の未決定事項）。決まるまで実装しない** |
 | `I-19` | Chatwoot → Mautic（email 突合） | [04](04-server-to-server-flows.md) | `条件付き` | `I-08` と `I-07` の双方が通り、突合対象が生まれること |
 | `I-20` | Astro `dist/` → 配信先 | [05](05-build-and-delivery-flows.md) | `条件付き` | 配信ホスト名の確定／デプロイの承認（`R1`） |
+| **`I-21`** | **n8n → Amazon SNS →（メール）運用者** | [04 の 8 節](04-server-to-server-flows.md) | `条件付き` | SNS のトピック作成／**購読の確認（受信者の手作業）**／通知専用 IAM ユーザーの発行 |
 
-**`前提待ち` は 2 本だけ**（`I-06` と `I-18`）。どちらも技術的な不明点ではなく、**個人データの扱いに関する上位層の判断待ち**である（同意の取り方と、越境の可否）。残る 18 本は仕様として確定できた。
+**`前提待ち` は 2 本だけ**（`I-06` と `I-18`）。どちらも技術的な不明点ではなく、**個人データの扱いに関する上位層の判断待ち**である（同意の取り方と、越境の可否）。`I-14` は廃止したため、**残る 18 本は仕様として確定できた**。
 
 ## 着手順との対応
 
@@ -83,7 +84,8 @@ AA-02 の 4 節の着手順を、この文書群の節に対応させる。
 | 5 | `I-06` PostHog トラッカー | [02 の 3 節](02-public-path-flows.md)（**`前提待ち`**） |
 | 6 | `I-15` Search Console | [06 の 4 節](06-proposal-loop-flows.md) |
 | 7 | `I-11` `I-12` webhook → n8n | [04 の 3 節・4 節](04-server-to-server-flows.md) |
-| 8 | `I-13` `I-14` 提案の起票と通知 | [06 の 2 節・3 節](06-proposal-loop-flows.md) |
+| 8 | `I-13` 提案の起票（通知は GitHub の PR） | [06 の 2 節・3 節](06-proposal-loop-flows.md) |
+| **9** | **`I-21` 通知（Amazon SNS）** | [04 の 8 節](04-server-to-server-flows.md)（仕様）／[07 の 6 節](07-failure-and-degradation.md)（縮退運転） |
 
 **ループを最初に 1 周させる最短経路**（AA-04 の 5.2）に必要なのは `I-10` と [06 の 5 節](06-proposal-loop-flows.md) だけで、上の表のどの手順にも依存しない。
 

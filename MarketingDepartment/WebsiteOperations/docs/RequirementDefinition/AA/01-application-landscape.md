@@ -130,6 +130,7 @@ C4Container
 
 **As-Is 注記。** 成立しているのは `Claude Code → chatwoot-mcp` と `Claude Code → mautic-mcp` の 2 本だけ。n8n はコンテナと環境変数テンプレートのみでワークフローが 0 件、`docs/proposals/` は未作成、`E-13` を書き込む経路も通知経路も存在しない。`Claude Code → Git` は**ファイルを書くところまでしか成立しない**（リポジトリのルールで状態変更系の git コマンドが禁止されているため。AA-03 の 4 節で詳述する）。
 
+- **Amazon SNS も図に含めていない。** n8n から呼ばれる送信先であり、エージェント層の構成要素ではないため（ランドスケープには載せる。6 節）。
 - 図から意図的に省いたもの: `strapi-mcp` と Umami MCP。どちらも Claude Code の環境側に MCP サーバとして設定されており実際に呼べるが、**このリポジトリが管理しているコードではない**（`backend/` に実体が無い）。ランドスケープには載せる（6 節）が、コンテナ図では自作 2 本と区別できなくなるため外した。
 - `Claude Code` を 1 つのコンテナとして描いているのは、個々のエージェントがコンテナではなく**同一実行基盤上の役割**だから（エージェントの内訳は AA-03 の 1 節）。
 
@@ -154,12 +155,13 @@ C4Container
 | Git / GitHub | `E-13` `E-14` の正本。PR レビューが承認機構 | `CAP-06` `CAP-14` | `E-13` `E-14` | — | SaaS（リモート） | `未着手`（`docs/proposals/` が未作成） |
 | strapi-mcp（リポジトリ管理外） | Strapi のコンテンツ操作を MCP 公開 | `CAP-04` | `E-04` | — | ローカル（環境側の MCP 設定） | `未配線`（呼べるが、この EA の権限設計の管理下に無い） |
 | Umami MCP（リポジトリ管理外） | Umami の集計 API を MCP 公開 | `CAP-10` | `E-07` | — | ローカル（環境側の MCP 設定） | `未配線`（同上。加えて Umami にデータが無い） |
+| **Amazon SNS** | **通知の配信。** 顧客からの要求（`comegin-lead-alert`）と監視・障害（`comegin-ops-alert`）を運用者のメールアドレスへ届ける | `CAP-11` `CAP-12` `CAP-13` | `E-09` `E-10` の**要旨のみ**（DA-05 の 1.3） | — | **AWS（`ap-northeast-1`）** | `未着手`（トピック 0 件・購読 0 件。権限は確認済み） |
 
 ### 一覧表の読み方
 
 - **状態が `実装済み` なのは 5 つだけ**（Strapi・Lighthouse CI・chatwoot-mcp・mautic-mcp・Claude Code）。このうち事業の価値に直接触れているのは Strapi のみで、他の 4 つは道具か土台にあたる。
 - **ポートが重複している行が 1 組ある**（Chatwoot 本体と mautic-mcp の HTTP がともに 3100）。同時に HTTP で起動しない運用でしのぐか、`PORT` を変えるかを決める必要がある。
-- **配置が SaaS の行は 3 つ**（PostHog・Google Search Console・GitHub）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
+- **配置が外部の行は 4 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
 - **`strapi-mcp` と Umami MCP は自作ではない。** `.claude/CLAUDE.md` の命名規則（`<プロダクト>-mcp` はこのリポジトリの自作サーバ）とは別系統であり、バージョン・`ACCESS_LEVEL` 相当の権限・`sanitize()` の有無をこのリポジトリが保証できない。AA-03 のエージェント設計では、この 2 つに**書き込みを任せない**方針を採る（7 節と AA-03 の 2 節）。
 
 ## 7. Capability からアプリケーションへの割り当て
@@ -178,9 +180,9 @@ BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手
 | `CAP-08` エッジ配信・可用性 | 未選定（TA の判断事項） | — | `未着手` |
 | `CAP-09` テクニカル SEO | Lighthouse CI + Astro | Google Search Console | `未配線` |
 | `CAP-10` 行動観測・効果測定 | Umami（母数） + PostHog（行動） | Umami MCP | `未着手` |
-| `CAP-11` リード獲得・育成 | Mautic + mautic-mcp | n8n | `未配線` |
-| `CAP-12` Web 接客 | Chatwoot + chatwoot-mcp | n8n | `未配線` |
-| `CAP-13` 監視・障害対応 | PostHog（Error Tracking） | n8n | `未配線` |
+| `CAP-11` リード獲得・育成 | Mautic + mautic-mcp | n8n + **Amazon SNS**（トスアップの通知） | `未配線` |
+| `CAP-12` Web 接客 | Chatwoot + chatwoot-mcp | n8n + **Amazon SNS**（会話開始の通知） | `未配線` |
+| `CAP-13` 監視・障害対応 | PostHog（Error Tracking） | n8n + **Amazon SNS**（障害通知） | `未配線` |
 | `CAP-14` 改善提案の生成と承認 | Git / GitHub（`E-13` `E-14`） | Claude Code + n8n | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システムの個別アカウント | `実装済み`（MCP 側のみ） |
 | `CAP-16` 戦略知見の獲得 | Claude Code（調査） | Git（知見の記録先が未定） | `未着手` |
