@@ -22,9 +22,9 @@ TA（Technology Architecture）層。ID は EA 共通用語集の定義をその
 | `article_published` | Event | 同上 | 同上 | PostHog | 公開ごと | `実装済み` |
 | Strapi の例外 | Event | `global::posthog-error`（`backend/strapi-system/src/middlewares/posthog-error.ts`） | `captureException`。`ApplicationError` と 4xx の `HttpError` は送らない | PostHog | 例外ごと | `実装済み` |
 | 記事公開 → 再ビルド | Webhook | Strapi の Webhook 設定 | n8n がビルドとデプロイを起動する | AWS（S3 / CloudFront） | 公開ごと | `未着手` |
-| Mautic のフォーム送信 | Webhook | Mautic | BA-04 のトスアップ処理（セグメント追加・ポイント加算・通知） | Mautic / **Amazon SNS**（`comegin-lead-alert`） | CV ごと | `未着手` |
-| Chatwoot の会話イベント | Webhook | Chatwoot | 一次対応と記事化候補の抽出、**顧客からの要求の通知** | n8n / Chatwoot の社内メモ / **Amazon SNS**（`comegin-lead-alert`） | 会話ごと | `未着手` |
-| n8n の Webhook 受け口 | Webhook | 外部（ngrok 経由、`N8N_WEBHOOK_URL`） | 対応するワークフローの実行 | 各システム | 随時 | `未配線` |
+| Mautic のフォーム送信 | Webhook | Mautic（本番は AWS。ADR-12） | BA-04 のトスアップ処理（セグメント追加・ポイント加算・通知） | Mautic / **Amazon SNS**（`comegin-lead-alert`） | CV ごと | `未着手` |
+| Chatwoot の会話イベント | Webhook | Chatwoot（本番は AWS。ADR-12） | 一次対応と記事化候補の抽出、**顧客からの要求の通知** | n8n / Chatwoot の社内メモ / **Amazon SNS**（`comegin-lead-alert`） | 会話ごと | `未着手` |
+| n8n の Webhook 受け口 | Webhook | AWS 上の Mautic・Chatwoot（ngrok 経由、`N8N_WEBHOOK_URL`。TA-01 の経路 5。**ADR-12 の後、公開の経路で ngrok を通るのはこれだけ**） | 対応するワークフローの実行 | 各システム | 随時 | `未配線` |
 | PostHog Scout の検知 | Event | PostHog の Scout・Replay Vision スキャナ | 検知を受け取り `E-13` の候補にする | `docs/proposals/` | Scout の実行に依存（1 日 100 回の予算） | `未配線` |
 | 日次 観測の収集 | スケジュール | n8n の Schedule Trigger | Umami・PostHog・Lighthouse から `E-12` を集める | `E-13` の `evidence[]` | 日次（DA-04 の鮮度要件） | `未着手` |
 | 日次 GSC の実績の取得 | スケジュール | 日次の観測バッチ（`agent/seo-auditor`） | OpenSEO の MCP で GSC の実績を読み、`E-12`（`source: gsc`）にする。**対象期間を 3 日ずらす** | `docs/audits/gsc/` | 日次 | `未着手` |
@@ -42,6 +42,7 @@ TA（Technology Architecture）層。ID は EA 共通用語集の定義をその
 | Lighthouse CI のしきい値判定 | CI-CD | `frontend/verdant-virgo/lighthouserc.cjs` | 4 カテゴリのスコアを判定する（SEO は 1.0） | ビルドの成否 | ビルドごと | `実装済み`（ローカル実行のみ） |
 | PR の作成 → レビュー | CI-CD | GitHub | `E-14` `ApprovalRecord` を記録する | `docs/proposals/` | 提案ごと | `未着手` |
 | `main` へのマージ → デプロイ | CI-CD | GitHub | ビルド → S3 同期 → CloudFront 無効化 | AWS | マージごと | `未着手` |
+| **Mautic・Chatwoot・Umami の本番デプロイ** | CI-CD | **人間（`R1`）** | イメージを ECR に置く → DB の移行を 1 回だけのタスクで実行 → ECS サービスを更新 → 訪問者向けのパスと管理画面の関門を確認（TA-06 の 8 節） | AWS（ECS・RDS） | 製品の更新ごと | `未着手` |
 
 **実装済みは 5 行しかなく、そのすべてが Event 系統か、ローカルのビルド時判定である。**
 Webhook 系統とスケジュール系統には実装済みの行が 1 つも無い。これは n8n のワークフローが 0 件であることと同義である（6 節）。
@@ -127,6 +128,7 @@ BA-05 の承認ゲート一覧に対して、本ファイルのトリガーが�
 | Mautic のメール送信・キャンペーン開始 | `承認` | `R3` | ワークフローから開始しない |
 | `main` へのマージ | `承認` | `R1` | 自動マージを設定しない |
 | 本番環境へのデプロイ | `承認` | `R1` | **マージ後のデプロイは自動でよい**（マージ時点で承認済みのため。承認を 2 度求めない） |
+| **Mautic・Chatwoot・Umami の本番デプロイ**（ECS・DB の移行） | `承認` | `R1` | **運用者が実行する。** エージェントやワークフローに ECS・RDS の変更権限を渡さない（TA-06 の 8 節。BA-05 の `禁止`「エージェントが自分の権限や実行条件を変える操作」に到達させない） |
 | **n8n ワークフローの新規作成・変更** | `承認` | `R1` | 6 節のエクスポート方針で、変更が PR として現れるようにする |
 | OpenSEO の調査（1 回 2,000 クレジット以下） | `自律` | — | 週次のキーワード調査で自動化してよい。費用の上限は DataForSEO の前払い残高（AA-05 の ADR-10） |
 | **ランク追跡のスケジュールの設定** | `承認` | `R2` | **n8n のワークフローと同じ性質を持つ**（一度設定すると承認なしに実行と課金が続く）。エージェントのツール許可リストから外してある（AA-03 の 2.4） |
@@ -204,7 +206,8 @@ BA-05 の承認ゲート一覧に対して、本ファイルのトリガーが�
 ## 7. 未決定事項
 
 - **Strapi から n8n への Webhook の到達手段が未定。** 両方ともローカルホストにあるため、`localhost` で直接繋ぐか、Docker ネットワークを跨ぐか、ngrok を経由するかで設定が変わる（Strapi はホストのプロセス、n8n はコンテナ内であり、コンテナから見たホストの `1337` への到達方法を決める必要がある）。
-- **ビルドの実行場所が未定。** ローカルの開発機で走らせるか、CI（GitHub Actions）で走らせるかが決まっていない。前者なら開発機が落ちている間は公開が止まり、後者なら 5 節の実装に明示指示が要る。この判断は TA-01 の未決定事項（オンプレが単一の開発機であることの可用性上の扱い）と同じ根を持つ。
+- **ビルドの実行場所が未定。** ローカルの開発機で走らせるか、CI（GitHub Actions）で走らせるかが決まっていない。前者なら開発機が落ちている間は公開が止まり、後者なら 5 節の実装に明示指示が要る。この判断は TA-01 の未決定事項（オンプレが単一の開発機であることの可用性上の扱い）と同じ根を持つ。なお Strapi がオンプレにある限り、CI で走らせても記事の取得（`I-09`）のために CI から Strapi へ到達する経路が要る点は変わらない。
+- **AWS 上の Mautic・Chatwoot から n8n への Webhook は、ngrok のトンネル断で取りこぼされうる。** ADR-12 で Mautic・Chatwoot は AWS に移ったが、受け口の n8n はオンプレに残ったため、この 2 種類の Webhook だけが ngrok を通る。製品側に再送の仕組みがあるか、失敗がどこに記録されるかは確認していない（TA-05 の 4 節の監視と合わせて決める）。
 - **`E-13` の起票を誰が行うかが未定。** n8n から GitHub API を叩く前提で書いているが、GitHub の認証情報を n8n に持たせることの是非（`sandbox-runner-1` との分離を保ったまま渡せるか）を TA-04 の 4 節と合わせて検討していない。
 - **ワークフローのエクスポートで除去すべきフィールドの具体が未確定。** 「実行のたびに変わるフィールド」の実際の一覧は、ワークフローを 1 件作って 2 回エクスポートし差分を見ないと確定できない。ワークフローが 0 件の現時点では検証できない。
 - **同時実行の抑止をどこで行うかが未定。** ビルドの重複実行を防ぐ必要があるが、n8n 側の設定で行うか、デプロイスクリプト側のロックで行うかを決めていない。

@@ -76,7 +76,9 @@ C4Container
     UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
-**As-Is 注記。** Mautic と Chatwoot は本体・DB とも起動できるが、**訪問者からの 2 本の線は成立していない**（Mautic のフォームが未作成、Chatwoot のウィジェットがサイトに未設置）。`Chatwoot → Mautic` の email 突合も未着手で、両者を繋ぐ経路は現時点で存在しない。MailHog（8025）は Mautic の送信メールを開発環境で受けるためのもので、本番の配信経路ではない。
+**As-Is 注記。** Mautic と Chatwoot は本体・DB とも起動できるが、**訪問者からの 2 本の線は成立していない**（Mautic のフォームが未作成、Chatwoot のウィジェットがサイトに未設置）。`Chatwoot → Mautic` の email 突合も未着手で、両者を繋ぐ経路は現時点で存在しない。MailHog（8025）は Mautic の送信メールを開発環境で受けるためのもので、本番の配信経路ではない。**本番の顧客向けメールは Amazon SES から送る**（ADR-12、TA-06 の 6 節。`未着手`）。
+
+- **図の技術表記（`PHP / 8000`・`Docker`・`PostgreSQL 5432`）は開発環境のものである。** 本番では Mautic・Chatwoot は AWS の ECS on Fargate で動き、DB は RDS for MySQL / RDS for PostgreSQL、Chatwoot の Redis は ElastiCache、添付ファイルは S3、Mautic の `media/` は EFS に置く（ADR-12、TA-06）。物理構成は TA の担当であり、この図では描き分けない。
 
 - Chatwoot のホスト側ポート 3100 は **`mautic-mcp` の HTTP 既定値と衝突する**（`.claude/CLAUDE.md` のポート表）。両方を HTTP で動かす構成を採るなら、`mautic-mcp` 側の `PORT` を変える（AA-05 の未決定事項に記録）。
 - `E-06 CTA` は表示定義（Strapi のコンポーネント）と受付定義（Mautic のフォーム）に分割保持される（DA-01 の 4 節）。図では受付定義側だけを Mautic に置いている。
@@ -110,8 +112,8 @@ C4Container
 - **OpenSEO を観測基盤の境界の内側に、DataForSEO と Search Console を外側（`Container_Ext`）に置いたのは配置の違いを表すため**である。OpenSEO はセルフホストでオンプレに留まり、外に出るのは DataForSEO への問い合わせと GSC からの取得だけになる。
 
 - **個人に関わるデータが越境するのは PostHog（米国リージョン）だけ**である（DA-05 の 1.2）。DataForSEO も SaaS だが、送るのはキーワードとドメインだけで個人情報を含まない（DA-05 の 1.2.1）。この図で PostHog を `Container_Ext` にしているのは、配置の違いを図の上でも区別するため。
-- **`ブラウザ → Umami` は ngrok の常設トンネルを通る**（`R1` の決定。AA-02 の 1.3）。オンプレのスタックが `127.0.0.1` バインドであるため、クラウドに置かれた公開サイトのブラウザからは直接到達できない。**`ブラウザ → PostHog` だけは SaaS のため直接到達する**ので、トンネルの死活に影響されない。同じ理由で Chatwoot のウィジェット（3 節）と Mautic のフォーム受付（同）もトンネル経由になる。
-- Umami の `docker-compose.yml` は上流のままでループバック限定になっていない（`.claude/CLAUDE.md`）。公開範囲の制御は TA の担当。
+- **本番の `ブラウザ → Umami` は AWS の ALB を通る**（`R1` の 2026-09-18 の決定。ADR-12、AA-02 の 1.3）。当初は Umami をオンプレに置き ngrok の常設トンネルで到達させる設計だったが、訪問者のブラウザから届く必要があるシステムは AWS に置くことにした。**`ブラウザ → PostHog` だけは SaaS のため直接到達する**ので、AWS 側の障害に影響されない。Chatwoot のウィジェット（3 節）と Mautic のフォーム受付（同）も同じく ALB 経由になる。
+- Umami の `docker-compose.yml` は上流のままでループバック限定になっていない（`.claude/CLAUDE.md`）。**これは開発環境の問題として残る**（本番の Umami は private サブネットに置き、ALB だけがインターネットに面する。TA-06 の 5.6）。公開範囲の制御は TA の担当。
 
 ## 5. C4 Lv2 コンテナ図（エージェント系）
 
@@ -147,11 +149,11 @@ C4Container
 | アプリケーション | 役割 | 担う Capability | 扱うエンティティ | ポート | 配置 | 状態 |
 |---|---|---|---|---|---|---|
 | Strapi（`backend/strapi-system`） | `E-01` `E-03` `E-04` の正本。記事・企画・キーワードの管理画面と API | `CAP-02` `CAP-03` `CAP-04` `CAP-07` | `E-01` `E-02` `E-03` `E-04` `E-06`（表示定義） | 1337 | オンプレ | `実装済み`（`api::article.article` のみ。`keyword` / `content-plan` は未作成） |
-| Astro（`frontend/verdant-virgo`） | `E-05` の生成。公開サイトの実体 | `CAP-05` `CAP-07` `CAP-08` `CAP-09` | `E-05` `E-06`（埋め込み） | 4321 | オンプレ（配信先は未定） | `未配線`（スキャフォールドのみ。記事描画ページが無い） |
+| Astro（`frontend/verdant-virgo`） | `E-05` の生成。公開サイトの実体 | `CAP-05` `CAP-07` `CAP-08` `CAP-09` | `E-05` `E-06`（埋め込み） | 4321 | ビルドはオンプレ／配信は **AWS（S3 + CloudFront。TA-02）** | `未配線`（スキャフォールドのみ。記事描画ページが無い） |
 | Lighthouse CI（`frontend/verdant-virgo/lighthouserc.cjs`） | 合成パフォーマンス監査。SEO 1.0 / 他 0.9 のしきい値ゲート | `CAP-06` `CAP-09` | `E-12` | 4322（preview） | オンプレ | `実装済み`（`pnpm lh` で実行可能。蓄積の仕組みは無い） |
-| Mautic（`backend/mautic-system`） | `E-09` の正本。フォーム・セグメント・スコアリング・メール | `CAP-11` | `E-06`（受付定義） `E-09` | 8000 / 8025 | オンプレ | `未配線`（本体は動く。フォーム・セグメント・キャンペーンが未作成） |
-| Chatwoot（`backend/chatwoot-system`） | `E-10` の正本。Web 接客と問い合わせ対応 | `CAP-12` | `E-10` | 3100 / 5432 | オンプレ | `未配線`（本体は動く。ウィジェットがサイトに無い） |
-| Umami（`middleware/umami-master`） | `E-07` の正本。流入・母数系 KPI の測定元 | `CAP-10` | `E-07` | 3000 | オンプレ | `未配線`（起動できるがセッション 0 件） |
+| Mautic（`backend/mautic-system`） | `E-09` の正本。フォーム・セグメント・スコアリング・メール | `CAP-11` | `E-06`（受付定義） `E-09` | 8000 / 8025（開発） | 開発: オンプレ／**本番: AWS**（ECS on Fargate ＋ RDS for MySQL ＋ EFS。ADR-12、TA-06） | `未配線`（開発環境で本体は動く。フォーム・セグメント・キャンペーンが未作成。**AWS 側は `未着手`**） |
+| Chatwoot（`backend/chatwoot-system`） | `E-10` の正本。Web 接客と問い合わせ対応 | `CAP-12` | `E-10` | 3100 / 5432（開発） | 開発: オンプレ／**本番: AWS**（ECS on Fargate ＋ RDS for PostgreSQL ＋ ElastiCache ＋ S3。ADR-12、TA-06） | `未配線`（開発環境で本体は動く。ウィジェットがサイトに無い。**AWS 側は `未着手`**） |
+| Umami（`middleware/umami-master`） | `E-07` の正本。流入・母数系 KPI の測定元 | `CAP-10` | `E-07` | 3000（開発） | 開発: オンプレ／**本番: AWS**（ECS on Fargate ＋ RDS for PostgreSQL。Chatwoot と 1 インスタンスを共有。ADR-12、TA-06） | `未配線`（開発環境で起動できるがセッション 0 件。**AWS 側は `未着手`**） |
 | PostHog | `E-08` `E-11` の正本。行動・実験系 KPI とエラー追跡 | `CAP-10` `CAP-13` | `E-08` `E-11` `E-12` | — | **SaaS（米国）** | `未配線`（Strapi からのサーバ側イベントのみ到達） |
 | Google Search Console | 検索順位・表示回数・URL 検査の測定元。**OpenSEO 経由で取得する**（ADR-06） | `CAP-02` `CAP-09` | `E-12`（`source: gsc`） | — | SaaS（Google） | `未着手`（ドメインプロパティ未登録・OAuth クライアント未発行） |
 | **OpenSEO**（`middleware/open-seo-main`。上流の取り込み） | **競合・検索市場調査と GSC の取得口。** キーワード調査・SERP・順位計測・競合・被リンク・サイト監査（ADR-09） | `CAP-02` `CAP-09` `CAP-16` | `E-01`（候補の作業場。正本ではない） `E-12`（`source: gsc` / `serp` / `site_audit` / `market`） | **3001**（`127.0.0.1`） | オンプレ（Docker。`local_noauth`） | `未配線`（稼働中・DataForSEO 設定済み。GSC 未接続。プロジェクトが米国市場の `Default` のみ） |
@@ -165,12 +167,15 @@ C4Container
 | Umami MCP（リポジトリ管理外） | Umami の集計 API を MCP 公開 | `CAP-10` | `E-07` | — | ローカル（環境側の MCP 設定） | `未配線`（同上。加えて Umami にデータが無い） |
 | **OpenSEO の MCP**（リポジトリ管理外） | OpenSEO の機能を MCP 公開（Streamable HTTP の `/mcp`）。**費用を発生させるツールを含む** | `CAP-02` `CAP-09` `CAP-16` | `E-01`（候補） `E-12` | 3001（`/mcp`） | ローカル | `未配線`（Claude Code の MCP 設定は 2026-09-18 にローカルへ付け替え済み。接続するエージェントが未定義。ADR-10） |
 | **Amazon SNS** | **通知の配信。** 顧客からの要求（`comegin-lead-alert`）と監視・障害（`comegin-ops-alert`）を運用者のメールアドレスへ届ける | `CAP-11` `CAP-12` `CAP-13` | `E-09` `E-10` の**要旨のみ**（DA-05 の 1.3） | — | **AWS（`ap-northeast-1`）** | `未着手`（トピック 0 件・購読 0 件。権限は確認済み） |
+| **admin-auth**（`backend/admin-auth` を想定。**自作**） | **本番の Mautic・Chatwoot・Umami の管理画面の手前の関門。** Better Auth を OIDC の IdP として動かし、ALB の OIDC 認証から参照される。ログインは Google Workspace、認可は管理者の許可リスト（ADR-13、TA-06 の 5.2.1） | `CAP-15` | —（管理者の許可リストとログインの記録。E-ID は無い） | 3103（開発） | **AWS**（ECS on Fargate ＋ RDS for PostgreSQL の共有インスタンス。`auth.comegin.com`） | `未着手`（コード未作成） |
+| **Amazon SES** | **顧客向けメールの送信。** Mautic の配信・フォームの自動返信、Chatwoot のメール（ADR-12。社内向けの通知は SNS のまま） | `CAP-11` `CAP-12` | `E-09` `E-10`（宛先と本文） | — | **AWS（`ap-northeast-1`）** | `未着手`（**サンドボックスのまま**。本番アクセスの申請が必要。TA-06 の 6 節） |
 
 ### 一覧表の読み方
 
+- **`admin-auth` は ADR-13 で増えた自作のアプリケーション**であり、`.claude/CLAUDE.md` の「自作コードと vendor 取り込みの区別」の表に加える対象になる（コード作成時）。**管理画面への通信は `admin-auth` を通らない**（ログインのときだけ関わる）ため、E-ID を運ぶ連携を持たず、AA-02 の連携点カタログにも載せない。
 - **状態が `実装済み` なのは 6 つだけ**（Strapi・Lighthouse CI・chatwoot-mcp・mautic-mcp・Claude Code・DataForSEO）。このうち事業の価値に直接触れているのは Strapi のみで、他の 5 つは道具か土台にあたる。DataForSEO は OpenSEO からの問い合わせが成立しているだけで、OpenSEO 自体はまだどのエージェントにも繋がっていない（`未配線`）。
 - **ポートが重複している行が 1 組ある**（Chatwoot 本体と mautic-mcp の HTTP がともに 3100）。同時に HTTP で起動しない運用でしのぐか、`PORT` を変えるかを決める必要がある。
-- **配置が外部の行は 5 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**・**DataForSEO**）。**DataForSEO は 2026-09-18 に増えた外部依存**であり、TA-01 の 8 節の基準（自前で持てないデータの取得元に限る）で認めた（ADR-09）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
+- **配置が外部の行は 5 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**・**DataForSEO**）。**DataForSEO は 2026-09-18 に増えた外部依存**であり、TA-01 の 8 節の基準（自前で持てないデータの取得元に限る）で認めた（ADR-09）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。**Amazon SES と、ADR-12 で AWS に移した Mautic・Chatwoot・Umami も同じく AWS の中にあり、ベンダーを増やしていない**（いずれも `ap-northeast-1` で越境しない）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
 - **`strapi-mcp` と Umami MCP と OpenSEO の MCP は自作ではない。** OpenSEO の MCP には**費用**という別の軸があり、扱いを ADR-10 に分けた。 `.claude/CLAUDE.md` の命名規則（`<プロダクト>-mcp` はこのリポジトリの自作サーバ）とは別系統であり、バージョン・`ACCESS_LEVEL` 相当の権限・`sanitize()` の有無をこのリポジトリが保証できない。AA-03 のエージェント設計では、この 2 つに**書き込みを任せない**方針を採る（7 節と AA-03 の 2 節）。
 
 ## 7. Capability からアプリケーションへの割り当て
@@ -193,7 +198,7 @@ BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手
 | `CAP-12` Web 接客 | Chatwoot + chatwoot-mcp | n8n + **Amazon SNS**（会話開始の通知） | `未配線` |
 | `CAP-13` 監視・障害対応 | PostHog（Error Tracking） | n8n + **Amazon SNS**（障害通知） | `未配線` |
 | `CAP-14` 改善提案の生成と承認 | Git / GitHub（`E-13` `E-14`） | Claude Code + n8n | `未着手` |
-| `CAP-15` ガバナンス・アクセス管理 | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システムの個別アカウント | `実装済み`（MCP 側のみ） |
+| `CAP-15` ガバナンス・アクセス管理 | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システムの個別アカウント、**`admin-auth`**（本番の管理画面の関門。ADR-13） | `実装済み`（MCP 側のみ。`admin-auth` は `未着手`） |
 | `CAP-16` 戦略知見の獲得 | Claude Code（調査） + **OpenSEO**（競合・SERP・被リンク） | Git（知見の記録先が未定） | `未配線` |
 
 **`CAP-08` だけが担うアプリケーションを持たない。** 他の 15 はいずれも手段が決まっており（未配線・未着手であっても割り当て先は定まっている）、`CAP-08` のみホスティング先が未選定のまま残っている。これは BA-02 で TA に引き渡した項目であり、AA では決めない。

@@ -38,7 +38,7 @@
 | [04-server-to-server-flows.md](04-server-to-server-flows.md) | **サーバ間通知。** ブラウザもエージェントも介さない 9 本（`I-01` `I-02` `I-11` `I-12` `I-18` `I-19` `I-21` `I-23` `I-24`）。**`I-21` は Amazon SNS への通知、`I-23` は DataForSEO（費用が発生する）** |
 | [05-build-and-delivery-flows.md](05-build-and-delivery-flows.md) | **ビルドと配信。** `I-09` `I-10` `I-20` |
 | [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化）。**`I-15` は OpenSEO 経由に変更** |
-| [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** トンネル断・欠測・二重送信の検出仕様と縮退運転 |
+| [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** 公開経路の断（本番は ALB とその後ろ）・Webhook 用のトンネル断・欠測・二重送信の検出仕様と縮退運転 |
 
 ## 連携点とファイルの対応
 
@@ -50,13 +50,13 @@ AA-02 のカタログ 24 本すべての行き先。**どの連携も必ず 1 �
 | `I-02` | Strapi → PostHog（例外） | [04](04-server-to-server-flows.md) | `仕様確定` | — |
 | `I-03` | エージェント → Chatwoot（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | — |
 | `I-04` | エージェント → Mautic（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | — |
-| `I-05` | ブラウザ → Umami | [02](02-public-path-flows.md) | `条件付き` | Umami のサイト登録（`websiteId` の取得）／ngrok の常設 |
+| `I-05` | ブラウザ → Umami | [02](02-public-path-flows.md) | `条件付き` | Umami のサイト登録（`websiteId` の取得）／本番の AWS の Umami と ALB（ADR-12。TA-06） |
 | `I-06` | ブラウザ → PostHog | [02](02-public-path-flows.md) | **`前提待ち`** | **同意取得の実装手段（DA-03 の未決定事項）** |
-| `I-07` | ブラウザ → Chatwoot ウィジェット | [02](02-public-path-flows.md) | `条件付き` | Web サイト受信箱の作成（`website_token` の取得）／ngrok の常設 |
-| `I-08` | ブラウザ → Mautic フォーム | [02](02-public-path-flows.md) | `条件付き` | Mautic のフォーム作成／ngrok の常設 |
+| `I-07` | ブラウザ → Chatwoot ウィジェット | [02](02-public-path-flows.md) | `条件付き` | Web サイト受信箱の作成（`website_token` の取得）／本番の AWS の Chatwoot と ALB |
+| `I-08` | ブラウザ → Mautic フォーム | [02](02-public-path-flows.md) | `条件付き` | Mautic のフォーム作成／本番の AWS の Mautic と ALB |
 | `I-09` | Strapi → Astro（ビルド） | [05](05-build-and-delivery-flows.md) | `条件付き` | Strapi に公開記事が 1 件以上あること／`SITE_URL` の設定 |
 | `I-10` | Astro → Lighthouse CI | [05](05-build-and-delivery-flows.md) | `仕様確定` | — |
-| `I-11` | Mautic → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | n8n のワークフロー作成（`承認` 分類・`R1`） |
+| `I-11` | Mautic → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | n8n のワークフロー作成（`承認` 分類・`R1`）／**本番では ngrok の常設トンネル（固定ドメイン）**（AWS の Mautic からオンプレの n8n へ届くため。ADR-12） |
 | `I-12` | Chatwoot → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | 同上 |
 | `I-13` | n8n → GitHub（起票） | [06](06-proposal-loop-flows.md) | `条件付き` | 同上／GitHub の細粒度トークン発行 |
 | `I-14` | ~~n8n → Chatwoot（社内メモ）~~ | [06 の 3 節](06-proposal-loop-flows.md) | **`廃止`** | **通知は GitHub の PR に一本化**（`R1` の 2026-09-17 の決定）。Chatwoot は顧客対応の用途に限る |
@@ -79,7 +79,7 @@ AA-02 の 4 節の着手順を、この文書群の節に対応させる。
 
 | 順 | やること | 読む節 |
 |---|---|---|
-| **0** | ngrok の常設トンネル | [02 の 1 節](02-public-path-flows.md)（経路の定義）／[07 の 2 節](07-failure-and-degradation.md)（死活監視） |
+| **0** | AWS の Umami・Chatwoot・Mautic と ALB（TA-06。2026-09-18 に ngrok の常設トンネルから置き換えた。ADR-12） | [02 の 1 節](02-public-path-flows.md)（経路の定義）／[07 の 2 節](07-failure-and-degradation.md)（死活監視） |
 | 1 | `I-05` Umami トラッカー | [02 の 2 節](02-public-path-flows.md) |
 | 2 | `I-09` Astro ← Strapi | [05 の 1 節](05-build-and-delivery-flows.md) |
 | 3 | `I-10` Lighthouse CI の蓄積 | [05 の 2 節](05-build-and-delivery-flows.md) |
@@ -125,5 +125,5 @@ AA には無く、実装着手には不可欠だったもの。すべて [01-flo
 | **PostHog への越境の可否** | `I-18` を設計できない（キーの形すら決められない。email のハッシュも個人データとして越境する） | `R1` | DA-03・DA-05 |
 | **`E-15 AgentRun` の正本** | 相関 ID を暫定で ULID にしたが、正本が決まれば移行が要る（[01 の 3.4](01-flow-specification-rules.md)） | `R1` | DA-01・AA-03・AA-04 |
 | **配信ホスト名（apex か `www` か）** | `I-20` の実行と、`SITE_URL` を含む 4 変数の値が決まらない（`I-15` は 2026-09-18 にドメインプロパティで登録すると決め、依存が外れた） | `R2` | `docs/README.md` の横断的未決定事項 |
-| **ngrok の公開経路をドメインで分けるかパスで分けるか** | `I-05` `I-07` `I-08` のエンドポイント URL の形が決まらない（設計は変数のまま書いた） | `R1` | AA-02 の 5 節 |
+| **Umami MCP（`I-17`）の接続設定の付け替え** | 接続先は 2026-09-18 に決定済み（自前の Umami の `/mcp` に閲覧専用ユーザーの API キーで接続。Umami Cloud は使わない）。**付け替えるまで、エージェントは訪問者のデータを読めない**（現在の設定は Umami Cloud を向き、サイトは 0 件）。取り込み済みの `middleware/umami-master` は 2026-09-18 に v3.4.0 へ取り込み直した（API キーと `/mcp` を持つ） | `R1` | AA-02 の 5 節・TA-06 の 5.4 |
 | **`R2` の代理承認** | `E-13` の `review` 状態の滞留上限を決められない | `R1` | BA-05 |

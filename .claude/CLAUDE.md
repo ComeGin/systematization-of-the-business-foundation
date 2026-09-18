@@ -17,7 +17,7 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 
 | 種別 | ディレクトリ | 扱い |
 |---|---|---|
-| 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/umami-master`（Umami 1,677 ファイル）、`middleware/open-seo-main`（OpenSEO 1,399 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
+| 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/umami-master`（Umami v3.4.0、2,026 ファイル）、`middleware/open-seo-main`（OpenSEO 1,399 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
 | 自作（MCP サーバ） | `backend/chatwoot-mcp`、`backend/mautic-mcp` | このリポジトリの主要な自作コード |
 | 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n` | 公式イメージを動かすための compose と環境変数のテンプレートだけ |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |

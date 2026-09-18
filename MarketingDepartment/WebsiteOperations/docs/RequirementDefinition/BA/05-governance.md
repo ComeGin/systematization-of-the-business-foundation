@@ -22,6 +22,7 @@ BA（Business Architecture）層。ロール ID・Capability ID は EA 共通用
 | **OpenSEO**（セルフホスト） | **認証なし**（`AUTH_MODE=local_noauth`。単一のローカル管理者 `admin@localhost` として扱われる）。UI と MCP の両方が無認証 | **無し。** 到達できるプロセスはすべて管理者 | `実装済み`（`127.0.0.1:3001` にバインド。**ループバックに閉じていることが唯一の防御**。AA-05 の ADR-09） |
 | DataForSEO | アカウント（メール＋パスワード）。API は Base64 の資格情報（`DATAFORSEO_API_KEY`） | アカウント単位。**前払い残高が支出の上限** | `実装済み`（OpenSEO に設定済み） |
 | Google Cloud（GSC 用の OAuth クライアント） | Google アカウント。OAuth クライアント ID とシークレット | プロジェクトの IAM ／ GSC のプロパティ権限 | `未着手`（クライアント未発行） |
+| **`admin-auth`**（本番の Mautic・Chatwoot・Umami の管理画面の手前の関門。自作。Better Auth） | **Google Workspace の OIDC**（`hd` クレームが `comegin.com` であることを検査）。2 段階認証は Workspace で必須にする | **管理者の許可リスト**（email）。Workspace の在籍（認証）と、管理画面に入ってよいこと（認可）を分ける | `未着手`（AA-05 の ADR-13。TA-06 の 5.2.1） |
 
 ### To-Be の方針
 
@@ -38,6 +39,7 @@ BA（Business Architecture）層。ロール ID・Capability ID は EA 共通用
 
 - [ ] 割り当てるロール（`R1`〜`R4` のいずれか）を決め、RACI（03）に照らして必要な Capability を洗い出している
 - [ ] 各システムのアカウントを作成し、**そのロールに必要な最小の権限のみ**を付与している
+- [ ] 本番の Mautic・Chatwoot・Umami の管理画面を使う場合、**`comegin.com` の Google Workspace アカウントを発行し、2 段階認証を登録させている**（Workspace の組織で 2 段階認証を必須にしておく）。そのうえで **`admin-auth` の管理者の許可リストに email を追加している**（`R1` が行う。Workspace のアカウントを持つだけでは管理画面に入れない。`admin-auth` は製品の手前の関門であり、各製品のアカウントとは別に要る。TA-04 の 6 節・TA-06 の 5.2.1・AA-05 の ADR-13）
 - [ ] Strapi のロールが Super Admin になっていない（`R4` 相当なら Author、`R2` 相当なら Editor）
 - [ ] Chatwoot のロールが、レポート閲覧を必要としない場合はエージェントになっている（管理者にしない）
 - [ ] 認証情報を本人以外が保持していない（初期パスワードは初回ログイン時に変更させる）
@@ -49,6 +51,7 @@ BA（Business Architecture）層。ロール ID・Capability ID は EA 共通用
 ### 離任時
 
 - [ ] 各システムのアカウントを**無効化**している（削除ではなく無効化。削除すると操作履歴の帰属が失われるため）
+- [ ] **`admin-auth` の管理者の許可リストから email を削除し、Google Workspace のアカウントを停止している**（どちらか一方でも新しいログインは止まるが、両方を行う。削除・停止しても、ALB の既存のセッションがすぐには切れない可能性がある〈最長で ALB のセッションの期限の 12 時間。実地では未確認〉。確実に止めるため、各製品のアカウントの無効化を先に済ませる）
 - [ ] その人が発行した API トークンをすべて失効させている（Chatwoot の `api_access_token` は**ユーザーに紐づく**ため、アカウント無効化だけでは不十分な場合がある）
 - [ ] Mautic の API クライアント（OAuth2）が離任者に紐づいていた場合、別のユーザーで再発行している
 - [ ] GitHub のコラボレータから外している

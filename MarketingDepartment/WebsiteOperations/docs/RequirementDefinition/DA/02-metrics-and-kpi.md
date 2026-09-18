@@ -128,7 +128,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 
 | 観測対象 | 経路 | 粒度 | 期間 | 1 回あたりの上限 | 状態 |
 |---|---|---|---|---|---|
-| セッション・流入 | Umami MCP（`get_website_stats` / `get_website_traffic` / `get_website_metrics`） | 日次、URL 別 / 参照元別 | 直近 35 日（前月比較が取れる最小） | ランキング系は上位 100 件 | 未配線 |
+| セッション・流入 | Umami MCP（`get_website_stats` / `get_website_traffic` / `get_website_metrics`）。**本番の自前の Umami の `/mcp` に API キーで接続する**（TA-06 の 5.4。現在の設定は Umami Cloud を向いており付け替えが要る） | 日次、URL 別 / 参照元別 | 直近 35 日（前月比較が取れる最小） | ランキング系は上位 100 件 | 未配線 |
 | フォーム送信 | `mautic_list_form_submissions`（`formId` 指定） | 送信 1 件単位 | 判定対象期間のみ | ページングで取得。0 件時は `[]` が返る（null ではない点に注意） | 未配線 |
 | コンタクト | `mautic_list_contacts` / `mautic_get_contact` | コンタクト 1 件単位 | 新規は `dateAdded` で絞る | 一覧の 1 ページ分ずつ | 未配線 |
 | 会話・応答品質 | `chatwoot_get_report_summary` / `chatwoot_get_report_timeseries` | 期間集計・日次時系列 | 前期間との比較付きで取得 | レポート API は 1 回で完結 | 未配線 |
