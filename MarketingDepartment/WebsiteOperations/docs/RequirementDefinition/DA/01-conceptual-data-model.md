@@ -22,7 +22,7 @@ erDiagram
     Keyword {
         string keyword_id PK "E-01"
         string phrase "検索語句"
-        int monthly_volume "推定検索ボリューム"
+        int monthly_volume "推定検索ボリューム。OpenSEO 経由の DataForSEO"
         string status "候補 / 採用 / 見送り"
     }
     SearchIntent {
@@ -121,7 +121,7 @@ erDiagram
     }
     AuditResult {
         string audit_id PK "E-12"
-        string source "lighthouse / gsc / posthog / umami / mautic / chatwoot"
+        string source "lighthouse gsc serp site_audit market ほか"
         string target_ref "対象の E-ID と識別子"
         json metrics "計測値"
         datetime measured_at "計測日時"
@@ -161,13 +161,23 @@ erDiagram
 | `E-09` | `Contact` | `email` / `points` / `dnc_status` / カスタムフィールド | Mautic | MySQL（`backend/mautic-system`） | 未配線 |
 | `E-10` | `Conversation` | `display_id` / `status` / `inbox_id` / ラベル | Chatwoot | PostgreSQL（`backend/chatwoot-system`） | 未配線 |
 | `E-11` | `Experiment` | `experiment_key` / `variant` / `primary_metric` | PostHog | クラウド | 未着手 |
-| `E-12` | `AuditResult` | `source` / `target_ref` / `metrics` / `measured_at` | Lighthouse CI（`frontend/verdant-virgo/.lighthouse/`）／Google Search Console | JSON ファイル／API | Lighthouse は実装済み、GSC は未着手 |
+| `E-12` | `AuditResult` | `source` / `target_ref` / `metrics` / `measured_at` | Lighthouse CI（`frontend/verdant-virgo/.lighthouse/`）／**OpenSEO**（GSC の実績・順位計測・サイト監査・市場データ）／各ツールの API | JSON ファイル／API | Lighthouse は実装済み、OpenSEO 経由の 4 種は未配線 |
 | `E-13` | `ImprovementProposal` | 後述の 12 項目 | Git（`docs/proposals/` の Markdown。PR で承認） | Markdown + YAML frontmatter | 未着手 |
 | `E-14` | `ApprovalRecord` | `approver` / `decision` / `decided_at` / `comment` | `E-13` に従属（PR のレビュー承認） | Git / GitHub | 未着手 |
 | `E-15` | `AgentRun` | `agent_name` / `trigger` / `started_at` / `outcome` | n8n の実行履歴（`middleware/n8n`） | PostgreSQL（`execution_entity`） | 未配線 |
 
 - `E-04` の `documentId` は Strapi 5 系の識別子であり、`id` とは別物（ロケール違い・下書き / 公開の版をまたいで同じ値を持つ）。名寄せのキーには `documentId` を使う。
 - `E-06` を分割保持にするのは、CTA の見た目（`R1` が編集）と受け皿のフォーム定義（`R3` が編集）で更新者もツールも異なるため。両者は `mautic_form_id` で結合し、この対応表自体は Strapi 側のコンポーネントに持たせる（片方向の参照にして循環を避ける）。
+- **`E-12` の `source` は 9 値とする**（2026-09-18 に 3 値を追加）。`lighthouse` / `gsc` / `posthog` / `umami` / `mautic` / `chatwoot` に、OpenSEO の追加で `serp` / `site_audit` / `market` を足し、GSC を OpenSEO 経由に変えた。**`source` はデータの出所を表し、取得経路を表さない**（GSC を OpenSEO 経由で取っても `source: gsc` のまま。経路は `ref` に書く）。
+
+| `source` | 出所 | 取得経路 | 中身 |
+|---|---|---|---|
+| `gsc` | Google Search Console | OpenSEO の MCP | ページ・クエリ単位の表示回数・クリック・CTR・平均掲載順位、URL 検査の結果 |
+| `serp` | DataForSEO（Google の検索結果） | OpenSEO のランク追跡 | 対象キーワードの計測時点の順位 |
+| `site_audit` | OpenSEO のクローラ（自サイト） | OpenSEO の MCP | リンク切れ・タイトル重複・canonical の問題などの件数 |
+| `market` | DataForSEO | OpenSEO の MCP | 検索ボリューム・競合ドメインの順位キーワード・被リンク数 |
+
+- **OpenSEO の中のデータは正本にしない。** 保存済みキーワードは `E-01` の候補の作業場、プロジェクトコンテキストは OpenSEO の作業用の記憶であり、いずれも複製先にも正本にも数えない（AA-05 の ADR-09）。`E-12` として取り込んだ時点の値と `ref`（再取得できる問い合わせ）だけを残す。
 - `E-12` の `source` に `posthog` / `umami` / `mautic` / `chatwoot` を含めるのは、監査結果を「Lighthouse の結果」に限定せず、あらゆる観測の共通の入れ物にするため（`E-13` の根拠参照先を 1 種類の型に統一できる）。
 
 ## 5. 正本が未定だったエンティティの決定
@@ -303,7 +313,7 @@ flowchart LR
 
 ## 7. 未決定事項
 
-- `E-01 Keyword` の検索順位・表示回数の時系列をどこに持つか。Google Search Console が未着手（`others` に認証情報キーもサイト所有権確認ファイルも無い）のため、取得手段が確定するまで属性として定義できない。GSC の配線後に `E-12 AuditResult`（`source: gsc`）として持つか、`E-01` の従属エンティティにするかを決める。
+- **（2026-09-18 に一部解決）`E-01 Keyword` の検索順位・表示回数の時系列をどこに持つか。** 取得手段は OpenSEO に決まった（AA-05 の ADR-06）。**時系列は `E-01` の属性にせず、`E-12`（`source: gsc` / `serp`）として持つ**（観測は `E-12` に集める、という 4 節の方針と揃う）。残るのは `E-12` の `target_ref` にキーワードをどう書くか（`E-01` の `keyword_id` を使うか、検索語句そのものを使うか）で、`api::keyword.keyword` の実装時に決める。
 - `E-11 Experiment` の割付単位を `E-07 Session` にするか `E-08 Person` にするか。PostHog の feature flag は `distinct_id` 単位で割り付けるが、ブラウザ側トラッカーが 1 つも設置されていない現状（`frontend/verdant-virgo/src/layouts/Layout.astro` に該当スクリプトが無い）では `distinct_id` の発生源自体が無く、実データで検証できない。DA-03 の ID 統合を実装した後に決める。
 - `E-15 AgentRun` の正本を n8n の実行履歴にするかどうか。n8n を経由しないエージェント実行（開発者が手元で走らせる MCP 経由の操作）が記録されないため、正本として不完全。統一的な実行ログの置き場所は TA の監視設計と併せて決める必要がある。
 - `E-03 ContentPlan` の承認状態を Strapi の draft / publish で表すか、独立した `plan_state` フィールドで表すか。draft / publish は 2 値しかなく「差し戻し」を表現できないため、`plan_state` を別に持つ案が有力だが、二重管理になる懸念がある。Strapi のコンテンツタイプを実装する際に確定させる。

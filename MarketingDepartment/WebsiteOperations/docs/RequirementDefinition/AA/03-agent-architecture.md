@@ -16,13 +16,13 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 | エージェント | 担う Capability | 責務 | 入力（E-ID / 手段） | 出力（E-ID） |
 |---|---|---|---|---|
-| `agent/keyword-researcher` | `CAP-02` | キーワード候補の抽出と検索意図の 3 分類（潜在 / 準顕在 / 顕在・指名）の割り当て | `E-12`（`source: gsc`）／ 既存の `E-01` / Web 調査 | `E-01`（候補。`status: 候補`） |
-| `agent/knowledge-scout` | `CAP-16` | SEO・BtoB マーケティングの外部知見の調査と要約。採否は `R2` が決める | Web 調査 / `E-12` | 調査メモ（`docs/knowledge/` の Markdown） |
+| `agent/keyword-researcher` | `CAP-02` | キーワード候補の抽出と検索意図の 3 分類（潜在 / 準顕在 / 顕在・指名）の割り当て。**検索ボリュームと SERP を根拠に付ける** | **OpenSEO**（キーワード調査・キーワード指標・SERP・GSC の実績）／ 既存の `E-01` | `E-01`（候補。`status: 候補`。`monthly_volume` を埋める） |
+| `agent/knowledge-scout` | `CAP-16` | SEO・BtoB マーケティングの外部知見の調査と要約。**競合ドメインの把握**。採否は `R2` が決める | Web 調査 / **OpenSEO**（SERP 上の競合・ドメイン概要・順位キーワード・被リンク概要）／ `E-12` | 調査メモ（`docs/knowledge/` の Markdown）／ `E-12`（`source: market`） |
 | `agent/content-planner` | `CAP-03` | 採用済み `E-01` から構成案を作る | `E-01`（`status: 採用`）／ `E-12` | `E-03`（`plan_state: 起案`） |
 | `agent/content-writer` | `CAP-04` | 承認済み企画から記事の初稿を書く。**取材が必要な一次情報は扱わない**（`R4` が素材を用意する） | `E-03`（`plan_state: 承認済`） | `E-04`（`publishedAt` を設定しない下書き） |
 | `agent/quality-checker` | `CAP-06` | 機械チェック（BA-04 の 3a）。リンク切れ・表記ゆれ・構造化データ・Lighthouse のしきい値 | `E-04`（下書き）／ `E-12`（`source: lighthouse`） | 指摘一覧（`E-12` として `docs/audits/quality/` に記録） |
 | `agent/design-implementer` | `CAP-05` | shadcn/ui と Tailwind のトークンに沿った UI コンポーネントの実装。**デザインの正本はコード側**（BA-02 の内製化方針） | `E-03` `E-06`（表示定義）／ `components.json` | 作業ツリー上のコード差分（コミットはしない） |
-| `agent/seo-auditor` | `CAP-09` | Lighthouse CI の結果と GSC の順位データを `E-12` に正規化し、劣化を検出する | `.lighthouse/` の JSON ／ GSC API | `E-12`（`source: lighthouse` / `gsc`） |
+| `agent/seo-auditor` | `CAP-09` | Lighthouse CI の結果と、**OpenSEO 経由の GSC の実績・URL 検査・順位計測・サイト監査の結果**を `E-12` に正規化し、劣化を検出する | `.lighthouse/` の JSON ／ **OpenSEO の MCP（参照のみ）** | `E-12`（`source: lighthouse` / `gsc` / `serp` / `site_audit`） |
 | `agent/analytics-reporter` | `CAP-10` | 流入・CVR・ファネルの定期集計。**集計値のみを扱い、個々のコンタクト・会話は読まない** | `E-07`（Umami）／ `E-08` `E-11`（PostHog）／ Mautic のフォーム送信集計 | `E-12`（`source: umami` / `posthog` / `mautic`） |
 | `agent/lead-ops` | `CAP-11` | BA-04 のトスアップ条件に沿った `E-09` のセグメント追加・スコア加算 | `E-06` `E-09` | 更新された `E-09` |
 | `agent/conversation-triage` | `CAP-12` | 未対応・未割り当ての会話の一次切り分けと**社内メモ**の作成。記事化候補の抽出 | `E-10` | 社内メモ（`private=true`）／ `E-12`（`source: chatwoot`） |
@@ -46,13 +46,13 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 | エージェント | 接続する MCP | `CHATWOOT_ACCESS_LEVEL` | `MAUTIC_ACCESS_LEVEL` | Strapi 側の権限 | 承認が必要な操作 |
 |---|---|---|---|---|---|
-| `agent/keyword-researcher` | strapi-mcp | **接続しない** | **接続しない** | `E-01` の作成・更新（`api::keyword.keyword`） | `E-01` の `status` を `採用` にする（`R2`） |
-| `agent/knowledge-scout` | なし | **接続しない** | **接続しない** | なし | 知見の採用（`R2`） |
+| `agent/keyword-researcher` | strapi-mcp ／ **OpenSEO**（2.4） | **接続しない** | **接続しない** | `E-01` の作成・更新（`api::keyword.keyword`） | `E-01` の `status` を `採用` にする（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
+| `agent/knowledge-scout` | **OpenSEO**（2.4） | **接続しない** | **接続しない** | なし | 知見の採用（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
 | `agent/content-planner` | strapi-mcp | **接続しない** | **接続しない** | `E-03` の作成・更新 | 企画の採否決定（`R2`。BA-04 のステップ 1） |
 | `agent/content-writer` | strapi-mcp | **接続しない** | **接続しない** | `E-04` の**下書きのみ**（`publishedAt` を設定する権限を与えない） | 記事の公開・公開済み記事の更新・削除（`R2`） |
 | `agent/quality-checker` | なし（ファイル読み取りのみ） | **接続しない** | **接続しない** | `E-04` の参照のみ | なし（`自律`） |
 | `agent/design-implementer` | なし | **接続しない** | **接続しない** | なし | main へのマージ（`R1`）・デプロイ（`R1`） |
-| `agent/seo-auditor` | なし（`.lighthouse/` の読み取りと GSC API） | **接続しない** | **接続しない** | なし | なし（`自律`） |
+| `agent/seo-auditor` | **OpenSEO（費用の発生しない参照系のみ。2.4）**と `.lighthouse/` の読み取り | **接続しない** | **接続しない** | なし | なし（`自律`） |
 | `agent/analytics-reporter` | Umami MCP / mautic-mcp / PostHog | **接続しない** | `read_only` | なし | なし（`自律`） |
 | `agent/lead-ops` | mautic-mcp | **接続しない** | **`read_write`** | なし | メール送信・キャンペーン開始（`R3`）／レコード削除（`R1`） |
 | `agent/conversation-triage` | chatwoot-mcp | **`read_write`** | `read_only` | なし | 顧客への返信（`private=false`。`R3`）／レコード削除（`R1`） |
@@ -62,8 +62,9 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 ### 2.2 この表の読み方
 
 - **TA-04 の対応表（BA-05 の分類 → `ACCESS_LEVEL`）より一段厳しくしている。** TA-04 は「観測・分析・提案生成を行うエージェントは `read_only` で起動する」としているが、AA ではさらに進めて、**個人情報に触れる必要が無いエージェントには MCP サーバ自体を接続しない**。TA が土台として保証する不変条件（`ACCESS_LEVEL` は登録しないことで実装する／`禁止` 分類はどの `ACCESS_LEVEL` でも到達しない）に依存したうえで、その上に接続の有無というもう 1 段の境界を置く形になる。
-- **「接続しない」は `read_only` より強い。** `ACCESS_LEVEL` を `read_only` にすると参照系のツールは登録される。個人情報を扱う必要のないエージェント（12 本中 8 本）は、そもそも MCP サーバを接続しないことで `E-09` `E-10` に到達できなくする。これが DA の「個人情報の保護は `ACCESS_LEVEL` と取得範囲で行う」に対する AA の回答にあたる。
+- **「接続しない」は `read_only` より強い。** `ACCESS_LEVEL` を `read_only` にすると参照系のツールは登録される。個人情報を扱う必要のないエージェント（12 本中 8 本）は、そもそも Chatwoot と Mautic の MCP サーバを接続しないことで `E-09` `E-10` に到達できなくする（OpenSEO の MCP を接続するエージェントはあるが、OpenSEO は個人情報を持たない。DA-05 の 1.1）。これが DA の「個人情報の保護は `ACCESS_LEVEL` と取得範囲で行う」に対する AA の回答にあたる。
 - **書き込み権限を持つエージェントは 2 本だけ**（`agent/lead-ops` の Mautic と `agent/conversation-triage` の Chatwoot）。加えて Strapi 側の書き込みが 3 本（`keyword-researcher` / `content-planner` / `content-writer`）。**残る 7 本は完全な読み取り専用**である。
+- **ただし「読み取り専用」と「費用を発生させない」は別である。** `agent/knowledge-scout` は何も書き換えないが、OpenSEO の調査で**取り消せない支出**を生む（ADR-10）。費用を発生させうるエージェントは `keyword-researcher` と `knowledge-scout` の 2 本に限り、`seo-auditor` には費用の発生しないツールだけを許可する。
 - **`agent/conversation-triage` だけが会話本文に到達できる。** DA-05 が「`sanitize()` は個人情報を伏せない」と明記している以上、会話本文が読めるエージェントを 1 本に絞ることが唯一の制御になる。このエージェントの出力（社内メモ・`E-12`）に会話本文をそのまま転記しないことを、取得範囲の制約として明記する（3.4）。
 - **`agent/analytics-reporter` の Mautic は `read_only` かつレポート系に限定する。** `mautic_list_form_submissions` と `mautic_query_stats` は使うが、`mautic_get_contact` / `mautic_get_contact_activity`（個票とタイムライン）は使わない。**`ACCESS_LEVEL` では区別できない**（どちらも参照系として登録される）ため、これはエージェントの指示側で固定する制約になる。この差は権限の制御としては弱いので、6 節の未決定事項に記録する。
 
@@ -80,13 +81,45 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 - Mautic は OAuth2 client_credentials でユーザーが紐づかないため、**権限は Mautic 側のロールで決まる**。`agent/analytics-reporter` 用に参照専用ロールの API 認証情報を、`agent/lead-ops` 用にコンタクト更新権限を持つ API 認証情報を、**別々に発行する**（同じ認証情報を共有すると `MAUTIC_ACCESS_LEVEL` を下げても上流側の権限が残る）。
 - 秘密値は環境変数ファイルの実体で管理し、リポジトリには追跡させない。`PreToolUse` フック（`~/.claude/hooks/protect-secrets.sh`）がエージェントからの読み書きをハード拒否する（`.claude/rules/bash-commands.md`）。**エージェントが自分の認証情報を読めないことが、BA-05 の `禁止` 分類（秘密値の閲覧）の実装にあたる。**
 
+### 2.4 OpenSEO の接続とツールの許可リスト
+
+OpenSEO の MCP は `ACCESS_LEVEL` を持たず、Streamable HTTP の 1 プロセスを全エージェントが共有する（ADR-10）。したがって 2.3 の「プロセスを分けて `ACCESS_LEVEL` を変える」方法が使えない。**代わりに、エージェント定義（`.claude/agents/<name>.md`）の `tools` に、使ってよいツールを許可リストで列挙する。**
+
+ツール名は Claude Code 上では `mcp__openseo__<ツール名>` の形になる。下表はツール名だけを書く。
+
+| エージェント | 許可するツール | 費用 |
+|---|---|---|
+| 3 本に共通 | `whoami` / `list_projects` / `get_project_context` | 発生しない |
+| `agent/seo-auditor` | `get_search_console_performance` / `inspect_urls` / `get_rank_tracker` / `get_audit_status` / `get_audit_issues` / `get_audit_pages` | **発生しない**（GSC は自分の Google アカウントのデータであり計量されない。他は保存済みの結果を読むだけ） |
+| `agent/keyword-researcher` | `research_keywords` / `get_keyword_metrics` / `get_domain_keyword_suggestions` / `get_serp_results` / `search_serp_locations` / `get_search_console_performance` / `list_saved_keywords` / `save_keywords` | **発生する**（キーワード調査は 1 シードあたり約 30〜100 クレジット、SERP は 1 キーワードあたり約 5） |
+| `agent/knowledge-scout` | `find_serp_competitors` / `get_domain_overview` / `get_ranked_keywords` / `get_backlinks_overview` / `get_serp_results` / `list_saved_keywords` | **発生する**（ドメイン概要は約 100〜300 クレジット、被リンク概要は約 50） |
+
+**どのエージェントにも許可しないツール**と、その理由。
+
+| ツール | 理由 |
+|---|---|
+| `create_rank_tracker` / `add_rank_tracking_keywords` / `run_rank_tracker` / `estimate_rank_tracker_cost` | **継続課金を生む、または実行のたびに課金する。** ランク追跡の設定は `承認`（`R2`。BA-05）であり、人間が OpenSEO の画面で行う |
+| `remove_rank_tracking_keywords` | 追跡対象を減らす。順位の履歴の扱いを確認していないため、人間の操作に限る |
+| `run_site_audit` | **引数で任意の URL を監査できる**。自サイト以外の監査は `禁止`（BA-05）だが、許可リストでは引数を縛れない。実行は人間（`R1`）が行う |
+| `get_backlinks_profile` | ページ送りで 1 ページごとに課金される（約 30 クレジット）。ページ送りの回数をエージェントが決めると支出が読めない |
+| `create_project` / `update_project_context` | OpenSEO のプロジェクトとその記憶は `R1` が設定する（`seo-project-setup` スキルは人間が使う。7 節） |
+| `save_report` / `save_report_template` / `get_report` / `list_reports` / `list_report_templates` | レポートの正本は `E-12` と `E-13` であり、OpenSEO の中に 2 つ目のレポート置き場を作らない |
+| `get_google_analytics_*`（9 本）／ `get_search_opportunities` | **GA4 は採用しない**（DA-02 の 2 節・ADR-09）。OAuth も接続しない。`get_search_opportunities` は名前に GA4 が現れないが、**Search Console と GA4 の結合を前提にしたツール**である |
+| ローカル SEO 系（`get_local_*` / `search_local_businesses` / `get_business_*` / `get_google_business_questions` / `list_business_categories`） | 使わない機能（ADR-09） |
+
+- **この許可リストは ADR-03 の「登録しない」をクライアント側に持ち上げたもの**である。サーバ側で登録しない方式より弱い（エージェント定義を書き換えれば外れる）が、**エージェント定義を Git の管理下に置けば、書き換えても正本にならない**（5.3）。
+- **許可リストに無いツールを呼ぶよう指示するスキルがあっても、許可リストが優先する**（7.1「スキルは知識であって権限ではない」）。たとえば `seo-audit` スキルは監査の実行を前提にしているが、`agent/seo-auditor` は結果の参照までしかできない。
+- **1 回の見積もりが 2,000 クレジットを超える調査は、実行前に `R2` の承認を求める**（BA-05）。ツールの引数で上限を指定できるのはランク追跡の実行だけであり、他の調査系では**エージェントの指示に書く約束**にとどまる。最後の歯止めは DataForSEO の前払い残高である（ADR-10）。
+
 ## 3. 取得範囲の制約（データ契約のエージェント側）
 
 DA-02 の 5 節が定義したデータ契約を、エージェント別に割り当てる。**契約を固定しないと、実行のたびに取得範囲が変わって `E-13` の `evidence` が比較不能になる。**
 
 | エージェント | 取得範囲 | 上限 | 根拠 |
 |---|---|---|---|
-| `agent/seo-auditor` | `.lighthouse/` の最新ビルド結果 ／ GSC は 3 日前までの確定データ | ファイル読み取りのみ | GSC のデータは 2〜3 日遅れて確定する（AA-02 の 3.5） |
+| `agent/seo-auditor` | `.lighthouse/` の最新ビルド結果 ／ GSC は**直近 35 日のうち 3 日前までの確定データ**（OpenSEO の `get_search_console_performance`。ページ単位） | GSC は 1 回 1,000 行まで（OpenSEO の上限）。`hasMore` が真なら `startRow` で続きを取る | GSC のデータは 2〜3 日遅れて確定する（AA-02 の 3.5） |
+| `agent/keyword-researcher` | 1 回の実行で**シード 10 個まで**。市場は日本（日本語）に固定する | 見積もり 2,000 クレジットまで。超えるなら `R2` の承認 | 月次予算 10 USD（ADR-10）を週次の実行で割った値 |
+| `agent/knowledge-scout` | 1 回の実行で**競合ドメイン 5 件まで** | 同上 | 同上 |
 | `agent/analytics-reporter` | Umami は直近 35 日・ランキングは上位 100 件 ／ Mautic はフォーム送信の集計のみ | `truncation_message` を見たら期間を狭めて取り直す | 前月比較が取れる最小期間（DA-02 の 5.1） |
 | `agent/conversation-triage` | **直近の未解決の会話に限定。最大 4 ページ**（会話 25 件／ページのサーバ固定） | 4 ページ | 件数ではなくページ数で上限を書く（Chatwoot のページ件数がサーバ固定のため） |
 | `agent/lead-ops` | トスアップ対象の `E-09` のみ（`dateAdded` で絞る） | 一覧の 1 ページ分ずつ | 定期的に全件を舐めない（固定ページ件数のためリクエストが件数に比例する） |
@@ -162,13 +195,13 @@ flowchart LR
 
 | エージェント | 書き込み先 | 状態 |
 |---|---|---|
-| `agent/seo-auditor` | `docs/audits/lighthouse/` `docs/audits/gsc/` | `未着手`（ディレクトリが未作成） |
+| `agent/seo-auditor` | `docs/audits/lighthouse/` `docs/audits/gsc/` `docs/audits/serp/` `docs/audits/site_audit/` | `未着手`（ディレクトリが未作成） |
 | `agent/analytics-reporter` | `docs/audits/analytics/` | `未着手` |
 | `agent/conversation-triage` | `docs/audits/conversations/` ／ Chatwoot の社内メモ | `未着手` |
 | `agent/quality-checker` | `docs/audits/quality/` | `未着手` |
 | `agent/ops-watcher` | `docs/audits/ops/` | `未着手` |
 | `agent/proposal-writer` | `docs/proposals/` | `未着手` |
-| `agent/knowledge-scout` | `docs/knowledge/` | `未着手` |
+| `agent/knowledge-scout` | `docs/knowledge/` `docs/audits/market/` | `未着手` |
 | `agent/design-implementer` | `frontend/verdant-virgo/src/`（作業ツリー） | `未着手` |
 | `agent/content-writer` | Strapi の `E-04`（`documentId` 単位） | `未配線` |
 
@@ -240,11 +273,12 @@ BA-03 は 16 Capability すべてで `A` を人間のロールに置き、エー
 
 ## 7. 既存の知識資産の使い方
 
-リポジトリには 2 系統のスキルがある。**エージェント定義（`.claude/agents/`）もコマンド（`.claude/commands/`）も存在しない**ため、現時点でエージェントに与えられている知識はこのスキル群だけである。
+リポジトリには 3 系統のスキルがある。**エージェント定義（`.claude/agents/`）もコマンド（`.claude/commands/`）も存在しない**ため、現時点でエージェントに与えられている知識はこのスキル群だけである。
 
 | 資産 | 所在 | どのエージェントが使うか | 使い方 |
 |---|---|---|---|
 | n8n 公式スキル 14 本 | リポジトリルートの `.claude/skills/` | `agent/proposal-writer`（起票の搬送ワークフローを設計するとき）／ ワークフローを実装する人間 | **`using-n8n-skills-official` がメタスキル**。まずこれを読み、そこからの振り分けに従う（`middleware/n8n/AGENTS.md` の指示）。個別スキルを直接読みに行かない |
+| **OpenSEO スキル 10 本** | リポジトリルートの `.claude/skills/`（`every-app/open-seo` から取り込み。`skills-lock.json`） | 下の 7.3 | **許可リスト（2.4）の範囲でしか動かない。** 許可されていないツールを呼ぶ手順は、その手順で止まる |
 | PostHog スキル 4 本 | `backend/.claude/skills/`（Replay Vision 系 3 本）と `backend/strapi-system/.claude/skills/`（`integration-javascript_node`） | `agent/ops-watcher` `agent/analytics-reporter` | Replay Vision のスキャナは**セッションリプレイが記録されていることが前提**で、現状は記録対象が無い。`integration-javascript_node` はブラウザ側 SDK を入れる際（AA-02 の I-06）に参照する |
 
 ### 7.1 スキルとエージェントの関係
@@ -262,6 +296,29 @@ PostHog 側では Self-driving（Scout 2 本、Replay Vision スキャナ 2 本�
 - **PostHog の Self-driving が生成する知見は `E-12` として取り込まれていない。** 取り込むなら `agent/ops-watcher` の入力に加えることになるが、PostHog 側の出力形式が `E-12` の型と揃っていない。
 - **実行予算（1 日 100 回）は本 EA の管理下に無い。** AA-04 の安全装置（1 サイクルあたりの変更上限）は `docs/proposals/` 側でしか効かず、PostHog 側の自動化には及ばない。
 
+### 7.3 OpenSEO スキルの割り当て
+
+| スキル | 使う主体 | 扱い |
+|---|---|---|
+| `keyword-research` | `agent/keyword-researcher` | 使う。**タグ付けと保存は OpenSEO の中の作業場まで**で、採用は Strapi の `E-01`（`R2` の承認） |
+| `keyword-clustering` | `agent/keyword-researcher` | 使う。クラスタを既存ページ・予定ページに対応させた結果は、`agent/content-planner` の入力（`E-03` の起案）として `E-01` に残す |
+| `competitor-analysis` / `competitive-landscape` | `agent/knowledge-scout` | 使う。出力は `docs/knowledge/` と `E-12`（`source: market`） |
+| `seo-audit` | `agent/seo-auditor` | **参照に限る。** 監査の実行（`run_site_audit`）は許可しない。1 ページのレポートという出力形式は採らず、`E-12` に正規化する |
+| `link-prospecting` | **使わない** | 連絡先の探索と**アウトリーチ文面の作成**を含む。外部への送信は `承認` 分類（BA-05）であり、被リンク獲得の施策そのものが未決定 |
+| `seo-project-setup` | **人間（`R1`）** | OpenSEO のプロジェクト設定と GSC の接続を行う。**プロジェクトの記憶を書き換える**ため、エージェントには使わせない |
+| `seo-coach` | 人間 | OpenSEO の使い方の案内。エージェントの編成には含めない |
+| `local-seo` | **使わない** | ローカル SEO は対象外（ADR-09） |
+| `simple-issue-description` | **使わない** | OpenSEO 上流への Issue 作成用であり、本基盤の業務ではない |
+
+### 7.4 OpenSEO の中の自動実行との関係
+
+OpenSEO には本 EA の外で動く自動実行が 2 つある。**どちらも 7.2 の PostHog の Self-driving と同じく、本ループの安全装置が及ばない。**
+
+| 自動実行 | 扱い |
+|---|---|
+| **ランク追跡のスケジュール**（日次・週次・月次） | **設定を `承認`（`R2`）にする**（BA-05）。設定の実体は OpenSEO の DB にあり Git の外にある（TA-05 の 6 節）。一度設定すると課金が自動で続く |
+| **SAM**（アプリ内の SEO エージェント。OpenRouter を使う） | **有効化しない**（`OPENROUTER_API_KEY` を設定しない。ADR-09）。有効化すると、承認ゲートも費用の上限も知らない 2 つ目のエージェントが同じデータに書き込めるようになる |
+
 ## 8. 未決定事項
 
 - **`CAP-16` の知見に対応する `E-ID` が用語集に無い。** `agent/knowledge-scout` の出力を `docs/knowledge/` の Markdown としたが、これは正本としての定義を持たない。`E-12 AuditResult` の `source` に `research` を足すか、新しいエンティティを立てるかは用語集の更新が必要（勝手に増やさない）。
@@ -270,3 +327,5 @@ PostHog 側では Self-driving（Scout 2 本、Replay Vision スキャナ 2 本�
 - **`E-15 AgentRun` の記録手段。** 本編成では大半のエージェントが Claude Code から直接走るため、n8n の実行履歴を正本にしても記録されない。DA-01 と AA-02 の未決定事項と同じ問題で、TA の監視設計を待つ。
 - **`R2` への承認の一点集中。** 12 本のエージェントのうち 6 本の出力が `R2` の承認を待つ（`E-01` の採用、企画の採否、記事の公開、提案の採用）。BA-05 が未決定として残した「`R2` が不在のときの代理承認」が決まらない限り、**エージェントを増やすほど `R2` の待ち行列が伸びる**。エージェントの本数はこの待ち行列の長さで制限される（BA-03 の「`R2` が承認できる量を超える生成は行わない」の定量化が必要）。
 - **`.claude/agents/` にエージェント定義を置くかどうか。** リポジトリに存在しないため、置けばエージェントの定義が Git の管理下に入り、5.3 の「エージェントは自分の実行条件を書き換えられない」がエージェント定義にも及ぶ。一方で `.claude/` 配下の構成変更は `R1` の判断事項であり、AA では決めない。
+- **OpenSEO の許可リストはクライアント側の設定である**（2.4）。ADR-03 の「サーバ側で登録しない」と違い、エージェント定義を書き換えれば外れる。`.claude/agents/` を Git の管理下に置くかどうか（上の項目）が決まらないと、この許可リストの強さも決まらない。
+- **`CAP-16` の知見のうち、定量的なもの（競合の順位・検索ボリューム・被リンク数）は `E-12`（`source: market`）に置けるようになった**（DA-01 の 4 節）。定性的な知見メモ（`docs/knowledge/`）に対応する `E-ID` が無いことは変わらない。

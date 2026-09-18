@@ -2,7 +2,7 @@
 
 `RequirementDefinition/` の 4 層（BA / DA / AA / TA）が「何を作るか」を決めたのに対し、この文書群は **「システムとシステムをどう繋ぐか」** を実装着手できる粒度まで下ろしたものである。
 
-出発点は **AA-02 の連携点カタログ（`I-01`〜`I-21`。うち `I-14` は廃止したため実質 20 本）** と **AA-04 のループ 6 段階**。その 2 つに、実装に必要な次の 7 項目を与えるのがこの層の仕事にあたる。
+出発点は **AA-02 の連携点カタログ（`I-01`〜`I-24`。うち `I-14` は廃止したため実質 23 本。`I-22`〜`I-24` は 2026-09-18 に OpenSEO の採用で追加）** と **AA-04 のループ 6 段階**。その 2 つに、実装に必要な次の 7 項目を与えるのがこの層の仕事にあたる。
 
 - ペイロードのスキーマ（項目名・型・必須）
 - 冪等キーの具体（何をキーにし、どこに保存し、いつまで保持するか）
@@ -34,15 +34,15 @@
 |---|---|
 | [01-flow-specification-rules.md](01-flow-specification-rules.md) | **横断規約。** フロー仕様の書式、相関 ID、失敗分類、リトライ、冪等キー、タイムアウト、`E-13` の状態遷移 |
 | [02-public-path-flows.md](02-public-path-flows.md) | **公開経路。** ブラウザが発信元の 4 本（`I-05` `I-06` `I-07` `I-08`） |
-| [03-operation-path-flows.md](03-operation-path-flows.md) | **運用経路。** エージェントが発信元の 4 本（`I-03` `I-04` `I-16` `I-17`） |
-| [04-server-to-server-flows.md](04-server-to-server-flows.md) | **サーバ間通知。** ブラウザもエージェントも介さない 7 本（`I-01` `I-02` `I-11` `I-12` `I-18` `I-19` `I-21`）。**`I-21` は Amazon SNS への通知** |
+| [03-operation-path-flows.md](03-operation-path-flows.md) | **運用経路。** エージェントが発信元の 5 本（`I-03` `I-04` `I-16` `I-17` `I-22`）。**`I-22` は OpenSEO の MCP**（ホスト内で閉じる） |
+| [04-server-to-server-flows.md](04-server-to-server-flows.md) | **サーバ間通知。** ブラウザもエージェントも介さない 9 本（`I-01` `I-02` `I-11` `I-12` `I-18` `I-19` `I-21` `I-23` `I-24`）。**`I-21` は Amazon SNS への通知、`I-23` は DataForSEO（費用が発生する）** |
 | [05-build-and-delivery-flows.md](05-build-and-delivery-flows.md) | **ビルドと配信。** `I-09` `I-10` `I-20` |
-| [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化） |
+| [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化）。**`I-15` は OpenSEO 経由に変更** |
 | [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** トンネル断・欠測・二重送信の検出仕様と縮退運転 |
 
 ## 連携点とファイルの対応
 
-AA-02 のカタログ 21 本すべての行き先。**どの連携も必ず 1 つのファイルに属する**（漏れの検査に使う）。廃止した `I-14` も、廃止したこと自体を追えるように行を残す。
+AA-02 のカタログ 24 本すべての行き先。**どの連携も必ず 1 つのファイルに属する**（漏れの検査に使う）。廃止した `I-14` も、廃止したこと自体を追えるように行を残す。
 
 | # | 連携（AA-02） | ファイル | 詳細設計の完成度 | 確定を止めているもの |
 |---|---|---|---|---|
@@ -60,15 +60,18 @@ AA-02 のカタログ 21 本すべての行き先。**どの連携も必ず 1 �
 | `I-12` | Chatwoot → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | 同上 |
 | `I-13` | n8n → GitHub（起票） | [06](06-proposal-loop-flows.md) | `条件付き` | 同上／GitHub の細粒度トークン発行 |
 | `I-14` | ~~n8n → Chatwoot（社内メモ）~~ | [06 の 3 節](06-proposal-loop-flows.md) | **`廃止`** | **通知は GitHub の PR に一本化**（`R1` の 2026-09-17 の決定）。Chatwoot は顧客対応の用途に限る |
-| `I-15` | Search Console → 観測エージェント | [06](06-proposal-loop-flows.md) | `条件付き` | 配信ホスト名の確定（apex か `www` か）／所有権確認（**人間の作業**） |
+| `I-15` | Search Console → **OpenSEO** → 観測エージェント | [06](06-proposal-loop-flows.md) | `条件付き` | ドメインプロパティの登録と所有権確認・OAuth クライアントの発行（**人間の作業**）。**配信ホスト名には依存しなくなった**（2026-09-18） |
 | `I-16` | エージェント → Strapi（`strapi-mcp`） | [03](03-operation-path-flows.md) | `仕様確定` | —（ADR-07 でリスク受容済み。権限は Strapi 側の API トークンで絞る） |
 | `I-17` | エージェント → Umami（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | —（同上。ただし `I-05` が通るまで空を返す） |
 | `I-18` | Mautic → PostHog（書き戻し） | [04](04-server-to-server-flows.md) | **`前提待ち`** | **越境の可否（DA-03・DA-05 の未決定事項）。決まるまで実装しない** |
 | `I-19` | Chatwoot → Mautic（email 突合） | [04](04-server-to-server-flows.md) | `条件付き` | `I-08` と `I-07` の双方が通り、突合対象が生まれること |
 | `I-20` | Astro `dist/` → 配信先 | [05](05-build-and-delivery-flows.md) | `条件付き` | 配信ホスト名の確定／デプロイの承認（`R1`） |
 | **`I-21`** | **n8n → Amazon SNS →（メール）運用者** | [04 の 8 節](04-server-to-server-flows.md) | `条件付き` | SNS のトピック作成／**購読の確認（受信者の手作業）**／通知専用 IAM ユーザーの発行 |
+| **`I-22`** | **エージェント → OpenSEO（MCP）** | [03 の 6 節](03-operation-path-flows.md) | `条件付き` | `comegin.com`・日本・日本語のプロジェクトの作成／エージェント定義の許可リスト（ADR-10）。**MCP 設定の付け替えは 2026-09-18 に済んだ** |
+| **`I-23`** | **OpenSEO → DataForSEO** | [04 の 9 節](04-server-to-server-flows.md) | `仕様確定` | —（API キー設定済み。月次予算の監視手段だけが TA-05 の未決定事項） |
+| **`I-24`** | **OpenSEO → 公開サイト（サイト監査）** | [04 の 10 節](04-server-to-server-flows.md) | `条件付き` | 公開サイトが存在すること（`I-20`） |
 
-**`前提待ち` は 2 本だけ**（`I-06` と `I-18`）。どちらも技術的な不明点ではなく、**個人データの扱いに関する上位層の判断待ち**である（同意の取り方と、越境の可否）。`I-14` は廃止したため、**残る 18 本は仕様として確定できた**。
+**`前提待ち` は 2 本だけ**（`I-06` と `I-18`）。どちらも技術的な不明点ではなく、**個人データの扱いに関する上位層の判断待ち**である（同意の取り方と、越境の可否）。`I-14` は廃止したため、**残る 21 本は仕様として確定できた**。
 
 ## 着手順との対応
 
@@ -82,10 +85,11 @@ AA-02 の 4 節の着手順を、この文書群の節に対応させる。
 | 3 | `I-10` Lighthouse CI の蓄積 | [05 の 2 節](05-build-and-delivery-flows.md) |
 | 4 | `I-08` CTA フォーム | [02 の 5 節](02-public-path-flows.md) |
 | 5 | `I-06` PostHog トラッカー | [02 の 3 節](02-public-path-flows.md)（**`前提待ち`**） |
-| 6 | `I-15` Search Console | [06 の 4 節](06-proposal-loop-flows.md) |
+| 6 | `I-15` Search Console（OpenSEO 経由） | [06 の 4 節](06-proposal-loop-flows.md)／[03 の 6.3](03-operation-path-flows.md) |
 | 7 | `I-11` `I-12` webhook → n8n | [04 の 3 節・4 節](04-server-to-server-flows.md) |
 | 8 | `I-13` 提案の起票（通知は GitHub の PR） | [06 の 2 節・3 節](06-proposal-loop-flows.md) |
 | **9** | **`I-21` 通知（Amazon SNS）** | [04 の 8 節](04-server-to-server-flows.md)（仕様）／[07 の 6 節](07-failure-and-degradation.md)（縮退運転） |
+| **並行** | **`I-22` `I-23` OpenSEO の調査**（どの手順にも依存しない） | [03 の 6 節](03-operation-path-flows.md)／[04 の 9 節](04-server-to-server-flows.md) |
 
 **ループを最初に 1 周させる最短経路**（AA-04 の 5.2）に必要なのは `I-10` と [06 の 5 節](06-proposal-loop-flows.md) だけで、上の表のどの手順にも依存しない。
 
@@ -97,7 +101,7 @@ AA には無く、実装着手には不可欠だったもの。すべて [01-flo
 |---|---|---|
 | 1 | **相関 ID（ULID）を導入し、`E-13` の必須項目 `agent_run_id` の空欄を暫定で埋める** | [01 の 3 節](01-flow-specification-rules.md) |
 | 2 | **失敗分類を 9 値に固定し、`empty_but_ok` を成功として扱う** | [01 の 4 節](01-flow-specification-rules.md) |
-| 3 | **再試行の可否を失敗分類から決める**（`permission_denied` は再試行しない） | [01 の 5 節](01-flow-specification-rules.md) |
+| 3 | **再試行の可否を失敗分類から決める**（`permission_denied` は再試行しない。**費用が発生する連携はすべての分類で再試行しない**） | [01 の 5 節](01-flow-specification-rules.md) |
 | 4 | **冪等キーを 4 本（`I-08` `I-11` `I-12` `I-13`）に与える** | [01 の 6 節](01-flow-specification-rules.md) |
 | 5 | **タイムアウトを上流の打ち切りより内側に置く**（Chatwoot は 12 秒） | [01 の 7 節](01-flow-specification-rules.md) |
 | 6 | **`E-13` の状態遷移を、遷移ごとの到達可能性つきで表にする** | [01 の 8 節](01-flow-specification-rules.md) |
@@ -120,6 +124,6 @@ AA には無く、実装着手には不可欠だったもの。すべて [01-flo
 | **同意取得の実装手段** | `I-06` の初期化タイミングと、同意状態の保存先が決まらない | `R1` `R3` | DA-03 |
 | **PostHog への越境の可否** | `I-18` を設計できない（キーの形すら決められない。email のハッシュも個人データとして越境する） | `R1` | DA-03・DA-05 |
 | **`E-15 AgentRun` の正本** | 相関 ID を暫定で ULID にしたが、正本が決まれば移行が要る（[01 の 3.4](01-flow-specification-rules.md)） | `R1` | DA-01・AA-03・AA-04 |
-| **配信ホスト名（apex か `www` か）** | `I-15` `I-20` の実行と、`SITE_URL` を含む 4 変数の値が決まらない | `R2` | `docs/README.md` の横断的未決定事項 |
+| **配信ホスト名（apex か `www` か）** | `I-20` の実行と、`SITE_URL` を含む 4 変数の値が決まらない（`I-15` は 2026-09-18 にドメインプロパティで登録すると決め、依存が外れた） | `R2` | `docs/README.md` の横断的未決定事項 |
 | **ngrok の公開経路をドメインで分けるかパスで分けるか** | `I-05` `I-07` `I-08` のエンドポイント URL の形が決まらない（設計は変数のまま書いた） | `R1` | AA-02 の 5 節 |
 | **`R2` の代理承認** | `E-13` の `review` 状態の滞留上限を決められない | `R1` | BA-05 |

@@ -17,7 +17,7 @@ C4Context
     System(site, "公開サイト", "Astro / E-05")
     System(content, "コンテンツ基盤", "Strapi / E-01 E-03 E-04")
     System(engage, "顧客接点基盤", "Mautic / Chatwoot")
-    System(observe, "観測基盤", "Umami / PostHog / LHCI")
+    System(observe, "観測基盤", "Umami / PostHog / LHCI / OpenSEO")
     Rel(visitor, site, "閲覧")
     Rel(site, engage, "CTA 送信")
     Rel(site, observe, "行動送信")
@@ -91,19 +91,25 @@ C4Container
         Container(umami, "Umami", "Node / 3000", "E-07 の正本")
         ContainerDb(udb, "PostgreSQL", "Docker", "セッション")
         Container(lh, "Lighthouse CI", "ローカル実行", "E-12 の正本")
+        Container(seo, "OpenSEO", "Docker / 3001", "検索実績と市場データ")
     }
     Container_Ext(ph, "PostHog", "SaaS 米国", "E-08 E-11 の正本")
     Container_Ext(gsc, "Search Console", "Google", "E-12 source=gsc")
+    Container_Ext(dfs, "DataForSEO", "SaaS 従量課金", "SERP と検索ボリューム")
     Rel(browser, umami, "ページビュー")
     Rel(browser, ph, "同意後 identify")
     Rel(umami, udb, "読み書き")
-    Rel(gsc, lh, "順位データ")
+    Rel(seo, gsc, "OAuth で取得")
+    Rel(seo, dfs, "調査 API")
     UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
-**As-Is 注記。** ブラウザからの 2 本はどちらも未着手（トラッカーのスクリプトが無い）。Umami は起動できるがセッションが 0 件。PostHog に届いているのは Strapi のサーバ側イベントだけで、訪問者の `E-08 Person` は 1 件も存在しない（DA-03 の 1.2）。Google Search Console はサイト登録も所有権確認も行っていない。`Search Console → Lighthouse CI` の線は「順位データを `E-12` の別ソースとして同じ入れ物に入れる」という論理的な関係であって、実際に GSC から LHCI にデータが流れる訳ではない（実装上は観測エージェントが両方を読んで `E-12` に正規化する。AA-03 の `agent/seo-auditor`）。
+**As-Is 注記。** ブラウザからの 2 本はどちらも未着手（トラッカーのスクリプトが無い）。Umami は起動できるがセッションが 0 件。PostHog に届いているのは Strapi のサーバ側イベントだけで、訪問者の `E-08 Person` は 1 件も存在しない（DA-03 の 1.2）。Google Search Console はサイト登録も所有権確認も行っていない。**OpenSEO は Docker で稼働しており、`OpenSEO → DataForSEO` だけが成立している**（API キー設定済み）。`OpenSEO → Search Console` は OAuth クライアントが未発行のため未接続。
 
-- **PostHog だけが SaaS（米国リージョン）** で、観測基盤の中で唯一データが越境する（DA-05 の 1.2）。この図で PostHog を `Container_Ext` にしているのは、配置の違いを図の上でも区別するため。
+- **GSC は OpenSEO に統合した**（`R1` の 2026-09-18 の決定。ADR-06・ADR-09）。当初の図にあった `Search Console → Lighthouse CI` の線（順位データを `E-12` の別ソースとして同じ入れ物に入れる、という論理的な関係）は廃した。**実装上は `agent/seo-auditor` が `.lighthouse/` と OpenSEO の MCP の両方を読んで `E-12` に正規化する**（AA-03）。
+- **OpenSEO を観測基盤の境界の内側に、DataForSEO と Search Console を外側（`Container_Ext`）に置いたのは配置の違いを表すため**である。OpenSEO はセルフホストでオンプレに留まり、外に出るのは DataForSEO への問い合わせと GSC からの取得だけになる。
+
+- **個人に関わるデータが越境するのは PostHog（米国リージョン）だけ**である（DA-05 の 1.2）。DataForSEO も SaaS だが、送るのはキーワードとドメインだけで個人情報を含まない（DA-05 の 1.2.1）。この図で PostHog を `Container_Ext` にしているのは、配置の違いを図の上でも区別するため。
 - **`ブラウザ → Umami` は ngrok の常設トンネルを通る**（`R1` の決定。AA-02 の 1.3）。オンプレのスタックが `127.0.0.1` バインドであるため、クラウドに置かれた公開サイトのブラウザからは直接到達できない。**`ブラウザ → PostHog` だけは SaaS のため直接到達する**ので、トンネルの死活に影響されない。同じ理由で Chatwoot のウィジェット（3 節）と Mautic のフォーム受付（同）もトンネル経由になる。
 - Umami の `docker-compose.yml` は上流のままでループバック限定になっていない（`.claude/CLAUDE.md`）。公開範囲の制御は TA の担当。
 
@@ -131,7 +137,7 @@ C4Container
 **As-Is 注記。** 成立しているのは `Claude Code → chatwoot-mcp` と `Claude Code → mautic-mcp` の 2 本だけ。n8n はコンテナと環境変数テンプレートのみでワークフローが 0 件、`docs/proposals/` は未作成、`E-13` を書き込む経路も通知経路も存在しない。`Claude Code → Git` は**ファイルを書くところまでしか成立しない**（リポジトリのルールで状態変更系の git コマンドが禁止されているため。AA-03 の 4 節で詳述する）。
 
 - **Amazon SNS も図に含めていない。** n8n から呼ばれる送信先であり、エージェント層の構成要素ではないため（ランドスケープには載せる。6 節）。
-- 図から意図的に省いたもの: `strapi-mcp` と Umami MCP。どちらも Claude Code の環境側に MCP サーバとして設定されており実際に呼べるが、**このリポジトリが管理しているコードではない**（`backend/` に実体が無い）。ランドスケープには載せる（6 節）が、コンテナ図では自作 2 本と区別できなくなるため外した。
+- 図から意図的に省いたもの: `strapi-mcp` と Umami MCP と OpenSEO の MCP。どちらも Claude Code の環境側に MCP サーバとして設定されており実際に呼べるが、**このリポジトリが管理しているコードではない**（`backend/` に実体が無い）。ランドスケープには載せる（6 節）が、コンテナ図では自作 2 本と区別できなくなるため外した。
 - `Claude Code` を 1 つのコンテナとして描いているのは、個々のエージェントがコンテナではなく**同一実行基盤上の役割**だから（エージェントの内訳は AA-03 の 1 節）。
 
 ## 6. アプリケーション一覧
@@ -147,7 +153,9 @@ C4Container
 | Chatwoot（`backend/chatwoot-system`） | `E-10` の正本。Web 接客と問い合わせ対応 | `CAP-12` | `E-10` | 3100 / 5432 | オンプレ | `未配線`（本体は動く。ウィジェットがサイトに無い） |
 | Umami（`middleware/umami-master`） | `E-07` の正本。流入・母数系 KPI の測定元 | `CAP-10` | `E-07` | 3000 | オンプレ | `未配線`（起動できるがセッション 0 件） |
 | PostHog | `E-08` `E-11` の正本。行動・実験系 KPI とエラー追跡 | `CAP-10` `CAP-13` | `E-08` `E-11` `E-12` | — | **SaaS（米国）** | `未配線`（Strapi からのサーバ側イベントのみ到達） |
-| Google Search Console | 検索順位・表示回数の測定元 | `CAP-09` `CAP-16` | `E-12`（`source: gsc`） | — | SaaS | `未着手`（サイト登録・所有権確認とも未実施） |
+| Google Search Console | 検索順位・表示回数・URL 検査の測定元。**OpenSEO 経由で取得する**（ADR-06） | `CAP-02` `CAP-09` | `E-12`（`source: gsc`） | — | SaaS（Google） | `未着手`（ドメインプロパティ未登録・OAuth クライアント未発行） |
+| **OpenSEO**（`middleware/open-seo-main`。上流の取り込み） | **競合・検索市場調査と GSC の取得口。** キーワード調査・SERP・順位計測・競合・被リンク・サイト監査（ADR-09） | `CAP-02` `CAP-09` `CAP-16` | `E-01`（候補の作業場。正本ではない） `E-12`（`source: gsc` / `serp` / `site_audit` / `market`） | **3001**（`127.0.0.1`） | オンプレ（Docker。`local_noauth`） | `未配線`（稼働中・DataForSEO 設定済み。GSC 未接続。プロジェクトが米国市場の `Default` のみ） |
+| **DataForSEO** | OpenSEO が呼ぶ検索データの提供元（SERP・検索ボリューム・競合・被リンク）。**従量課金・前払い制** | `CAP-02` `CAP-16` | キーワード・ドメイン・地域コード（**個人情報を含まない**） | — | **SaaS（外部）** | `実装済み`（OpenSEO に API キー設定済み） |
 | n8n（`middleware/n8n`） | 定期実行・webhook 受け口・`E-15` の実行履歴 | `CAP-13` `CAP-14` | `E-13`（起票の搬送） `E-15` | 5678 / 5433 | オンプレ | `未配線`（compose のみ。ワークフロー 0 件） |
 | chatwoot-mcp（`backend/chatwoot-mcp`） | Chatwoot API の MCP 公開（31 ツール）。`ACCESS_LEVEL` で公開範囲を制御 | `CAP-12` `CAP-15` | `E-10` `E-09`（Chatwoot 側） | 3102（HTTP 時） | オンプレ | `実装済み` |
 | mautic-mcp（`backend/mautic-mcp`） | Mautic API の MCP 公開（17 ツール）。同上 | `CAP-11` `CAP-15` | `E-06` `E-09` | 3100（HTTP 時） | オンプレ | `実装済み` |
@@ -155,14 +163,15 @@ C4Container
 | Git / GitHub | `E-13` `E-14` の正本。PR レビューが承認機構 | `CAP-06` `CAP-14` | `E-13` `E-14` | — | SaaS（リモート） | `未着手`（`docs/proposals/` が未作成） |
 | strapi-mcp（リポジトリ管理外） | Strapi のコンテンツ操作を MCP 公開 | `CAP-04` | `E-04` | — | ローカル（環境側の MCP 設定） | `未配線`（呼べるが、この EA の権限設計の管理下に無い） |
 | Umami MCP（リポジトリ管理外） | Umami の集計 API を MCP 公開 | `CAP-10` | `E-07` | — | ローカル（環境側の MCP 設定） | `未配線`（同上。加えて Umami にデータが無い） |
+| **OpenSEO の MCP**（リポジトリ管理外） | OpenSEO の機能を MCP 公開（Streamable HTTP の `/mcp`）。**費用を発生させるツールを含む** | `CAP-02` `CAP-09` `CAP-16` | `E-01`（候補） `E-12` | 3001（`/mcp`） | ローカル | `未配線`（Claude Code の MCP 設定は 2026-09-18 にローカルへ付け替え済み。接続するエージェントが未定義。ADR-10） |
 | **Amazon SNS** | **通知の配信。** 顧客からの要求（`comegin-lead-alert`）と監視・障害（`comegin-ops-alert`）を運用者のメールアドレスへ届ける | `CAP-11` `CAP-12` `CAP-13` | `E-09` `E-10` の**要旨のみ**（DA-05 の 1.3） | — | **AWS（`ap-northeast-1`）** | `未着手`（トピック 0 件・購読 0 件。権限は確認済み） |
 
 ### 一覧表の読み方
 
-- **状態が `実装済み` なのは 5 つだけ**（Strapi・Lighthouse CI・chatwoot-mcp・mautic-mcp・Claude Code）。このうち事業の価値に直接触れているのは Strapi のみで、他の 4 つは道具か土台にあたる。
+- **状態が `実装済み` なのは 6 つだけ**（Strapi・Lighthouse CI・chatwoot-mcp・mautic-mcp・Claude Code・DataForSEO）。このうち事業の価値に直接触れているのは Strapi のみで、他の 5 つは道具か土台にあたる。DataForSEO は OpenSEO からの問い合わせが成立しているだけで、OpenSEO 自体はまだどのエージェントにも繋がっていない（`未配線`）。
 - **ポートが重複している行が 1 組ある**（Chatwoot 本体と mautic-mcp の HTTP がともに 3100）。同時に HTTP で起動しない運用でしのぐか、`PORT` を変えるかを決める必要がある。
-- **配置が外部の行は 4 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
-- **`strapi-mcp` と Umami MCP は自作ではない。** `.claude/CLAUDE.md` の命名規則（`<プロダクト>-mcp` はこのリポジトリの自作サーバ）とは別系統であり、バージョン・`ACCESS_LEVEL` 相当の権限・`sanitize()` の有無をこのリポジトリが保証できない。AA-03 のエージェント設計では、この 2 つに**書き込みを任せない**方針を採る（7 節と AA-03 の 2 節）。
+- **配置が外部の行は 5 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**・**DataForSEO**）。**DataForSEO は 2026-09-18 に増えた外部依存**であり、TA-01 の 8 節の基準（自前で持てないデータの取得元に限る）で認めた（ADR-09）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
+- **`strapi-mcp` と Umami MCP と OpenSEO の MCP は自作ではない。** OpenSEO の MCP には**費用**という別の軸があり、扱いを ADR-10 に分けた。 `.claude/CLAUDE.md` の命名規則（`<プロダクト>-mcp` はこのリポジトリの自作サーバ）とは別系統であり、バージョン・`ACCESS_LEVEL` 相当の権限・`sanitize()` の有無をこのリポジトリが保証できない。AA-03 のエージェント設計では、この 2 つに**書き込みを任せない**方針を採る（7 節と AA-03 の 2 節）。
 
 ## 7. Capability からアプリケーションへの割り当て
 
@@ -171,21 +180,21 @@ BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手
 | Capability | 主たるアプリケーション | 補助 | 状態 |
 |---|---|---|---|
 | `CAP-01` 事業戦略・KPI 管理 | Umami + PostHog + Mautic（指標の取得） | Claude Code（集計と草案） | `未配線` |
-| `CAP-02` キーワード戦略 | Strapi（`api::keyword.keyword`） | Google Search Console | `未着手` |
+| `CAP-02` キーワード戦略 | Strapi（`api::keyword.keyword`。正本） | **OpenSEO**（キーワード調査・検索ボリューム・GSC の実績） | `未配線` |
 | `CAP-03` コンテンツ企画 | Strapi（`api::content-plan.content-plan`） | Claude Code | `未着手` |
 | `CAP-04` コンテンツ制作 | Claude Code + strapi-mcp | Strapi の管理画面 | `未配線` |
 | `CAP-05` デザイン制作 | Astro + shadcn/ui + Tailwind v4 | Claude Code | `未配線` |
 | `CAP-06` 品質保証・承認 | Lighthouse CI（機械） + GitHub の PR レビュー（人間） | Claude Code（指摘の提示） | `未配線` |
 | `CAP-07` コンテンツ公開・配信 | Strapi の `publishedAt` + Astro の再ビルド | — | `未着手` |
 | `CAP-08` エッジ配信・可用性 | 未選定（TA の判断事項） | — | `未着手` |
-| `CAP-09` テクニカル SEO | Lighthouse CI + Astro | Google Search Console | `未配線` |
+| `CAP-09` テクニカル SEO | Lighthouse CI + Astro | **OpenSEO**（GSC の実績・URL 検査・サイト監査・順位計測） | `未配線` |
 | `CAP-10` 行動観測・効果測定 | Umami（母数） + PostHog（行動） | Umami MCP | `未着手` |
 | `CAP-11` リード獲得・育成 | Mautic + mautic-mcp | n8n + **Amazon SNS**（トスアップの通知） | `未配線` |
 | `CAP-12` Web 接客 | Chatwoot + chatwoot-mcp | n8n + **Amazon SNS**（会話開始の通知） | `未配線` |
 | `CAP-13` 監視・障害対応 | PostHog（Error Tracking） | n8n + **Amazon SNS**（障害通知） | `未配線` |
 | `CAP-14` 改善提案の生成と承認 | Git / GitHub（`E-13` `E-14`） | Claude Code + n8n | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システムの個別アカウント | `実装済み`（MCP 側のみ） |
-| `CAP-16` 戦略知見の獲得 | Claude Code（調査） | Git（知見の記録先が未定） | `未着手` |
+| `CAP-16` 戦略知見の獲得 | Claude Code（調査） + **OpenSEO**（競合・SERP・被リンク） | Git（知見の記録先が未定） | `未配線` |
 
 **`CAP-08` だけが担うアプリケーションを持たない。** 他の 15 はいずれも手段が決まっており（未配線・未着手であっても割り当て先は定まっている）、`CAP-08` のみホスティング先が未選定のまま残っている。これは BA-02 で TA に引き渡した項目であり、AA では決めない。
 
@@ -196,3 +205,4 @@ BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手
 - **Strapi の永続化方式。** 既定の SQLite のままだと `E-01` `E-03` `E-04` の正本が 1 ファイルに載る。バックアップと同時実行の観点で TA の判断が必要。
 - **`E-13` `E-14` を GitHub に置くことによる 2 つ目の越境。** DA-05 が未決定事項として残しているが、AA としても「統制の記録が外部 SaaS にある」という事実が承認機構の前提になるため、リモートの所在が決まらないと AA-04 のループの安全装置が完全には固まらない。
 - **ランドスケープに SFA が存在しない。** BA-01 が受注数の正本として SFA を未選定のまま残しているため、バリューストリームの最終段を担うアプリケーションが 1 つも無い。AA では追加しない（用語集にも `E-ID` が無いため）。
+- **（2026-09-18 に解決）OpenSEO の MCP の接続先。** ホスト版を向いていた Claude Code のユーザースコープの設定を、セルフホスト（`127.0.0.1:3001/mcp`）に付け替えた（ADR-09）。

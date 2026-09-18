@@ -54,7 +54,7 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | [AA/02-integration-architecture.md](RequirementDefinition/AA/02-integration-architecture.md) | 連携点カタログ、露出経路の 2 分類、**着手順** |
 | [AA/03-agent-architecture.md](RequirementDefinition/AA/03-agent-architecture.md) | **エージェント 12 本の設計と権限** |
 | [AA/04-recursive-improvement-loop.md](RequirementDefinition/AA/04-recursive-improvement-loop.md) | **改善ループの制御仕様、安全装置、暴走条件** |
-| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜08） |
+| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜10。**ADR-09 OpenSEO の採用と GSC の統合、ADR-10 OpenSEO の MCP と費用の上限**） |
 
 ### TA — Technology Architecture
 
@@ -63,23 +63,23 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | [TA/01-deployment-topology.md](RequirementDefinition/TA/01-deployment-topology.md) | 配置境界、ポート割当、境界越え通信 |
 | [TA/02-aws-product-delivery.md](RequirementDefinition/TA/02-aws-product-delivery.md) | Astro の AWS 構成、Cloudflare 代替 |
 | [TA/03-triggers-and-cicd.md](RequirementDefinition/TA/03-triggers-and-cicd.md) | トリガー 4 系統、n8n の Git 管理外問題 |
-| [TA/04-security-and-secrets.md](RequirementDefinition/TA/04-security-and-secrets.md) | 秘匿値、**ngrok の経路分離**、MCP の権限 |
+| [TA/04-security-and-secrets.md](RequirementDefinition/TA/04-security-and-secrets.md) | 秘匿値、**ngrok の経路分離**、MCP の権限、**OpenSEO と GSC の OAuth** |
 | [TA/05-observability-and-ops.md](RequirementDefinition/TA/05-observability-and-ops.md) | 監視、バックアップ、構成管理 |
 
 ### 詳細設計（`DetailedDesign/`）
 
-上の 4 層が「何を作るか」を決めたのに対し、**連携点 `I-01`〜`I-20` とループ 6 段階を実装着手できる粒度まで下ろした**もの。AA-02 のカタログと AA-04 の制御仕様が入口にあたる。
+上の 4 層が「何を作るか」を決めたのに対し、**連携点 `I-01`〜`I-24` とループ 6 段階を実装着手できる粒度まで下ろした**もの。AA-02 のカタログと AA-04 の制御仕様が入口にあたる。
 
 | ファイル | 内容 |
 |---|---|
 | [DetailedDesign/README.md](DetailedDesign/README.md) | 索引、連携点とファイルの対応、**詳細設計の完成度** |
 | [DetailedDesign/01-flow-specification-rules.md](DetailedDesign/01-flow-specification-rules.md) | **横断規約。** 相関 ID、失敗分類 9 値、リトライ、冪等キー、タイムアウト、`E-13` の状態遷移 |
 | [DetailedDesign/02-public-path-flows.md](DetailedDesign/02-public-path-flows.md) | 公開経路（ブラウザ発信の 4 本） |
-| [DetailedDesign/03-operation-path-flows.md](DetailedDesign/03-operation-path-flows.md) | 運用経路（エージェント発信の 4 本） |
-| [DetailedDesign/04-server-to-server-flows.md](DetailedDesign/04-server-to-server-flows.md) | サーバ間通知の 6 本 |
+| [DetailedDesign/03-operation-path-flows.md](DetailedDesign/03-operation-path-flows.md) | 運用経路（エージェント発信の 5 本。**OpenSEO の MCP を含む**） |
+| [DetailedDesign/04-server-to-server-flows.md](DetailedDesign/04-server-to-server-flows.md) | サーバ間通知の 9 本（**DataForSEO への問い合わせとサイト監査を含む**） |
 | [DetailedDesign/05-build-and-delivery-flows.md](DetailedDesign/05-build-and-delivery-flows.md) | ビルドと配信の 3 本 |
 | [DetailedDesign/06-proposal-loop-flows.md](DetailedDesign/06-proposal-loop-flows.md) | 提案と承認、**起票前チェックリスト 14 項目** |
-| [DetailedDesign/07-failure-and-degradation.md](DetailedDesign/07-failure-and-degradation.md) | 異常系、縮退運転、**暴走条件 10 件と検出手段の対応** |
+| [DetailedDesign/07-failure-and-degradation.md](DetailedDesign/07-failure-and-degradation.md) | 異常系、縮退運転、**暴走条件 11 件と検出手段の対応** |
 
 **実装状態（`実装済み` / `未配線` / `未着手`）の正本はこの 4 層側にあり、詳細設計層では繰り返さない。** 詳細設計層は「仕様が確定しているか」という別の軸（`仕様確定` / `条件付き` / `前提待ち`）で状態を持つ。
 
@@ -90,27 +90,27 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | Capability | 主担当 | 主なデータ | アプリケーション | 基盤 | 状態 |
 |---|---|---|---|---|---|
 | `CAP-01` 事業戦略・KPI 管理 | `R2` | `E-12` 指標 | Umami + PostHog + Mautic | オンプレ Docker | `未配線` |
-| `CAP-02` キーワード戦略 | `R2` | `E-01` `E-02` | Strapi `api::keyword.keyword` | オンプレ Docker | `未着手` |
+| `CAP-02` キーワード戦略 | `R2` | `E-01` `E-02` | Strapi `api::keyword.keyword` ＋ **OpenSEO**（調査） | オンプレ Docker ＋ DataForSEO | `未配線` |
 | `CAP-03` コンテンツ企画 | `R2` | `E-03` | Strapi `api::content-plan.content-plan` | オンプレ Docker | `未着手` |
 | `CAP-04` コンテンツ制作 | `R4` | `E-04` | Claude Code + strapi-mcp | オンプレ Docker | `未配線` |
 | `CAP-05` デザイン制作 | `R1` | `E-05` `E-06` | Astro + shadcn/ui + Tailwind v4 | ビルド時 | `未配線` |
 | `CAP-06` 品質保証・承認 | `R2` | `E-14` | Lighthouse CI + GitHub の PR レビュー | ローカル + GitHub | `未配線` |
 | `CAP-07` コンテンツ公開・配信 | `R1` | `E-04` `E-05` | Strapi の `publishedAt` + Astro 再ビルド | AWS S3 + CloudFront | `未着手` |
 | `CAP-08` エッジ配信・可用性 | `R1` | `E-05` | CloudFront（Cloudflare の代替） | AWS | `未着手` |
-| `CAP-09` テクニカル SEO | `R1` | `E-12` | Lighthouse CI + Astro | ローカル | **`実装済み`** |
+| `CAP-09` テクニカル SEO | `R1` | `E-12` | Lighthouse CI + Astro ＋ **OpenSEO**（GSC・サイト監査） | ローカル ＋ Google | **`実装済み`**（Lighthouse のみ。GSC は未接続） |
 | `CAP-10` 行動観測・効果測定 | `R3` | `E-07` `E-08` `E-12` | Umami（母数）+ PostHog（行動） | オンプレ + **ngrok** | `未着手` |
 | `CAP-11` リード獲得・育成 | `R3` | `E-06` `E-09` | Mautic + mautic-mcp + **Amazon SNS**（通知） | オンプレ + ngrok + AWS | `未配線` |
 | `CAP-12` Web 接客 | `R3` | `E-10` | Chatwoot + chatwoot-mcp + **Amazon SNS**（通知） | オンプレ + ngrok + AWS | `未配線` |
 | `CAP-13` 監視・障害対応 | `R1` | `E-12` | PostHog（Error Tracking） + **Amazon SNS**（障害通知） | SaaS + healthcheck + AWS | `未配線` |
 | `CAP-14` 改善提案の生成と承認 | `R2` | `E-13` `E-14` `E-15` | Git / GitHub | GitHub | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | `R1` | **未定義**（下記参照） | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システム個別 | `実装済み`（MCP 側のみ） |
-| `CAP-16` 戦略知見の獲得 | `R2` | `E-01` `E-03`（知見メモは**未定義**） | Claude Code | Git（`docs/knowledge/`） | `未着手` |
+| `CAP-16` 戦略知見の獲得 | `R2` | `E-01` `E-03` `E-12`（`source: market`。知見メモは**未定義**） | Claude Code ＋ **OpenSEO**（競合・SERP） | Git（`docs/knowledge/`）＋ DataForSEO | `未配線` |
 
 ロール（`R1` Web マスター / `R2` SEO ディレクター / `R3` データアナリスト / `R4` コンテンツエディター）の定義は [BA/03](RequirementDefinition/BA/03-roles-and-raci.md)、エンティティ（`E-01`〜`E-15`）の定義は [DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) にある。
 
 **`R4` は原則エージェントに委任し、承認責任は `R2` が持つ。** RACI の Accountable は全 16 Capability で人間にあり、エージェントには置かない。
 
-## 現況（2026-09-17 時点、実地確認済み）
+## 現況（2026-09-17 時点、実地確認済み。OpenSEO の行は 2026-09-18 に追記）
 
 EA の記述のうち、実行環境に対して実際に確認した事実を記録する。
 
@@ -122,7 +122,9 @@ EA の記述のうち、実行環境に対して実際に確認した事実を�
 | ブラウザ側トラッカー | Umami・PostHog・Chatwoot ウィジェット・Mautic のいずれも `Layout.astro` に未設置 |
 | n8n のワークフロー | リポジトリに 0 件（実体は n8n の DB 内のみ。Git 管理外） |
 | `.claude/agents/` | 存在しない。AA-03 で設計した 12 本はすべて `未着手` |
-| Google Search Console | 認証情報・所有権確認ファイルともに無し |
+| Google Search Console | 認証情報・所有権確認ファイルともに無し。**OpenSEO に統合して取得すると決めた**（2026-09-18。[ADR-06](RequirementDefinition/AA/05-application-decisions.md)）。OpenSEO の `/api/health` でも GSC は未設定 |
+| **OpenSEO（セルフホスト）** | `middleware/open-seo-main` の Docker が `127.0.0.1:3001` で稼働（healthy、v0.1.8、`AUTH_MODE=local_noauth`）。**DataForSEO は設定済み**、GSC と AI 機能（SAM）は未設定 |
+| **OpenSEO の MCP の接続先** | **2026-09-18 にセルフホスト（`http://127.0.0.1:3001/mcp`）へ付け替えた。** ローカルの MCP は `whoami` に `mode: self-hosted`、利用者 `admin@localhost`、残高 `null`（計量しない）を返す。**ローカルのプロジェクトも `Default`（ドメイン未設定・米国／英語）しか無い**ため、`comegin.com`・日本・日本語のプロジェクトを作る必要がある（`R1`）。ホスト版のアカウント（残 10,000 クレジット）は使わないまま残っている |
 | Umami の compose | **他スタックと異なり `0.0.0.0` バインドで、鍵がプレースホルダのまま**（[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 3 節） |
 | リポジトリ管理外の MCP | **`strapi-mcp` と Umami MCP が実行環境に設定され、書き込みツールを含めて実際に呼べる。** リポジトリの `ACCESS_LEVEL` と `sanitize()` の保証が及ばない。**2026-09-17 に `R1` が「現状のまま使い続ける」と判断**（[ADR-07](RequirementDefinition/AA/05-application-decisions.md)。リスク受容） |
 | **AWS アカウント** | `798560359429`（`ComeGin`）、**2026-09-16 作成**。`accountPlanType: PAID`。IAM ユーザー `comegin-iam` が `Developer` グループ経由で、この設計に必要な 17 アクションすべてを `allowed` |
@@ -145,10 +147,11 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 | 3 | Lighthouse CI の蓄積 | `E-12` が継続的に溜まる（**手順 0 に依存しない**） |
 | 4 | CTA フォーム | CV 数と CVR が測れる |
 | 5 | PostHog トラッカー | ファネルと AB テストが測れる（PostHog は SaaS のため手順 0 に依存しない） |
-| 6 | Google Search Console | 平均検索順位が測れる。**SEO という目的に対する測定が初めて成立する** |
+| 6 | Google Search Console（**OpenSEO 経由**） | 平均検索順位が測れる。**SEO という目的に対する測定が初めて成立する**。ドメインプロパティなら公開 URL の確定を待たずに登録できる |
 | 7 | webhook → n8n | 観測の日次バッチと通知が自動化できる |
 | 8 | 提案の起票と通知 | ループが 1 周する |
 | 9 | **Amazon SNS の通知**（`I-21`） | **顧客からの要求に気づけるようになる。** BA-04 のトスアップ条件の「通知」が初めて成立する |
+| **並行** | **OpenSEO の調査**（`I-22` `I-23`） | **キーワードの候補・検索ボリューム・競合が、記事を 1 本も公開していない今から取れる。** どの手順にも依存しない（MCP の付け替えは済んだ。残るのはプロジェクトの作成と月次予算の設定） |
 
 ### ループを最初に 1 周させる最短経路
 
@@ -169,7 +172,9 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 | **Umami の compose の扱い** | 上流無改変の取り込み方針とセキュリティ要件が構造的に衝突している。TA は自作 compose への移行（案 C）を推奨 | `R1` |
 | **トスアップ条件の数値の置き場** | BA-04 は「暫定値・運用開始後に見直す前提」としているが、置き場の Mautic キャンペーン定義には**見直した履歴が残らない** | `R1` `R3` |
 | **Chatwoot の監査ログ** | Enterprise 機能のため使えない場合、「`E-13` を経由しない変更の検出」が成立しない | `R1` |
-| **Google Search Console** | SEO が目的なのに検索順位を測る手段が無い。**ドメイン `comegin.com` は取得済みなので前提は解けた**が、配信に使うホスト名（apex か `www` か）の確定が残る | `R2` |
+| **Google Search Console** | **取得手段は OpenSEO に決まった**（2026-09-18。[ADR-06](RequirementDefinition/AA/05-application-decisions.md)）。ドメインプロパティで登録するため**ホスト名の確定にも依存しない**。`comegin.com` は Google Workspace であり、**OAuth 同意画面を「内部」にする**と決めた（7 日の失効は起きない）。残るのは人間の作業（DNS での所有権確認・OAuth クライアントの発行・接続） | `R1` |
+| **OpenSEO の MCP と費用** | リポジトリの `ACCESS_LEVEL` も `sanitize()` も及ばず、**費用を発生させるツールを含む**。リスクを受容し、接続先 3 本・ツールの許可リスト・前払い残高・月次予算 10 USD で縛った（[ADR-10](RequirementDefinition/AA/05-application-decisions.md)）。**1 回あたりの上限は約束にとどまり、月次の支出を取得する手段も未定**（暴走条件 #11 の検出が部分的） | `R1` `R2` |
+| **SaaS 依存の原則の書き直し** | 「SaaS は PostHog のみ」を「自前で持つと一巡が遅くなる機能」と「自前で持てないデータの取得元」の 2 基準に置き換えた（[TA/01](RequirementDefinition/TA/01-deployment-topology.md) の 8 節）。**個人に関わるデータが越境する SaaS は PostHog だけ**という点は変わらない | `R1` |
 | **ngrok の認証方式** | OAuth / Basic 認証 / IP 制限の選択。OAuth を選ぶと IdP が要り、SSO を導入しないという結論と絡む | `R1` |
 | **通知経路の監視をどう閉じるか** | 通知を Amazon SNS に集約した（[ADR-08](RequirementDefinition/AA/05-application-decisions.md)）ことで「監視対象が通知経路を兼ねる」問題は解けたが、**SNS の購読が解除されたことを SNS 自身では知らせられない**。監視の連鎖が閉じていないのはこの 1 点だけ（[TA/05](RequirementDefinition/TA/05-observability-and-ops.md) の 8 節） | `R1` |
 

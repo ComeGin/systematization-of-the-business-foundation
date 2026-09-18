@@ -2,7 +2,7 @@
 
 詳細設計層。ID は EA 共通用語集の定義をそのまま使う。横断規約は [DD-01](01-flow-specification-rules.md) を参照する。
 
-**発信元がエージェントである 4 本**（`I-03` `I-04` `I-16` `I-17`）を扱う。AA-02 の 1.3 が定義した運用経路（認証必須・運用者のみ）に属する。
+**発信元がエージェントである 5 本**（`I-03` `I-04` `I-16` `I-17` `I-22`）を扱う。前の 4 本は AA-02 の 1.3 が定義した運用経路（認証必須・運用者のみ）に属する。**`I-22`（OpenSEO）だけはどちらの経路にも載せず、ホスト内で閉じる**（6 節）。
 
 **この 4 本は本来トンネルに載らない。** AA-03 の 2.3 が MCP を stdio 前提としたため、プロセス間通信でポートを使わない。HTTP トランスポートで運用する場合のみ運用経路に現れ、そのときは固定 Bearer（`MCP_AUTH_TOKEN`）が唯一の防御になる。
 
@@ -242,19 +242,81 @@ fetch:
 
 **この区別が AA-04 の暴走条件 #3 の実装にあたる。**
 
-## 6. エージェントと MCP の接続表
+## 6. `I-22` エージェント → OpenSEO（OpenSEO の MCP）
+
+| 項目 | 値 |
+|---|---|
+| 発信元 → 受信先 | `agent/seo-auditor` / `agent/keyword-researcher` / `agent/knowledge-scout` → OpenSEO の MCP（**リポジトリ管理外**。`http://127.0.0.1:3001/mcp`）→ GSC（`I-15`）／ DataForSEO（`I-23`）／ OpenSEO の DB |
+| 種別 | `MCP`（Streamable HTTP。stdio は無い） |
+| 経路 | **ホスト内**（ループバック。**トンネルを張らない**。TA-04 の 7 節のエンドポイント 13） |
+| トリガー | エージェントのツール呼び出し（日次の観測バッチ、週次のキーワード調査） |
+| 同期性 | 同期 |
+| タイムアウト | **参照系 30 秒 / 調査系 90 秒**（調査系は DataForSEO の集計を待つため長めに取る。暫定） |
+| リトライ | 参照系は DD-01 の 5.2 の既定。**調査系は `timeout` でも再試行しない**（回数を 0 に上書きする。打ち切った要求も DataForSEO 側では課金されている可能性があり、再試行は 2 回目の課金になる） |
+| 冪等キー | 参照系は不要。**調査系は冪等でも費用が 2 回かかる**ため、同じ `ref` での再取得を検証目的に限る（DA-02 の 5.2.1） |
+| 失敗時の扱い | `fetch.outcome` に記録。**GSC の `not_connected` は `auth_failed`、DataForSEO の残高不足は `permission_denied`**（DD-01 の 5.3）。どちらも再試行せず人間に返す |
+| 観測点 | `docs/audits/gsc/` `docs/audits/serp/` `docs/audits/site_audit/` `docs/audits/market/` にファイルが生まれるか ／ OpenSEO の `/api/health` ／ DataForSEO の残高 |
+| 完成度 | `条件付き`（**`comegin.com`・日本・日本語のプロジェクトを作ること**／エージェント定義の許可リスト。MCP 設定の付け替えは 2026-09-18 に済んだ） |
+
+### 6.1 接続の前提
+
+- **MCP 設定はセルフホストに付け替え済みである**（2026-09-18。ユーザースコープの設定が `http://127.0.0.1:3001/mcp`）。ローカルの `whoami` は `mode: self-hosted` / `admin@localhost` / 残高 `null` を返す。**付け替えは Claude Code のセッションを起動し直すまで効かない**（起動時に確立した MCP の接続を使い続けるため。付け替えた当日のセッションは、ホスト版に繋がったままだった）。
+- **プロジェクトを 1 つだけ作る。** ローカルには既定のプロジェクト `Default`（ドメイン未設定・米国／英語）しか無い。**ドメイン `comegin.com`、市場は日本・日本語**のプロジェクトを作り、`Default` は使わない（市場が米国のまま調査すると、検索ボリュームも順位も米国の値になる）。エージェントは `list_projects` で ID を得て、**そのプロジェクト以外を引数に渡さない**（エージェントの指示に書く）。プロジェクトの作成は人間（`R1`）が行う（`create_project` は許可リストに無い）。
+
+### 6.2 1 プロセスを 3 本が共有する
+
+OpenSEO の MCP は HTTP の 1 プロセスであり、**`ACCESS_LEVEL` も無い**。1.1 の「エージェントごとにプロセスを分けて `ACCESS_LEVEL` を変える」方法が使えないため、**エージェントごとの差はエージェント定義の許可リストだけで作る**（AA-03 の 2.4）。
+
+```mermaid
+flowchart LR
+    SA["agent/seo-auditor<br/>参照のみ"] -->|"HTTP"| OS["OpenSEO MCP<br/>127.0.0.1:3001"]
+    KR["agent/keyword-researcher<br/>調査と保存"] -->|"HTTP"| OS
+    KS["agent/knowledge-scout<br/>競合の調査"] -->|"HTTP"| OS
+    OS --> GSC["Search Console"]
+    OS --> DFS["DataForSEO"]
+```
+
+図は To-Be を描いている。**As-Is では 3 本のエージェントがいずれも未定義**で、OpenSEO の MCP はホスト版に繋がっている。`OpenSEO → DataForSEO` だけが成立している。
+
+- **図の 3 本の線は同じ MCP サーバに入る。** サーバの側からは 3 本を区別できない（無認証のため、呼び出し元の名前も分からない）。**ログで誰が費用を発生させたかを辿れるのは、エージェント側の stderr（相関 ID つき。DD-01 の 9.1）だけ**である。
+- **3 本以外のエージェントの定義には OpenSEO のツールを 1 つも書かない。** 書かなければ、Claude Code の上ではツールが存在しないように見える。
+
+### 6.3 GSC の取得仕様
+
+[06 の 4 節](06-proposal-loop-flows.md) の `I-15` の取得を、このツール呼び出しで行う。
+
+| 項目 | 値 |
+|---|---|
+| ツール | `get_search_console_performance` |
+| `dimensions` | `["page"]`（ページ単位。クエリ単位は `api::keyword.keyword` の実装後） |
+| 期間 | `startDate` / `endDate` を明示する（`dateRange` の既定に頼らない）。`endDate` は **3 日前**、`startDate` はそこから 35 日前 |
+| `dataState` | **`final`**（確定分のみ。既定の `all` は直近の不完全なデータを含む） |
+| `rowLimit` | 1,000。`hasMore` が真なら `startRow` で続きを取る |
+| `ref` に残すもの | 上の引数をすべて（**日付は太平洋時間である**ことを併記する。DA-02 の 5.2.1） |
+
+### 6.4 調査系の 1 回の上限
+
+| エージェント | 1 回の実行の上限 | 超えるとき |
+|---|---|---|
+| `agent/keyword-researcher` | シード 10 個、SERP 20 キーワード | `R2` の承認を求めて止まる |
+| `agent/knowledge-scout` | 競合ドメイン 5 件 | 同上 |
+
+- **見積もりは実行前にエージェントが計算する**（ツール説明の目安から。キーワード調査は 1 シード約 100 クレジットで上限側に寄せる）。10 シードで約 1,000、SERP 20 キーワードで約 100 となり、**2,000 クレジットの内側に収まるよう上限を決めた**。
+- **この上限は約束である**（ツールの引数で支出の上限を指定できない）。最後の歯止めは前払い残高（[04 の 9.2](04-server-to-server-flows.md)）。
+
+## 7. エージェントと MCP の接続表
 
 AA-03 の 2.1 の権限表を、**プロセスの起動という形**に落とす。この表に無い組み合わせで起動しない。
 
 | エージェント | 起動する MCP プロセス | 環境変数 | 上流の認証情報 |
 |---|---|---|---|
-| `agent/keyword-researcher` | `strapi-mcp` | — | Strapi の API トークン（`keyword` のみ） |
-| `agent/knowledge-scout` | **なし** | — | — |
+| `agent/keyword-researcher` | `strapi-mcp` ／ **OpenSEO（HTTP）** | — | Strapi の API トークン（`keyword` のみ）。OpenSEO は無認証 |
+| `agent/knowledge-scout` | **OpenSEO（HTTP）** | — | —（無認証） |
 | `agent/content-planner` | `strapi-mcp` | — | Strapi の API トークン（`content-plan` のみ） |
 | `agent/content-writer` | `strapi-mcp` | — | Strapi の API トークン（`article` の下書きのみ） |
 | `agent/quality-checker` | **なし**（ファイル読み取りのみ） | — | — |
 | `agent/design-implementer` | **なし** | — | — |
-| `agent/seo-auditor` | **なし**（`.lighthouse/` と GSC API） | — | GSC の資格情報 |
+| `agent/seo-auditor` | **OpenSEO（HTTP。参照のみ）**と `.lighthouse/` | — | —（**GSC の資格情報は OpenSEO の中にあり、エージェントは持たない**） |
 | `agent/analytics-reporter` | `mautic-mcp` / Umami MCP / PostHog | `TRANSPORT=stdio` `MAUTIC_ACCESS_LEVEL=read_only` | Mautic の**参照専用ロール** |
 | `agent/lead-ops` | `mautic-mcp` | `TRANSPORT=stdio` `MAUTIC_ACCESS_LEVEL=read_write` | Mautic の**コンタクト更新ロール** |
 | `agent/conversation-triage` | `chatwoot-mcp` | `TRANSPORT=stdio` `CHATWOOT_ACCESS_LEVEL=read_write` | Chatwoot の**専用エージェントユーザー**のトークン |
@@ -262,13 +324,16 @@ AA-03 の 2.1 の権限表を、**プロセスの起動という形**に落と�
 | `agent/proposal-writer` | **なし**（ファイル読み取りのみ） | — | — |
 
 - **`full` を起動するエージェントは 1 つも無い**（AA-03 の 2.1）。削除・統合の操作に到達させない。
-- **12 本中 7 本が MCP を 1 つも起動しない。** 接続の有無が `ACCESS_LEVEL` の上にもう 1 段の境界を作っている。
+- **12 本中 4 本が MCP に 1 つも接続しない**（2026-09-18 に OpenSEO へ接続する 2 本が加わり、7 本から減った）。接続の有無が `ACCESS_LEVEL` の上にもう 1 段の境界を作っている。
+- **OpenSEO はプロセスを起動するのではなく、稼働中の HTTP サーバに接続する。** 表の「起動する MCP プロセス」のうち OpenSEO の行だけは、エージェントごとに別プロセスにならない（6.2）。
 - **秘密値はエージェント自身が読めない。** `PreToolUse` フック（`~/.claude/hooks/protect-secrets.sh`）が環境変数ファイルの読み書きをハード拒否する。これが BA-05 の `禁止` 分類（秘密値の閲覧）の実装にあたる。
 
-## 7. 未決定事項
+## 8. 未決定事項
 
 - **Strapi の権限モデルでフィールド単位（`publishedAt`）の制限ができるか未確認。** 4.2 で代替 C を推奨したが、Strapi のバージョンと Draft & Publish の設定に依存する。**できない場合、`agent/content-writer` の境界は約束にとどまる**（AA-03 の「4 つ目だけが約束にとどまる」と同じ性質の穴が 1 つ増える）。判断者 `R1`。
 - **Mautic のロールで個票 API だけを落とせるか未確認。** 3.1 の「上流のロール側で落とす」が成立するかはロールの粒度に依存する。成立しなければ、AA-03 の未決定事項（集計限定を権限で表現できない）はそのまま残る。判断者 `R1` `R3`。
 - **`dedup_dropped` のしきい値 1 割に根拠が無い。** 二重送信が常態化している徴候とする値だが、実データが無い。
 - **`agent/analytics-reporter` が PostHog をどう呼ぶか決めていない。** 6 節の接続表では MCP ではなく PostHog として書いたが、PostHog の MCP を使うのか API を直接叩くのかは決めていない。**直接叩く場合、ADR-02 が MCP を挟むと決めた 4 つの利点（`sanitize()`・応答サイズ・権限の境界・危険な API の除外）がこの経路には及ばない。**
 - **管理外の MCP（`strapi-mcp` / Umami MCP）のバージョン変更を検知する手段が無い。** ADR-07 でリスクを受容したが、受容したリスクが変化したときに気づく仕組みが無い（ツールの定義が変わっても、このリポジトリからは分からない）。
+- **調査系のタイムアウト 90 秒に根拠が無い**（6 節）。DataForSEO の集計にかかる時間を計測していない。短すぎると、課金された要求を結果の受け取り前に捨てることになる。
+- **OpenSEO の MCP に誰が費用を発生させたかをサーバ側で記録できない**（6.2）。無認証のため呼び出し元を区別できず、エージェント側の stderr が唯一の記録になる。`E-15` の正本が決まらない限り、この記録も永続化されない（DD-01 の 10 節と同じ根）。
