@@ -18,6 +18,21 @@
 
 **分け方は「経路の性質」であって「実装の順」ではない。** AA-02 の 1.3 が公開経路と運用経路をセキュリティ境界として分離しているので、ファイルの境界をその線に合わせた。**ファイル境界がそのまま到達可能性の境界になる**（公開経路のファイルに書かれた連携からは、運用経路の連携に到達できない）。実装の順で読みたい場合は下の「着手順との対応」を使う。
 
+### 本番と開発環境の分離（ADR-14・ADR-15・ADR-16・ADR-17・ADR-18）
+
+**2026-09-19 に、本番は AWS、オンプレは全システムの開発環境と管制に分けた（ADR-14）。同日の ADR-15 で、ローカルの Claude Code が本番の Mautic・Chatwoot・Umami にも MCP で読み書きすることにし、Strapi はオンプレだけに戻した。さらに同日の ADR-16 で、置き場所の基準を「正本のデータを持つか」に改め、Strapi と n8n も本番として AWS に置いた。同日の ADR-17 で、エージェントの定期実行を監視アプリから起動することにし、本番への書き込みの範囲を絞った。同日の ADR-18 で、`E-15 AgentRun` の正本を監視アプリ（ローカル）の実行記録にし（ADR-16 の基準の唯一の例外）、本番の n8n に登録する Strapi の資格情報も下書きまでにした。同日の ADR-18 の追加の決定で、定期実行の定義を Git に置き（監視アプリは承認済みの `main` のチェックアウトで読む）、`E-15` には要約と ID だけを残し、`E-15` を S3 に追記専用で写すことにした**（AA-05 の ADR-14・ADR-15・ADR-16・ADR-17・ADR-18、TA-06、TA-07）。本番（AWS）に置くのは Astro（S3 + CloudFront）・Strapi・Mautic・Chatwoot・Umami・n8n（本体と runners。サンドボックスは置かない）、ローカルに残すのは Claude Code・自作 MCP（stdio）・監視アプリ（**`E-15` の正本を持つ**）・全システムの開発環境・OpenSEO・Lighthouse CI・Astro のビルドである。この層の読み方に 8 つ効く。
+
+- **エージェントの MCP（`I-03` `I-04` `I-16` `I-17`）は開発環境と本番の 2 系統を登録する**（`chatwoot` / `chatwoot-prod`、`strapi-mcp` / `strapi-prod` など）。本番の登録は `ACCESS_LEVEL=read_write` まで（**ADR-16 で確定**）で、エージェント専用アカウントのトークンを使う。`strapi-prod` は `ACCESS_LEVEL` を持たないため、Admin トークンの権限で同等に絞る（削除の権限を与えない。**ADR-17 で公開・非公開化の権限も外し、下書きまでにした**）。OpenSEO はローカルだけである（[03](03-operation-path-flows.md)）。n8n の MCP（`n8n` / `n8n-prod`）も登録するが、連携点の番号は無い（[03 の 8 節](03-operation-path-flows.md)）。エージェントは監視アプリ（`frontend/next-js`）から起動する（**管理者の指示も定期実行も。ADR-17**）。
+- **エージェントを使う定期処理は監視アプリが起動する**（ADR-17。ADR-05 の「日次のスケジュール起動は n8n」「`I-13` は n8n」を置き換えた）。AWS の n8n からはローカルに着信できないためである。定期処理の案は観測の日次バッチ・`I-13` の起票・公開された記事の確認・誤った書き込みの突き合わせの 4 つ（TA-07 の 3.5）。**Webhook の受け口（`I-11` `I-12`）と、エージェントを使わない決定論的な定期処理は本番の n8n のまま**である。**開発機が止まると定期実行も止まる**（[07 の 3 節・6 節](07-failure-and-degradation.md)）。
+- **`I-09` は本番の Strapi（`https://cms.comegin.com` の Content API。読み取り専用の API トークン）をローカルのビルドが読む連携である**（ADR-16。ADR-15 ではオンプレの Strapi を読んでいた）。`STRAPI_URL=http://localhost:1337` は開発時の値として残る。**記事の公開は人間（`R2`）が本番の Strapi の管理画面で行い**（ADR-17）、監視アプリの定期実行が公開を見つけて Claude Code がビルドと計測を行い、配信は人間が承認して実行する（[05 の 1 節・3.2](05-build-and-delivery-flows.md)）。画像は引き続きビルド時に `dist/` へ取り込む（ADR-11）。
+- **本番の Webhook は VPC の中で完結する**（ADR-16）。Chatwoot・Mautic → n8n（`I-11` `I-12`）は ngrok を通らない。ngrok に残るのは Astro dev サーバーの共有だけである（[04 の 1 節](04-server-to-server-flows.md)）。ADR-16 の時点では記事の公開を知らせる Strapi → n8n の Webhook もあったが、**ADR-17 で公開の検知は監視アプリが本番の Strapi を定期的に見る形に変わり、使わなくなった**。
+- **`E-13` の `applied` は、本番に作用した時点**である。Mautic・Chatwoot は MCP での書き込みが完了した時点、Astro（本番の Strapi の記事を含む）は承認された配信が完了した時点、n8n のワークフローは人間が有効にした時点（[06 の 1.5](06-proposal-loop-flows.md)）。**`applied_at` を記録するのは、本番に作用させた主体である**（ADR-16）。MCP での書き込みは Claude Code が完了時に記録し、配信と n8n の有効化は実行した人間が記録する。
+- **本番への書き込みのうち、取り消せないものを仕組みで絞った**（ADR-17）。Chatwoot の社内メモと顧客への送信を分け（社内メモ専用のツールか、社内メモ用の登録か。手段は未決定。[03 の 2.3](03-operation-path-flows.md)）、誤った書き込みは Chatwoot の監査ログ（Enterprise）に頼らず、エージェント専用ユーザーの送信の記録（`sender`）と `E-13` で突き合わせる（[07 の 4 節](07-failure-and-degradation.md)）。
+- **オンプレが止まって止まるのは「公開サイトの更新とエージェントの作業」だけになった**（ADR-16）。本番のサービス・記事の正本・自動化（n8n）は止まらない（[07 の 6 節](07-failure-and-degradation.md)）。**ADR-17 の後は、エージェントの作業に定期実行が含まれるため、オンプレの停止は「改善ループの停止」を意味する。** **ADR-18 の後は、開発機を失うと `E-15` の正本も失われる**（訪問者には影響しないが、誤った書き込みの調査と改善の検証の根拠が消える）。**ADR-18 の追加の決定で `E-15` を S3 に写すことになり、写しから復旧できるようになった。失われうるのは最後に写してから開発機を失うまでの分だけである**（写す頻度は未決定。[07 の 6.2](07-failure-and-degradation.md)）。
+- **`E-15 AgentRun` の正本は監視アプリの実行記録である**（ADR-18。TA-07 の 3.6）。1 回の起動を 1 件とし、相関 ID（ULID）で `E-13`・`E-14`・本番への書き込みと結ぶ。**書くのは監視アプリのサーバー側だけで、エージェントは `E-15` に書かない。** この層では、相関 ID を監視アプリが発行してエージェントに渡す形に改め（[01 の 3.2](01-flow-specification-rules.md)）、`E-15` を沈黙の検出と暴走条件 #7 の検出に使う（[07 の 3.2・7.1](07-failure-and-degradation.md)）。**n8n の実行履歴は `E-15` の正本ではない**（[04 の 1 節](04-server-to-server-flows.md)）。**`E-15` に残すのは要約・対象の ID・相関 ID・成否・起動の種類だけで、ツールの結果（本番の Mautic・Chatwoot から読んだデータ）は残さない**（ADR-18 の追加の決定 4）。要約にも個人情報を書かない。誤った書き込みの調査は ID から本番の管理画面で元のデータを引く（[07 の 4.1](07-failure-and-degradation.md)）。**`E-15` は S3 に写す**（追加の決定 5。写しは正本ではなく、追記だけを許す）。**定期実行の定義は Git に置き、監視アプリは承認済みの `main` のチェックアウトで読む**（追加の決定 3。この層の判断が上位層の決定になった。[06 の 2.4](06-proposal-loop-flows.md)）。本番の n8n に登録する Strapi の資格情報は、必要になるまで登録せず、登録するときは下書きまでにする（[03 の 4.1](03-operation-path-flows.md)）。
+
+**監視アプリ → Claude Code の経路は連携点として採番しない**（AA-02 の 1.3）。運ぶのは指示であって `E-xx` ではないためである。`E-15` の正本になると決まれば連携点として加える。**ADR-17 で定期実行もこの経路を通るようになったが、運ぶものが指示であることは変わらないため、採番しない扱いを続ける。** **ADR-18 で監視アプリの実行記録が `E-15` の正本になったが、`E-15` は監視アプリの中で生まれて監視アプリの中に書かれ、この経路を運ばれない**（Claude Code は `E-15` に書かない。運ぶのは指示と相関 ID で、戻るのは経過と結果）。**したがって採番しない扱いを続ける**（この層の見立て。採番するかは AA-02 の判断）。
+
 ### 状態について
 
 **実装状態（`実装済み` / `未配線` / `未着手`）の正本は AA-02 のカタログであり、ここでは繰り返さない。** 代わりにこの層は**詳細設計の完成度**という別の軸で状態を持つ。
@@ -37,8 +52,8 @@
 | [03-operation-path-flows.md](03-operation-path-flows.md) | **運用経路。** エージェントが発信元の 5 本（`I-03` `I-04` `I-16` `I-17` `I-22`）。**`I-22` は OpenSEO の MCP**（ホスト内で閉じる） |
 | [04-server-to-server-flows.md](04-server-to-server-flows.md) | **サーバ間通知。** ブラウザもエージェントも介さない 9 本（`I-01` `I-02` `I-11` `I-12` `I-18` `I-19` `I-21` `I-23` `I-24`）。**`I-21` は Amazon SNS への通知、`I-23` は DataForSEO（費用が発生する）** |
 | [05-build-and-delivery-flows.md](05-build-and-delivery-flows.md) | **ビルドと配信。** `I-09` `I-10` `I-20` |
-| [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化）。**`I-15` は OpenSEO 経由に変更** |
-| [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** 公開経路の断（本番は ALB とその後ろ）・Webhook 用のトンネル断・欠測・二重送信の検出仕様と縮退運転 |
+| [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化）。**`I-15` は OpenSEO 経由に変更**。**`I-13` はローカル（監視アプリの定期実行）から起票する**（ADR-17） |
+| [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** 公開経路の断（本番は ALB とその後ろ）・本番の n8n の停止（ADR-16 の前は Webhook 用のトンネル断）・欠測・二重送信・誤った書き込み（エージェント専用ユーザーの送信の記録。ADR-17）の検出仕様と縮退運転（監視アプリと定期実行・本番と開発環境の Strapi の停止、**開発機を失ったときの `E-15` の喪失と S3 の写しからの復旧**〈ADR-18〉を含む） |
 
 ## 連携点とファイルの対応
 
@@ -46,27 +61,27 @@ AA-02 のカタログ 24 本すべての行き先。**どの連携も必ず 1 �
 
 | # | 連携（AA-02） | ファイル | 詳細設計の完成度 | 確定を止めているもの |
 |---|---|---|---|---|
-| `I-01` | Strapi → PostHog（記事イベント） | [04](04-server-to-server-flows.md) | `仕様確定` | — |
-| `I-02` | Strapi → PostHog（例外） | [04](04-server-to-server-flows.md) | `仕様確定` | — |
-| `I-03` | エージェント → Chatwoot（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | — |
+| `I-01` | Strapi → PostHog（記事イベント） | [04](04-server-to-server-flows.md) | `仕様確定` | —（PostHog のプロジェクトは開発環境と本番で分ける。ADR-16） |
+| `I-02` | Strapi → PostHog（例外） | [04](04-server-to-server-flows.md) | `仕様確定` | —（同上） |
+| `I-03` | エージェント → Chatwoot（MCP） | [03](03-operation-path-flows.md) | **`条件付き`**（ADR-17 で `仕様確定` から変えた） | **本番（`chatwoot-prod`）に接続する前に、社内メモと顧客への送信を分けること**（ADR-17。社内メモ専用のツールを `chatwoot-mcp` に足すか、社内メモ用の登録を分けるか。[03 の 2.3](03-operation-path-flows.md)）。開発環境（`chatwoot`）への接続はこの条件を待たない |
 | `I-04` | エージェント → Mautic（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | — |
 | `I-05` | ブラウザ → Umami | [02](02-public-path-flows.md) | `条件付き` | Umami のサイト登録（`websiteId` の取得）／本番の AWS の Umami と ALB（ADR-12。TA-06） |
 | `I-06` | ブラウザ → PostHog | [02](02-public-path-flows.md) | **`前提待ち`** | **同意取得の実装手段（DA-03 の未決定事項）** |
 | `I-07` | ブラウザ → Chatwoot ウィジェット | [02](02-public-path-flows.md) | `条件付き` | Web サイト受信箱の作成（`website_token` の取得）／本番の AWS の Chatwoot と ALB |
 | `I-08` | ブラウザ → Mautic フォーム | [02](02-public-path-flows.md) | `条件付き` | Mautic のフォーム作成／本番の AWS の Mautic と ALB |
-| `I-09` | Strapi → Astro（ビルド） | [05](05-build-and-delivery-flows.md) | `条件付き` | Strapi に公開記事が 1 件以上あること／`SITE_URL` の設定 |
+| `I-09` | Strapi → Astro（ビルド） | [05](05-build-and-delivery-flows.md) | `条件付き` | 本番の Strapi（`cms.comegin.com`。TA-06）に公開記事が 1 件以上あること（**公開は `R2` が本番の管理画面で行う**。ADR-17）／`SITE_URL` の設定／ビルド用の読み取り専用 API トークンの発行／**メディアの S3（非公開）をビルドが取得する方法**（TA-06 の 11 節）（読むのは本番の Strapi。ADR-16。ADR-15 ではオンプレの Strapi だった） |
 | `I-10` | Astro → Lighthouse CI | [05](05-build-and-delivery-flows.md) | `仕様確定` | — |
-| `I-11` | Mautic → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | n8n のワークフロー作成（`承認` 分類・`R1`）／**本番では ngrok の常設トンネル（固定ドメイン）**（AWS の Mautic からオンプレの n8n へ届くため。ADR-12） |
+| `I-11` | Mautic → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | n8n のワークフロー作成（`承認` 分類・`R1`）／**本番の n8n（AWS）と、VPC の中で Webhook を届ける方法**（TA-06 の 11 節。ADR-16）。ADR-12 の時点では ngrok の常設トンネル（固定ドメイン）が前提だったが、ADR-16 で n8n も AWS に移って不要になった |
 | `I-12` | Chatwoot → n8n（Webhook） | [04](04-server-to-server-flows.md) | `条件付き` | 同上 |
-| `I-13` | n8n → GitHub（起票） | [06](06-proposal-loop-flows.md) | `条件付き` | 同上／GitHub の細粒度トークン発行 |
+| `I-13` | n8n → GitHub（起票）。**ADR-17 で発信元はローカル（監視アプリの定期実行）に変わった** | [06](06-proposal-loop-flows.md) | `条件付き` | 監視アプリの定期実行と起票の処理の実装（TA-07 の 3.5）／GitHub の細粒度トークン発行と起票用のアカウント（[06 の 2.2](06-proposal-loop-flows.md)）。**「どの n8n で動かすか」は ADR-17 でローカルに決着した**（ADR-16 で本番の n8n がローカルの `docs/proposals/` を読めなくなって生じた論点。[06 の 2.5](06-proposal-loop-flows.md)） |
 | `I-14` | ~~n8n → Chatwoot（社内メモ）~~ | [06 の 3 節](06-proposal-loop-flows.md) | **`廃止`** | **通知は GitHub の PR に一本化**（`R1` の 2026-09-17 の決定）。Chatwoot は顧客対応の用途に限る |
 | `I-15` | Search Console → **OpenSEO** → 観測エージェント | [06](06-proposal-loop-flows.md) | `条件付き` | ドメインプロパティの登録と所有権確認・OAuth クライアントの発行（**人間の作業**）。**配信ホスト名には依存しなくなった**（2026-09-18） |
-| `I-16` | エージェント → Strapi（`strapi-mcp`） | [03](03-operation-path-flows.md) | `仕様確定` | —（ADR-07 でリスク受容済み。権限は Strapi 側の API トークンで絞る） |
-| `I-17` | エージェント → Umami（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | —（同上。ただし `I-05` が通るまで空を返す） |
+| `I-16` | エージェント → Strapi（`strapi-mcp` / `strapi-prod`） | [03](03-operation-path-flows.md) | `仕様確定` | —（ADR-07 でリスク受容済み。権限は Strapi 側のトークンで絞る。接続先は開発環境（`strapi-mcp`）と本番（`strapi-prod`。Admin トークンに削除の権限を与えない。**ADR-17 で公開・非公開化の権限も与えず、下書きまでにした**）の 2 系統。ADR-16。**`strapi-prod` は本番の Strapi を立てるまで登録できない**。Strapi 5 の Admin トークンで公開だけを外せるかは実装時に確かめる。TA-07 の 9 節） |
+| `I-17` | エージェント → Umami（MCP） | [03](03-operation-path-flows.md) | `仕様確定` | —（同上。接続先は本番（`umami-prod`）と開発環境（`umami`）の 2 系統。**本番への接続設定の付け替えが済むまで訪問者のデータは来ない**（下の未決定事項）。ADR-15・[03 の 5.3](03-operation-path-flows.md)） |
 | `I-18` | Mautic → PostHog（書き戻し） | [04](04-server-to-server-flows.md) | **`前提待ち`** | **越境の可否（DA-03・DA-05 の未決定事項）。決まるまで実装しない** |
 | `I-19` | Chatwoot → Mautic（email 突合） | [04](04-server-to-server-flows.md) | `条件付き` | `I-08` と `I-07` の双方が通り、突合対象が生まれること |
 | `I-20` | Astro `dist/` → 配信先 | [05](05-build-and-delivery-flows.md) | `条件付き` | 配信ホスト名の確定／デプロイの承認（`R1`） |
-| **`I-21`** | **n8n → Amazon SNS →（メール）運用者** | [04 の 8 節](04-server-to-server-flows.md) | `条件付き` | SNS のトピック作成／**購読の確認（受信者の手作業）**／通知専用 IAM ユーザーの発行 |
+| **`I-21`** | **n8n → Amazon SNS →（メール）運用者** | [04 の 8 節](04-server-to-server-flows.md) | `条件付き` | SNS のトピック作成／**購読の確認（受信者の手作業）**／本番の n8n のタスクロールへの `sns:Publish` の付与（ADR-16 で n8n が AWS に移ったため。当初は通知専用 IAM ユーザーの発行だった。TA-06 の 7 節） |
 | **`I-22`** | **エージェント → OpenSEO（MCP）** | [03 の 6 節](03-operation-path-flows.md) | `条件付き` | `comegin.com`・日本・日本語のプロジェクトの作成／エージェント定義の許可リスト（ADR-10）。**MCP 設定の付け替えは 2026-09-18 に済んだ** |
 | **`I-23`** | **OpenSEO → DataForSEO** | [04 の 9 節](04-server-to-server-flows.md) | `仕様確定` | —（API キー設定済み。月次予算の監視手段だけが TA-05 の未決定事項） |
 | **`I-24`** | **OpenSEO → 公開サイト（サイト監査）** | [04 の 10 節](04-server-to-server-flows.md) | `条件付き` | 公開サイトが存在すること（`I-20`） |
@@ -79,15 +94,15 @@ AA-02 の 4 節の着手順を、この文書群の節に対応させる。
 
 | 順 | やること | 読む節 |
 |---|---|---|
-| **0** | AWS の Umami・Chatwoot・Mautic と ALB（TA-06。2026-09-18 に ngrok の常設トンネルから置き換えた。ADR-12） | [02 の 1 節](02-public-path-flows.md)（経路の定義）／[07 の 2 節](07-failure-and-degradation.md)（死活監視） |
+| **0** | AWS の Umami・Chatwoot・Mautic と ALB（TA-06。2026-09-18 に ngrok の常設トンネルから置き換えた。ADR-12。エージェントの本番向け MCP もこの ALB を通る。ADR-15）。**ADR-16 で本番の Strapi と n8n もここに加わった** | [02 の 1 節](02-public-path-flows.md)（経路の定義）／[07 の 2 節](07-failure-and-degradation.md)（死活監視） |
 | 1 | `I-05` Umami トラッカー | [02 の 2 節](02-public-path-flows.md) |
-| 2 | `I-09` Astro ← Strapi | [05 の 1 節](05-build-and-delivery-flows.md) |
+| 2 | `I-09` Astro ← Strapi（**配信用のビルドは本番の Strapi を読むため 0 に依存する**。開発環境の Strapi で先に配線できる。ADR-16。ADR-15 の時点ではオンプレの Strapi を読むため 0 に依存しなかった） | [05 の 1 節](05-build-and-delivery-flows.md) |
 | 3 | `I-10` Lighthouse CI の蓄積 | [05 の 2 節](05-build-and-delivery-flows.md) |
 | 4 | `I-08` CTA フォーム | [02 の 5 節](02-public-path-flows.md) |
 | 5 | `I-06` PostHog トラッカー | [02 の 3 節](02-public-path-flows.md)（**`前提待ち`**） |
 | 6 | `I-15` Search Console（OpenSEO 経由） | [06 の 4 節](06-proposal-loop-flows.md)／[03 の 6.3](03-operation-path-flows.md) |
-| 7 | `I-11` `I-12` webhook → n8n | [04 の 3 節・4 節](04-server-to-server-flows.md) |
-| 8 | `I-13` 提案の起票（通知は GitHub の PR） | [06 の 2 節・3 節](06-proposal-loop-flows.md) |
+| 7 | `I-11` `I-12` webhook → n8n（本番は AWS の n8n が VPC の中で受ける。0 に依存する。ADR-16） | [04 の 4 節・5 節](04-server-to-server-flows.md) |
+| 8 | `I-13` 提案の起票（通知は GitHub の PR）。**ローカルの処理を監視アプリの定期実行から起動する**（ADR-17。監視アプリのスケジュールの実装に依存する。TA-07 の 3.5） | [06 の 2 節・3 節](06-proposal-loop-flows.md) |
 | **9** | **`I-21` 通知（Amazon SNS）** | [04 の 8 節](04-server-to-server-flows.md)（仕様）／[07 の 6 節](07-failure-and-degradation.md)（縮退運転） |
 | **並行** | **`I-22` `I-23` OpenSEO の調査**（どの手順にも依存しない） | [03 の 6 節](03-operation-path-flows.md)／[04 の 9 節](04-server-to-server-flows.md) |
 
@@ -99,7 +114,7 @@ AA には無く、実装着手には不可欠だったもの。すべて [01-flo
 
 | # | 決めたこと | 節 |
 |---|---|---|
-| 1 | **相関 ID（ULID）を導入し、`E-13` の必須項目 `agent_run_id` の空欄を暫定で埋める** | [01 の 3 節](01-flow-specification-rules.md) |
+| 1 | **相関 ID（ULID）を導入し、`E-13` の必須項目 `agent_run_id` の空欄を暫定で埋める**（ADR-18 の後は監視アプリが発行し、`E-15` を引くキーになる） | [01 の 3 節](01-flow-specification-rules.md) |
 | 2 | **失敗分類を 9 値に固定し、`empty_but_ok` を成功として扱う** | [01 の 4 節](01-flow-specification-rules.md) |
 | 3 | **再試行の可否を失敗分類から決める**（`permission_denied` は再試行しない。**費用が発生する連携はすべての分類で再試行しない**） | [01 の 5 節](01-flow-specification-rules.md) |
 | 4 | **冪等キーを 4 本（`I-08` `I-11` `I-12` `I-13`）に与える** | [01 の 6 節](01-flow-specification-rules.md) |
@@ -123,7 +138,50 @@ AA には無く、実装着手には不可欠だったもの。すべて [01-flo
 |---|---|---|---|
 | **同意取得の実装手段** | `I-06` の初期化タイミングと、同意状態の保存先が決まらない | `R1` `R3` | DA-03 |
 | **PostHog への越境の可否** | `I-18` を設計できない（キーの形すら決められない。email のハッシュも個人データとして越境する） | `R1` | DA-03・DA-05 |
-| **`E-15 AgentRun` の正本** | 相関 ID を暫定で ULID にしたが、正本が決まれば移行が要る（[01 の 3.4](01-flow-specification-rules.md)） | `R1` | DA-01・AA-03・AA-04 |
+| **`E-15` の保持期間**（ADR-18。ADR-18 の追加の決定でも未決定のまま） | 少なくとも改善の検証の期間（`expectation.judge_after`。既定 30 日）と `rollback.deadline` を覆う（この層の見立てが上位層に取り込まれた）が、値が決まらない。S3 の写しの保持期間と、**「写しの削除を許さない」ことと「期間を過ぎた写しを消す」ことをどう両立させるか**（[07 の 8 節](07-failure-and-degradation.md)）も同時に決まらない | `R1` | AA-05 の ADR-18・TA-07 の 3.6・9 節・DA-05 |
+| **`E-15` を S3 に写す頻度と形式**（ADR-18 の追加の決定 5 で「写す」は決着） | 開発機を失ったときに失われうる分（最後に写してから失うまで）の大きさが決まらない（[07 の 6.2](07-failure-and-degradation.md)）。暴走条件 #7 の 2 つ目の条件（[07 の 7.1](07-failure-and-degradation.md)）の残りがこれに掛かる | `R1` | AA-05 の ADR-18・TA-07 の 3.6・9 節 |
+| **要約に個人情報が入っていないことの検査の方法**（ADR-18 の追加の決定 4） | 監視アプリが `E-15` に書く前の検査（メールアドレス・電話番号の形）の実装が書けない。氏名のように形で検出できないものは、エージェント定義の規則（人は ID で指す）に頼る。`skipped` の理由（[06 の 1.2](06-proposal-loop-flows.md)）や失敗の要約がこの検査を通る | `R1` | TA-07 の 3.6・9 節 |
+| **監視アプリが読む `main` のチェックアウトの更新のタイミングと主体**（ADR-18 の追加の決定 3 で「Git で持ち、承認済みの `main` から読む」は決着） | マージしてから定義の変更が次の実行に効くまでの遅れと、更新を誰が行うか（人間か監視アプリか）が決まらない。定期実行の許可リスト（[03 の 7 節](03-operation-path-flows.md)）と起票の処理（[06 の 2.4](06-proposal-loop-flows.md)）の入れ替えの手順がこれに掛かる | `R1` | TA-07 の 3.5・9 節 |
+| **Chatwoot の社内メモの分け方**（ADR-17） | 分けることは決まったが、**社内メモ専用のツールを `chatwoot-mcp` に足すか、社内メモ用の登録を分けるか**が決まらない。`I-03` の本番への接続（`agent/conversation-triage` の許可リスト）が書けない（[03 の 2.3](03-operation-path-flows.md)） | `R1` | TA-07 の 9 節 |
+| **Strapi 5 の Admin トークンで公開だけを外せるか**（ADR-17） | `strapi-prod` を「下書きまで」に絞れるかが実装時まで分からない。外せない場合、`agent/content-writer` の境界が約束にとどまる（[03 の 4.2](03-operation-path-flows.md)） | `R1` | TA-07 の 9 節 |
+| **定期実行のスケジュールの仕組み**（ADR-17） | 監視アプリのプロセスの中に持つか、OS のタイマーから呼ぶかで、定期実行が止まる条件と、その停止の検出（[07 の 3 節](07-failure-and-degradation.md)）が変わる。`I-13` と日次バッチの起動が書けない | `R1` | TA-07 の 3.5・9 節 |
 | **配信ホスト名（apex か `www` か）** | `I-20` の実行と、`SITE_URL` を含む 4 変数の値が決まらない（`I-15` は 2026-09-18 にドメインプロパティで登録すると決め、依存が外れた） | `R2` | `docs/README.md` の横断的未決定事項 |
-| **Umami MCP（`I-17`）の接続設定の付け替え** | 接続先は 2026-09-18 に決定済み（自前の Umami の `/mcp` に閲覧専用ユーザーの API キーで接続。Umami Cloud は使わない）。**付け替えるまで、エージェントは訪問者のデータを読めない**（現在の設定は Umami Cloud を向き、サイトは 0 件）。取り込み済みの `middleware/umami-master` は 2026-09-18 に v3.4.0 へ取り込み直した（API キーと `/mcp` を持つ） | `R1` | AA-02 の 5 節・TA-06 の 5.4 |
+| **本番の Strapi のメディア（S3・非公開）をビルドが取得する方法**（ADR-16） | `I-09` の画像の取り込み（[05 の 1.5](05-build-and-delivery-flows.md)）で、`image.remotePatterns` に何を登録し、どの URL を `<Image>` に渡すかが決まらない（署名付き URL を使うかどうか） | `R1` | TA-06 の 11 節 |
+| **n8n の Webhook を VPC の中で届ける方法**（ADR-16） | `I-11` `I-12` の送信先の URL（`N8N_WEBHOOK_URL`）が決まらない（ECS Service Connect か Cloud Map の内部の名前か、ALB の内部向けのリスナーか） | `R1` | TA-06 の 11 節 |
+| **Umami MCP（`I-17`）の接続設定の付け替え** | 接続先は 2026-09-18 に決定済み（自前の Umami の `/mcp` に閲覧専用ユーザーの API キーで接続。Umami Cloud は使わない）。ADR-15 で本番の Umami の `/mcp` に接続することが正式な経路になった（`umami-prod`）。残るのは付け替えの実施だけである。**付け替えるまで、エージェントは訪問者のデータを読めない**（現在の設定は Umami Cloud を向き、サイトは 0 件）。取り込み済みの `middleware/umami-master` は 2026-09-18 に v3.4.0 へ取り込み直した（API キーと `/mcp` を持つ） | `R1` | AA-02 の 5 節・TA-06 の 5.4・AA-05 の ADR-15 |
 | **`R2` の代理承認** | `E-13` の `review` 状態の滞留上限を決められない | `R1` | BA-05 |
+
+### 2026-09-19 に ADR-16 で解決したもの
+
+| 旧項目 | 決着 | 反映先 |
+|---|---|---|
+| **本番の MCP 登録の権限範囲**（ADR-15 で上げた。本番の `chatwoot-prod` でエージェントが顧客へメッセージを送ってよいか、本番の上限を `read_write` のままにするか） | **顧客への送信は許す**（送信系のツールを外さない。分類は BA-05 のとおり `承認`・`R3`）。**本番の上限は `read_write` で確定**（`strapi-prod` は Admin トークンの権限で同等に絞る） | [03 の 2.1・2.3](03-operation-path-flows.md)・[06 の 3.4](06-proposal-loop-flows.md) |
+| 配信したあとの `applied_at` を誰が記録するか | **配信した人間**（n8n の有効化も同じ）。MCP での書き込みは Claude Code が完了時に記録する | [06 の 1.5](06-proposal-loop-flows.md) |
+| PostHog のプロジェクトを開発環境と本番で分けるか | **分ける** | [03 の 7 節](03-operation-path-flows.md)・[04 の 2 節](04-server-to-server-flows.md) |
+| エージェントによる本番への誤った書き込みの検出 | **Chatwoot の監査ログと `E-13` を突き合わせる**（Enterprise の `audit_logs` が前提。Community ならエージェント専用ユーザーの `sender` で代替。頻度は未決定）。**ADR-17 で監査ログに頼らず、エージェント専用ユーザーの送信の記録で行う形に改めた**（下の表） | [07 の 4 節](07-failure-and-degradation.md) |
+| 本番の Webhook が ngrok のトンネル断で欠ける | **n8n を AWS に置き、VPC の中で完結させた**。ngrok は Astro dev サーバーの共有だけに残る | [04 の 4 節・5 節](04-server-to-server-flows.md)・[07 の 2.5](07-failure-and-degradation.md) |
+
+### 2026-09-19 に ADR-17 で解決したもの
+
+ADR-16 の反映で見つかった論点のうち、ADR-17 で決着したもの。**経緯は各ファイルの本文と未決定事項に残した。**
+
+| 旧項目 | 決着 | 反映先 |
+|---|---|---|
+| **AWS の n8n からローカルのエージェントを起動できない**（日次バッチの起動元） | **エージェントを使う定期処理は監視アプリが起動する**（ADR-05 の「日次のスケジュール起動は n8n」を置き換え）。取得の範囲はスケジュールの定義に固定し、同じ処理を重ねて起動しない。エージェントを使わない決定論的な定期処理は本番の n8n のまま | [06 の 1.1](06-proposal-loop-flows.md)・[07 の 3 節・6 節](07-failure-and-degradation.md) |
+| **`I-13` をどの n8n で動かすか**（ADR-16 で生じた。案 A 開発環境の n8n／B 本番の n8n／C 作らない） | **ローカルで動かす**（監視アプリの定期実行。ADR-05 の「`I-13` は n8n」を置き換え）。この層では、起票はエージェントではなく監視アプリの決定論的な処理が行い、GitHub のトークンを Claude Code の実行環境に置かないと決めた（[06 の 2.4](06-proposal-loop-flows.md)） | [06 の 2 節](06-proposal-loop-flows.md) |
+| **記事の公開をきっかけにしたビルドの起動**（ADR-16 で生じた。AWS の n8n からローカルのビルドを起動できない） | **監視アプリの定期実行が本番の Strapi を見て、公開された記事があれば Claude Code がビルドと計測を行う**（案。TA-07 の 3.5・7 節）。Strapi → n8n の Webhook は使わない | [05 の 3.2・5 節](05-build-and-delivery-flows.md) |
+| **`strapi-prod` に公開の権限を与えるか**（ADR-16 は削除だけを明示し、公開を外すのはこの層の判断だった） | **与えない。下書きまで**（公開・非公開化・削除の権限を与えない）。**記事の公開は `R2` が本番の Strapi の管理画面で行う**。この層の判断（[03 の 4.1](03-operation-path-flows.md) の代替 C）が上位層で決定になった | [03 の 4 節](03-operation-path-flows.md)・[05 の 3.2](05-build-and-delivery-flows.md) |
+| **Chatwoot の社内メモが顧客に送られうる**（ADR-16 で送信を許した結果。この層は「分ける」を推奨していた） | **社内メモと顧客への送信を分ける**（決定）。社内メモ専用のツールを足すか、社内メモ用の登録を分けるかは未決定（上の表） | [03 の 2.3](03-operation-path-flows.md)・[06 の 3.4](06-proposal-loop-flows.md) |
+| **誤った書き込みの突き合わせに Chatwoot の監査ログ（Enterprise）を使うか** | **使わない。エージェント専用ユーザーの送信の記録（`sender`）と `E-13` で突き合わせる**（Community 版で運用できる）。拾えるのは送信だけで、会話の属性（担当者・ラベル・状態）の変更は拾えない。突き合わせは監視アプリの定期実行の 1 つ。頻度は未決定 | [07 の 4 節](07-failure-and-degradation.md) |
+
+### 2026-09-19 に ADR-18 で解決したもの
+
+**経緯は各ファイルの本文と未決定事項に残した。** ADR-18 の反映の時点では、記録の範囲・保持期間・開発機の外への写し・定期実行の定義の置き場所を上の表に残していた。**同日の ADR-18 の追加の決定（`R1`）で、このうち 3 つが決着した**（下の表の 3〜5 行目）。残る未決定（保持期間・写す頻度と形式・要約の個人情報の検査の方法・`main` のチェックアウトの更新）は上の表に置いた。
+
+| 旧項目 | 決着 | 反映先 |
+|---|---|---|
+| **`E-15 AgentRun` の正本**（4 層すべてで未解決だった。相関 ID を暫定で ULID にしたが、正本が決まれば移行が要る。**監視アプリの実行記録が候補**で、ADR-14 で浮上し、ADR-17 で起動元が監視アプリに一本化されて正本にする条件が揃っていた） | **監視アプリ（ローカル）の実行記録を正本にする**（ADR-16 の基準の唯一の例外。監視アプリをクラウドに置く案は採らない）。記録は監視アプリのサーバー側だけが書き、エージェントには書かせない。1 回の起動を 1 件とし、相関 ID で `E-13`・`E-14`・本番への書き込みと結ぶ。**n8n の実行履歴は `E-15` の正本ではない。** この層では、相関 ID を監視アプリが発行する形に改め、`agent_run_id` の ULID がそのまま `E-15` を引く参照になった（ULID を正式な形式にするかは DA の判断）。暴走条件 #7 は「不完全」から「条件付きで成立」に変わった | [01 の 3 節・10 節](01-flow-specification-rules.md)・[06 の 1.2・1.5](06-proposal-loop-flows.md)・[07 の 3.2・6.2・7.1](07-failure-and-degradation.md)・[04 の 1 節](04-server-to-server-flows.md) |
+| **本番の n8n に登録する Strapi の資格情報**（ADR-17 で `strapi-prod` を下書きまでにしたが、n8n の資格情報は決めていなかった） | **公開・非公開化・削除の権限を与えない**（下書きまで）。今の設計で本番の n8n が Strapi に書く処理は無いため、**必要になるまで登録しない** | [03 の 4.1](03-operation-path-flows.md)・[04 の 1 節](04-server-to-server-flows.md)・[06 の 2.4](06-proposal-loop-flows.md) |
+| **定期実行の定義（取得範囲・頻度・使うエージェントとツール）の置き場所**（ADR-17・ADR-18 の反映で上位層が未決定に上げていた。案はこの層の判断） | **Git で持つ。監視アプリは承認済みの `main` から作った別のチェックアウトで読み、定義の変更は必ず PR を通す**（追加の決定 3）。**この層の判断（[06 の 2.4](06-proposal-loop-flows.md)）が上位層で決定になった。** エージェントが作業ツリーで定義を書き換えても、承認されて `main` に入るまで次の実行に効かない。チェックアウトの更新のタイミングと主体は未決定（上の表）。監視アプリのコード（起票の処理）も同じチェックアウトから動かすこと、`E-15` の DB を作業ツリーの外に置くことは、引き続きこの層の判断である | [03 の 7 節](03-operation-path-flows.md)・[06 の 2.4](06-proposal-loop-flows.md)・[07 の 7.1](07-failure-and-degradation.md) |
+| **`E-15` に何を残すか**（ツールの結果を残すか、要約と ID だけか） | **要約と ID だけ**（追加の決定 4）。残すのは要約・対象の ID（会話・コンタクト・記事など）・相関 ID・成否・起動の種類で、ツールの結果は残さない。**要約にも個人情報を書かない**（人は ID で指す規則をエージェント定義に置き、監視アプリが記録の前に形を検査する。検査の方法は未決定）。この層では、**stderr のログ行は `E-15` に取り込まない**、**誤った書き込みの候補の絞り込みは対象の ID に依存する**、**`skipped` の理由は要約として残す**と整理した | [01 の 9.1・10 節](01-flow-specification-rules.md)・[03 の 6.2](03-operation-path-flows.md)・[06 の 1.2](06-proposal-loop-flows.md)・[07 の 4.1・7.1](07-failure-and-degradation.md) |
+| **`E-15` を開発機の外に写すか** | **S3 に写す**（追加の決定 5）。写しは正本ではなく、開発機を失ったときの復旧に使う。写しを書く資格情報は監視アプリのサーバー側だけに置き、**追記だけを許し、削除と上書きを許さない**。写す頻度と形式は未決定（上の表）。暴走条件 #7 の 2 つ目の条件（`E-15` を失わないこと）は、写す頻度の間の分を除いて満たされた | [07 の 3.2・6.2・7.1](07-failure-and-degradation.md) |

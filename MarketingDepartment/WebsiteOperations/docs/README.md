@@ -54,18 +54,19 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | [AA/02-integration-architecture.md](RequirementDefinition/AA/02-integration-architecture.md) | 連携点カタログ、露出経路の 2 分類、**着手順** |
 | [AA/03-agent-architecture.md](RequirementDefinition/AA/03-agent-architecture.md) | **エージェント 12 本の設計と権限** |
 | [AA/04-recursive-improvement-loop.md](RequirementDefinition/AA/04-recursive-improvement-loop.md) | **改善ループの制御仕様、安全装置、暴走条件** |
-| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜13。**ADR-09 OpenSEO の採用と GSC の統合、ADR-10 OpenSEO の MCP と費用の上限、ADR-11 Strapi の画像をビルド時に `dist/` へ取り込む、ADR-12 訪問者が触れるシステムを AWS に置く、ADR-13 管理画面の関門を Better Auth（Google Workspace）で作る**） |
+| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜18。**ADR-09 OpenSEO の採用と GSC の統合、ADR-10 OpenSEO の MCP と費用の上限、ADR-11 Strapi の画像をビルド時に `dist/` へ取り込む、ADR-12 訪問者が触れるシステムを AWS に置く、ADR-13 管理画面の関門を Better Auth（Google Workspace）で作る、ADR-14 本番はクラウド・オンプレは開発環境と管制、ADR-15 ローカルの Claude Code が MCP で本番の Mautic・Chatwoot・Umami も読み書きする・配信は人間の承認（Strapi をオンプレだけにした部分は ADR-16 で置き換え）、ADR-16 正本のデータを持つシステム〈Astro・Strapi・Mautic・Chatwoot・Umami・n8n〉はすべてクラウド、ローカルには道具だけ・ビルドは本番の Strapi を読む・顧客への送信は許可・本番は `read_write` で確定・PostHog は開発と本番で分ける・設定はそろえ続ける、ADR-17 エージェントの定期実行は監視アプリ（ローカル）から起動し `I-13` の起票もローカルへ（ADR-05 の一部を置き換え）・Chatwoot の社内メモと顧客への送信を分ける・`strapi-prod` は下書きまでで記事の公開は `R2` が管理画面で行う・誤った書き込みはエージェント専用ユーザーの送信の記録で突き合わせる、ADR-18 `E-15 AgentRun` の正本を監視アプリ（ローカル）の実行記録にする（ADR-16 の基準の唯一の例外）・本番の n8n に登録する Strapi の資格情報も下書きまで・記録は要約と ID だけで S3 に追記専用で写す・定期実行の定義は Git で持ち承認済みの `main` を読む**） |
 
 ### TA — Technology Architecture
 
 | ファイル | 内容 |
 |---|---|
-| [TA/01-deployment-topology.md](RequirementDefinition/TA/01-deployment-topology.md) | 配置境界、ポート割当、境界越え通信 |
-| [TA/02-aws-product-delivery.md](RequirementDefinition/TA/02-aws-product-delivery.md) | Astro の AWS 構成、Cloudflare 代替 |
+| [TA/01-deployment-topology.md](RequirementDefinition/TA/01-deployment-topology.md) | 配置境界（**正本のデータを持つ本番〈Astro・Strapi・Mautic・Chatwoot・Umami・n8n〉は AWS、ローカルは道具〈Claude Code・MCP サーバ・監視アプリ・OpenSEO・Lighthouse CI・ビルド〉と全システムの開発環境**。ADR-16）、ポート割当、境界越え通信 |
+| [TA/02-aws-product-delivery.md](RequirementDefinition/TA/02-aws-product-delivery.md) | Astro の AWS 構成、Cloudflare 代替、**ビルドはローカルで本番の Strapi を読み、配信は人間の承認**（ADR-15・ADR-16） |
 | [TA/03-triggers-and-cicd.md](RequirementDefinition/TA/03-triggers-and-cicd.md) | トリガー 4 系統、n8n の Git 管理外問題 |
-| [TA/04-security-and-secrets.md](RequirementDefinition/TA/04-security-and-secrets.md) | 秘匿値（本番は Secrets Manager）、**経路分離（本番は ALB、オンプレに残る経路は ngrok）**、MCP の権限、**OpenSEO と GSC の OAuth** |
+| [TA/04-security-and-secrets.md](RequirementDefinition/TA/04-security-and-secrets.md) | 秘匿値（本番は Secrets Manager）、**経路分離（本番は ALB。Webhook は VPC の中。ngrok は Astro dev サーバーの共有だけ。ADR-16）**、MCP の権限、**OpenSEO と GSC の OAuth** |
 | [TA/05-observability-and-ops.md](RequirementDefinition/TA/05-observability-and-ops.md) | 監視、バックアップ、構成管理 |
-| [TA/06-aws-runtime.md](RequirementDefinition/TA/06-aws-runtime.md) | **Mautic・Chatwoot・Umami の本番実行環境**（ECS on Fargate、RDS・ElastiCache・S3・EFS、ALB の経路分離、SES） |
+| [TA/06-aws-runtime.md](RequirementDefinition/TA/06-aws-runtime.md) | **Strapi・Mautic・Chatwoot・Umami・n8n の本番実行環境**（ECS on Fargate、RDS・ElastiCache・S3・EFS、ALB の経路分離、SES。**Strapi と n8n は ADR-16 で追加。n8n のサンドボックスは置かない。ADR-18 で監視アプリの実行記録〈`E-15`〉の写しの S3〈追記専用〉を追加**） |
+| [TA/07-onprem-control-plane.md](RequirementDefinition/TA/07-onprem-control-plane.md) | **オンプレの管制環境**（全システムの開発環境、**監視アプリ（Next.js）**、Claude Code への指示の経路、**MCP の開発用と本番用の登録**、本番への作用の経路、**開発環境と本番をそろえ続ける手順、誤った書き込みの検知、エージェントの定期実行、実行記録（`E-15` の正本）**。ADR-14・ADR-15・ADR-16・ADR-17・ADR-18） |
 
 ### 詳細設計（`DetailedDesign/`）
 
@@ -91,19 +92,19 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | Capability | 主担当 | 主なデータ | アプリケーション | 基盤 | 状態 |
 |---|---|---|---|---|---|
 | `CAP-01` 事業戦略・KPI 管理 | `R2` | `E-12` 指標 | Umami + PostHog + Mautic | AWS（Umami・Mautic の本番。ADR-12）+ SaaS | `未配線` |
-| `CAP-02` キーワード戦略 | `R2` | `E-01` `E-02` | Strapi `api::keyword.keyword` ＋ **OpenSEO**（調査） | オンプレ Docker ＋ DataForSEO | `未配線` |
-| `CAP-03` コンテンツ企画 | `R2` | `E-03` | Strapi `api::content-plan.content-plan` | オンプレ Docker | `未着手` |
-| `CAP-04` コンテンツ制作 | `R4` | `E-04` | Claude Code + strapi-mcp | オンプレ Docker | `未配線` |
+| `CAP-02` キーワード戦略 | `R2` | `E-01` `E-02` | Strapi `api::keyword.keyword` ＋ **OpenSEO**（調査） | **AWS（Strapi。ADR-16）**＋ オンプレ（OpenSEO）＋ DataForSEO | `未配線` |
+| `CAP-03` コンテンツ企画 | `R2` | `E-03` | Strapi `api::content-plan.content-plan` | **AWS（Strapi。ADR-16）** | `未着手` |
+| `CAP-04` コンテンツ制作 | `R4` | `E-04` | **監視アプリ（Next.js）→** Claude Code + strapi-mcp（本番は `strapi-prod`。**記事の正本は本番の Strapi**。ADR-16。**エージェントは下書きまで**。ADR-17） | **AWS（Strapi。ECS + RDS + S3。TA-06）**＋ オンプレ（監視アプリ。TA-07） | `未配線` |
 | `CAP-05` デザイン制作 | `R1` | `E-05` `E-06` | Astro + shadcn/ui + Tailwind v4 | ビルド時 | `未配線` |
 | `CAP-06` 品質保証・承認 | `R2` | `E-14` | Lighthouse CI + GitHub の PR レビュー | ローカル + GitHub | `未配線` |
-| `CAP-07` コンテンツ公開・配信 | `R1` | `E-04` `E-05` | Strapi の `publishedAt` + Astro 再ビルド | AWS S3 + CloudFront | `未着手` |
+| `CAP-07` コンテンツ公開・配信 | `R1` | `E-04` `E-05` | Strapi の `publishedAt`（**`R2` が本番の管理画面で公開**。ADR-17）+ Astro 再ビルド（ローカル。本番の Strapi を読む。**監視アプリの定期実行が公開を見つけて起こす**。ADR-17。案）＋ **人間の承認で配信**（ADR-15・ADR-16） | AWS（Strapi）＋ オンプレ（ビルド・監視アプリ）＋ AWS S3 + CloudFront | `未着手` |
 | `CAP-08` エッジ配信・可用性 | `R1` | `E-05` | CloudFront（Cloudflare の代替） | AWS | `未着手` |
 | `CAP-09` テクニカル SEO | `R1` | `E-12` | Lighthouse CI + Astro ＋ **OpenSEO**（GSC・サイト監査） | ローカル ＋ Google | **`実装済み`**（Lighthouse のみ。GSC は未接続） |
 | `CAP-10` 行動観測・効果測定 | `R3` | `E-07` `E-08` `E-12` | Umami（母数）+ PostHog（行動） | **AWS**（ECS + RDS + ALB。TA-06）+ SaaS | `未着手` |
-| `CAP-11` リード獲得・育成 | `R3` | `E-06` `E-09` | Mautic + mautic-mcp + **Amazon SNS**（通知）+ **Amazon SES**（顧客向けメール） | **AWS**（ECS + RDS + EFS + ALB。TA-06）＋ オンプレ（MCP・n8n。Webhook は ngrok） | `未配線` |
-| `CAP-12` Web 接客 | `R3` | `E-10` | Chatwoot + chatwoot-mcp + **Amazon SNS**（通知） | **AWS**（ECS + RDS + ElastiCache + S3 + ALB。TA-06）＋ オンプレ（MCP・n8n。Webhook は ngrok） | `未配線` |
-| `CAP-13` 監視・障害対応 | `R1` | `E-12` | PostHog（Error Tracking） + **Amazon SNS**（障害通知）+ CloudWatch（本番の AWS 側） | SaaS + healthcheck + AWS | `未配線` |
-| `CAP-14` 改善提案の生成と承認 | `R2` | `E-13` `E-14` `E-15` | Git / GitHub | GitHub | `未着手` |
+| `CAP-11` リード獲得・育成 | `R3` | `E-06` `E-09` | Mautic + mautic-mcp + **Amazon SNS**（通知）+ **Amazon SES**（顧客向けメール） | **AWS**（ECS + RDS + EFS + ALB、n8n。Webhook は VPC の中。TA-06・ADR-16）＋ オンプレ（MCP） | `未配線` |
+| `CAP-12` Web 接客 | `R3` | `E-10` | Chatwoot + chatwoot-mcp + **Amazon SNS**（通知） | **AWS**（ECS + RDS + ElastiCache + S3 + ALB、n8n。Webhook は VPC の中。TA-06・ADR-16）＋ オンプレ（MCP） | `未配線` |
+| `CAP-13` 監視・障害対応 | `R1` | `E-12` | PostHog（Error Tracking） + **Amazon SNS**（障害通知）+ CloudWatch（本番の AWS 側）+ **監視アプリ（表示。TA-07）** | SaaS + healthcheck + AWS + オンプレ（監視アプリ） | `未配線` |
+| `CAP-14` 改善提案の生成と承認 | `R2` | `E-13` `E-14` `E-15` | Git / GitHub ＋ **監視アプリ**（エージェントの定期実行と `I-13` の起票の起動元。ADR-17。**実行記録が `E-15` の正本**。ADR-18） | GitHub ＋ オンプレ（監視アプリ。**`E-15` の正本がローカルにある**。ADR-18） | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | `R1` | **未定義**（下記参照） | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システム個別 | `実装済み`（MCP 側のみ） |
 | `CAP-16` 戦略知見の獲得 | `R2` | `E-01` `E-03` `E-12`（`source: market`。知見メモは**未定義**） | Claude Code ＋ **OpenSEO**（競合・SERP） | Git（`docs/knowledge/`）＋ DataForSEO | `未配線` |
 
@@ -132,6 +133,7 @@ EA の記述のうち、実行環境に対して実際に確認した事実を�
 | **公開ドメイン** | **`comegin.com` を取得済み**（Route 53 登録、有効期限 2027-09-16、ホストゾーン作成済み）。EA 執筆時点では「未取得」としていたが誤りだった |
 | AWS リソース | S3・CloudFront・ACM・WAF・OAC とも **0 件**。`cloud/` が空であることと整合する |
 | **Amazon SNS** | **トピック 0 件・サブスクリプション 0 件**（東京リージョン）。`CreateTopic` / `Subscribe` / `Publish` / `SetTopicAttributes` / `ListSubscriptionsByTopic` の権限は**すべて `allowed`**。通知の宛先として採用（[ADR-08](RequirementDefinition/AA/05-application-decisions.md)） |
+| **監視アプリ（Next.js。ADR-14）** | `frontend/next-js` に**雛形（Next.js 16.3.5）と Better Auth（1.7.5）の導入だけ**がある（`app/page.tsx` は雛形のまま）。`.env.example` の `BETTER_AUTH_URL` は `http://localhost:3000` で、**Umami（3000）と衝突する**。開発ポートを 3200 にする（[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 4 節） |
 | **AWS の実行環境（ADR-12）** | **2026-09-18 に確認。** ECS クラスター 0 件、VPC はデフォルトのみ。`ap-northeast-1` で RDS for MySQL 8.4・PostgreSQL 16 / 17、ElastiCache の Valkey・Redis OSS 7.1 が使える。**SES はサンドボックスのまま**（本番アクセスの申請が必要）（[TA/06](RequirementDefinition/TA/06-aws-runtime.md) の 1 節） |
 | **CloudFront の課金方式** | フラットレートプランの **Free（$0/月）**を採用する。CDN・WAF・DDoS 対策・Route 53 DNS・TLS 証明書・S3 クレジットを含み、**超過課金が無い**（[TA/02](RequirementDefinition/TA/02-aws-product-delivery.md) の 8 節） |
 
@@ -143,21 +145,21 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 
 | 順 | やること | これが通ると何ができるか |
 |---|---|---|
-| **0** | **AWS の実行環境**（[TA/06](RequirementDefinition/TA/06-aws-runtime.md)。旧版は「ngrok の常設トンネル」） | 1・4 の前提。訪問者のブラウザから Umami・Chatwoot・Mautic に到達できるようになる（ADR-12） |
+| **0** | **AWS の実行環境**（[TA/06](RequirementDefinition/TA/06-aws-runtime.md)。旧版は「ngrok の常設トンネル」） | 1・2・4・7 の前提。訪問者のブラウザから Umami・Chatwoot・Mautic に到達できるようになり（ADR-12）、記事の正本（本番の Strapi）と Webhook の受け口（本番の n8n）ができる（ADR-16） |
 | 1 | Umami トラッカー | セッション数が測れる。CVR の分母が立つ |
-| 2 | Astro ← Strapi のデータ取得 | 記事ページが公開でき、観測の対象が生まれる（**手順 0 に依存しない**） |
+| 2 | Astro ← Strapi のデータ取得 | 記事ページが公開でき、観測の対象が生まれる（**ADR-16 で記事の正本が本番の Strapi に移ったため、手順 0 に依存する**。ADR-15 の間はオンプレの Strapi を読むため依存しなかった。取得処理の実装と検証は開発環境の Strapi で先に進められる） |
 | 3 | Lighthouse CI の蓄積 | `E-12` が継続的に溜まる（**手順 0 に依存しない**） |
 | 4 | CTA フォーム | CV 数と CVR が測れる |
 | 5 | PostHog トラッカー | ファネルと AB テストが測れる（PostHog は SaaS のため手順 0 に依存しない） |
 | 6 | Google Search Console（**OpenSEO 経由**） | 平均検索順位が測れる。**SEO という目的に対する測定が初めて成立する**。ドメインプロパティなら公開 URL の確定を待たずに登録できる |
-| 7 | webhook → n8n | 観測の日次バッチと通知が自動化できる（AWS の Mautic・Chatwoot からオンプレの n8n へは **ngrok の常設トンネル**を通る。TA-01 の経路 5） |
-| 8 | 提案の起票と通知 | ループが 1 周する |
+| 7 | webhook → n8n | Webhook を起点にした処理と通知が自動化できる（**ADR-16 で n8n も AWS に移り、Mautic・Chatwoot からの Webhook は VPC の中で届く**。旧版はオンプレの n8n へ ngrok の常設トンネルを通していた。ワークフローの本番での有効化は人間〈`R1`〉）。**観測の日次バッチは ADR-17 で監視アプリの定期実行に移り、この手順から外れた** |
+| 8 | 提案の起票と通知 | ループが 1 周する（**起票はローカルから行い、定期で起票するなら監視アプリの定期実行が前提**。ADR-17。手順 7 には依存しない。通知は GitHub の PR の機能） |
 | 9 | **Amazon SNS の通知**（`I-21`） | **顧客からの要求に気づけるようになる。** BA-04 のトスアップ条件の「通知」が初めて成立する |
 | **並行** | **OpenSEO の調査**（`I-22` `I-23`） | **キーワードの候補・検索ボリューム・競合が、記事を 1 本も公開していない今から取れる。** どの手順にも依存しない（MCP の付け替えは済んだ。残るのはプロジェクトの作成と月次予算の設定） |
 
 ### ループを最初に 1 周させる最短経路
 
-**全部を揃える必要は無い。Lighthouse CI だけで 1 周できる。** Umami・PostHog・Mautic・Chatwoot・GSC・n8n をいずれも必要とせず、**AWS の実行環境も ngrok のトンネルも必要としない**（Lighthouse CI だけが同一ホスト内で完結するため）。手順は [AA/04](RequirementDefinition/AA/04-recursive-improvement-loop.md) の 5.2 にある。
+**全部を揃える必要は無い。Lighthouse CI だけで 1 周できる。** Umami・PostHog・Mautic・Chatwoot・GSC・n8n をいずれも必要とせず、**AWS の実行環境も ngrok のトンネルも、監視アプリの定期実行（ADR-17）も必要としない**（Lighthouse CI だけが同一ホスト内で完結し、各手順は人間が起動するため）。手順は [AA/04](RequirementDefinition/AA/04-recursive-improvement-loop.md) の 5.2 にある。
 
 人間の手作業（コミットと PR レビュー）は**最初の 1 周から含める**。後から人間ゲートを足すと、動いている自動化に人間を割り込ませることになり、外す圧力が生じる。
 
@@ -169,18 +171,34 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 |---|---|---|
 | **集計限定を権限で表現できない** | `agent/analytics-reporter` に個票を読ませない制約が `ACCESS_LEVEL` では表せない（`mautic_get_contact` と `mautic_query_stats` がどちらも `read_only` に登録されるため）。DA が「個人情報の保護は `ACCESS_LEVEL` と取得範囲で行う」と決めた以上、**取得範囲でしか守れない箇所が 1 つ残る** | `R1` `R3` |
 | **エンティティの定義漏れ 2 件** | **トレーサビリティ表の検査で発覚。** `CAP-15` の監査ログと `CAP-16` の知見メモに対応する型が `E-01`〜`E-15` に無い。DA-05 は「`E-13` を経由しない変更を監査対象にする」と定めているが、**その監査ログを表す型が存在しない**ため、検出の仕組みを設計できない | `R1` |
-| **`E-15 AgentRun` の正本** | **4 層すべてで解決できなかった唯一の項目。** 大半のエージェントが Claude Code から直接走るため実行履歴が記録されず、「エージェントが自分の実行履歴を書き換える」暴走条件の歯止めが不完全なまま残る | `R1` |
-| **n8n ワークフローを `E-13` の対象にしてよいか** | 適用先が Git の外にあり取り消せない。ワークフローが承認ゲートの迂回路になりうる以上、対象から外して人間が直接設計する選択肢もある | `R1` |
+| **`E-15 AgentRun` の正本**（2026-09-19 に ADR-18 で解決） | **4 層すべてで解決できなかった唯一の項目だった。** 大半のエージェントが Claude Code から直接走るため実行履歴が記録されず、「エージェントが自分の実行履歴を書き換える」暴走条件の歯止めが不完全なまま残っていた。ADR-17 でエージェントの起動元が手動・定期とも監視アプリに一本化され、監視アプリの実行記録を正本にする条件が揃った。**ADR-18 で、監視アプリの実行記録を `E-15` の正本にした。** 監視アプリはローカルに置いたまま、記録もローカルに保存する（**ADR-16 の基準「正本のデータを持つものはクラウド」の唯一の例外**。監視アプリをクラウドに置く案は採らない）。記録は監視アプリのサーバー側だけが書き、エージェントには書かせない。1 回の起動（手動・定期）を 1 件とし、相関 ID（ULID）で `E-13`・`E-14`・本番への書き込みと結ぶ。n8n の実行履歴は `E-15` の正本ではない（エージェントの実行が残らない）（[AA/05](RequirementDefinition/AA/05-application-decisions.md) の ADR-18、[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.6）。**同日の追加の決定で、記録は要約と ID だけにし、S3 に追記専用で写すことにした。** **残件は下の「監視アプリの実行記録（`E-15`）の範囲・保持・写し」の行** | `R1` |
+| **n8n ワークフローを `E-13` の対象にしてよいか** | 適用先が Git の外にあり取り消せない。ワークフローが承認ゲートの迂回路になりうる以上、対象から外して人間が直接設計する選択肢もある。**ADR-16 で、本番へはエージェントが `n8n-prod` で置き、有効化は人間（`R1`）が行う形にした**（承認なしに動き出すことは無くなったが、有効化した後に戻せないことは変わらない。[AA/04](RequirementDefinition/AA/04-recursive-improvement-loop.md) の 3.3.1） | `R1` |
 | **Umami の compose の扱い** | 上流無改変の取り込み方針とセキュリティ要件が構造的に衝突している。TA は自作 compose への移行（案 C）を推奨。**ADR-12 の後は開発環境だけの課題**（本番の Umami は ECS で動き、この compose を使わない。TA-04 の 3 節） | `R1` |
 | **トスアップ条件の数値の置き場** | BA-04 は「暫定値・運用開始後に見直す前提」としているが、置き場の Mautic キャンペーン定義には**見直した履歴が残らない** | `R1` `R3` |
-| **Chatwoot の監査ログ** | Enterprise 機能のため使えない場合、「`E-13` を経由しない変更の検出」が成立しない | `R1` |
+| **誤った書き込みの突き合わせ**（旧「Chatwoot の監査ログ」。2026-09-19 に ADR-17 で一部決着） | 検出の方式は ADR-16 で「監査ログと `E-13` を突き合わせる。Enterprise の `audit_logs` が使えなければエージェント専用のユーザーのメッセージ〈`sender`〉で代える」と決まり、版と頻度が残っていた。**ADR-17 で、監査ログ（Enterprise）には頼らず、エージェント専用ユーザーの送信の記録で行うと決めた**（Community 版で運用できるように。[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 6.2）。版の論点は決着した。**残るのは頻度と取得手段**である。拾えるのは送信だけで、会話の属性（ラベル・担当者・状態）の変更は拾えず、「`E-13` を経由しない変更の検出」は部分的のまま。加えて `chatwoot-mcp` に送信者で横断して引く手段が無く、会話を順に読むと会話本文に触れる（[AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 5 節、[DA/05](RequirementDefinition/DA/05-data-governance.md) の 5 節） | `R1` |
 | **Google Search Console** | **取得手段は OpenSEO に決まった**（2026-09-18。[ADR-06](RequirementDefinition/AA/05-application-decisions.md)）。ドメインプロパティで登録するため**ホスト名の確定にも依存しない**。`comegin.com` は Google Workspace であり、**OAuth 同意画面を「内部」にする**と決めた（7 日の失効は起きない）。残るのは人間の作業（DNS での所有権確認・OAuth クライアントの発行・接続） | `R1` |
 | **OpenSEO の MCP と費用** | リポジトリの `ACCESS_LEVEL` も `sanitize()` も及ばず、**費用を発生させるツールを含む**。リスクを受容し、接続先 3 本・ツールの許可リスト・前払い残高・月次予算 10 USD で縛った（[ADR-10](RequirementDefinition/AA/05-application-decisions.md)）。**1 回あたりの上限は約束にとどまり、月次の支出を取得する手段も未定**（暴走条件 #11 の検出が部分的） | `R1` `R2` |
 | **SaaS 依存の原則の書き直し** | 「SaaS は PostHog のみ」を「自前で持つと一巡が遅くなる機能」と「自前で持てないデータの取得元」の 2 基準に置き換えた（[TA/01](RequirementDefinition/TA/01-deployment-topology.md) の 8 節）。**個人に関わるデータが越境する SaaS は PostHog だけ**という点は変わらない | `R1` |
 | **本番の管理画面の関門の方式**（2026-09-18 に解決） | **自作の `admin-auth`（Better Auth）を IdP にした ALB の OIDC 認証**に決めた（[ADR-13](RequirementDefinition/AA/05-application-decisions.md)）。ログインは Google Workspace（`hd` クレームを検査。2 段階認証は Workspace で必須）、認可は管理者の許可リスト。製品の SSO ではなく製品の手前の関門であり、SSO を導入しないという結論とは別の層。許可リストの追加と削除は BA-05 のチェックリストに入れた（[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 6 節）。**訪問者側は認証・認可をせず、WAF のレート制限だけ**。**Better Auth の OAuth 2.1 Provider と ALB の組み合わせは実地で未確認**（[TA/06](RequirementDefinition/TA/06-aws-runtime.md) の 11 節） | `R1` |
-| **オンプレの送信元 IP の固定可否**（2026-09-18 に解決） | 固定ではない。**IP による許可はやめ**、MCP サーバと n8n から本番の Chatwoot・Mautic の API は製品側の認証と WAF のレート制限で守る（[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 7 節） | `R1` |
-| **Umami MCP の接続設定の付け替え** | **接続先は 2026-09-18 に決定した**: 計測データは自前の Umami（本番は AWS）に置き、Umami Cloud は使わない。Umami v3.4.0 から自前の Umami にも API キーと `/mcp` があるため、ALB で開けるのは `/mcp` だけにする（[TA/06](RequirementDefinition/TA/06-aws-runtime.md) の 5.4）。**残件**: 本番の Umami を立てた後に MCP の接続設定を付け替えること（現在は Umami Cloud を向き、サイト 0 件。**付け替えるまでエージェントは訪問者のデータを読めない**）。取り込み済みの `middleware/umami-master` は 2026-09-18 に v3.4.0 へ取り込み直した | `R1` |
+| **オンプレの送信元 IP の固定可否**（2026-09-18 に解決） | 固定ではない。**IP による許可はやめ**、MCP サーバから本番の API は製品側の認証と WAF のレート制限で守る（[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 7 節）。n8n は ADR-16 で AWS に移り、本番の Chatwoot・Mautic の API を VPC の中から呼ぶ | `R1` |
+| **Umami MCP の接続設定の付け替え** | **接続先は 2026-09-18 に決定した**: 計測データは自前の Umami（本番は AWS）に置き、Umami Cloud は使わない。Umami v3.4.0 から自前の Umami にも API キーと `/mcp` があるため、ALB で開けるのは `/mcp` だけにする（[TA/06](RequirementDefinition/TA/06-aws-runtime.md) の 5.4）。**残件**: 本番の Umami を立てた後に `umami-prod`（本番の `/mcp`）を登録すること（ADR-15。現在の Umami MCP は Umami Cloud を向き、サイト 0 件。**登録するまでエージェントは訪問者のデータを読めない**）。取り込み済みの `middleware/umami-master` は 2026-09-18 に v3.4.0 へ取り込み直した | `R1` |
 | **通知経路の監視をどう閉じるか** | 通知を Amazon SNS に集約した（[ADR-08](RequirementDefinition/AA/05-application-decisions.md)）ことで「監視対象が通知経路を兼ねる」問題は解けたが、**SNS の購読が解除されたことを SNS 自身では知らせられない**。監視の連鎖が閉じていないのはこの 1 点だけ（[TA/05](RequirementDefinition/TA/05-observability-and-ops.md) の 8 節） | `R1` |
+| **本番への作用と計測値の読み取り**（2026-09-19 に ADR-15 で解決） | ローカルの Claude Code が MCP の本番用の登録（`chatwoot-prod` `mautic-prod` `umami-prod`。`read_write` まで）で本番を読み書きする。Astro の配信は人間が承認する（[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 6 節・7 節）。ADR-15 は Strapi をオンプレだけに戻したが、**同日の ADR-16 で本番に Strapi を置き、`strapi-prod` と `n8n-prod` の登録を加えた**。記事は本番にだけ書くため、開発から本番へ移す手段は引き続き不要 | `R1` |
+| **本番の配置の基準**（2026-09-19 に ADR-16 で解決） | **正本のデータを持つもの（Astro・Strapi・Mautic・Chatwoot・Umami・n8n）はクラウド、道具（Claude Code・MCP サーバ・監視アプリ・OpenSEO・Lighthouse CI・ビルド）と開発環境はローカル**。記事の正本と本番の自動化が開発機に依存しなくなり、ngrok は Astro dev サーバーの共有だけに残る。n8n は Fargate が privileged を受け付けないため、サンドボックスを置かずに動かす（[AA/05](RequirementDefinition/AA/05-application-decisions.md) の ADR-16、[TA/06](RequirementDefinition/TA/06-aws-runtime.md)）。**ADR-18 で例外が 1 つできた**（`E-15 AgentRun` の正本＝監視アプリの実行記録はローカルに置く。**写しは S3 に追記専用で置く**。写しは正本ではない） | `R1` |
+| **本番の Chatwoot で顧客へのメッセージ送信を許すか**（2026-09-19 に ADR-16 で解決） | **許す。** 送信系のツールを外さず、送信は BA-05 のとおり `承認`（`R3`）で扱う（[BA/05](RequirementDefinition/BA/05-governance.md)） | `R1` `R3` |
+| **本番の `ACCESS_LEVEL` の上限**（2026-09-19 に ADR-16 で解決） | **`read_write` で確定。** `strapi-prod` は Admin トークンの権限で同等に絞る（**ADR-17 で下書きまでに絞った**）。本番のレコード削除・統合は人間が本番の管理画面で行う（[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.3） | `R1` |
+| **`applied_at` の記録者と、開発と本番の設定のずれ**（2026-09-19 に ADR-16 で解決） | `applied_at` は**配信した人間**（n8n の有効化も有効にした人間、MCP での書き込みは Claude Code）が記録する。開発と本番の設定は**そろえ続ける**（開発用の登録で確かめ、`-prod` で本番に適用する。[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 6.1）。**n8n のワークフローの本番での有効化は新しい承認点（`承認`・`R1`）**になった（[BA/05](RequirementDefinition/BA/05-governance.md)） | `R1` |
+| **監視アプリに「承認して配信」の操作を置くか**（ADR-15） | 置く場合、配信用の IAM はサーバー側にだけ置き、Claude Code の実行環境には置かない。置かない場合、人間が端末で配信のコマンドを実行する（[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 7 節） | `R1` |
+| **監視アプリのログインと Agent SDK の仕様**（ADR-14） | ログインを本番の関門（Google Workspace）に合わせるか、オンプレ専用にするか。Agent SDK で MCP の接続先・許可するツール・権限モードを実行ごとに渡せるかを実装時に確認する（[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.3・3.4） | `R1` |
+| **PostHog のプロジェクトを開発と本番で分けるか**（2026-09-19 に ADR-16 で解決） | **分ける。** 開発環境の Strapi は開発用、本番の Strapi は本番用のプロジェクトに送る。**残件**: 既存のプロジェクト（project 610214）をどちらにするか（[DA/02](RequirementDefinition/DA/02-metrics-and-kpi.md) の 6 節） | `R1` |
+| **`strapi-prod` の Admin トークンで記事の公開を外せるか**（ADR-16 の反映で生じ、2026-09-19 に ADR-17 で決着） | 記事の公開は `承認`（`R2`）だが、Admin トークンに公開の権限が含まれるとエージェントが承認なしに公開できる、という論点だった。**ADR-17 で、`strapi-prod` に公開・非公開化・削除の権限を与えず下書きまでにし、記事の公開は `R2` が本番の管理画面で自ら行うと決めた**（承認を約束ではなく仕組みで守る）。**残件**: Strapi 5 の Admin トークンで「公開だけを外す」権限の設定ができるかを実装時に確かめる。できなければ ADR-07 の再検討（自作の MCP）に戻る（[BA/05](RequirementDefinition/BA/05-governance.md)、[AA/03](RequirementDefinition/AA/03-agent-architecture.md) の 8 節、[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 9 節） | `R1` `R2` |
+| **本番の n8n の資格情報と実行履歴**（ADR-16） | 本番の n8n は全システムの資格情報を持ち、狙われたときの被害が最も大きい。加えて実行履歴に Webhook で受けた email・本文が残る。実行データの保持の設定と、削除請求の対象に含めるかが未定（[DA/05](RequirementDefinition/DA/05-data-governance.md) の 5 節）。**n8n の実行履歴は `E-15` の正本ではない**（ADR-18。n8n 自身のワークフローの実行だけが残る） | `R1` |
+| **監視アプリの実行記録（`E-15`）の範囲・保持・写し**（旧「`E-15 AgentRun` の正本の候補」。ADR-14・ADR-17 で生じ、2026-09-19 に ADR-18 で正本の所在は決着。**同日の ADR-18 の追加の決定で範囲と写しも決着し、保持期間が残る**） | ADR-14 の時点では「監視アプリがエージェントの起動元に一本化されるなら、その実行記録を `E-15` の正本にできる可能性がある」という条件付きだった。ADR-17 で一本化され、「ローカルの実行記録を正本にすると ADR-16 の基準に反し、本番の個人情報が開発機に残る」ことが新たな論点になった。**ADR-18 で、ローカルに置くことを基準の例外として受け入れた。** その時点で残っていたのは（1）記録する範囲、（2）保持期間と削除請求、（3）開発機の外に写すか、の 3 点だった。**追加の決定で次のとおり決めた。**（1）**要約と ID だけを残す**（要約・対象の ID・相関 ID・成否・起動の種類。ツールの結果は残さない。要約にも個人情報を書かず、人は ID で指す規則を [AA/03](RequirementDefinition/AA/03-agent-architecture.md) の 3.5 に置き、監視アプリが記録前にメールアドレス・電話番号の形を検査する）。（3）**S3 に追記専用で写す**（写しは正本ではなく開発機を失ったときの復旧用。写しを書く資格情報は監視アプリのサーバー側だけで削除の権限を持たない。バケットは `ap-northeast-1`・パブリックアクセスを全ブロック・バージョニング有効で、削除と上書きを許さない。[TA/06](RequirementDefinition/TA/06-aws-runtime.md) の 4.7）。（2）は、`E-15` に個人情報が入らない前提になったため**削除請求の対象から外れうる**（要約の検査が漏れる余地は残る。[DA/05](RequirementDefinition/DA/05-data-governance.md) の 1.5）。**残るのは、保持期間**（少なくとも改善の検証の期間〈既定 30 日〉と `rollback.deadline` を覆う。S3 の写しの保持も合わせて決める。[DA/05](RequirementDefinition/DA/05-data-governance.md) の 2 節）、**写す頻度と形式**（[TA/05](RequirementDefinition/TA/05-observability-and-ops.md) の 8 節）、**要約の個人情報の検査の方法**、**ローカルの記録にエージェントが届かないことの担保**（[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 9 節）である。詳細は [TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.6・9 節 | `R1` |
+| **エージェントの定期実行の起動元**（2026-09-19 に ADR-17 で解決） | ADR-16 で n8n が AWS に移り、本番の n8n からローカルの Claude Code を起動できなくなった（ADR-16 の反映で見つかった）。**エージェントを使う定期処理（観測の日次バッチ・`I-13` の起票・公開された記事の確認・誤った書き込みの突き合わせ）は監視アプリが起動する**。Webhook の受け口とエージェントを使わない決定論的な定期処理は本番の n8n のまま（ADR-05 の一部を置き換え。[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.5）。**開発機が止まると改善ループも止まる**（本番のサービスは止まらない）。ハートビートの送り手を監視アプリにするか、スケジュールの仕組み（監視アプリの中か OS のタイマーか）は未決定 | `R1` |
+| **定期実行の定義をエージェントが書き換えられないこと**（ADR-17 で生じた論点。**2026-09-19 に ADR-18 の追加の決定で解決**） | 取得の範囲と起動の頻度は監視アプリのスケジュールの定義に固定する（ADR-05 の理由を守るため）。この定義（取得範囲・頻度・使うエージェントとツール）はエージェントの実行条件にあたり、BA-05 の基準では `禁止`（人間が行う）になるが、置き場所が決まっておらず、エージェントが編集できる場所に置くとコミットを経ずに次の実行に効く（たとえば調査の範囲を広げて費用を増やす）、という論点だった。**追加の決定で、定義は Git で持ち、監視アプリは承認済みの `main` から作った別のチェックアウトで読むと決めた。定義の変更は必ず PR を通す**（`E-14` の承認と同じ経路）。エージェントが作業ツリーで書き換えても、承認されて `main` に入るまで次の実行に効かない。BA-05 では `承認`（`R1`）として承認ゲートの一覧に載せた。**残件**: 監視アプリが読む `main` のチェックアウトをいつ・誰が更新するか、定期実行で起動した Claude Code が読むエージェント定義も `main` の版にするか（[AA/03](RequirementDefinition/AA/03-agent-architecture.md) の 8 節）、エージェントが `main` にマージできないことの担保（GitHub のブランチ保護。[TA/04](RequirementDefinition/TA/04-security-and-secrets.md) の 9 節）（旧版の案は「Git で持ち、承認済みの `main` から作った別の場所で監視アプリが読む」。ADR-18 の決定の際に AA-05・TA-07 の未決定事項として明記された。[AA/05](RequirementDefinition/AA/05-application-decisions.md) の未決定事項、[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.5・9 節、[AA/04](RequirementDefinition/AA/04-recursive-improvement-loop.md) の 3.5・6 節、[BA/05](RequirementDefinition/BA/05-governance.md)） | `R1` |
+| **`I-13` の起票の主体**（ADR-17 で生じた論点） | ADR-17 は「監視アプリから起動したエージェント、またはローカルの処理」とした。**エージェントにすると、リポジトリのルール（状態変更系の git コマンドの禁止）と、「エージェントは PR を作れない」ことを承認機構の安全装置とする設計（[AA/03](RequirementDefinition/AA/03-agent-architecture.md) の 5.3）が崩れる**。エージェントを使わないローカルの処理にすれば維持できる。あわせて、`E-14` を `E-13` に書き戻す主体（[DA/04](RequirementDefinition/DA/04-data-flow.md) の 2 節は n8n としている）も見直す | `R1` |
+| **Chatwoot の社内メモと顧客への送信の分け方**（ADR-17） | `chatwoot_send_message` は社内メモと送信を兼ね、`private` の既定値が `false`（顧客に送信）である。社内メモ専用のツールを `chatwoot-mcp` に足すか、社内メモ用の登録を分けるかを決める（実装はまだ）。**登録を分ける方法では `ACCESS_LEVEL` に「社内メモだけ」の段階が無く、クライアント側の許可リストに頼ることになる**（[AA/03](RequirementDefinition/AA/03-agent-architecture.md) の 8 節）。送信を担うエージェントが 12 本の中に無いことも合わせて決める | `R1` `R3` |
+| **n8n に登録する Strapi の資格情報**（ADR-17 で生じ、2026-09-19 に ADR-18 で解決） | エージェントのトークンから記事の公開の権限を外しても、本番の n8n に公開の権限を持つ Strapi のトークンを登録すれば、ワークフロー経由で公開できる（n8n のワークフローはエージェントが `n8n-prod` で作れる）、という論点だった。**ADR-18 で、本番の n8n に登録する Strapi の資格情報にも公開・非公開化・削除の権限を与えない（下書きまで）と決めた。** 今の設計で本番の n8n が Strapi に書く処理は無いため、**必要になるまで登録しない**。これで「記事の公開は人間だけ」がどの経路でも崩れない（[AA/05](RequirementDefinition/AA/05-application-decisions.md) の ADR-18、[BA/05](RequirementDefinition/BA/05-governance.md)） | `R1` |
 
 ## 書式の規約
 
