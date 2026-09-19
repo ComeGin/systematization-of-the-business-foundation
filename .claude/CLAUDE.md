@@ -17,7 +17,7 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 
 | 種別 | ディレクトリ | 扱い |
 |---|---|---|
-| 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/umami-master`（Umami 1,677 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
+| 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/umami-master`（Umami v3.4.0、2,026 ファイル）、`middleware/open-seo-main`（OpenSEO 1,399 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
 | 自作（MCP サーバ） | `backend/chatwoot-mcp`、`backend/mautic-mcp` | このリポジトリの主要な自作コード |
 | 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n` | 公式イメージを動かすための compose と環境変数のテンプレートだけ |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |
@@ -31,8 +31,10 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 | ポート | 用途 |
 |---|---|
 | 3000 | Umami（`umami-master/docker-compose.yml` は上流のまま。ループバック限定になっていない） |
+| 3001 | OpenSEO（UI と MCP の `/mcp`。上流の compose のまま `127.0.0.1` にバインド。`AUTH_MODE=local_noauth` で無認証のため、トンネルを張らない） |
 | 3100 | Chatwoot 本体（`CHATWOOT_PORT`）／ **mautic-mcp の HTTP 既定値と衝突する**。両方 HTTP で動かすならどちらかの `PORT` を変える |
 | 3102 | chatwoot-mcp（HTTP 時） |
+| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は Umami と衝突するため 3200 を使う。`127.0.0.1` にバインドしトンネルを張らない。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
 | 1337 | Strapi |
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |
 | 5432 | Chatwoot の PostgreSQL |

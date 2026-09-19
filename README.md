@@ -36,6 +36,7 @@
 - Web接客 / チャット: Chatwoot
 - フロントエンドフレームワーク / SSG: Astro
 - ワークフロー自動化 / iPaaS: n8n
+- 競合・検索市場調査: OpenSEO
 - SEO・パフォーマンス自動監査ツール: Google Search Console, Lighthouse CI
 
 ## 再帰的自己改善として模倣する組織・サービス
