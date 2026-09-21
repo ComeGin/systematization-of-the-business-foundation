@@ -61,6 +61,12 @@
       "skillPath": ".agents/skills/local-seo/SKILL.md",
       "computedHash": "0da543efc5359cd10671e987e5b3925ffbdd85e389a90e6954543875393feffb"
     },
+    "migrate-radix-to-base": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
+      "computedHash": "e1f2030ee5059be3dff0812ca0e4b995ee9fa3132176f049ebe6c90346a6755e"
+    },
     "next-cache-components-adoption": {
       "source": "vercel/next.js",
       "sourceType": "github",
@@ -108,6 +114,12 @@
       "sourceType": "github",
       "skillPath": ".agents/skills/seo-project-setup/SKILL.md",
       "computedHash": "c5ff55dfcfd58e645963710ef93b8bbf195a33e195be3b2c90d6036549f9ccc0"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "f615de216e085a84e31593ad0fa9062232adc40cd87b7c7ab2b8e49abf6500be"
     },
     "simple-issue-description": {
       "source": "every-app/open-seo",
