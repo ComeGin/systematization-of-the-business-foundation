@@ -67,72 +67,6 @@
       "skillPath": "skills/migrate-radix-to-base/SKILL.md",
       "computedHash": "e1f2030ee5059be3dff0812ca0e4b995ee9fa3132176f049ebe6c90346a6755e"
     },
-    "next-cache-components-adoption": {
-      "source": "vercel/next.js",
-      "sourceType": "github",
-      "skillPath": "skills/next-cache-components-adoption/SKILL.md",
-      "computedHash": "e8048c51a37d8973349477c9bb0a32d9f5f796a70ebaa10c89b59ac8015b9c55"
-    },
-    "next-cache-components-optimizer": {
-      "source": "vercel/next.js",
-      "sourceType": "github",
-      "skillPath": "skills/next-cache-components-optimizer/SKILL.md",
-      "computedHash": "c62f6c13119c4e9027268edaa07291c33d74a676e1bd93583349c07efd990f6b"
-    },
-    "next-dev-loop": {
-      "source": "vercel/next.js",
-      "sourceType": "github",
-      "skillPath": "skills/next-dev-loop/SKILL.md",
-      "computedHash": "9a2cd6e78f118086f3b2dc69ba98bb34b3fb873a8bcf622eea86a0fe8e540009"
-    },
-    "next-partial-prefetching-adoption": {
-      "source": "vercel/next.js",
-      "sourceType": "github",
-      "skillPath": "skills/next-partial-prefetching-adoption/SKILL.md",
-      "computedHash": "1ca75b686e91327da75bc3c286ba037a1f7e6a8d613ce77682c634520e019791"
-    },
-    "organization-best-practices": {
-      "source": "better-auth/skills",
-      "sourceType": "github",
-      "skillPath": "better-auth/organization/SKILL.md",
-      "computedHash": "8c85e683dabef4532f1e8b67bbed5c453d39e0e3d5aeedd69d16b568f6e6d44f"
-    },
-    "seo-audit": {
-      "source": "every-app/open-seo",
-      "sourceType": "github",
-      "skillPath": ".agents/skills/seo-audit/SKILL.md",
-      "computedHash": "f2a75e78d0860d15139e35414f285e65f35a6b10561f65ba6417bca05006747d"
-    },
-    "seo-coach": {
-      "source": "every-app/open-seo",
-      "sourceType": "github",
-      "skillPath": ".agents/skills/seo-coach/SKILL.md",
-      "computedHash": "fe456cc83afb970824661bb94438bd066855106ff06798267f70703e64fedc15"
-    },
-    "seo-project-setup": {
-      "source": "every-app/open-seo",
-      "sourceType": "github",
-      "skillPath": ".agents/skills/seo-project-setup/SKILL.md",
-      "computedHash": "c5ff55dfcfd58e645963710ef93b8bbf195a33e195be3b2c90d6036549f9ccc0"
-    },
-    "shadcn": {
-      "source": "shadcn/ui",
-      "sourceType": "github",
-      "skillPath": "skills/shadcn/SKILL.md",
-      "computedHash": "f615de216e085a84e31593ad0fa9062232adc40cd87b7c7ab2b8e49abf6500be"
-    },
-    "simple-issue-description": {
-      "source": "every-app/open-seo",
-      "sourceType": "github",
-      "skillPath": ".agents/skills/simple-issue-description/SKILL.md",
-      "computedHash": "33df6fd770cd2438507b221db8de53cb57f19ba5ace34a569fe7799e62a64fc0"
-    },
-    "two-factor-authentication-best-practices": {
-      "source": "better-auth/skills",
-      "sourceType": "github",
-      "skillPath": "better-auth/twoFactor/SKILL.md",
-      "computedHash": "5bc3051aef5060db013f0b3cbe812c40dbae5c22d6ba3ddde4b941158362a197"
-    },
     "n8n-agents-official": {
       "source": "n8n-io/skills",
       "sourceType": "github",
@@ -210,6 +144,96 @@
       "sourceType": "github",
       "skillPath": "skills/n8n-workflow-lifecycle-official/SKILL.md",
       "computedHash": "e9a6ae482f70bbac81e6583afaec51c3250f93dce78b4d2605a55dff2917c1b2"
+    },
+    "next-cache-components-adoption": {
+      "source": "vercel/next.js",
+      "sourceType": "github",
+      "skillPath": "skills/next-cache-components-adoption/SKILL.md",
+      "computedHash": "e8048c51a37d8973349477c9bb0a32d9f5f796a70ebaa10c89b59ac8015b9c55"
+    },
+    "next-cache-components-optimizer": {
+      "source": "vercel/next.js",
+      "sourceType": "github",
+      "skillPath": "skills/next-cache-components-optimizer/SKILL.md",
+      "computedHash": "c62f6c13119c4e9027268edaa07291c33d74a676e1bd93583349c07efd990f6b"
+    },
+    "next-dev-loop": {
+      "source": "vercel/next.js",
+      "sourceType": "github",
+      "skillPath": "skills/next-dev-loop/SKILL.md",
+      "computedHash": "9a2cd6e78f118086f3b2dc69ba98bb34b3fb873a8bcf622eea86a0fe8e540009"
+    },
+    "next-partial-prefetching-adoption": {
+      "source": "vercel/next.js",
+      "sourceType": "github",
+      "skillPath": "skills/next-partial-prefetching-adoption/SKILL.md",
+      "computedHash": "1ca75b686e91327da75bc3c286ba037a1f7e6a8d613ce77682c634520e019791"
+    },
+    "organization-best-practices": {
+      "source": "better-auth/skills",
+      "sourceType": "github",
+      "skillPath": "better-auth/organization/SKILL.md",
+      "computedHash": "8c85e683dabef4532f1e8b67bbed5c453d39e0e3d5aeedd69d16b568f6e6d44f"
+    },
+    "seo-audit": {
+      "source": "every-app/open-seo",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/seo-audit/SKILL.md",
+      "computedHash": "f2a75e78d0860d15139e35414f285e65f35a6b10561f65ba6417bca05006747d"
+    },
+    "seo-coach": {
+      "source": "every-app/open-seo",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/seo-coach/SKILL.md",
+      "computedHash": "fe456cc83afb970824661bb94438bd066855106ff06798267f70703e64fedc15"
+    },
+    "seo-project-setup": {
+      "source": "every-app/open-seo",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/seo-project-setup/SKILL.md",
+      "computedHash": "c5ff55dfcfd58e645963710ef93b8bbf195a33e195be3b2c90d6036549f9ccc0"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "f615de216e085a84e31593ad0fa9062232adc40cd87b7c7ab2b8e49abf6500be"
+    },
+    "simple-issue-description": {
+      "source": "every-app/open-seo",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/simple-issue-description/SKILL.md",
+      "computedHash": "33df6fd770cd2438507b221db8de53cb57f19ba5ace34a569fe7799e62a64fc0"
+    },
+    "strapi-docs-mcp": {
+      "source": "strapi/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cms/strapi-docs-mcp/SKILL.md",
+      "computedHash": "1aa149a4433ebce5c5bb048943a87b1dc355c8c54a4eac0eab81a6e0c1ce8aa3"
+    },
+    "strapi-mcp-capabilities": {
+      "source": "strapi/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cms/strapi-mcp-capabilities/SKILL.md",
+      "computedHash": "16989f14e68f01867723c2d2fa32260e2775f43b9b5939c367918aba5e4c24c6"
+    },
+    "strapi-product-builder": {
+      "source": "strapi/skills",
+      "sourceType": "github",
+      "skillPath": "skills/in-progress/strapi-product-builder/SKILL.md",
+      "computedHash": "5cff5b79c3d61970cf8929df1f0f74b7ef1cb84da0c8c59d22a13b57c1c11886"
+    },
+    "strapi-version-upgrade": {
+      "source": "strapi/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cms/strapi-version-upgrade/SKILL.md",
+      "computedHash": "9e9132907d719281bc64a97533e3fc2894621591ae0f2d56b1eae632b1b2b1a8"
+    },
+    "two-factor-authentication-best-practices": {
+      "source": "better-auth/skills",
+      "sourceType": "github",
+      "skillPath": "better-auth/twoFactor/SKILL.md",
+      "computedHash": "5bc3051aef5060db013f0b3cbe812c40dbae5c22d6ba3ddde4b941158362a197"
     },
     "using-n8n-skills-official": {
       "source": "n8n-io/skills",
