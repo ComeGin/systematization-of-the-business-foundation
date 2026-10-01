@@ -1,286 +1,653 @@
 # 02. コンポーネント・トークン対応表（design-system）
 
-builder がこの文書だけで kit の部品・変数・スタイルを import できるようにまとめた対応表。
-前提は `00-brief.md`（fileKey `JRYPLER6E0liA7cUurIhSo`、kit = Obra shadcn/ui kit community edition 2.0.0）。
+builder がこの文書だけで部品・変数・スタイルを引けるようにまとめた対応表。
+前提は `00-brief.md`（fileKey `JRYPLER6E0liA7cUurIhSo`、UI キット = Obra shadcn/ui kit community edition 2.0.0）。
 
-- 調査日: 2026-09-20
-- 正本はコード側（`frontend/verdant-virgo/src/styles/global.css`）。Figma の値が global.css とずれている箇所は「差分」として記録し、実装は global.css を正とする。
-- **アクセント色はゲート G1 で「案 B 成長の緑」に決定（2026-09-20）。** builder が使うのは採用トークン `accent/base` ほか（§3.4）だけで、`accent/option-a|b|c` は判断の記録として残してあるだけ。
-- サイト固有の部品（`SiteHeader` など 25 個）は Figma の `03 Components`（ページ ID `4:4`）にある。一覧は §7。
+- 改訂日: **2026-10-01**（ブランドガイドライン 1.2 の全面適用。初版 2026-09-20 の内容はすべて置き換わっている）
+- **色・寸法・書体の正本は `Assets/tokens/tokens.json`。** 人間が読む正本は `ブランドガイドライン_ComeGin.pdf`（版 1.2）。両者が食い違うときは tokens.json を正とする（ガイドライン §10.3-5）。
+- 以前の方針「色の出どころは kit（`global.css`）だけ」は**廃止**。色は ComeGin のブランドトークンが正本で、kit の色変数は Figma 上から全廃した。
+- 実装先は `frontend/verdant-virgo`（Astro ＋ shadcn/ui `base-nova` ＋ Tailwind v4）。`global.css` へのトークン追加提案は `03-handoff.md` に出す。
 
-## 0. 探索の記録（figma-generate-design Step 2 の順序）
+---
 
-| 手順 | 結果 |
+## 0. 適用後の実測（2026-10-01 17:53〜17:57 JST に走査）
+
+> ### 走査と置換のときに守ること（2 文。`01-content-spec.md` §0.4 と同じものを置いている）
+>
+> 1. **検査・走査の結果を報告するときは、母数と対象範囲を添える。** 何件中の何件か、どこを見てどこを見ていないか。
+> 2. **一括置換をしたら、置換後に「逆向きの条件」で走査する。** 直したものを数えるのではなく、**直しすぎたもの**を探す。
+>
+> 2026-10-01 までに design-system・ia-copy・lead で **13 件**の見落としが出た。**1 が 12 件を、2 が残る 1 件を覆う。**
+> 2 が要るのは、一括置換は**母数を添えても件数が正しくても**検出できないため（ia-copy の D-1 で、和欧間のスペースまで消した 14 か所が「136 か所を密着表記にした」という正しい報告の裏で起きていた）。
+> **両方の文書に同じものを置いてある。** 片方だけに置くと、もう一方の担当が「自分の文書ではない」と読まなくなる。
+
+
+| 検査項目 | 対象 | 結果 |
+|---|---|---|
+| ブランドパレット外の色 | `03 Components` 2,851 ノード / 塗り・線 1,962 件 | **0 件** |
+| 同上 | `02 Foundations` 790 ノード / 塗り・線 629 件 | **0 件** |
+| 未バインドの塗り・線 | 同上 合計 2,591 件 | **0 件** |
+| ぶら下がり（削除済み変数への参照） | 全 11 ページ | **この検査は成立していなかった**（本書 §9.3 の C4 を参照）。`getVariableByIdAsync()` が `null` を返すかで判定していたが、**Figma は削除済み変数を参照が残るかぎり返し続ける**ため、構造上 0 件しか返らない。実際には `accent/base` #007A55 への参照が **22 ノード**（11 Services 8・16 System 10・15 Blog 4）残り、緑で描画されていた（qa-reviewer が発見。当初「16 System 20 件」としていたのは**バインド数とノード数の混同**で、正しくは 10 ノード / 20 バインド） |
+| Poppins / Noto Sans JP / JetBrains Mono 以外の書体 | `03 Components` 文字ノード 740 件 | **0 件**（Inter・Geist は残っていない） |
+| 18px 未満の文字に `brand.blue.500` / `brand.sky` を使用（§5.5-2,3） | 同上 | **0 件** |
+| kit（Obra）の色変数への参照 | 同上 | **0 件**（1,066 バインドをブランドトークンに移行） |
+| §5.3 コントラスト適合表との突き合わせ | 15 色を Figma 上で実測 | **15/15 一致**（乖離 0.00。`02 Foundations` の表に実測値と記載値を並べてある） |
+
+部品は **28 個 / variant 合計 133**、ローカル変数 **92 件**、文字スタイル **55 件**、エフェクトスタイル **5 件**（2026-10-01 20:17 JST 実測）。
+
+**数え方**（次に数える人が同じ数を出せるように）:
+
+| 数値 | 数え方 |
 |---|---|
-| 2a-i Code Connect | **N/A**。リポジトリに `*.figma.ts(x)` / `*.figma.js` は無い（`rg --files` で確認） |
-| 2a-ii 既存画面 | **N/A**。全ページが空（children = 0）。ローカル変数・スタイルも 0 件だった |
-| 2a-iii `search_design_system` | `includeLibraryKeys` に kit の libraryKey を渡して 1 クエリずつ実行。変数は `figma.teamLibrary.getVariablesInLibraryCollectionAsync()` で全件列挙して値を読んだ |
+| 部品 **28 個** | `03 Components` ページ直下の **COMPONENT_SET 22 ＋ 単体 COMPONENT 6**。variant は含めない |
+| variant 合計 **133** | **COMPONENT_SET の中の variant 127 ＋ 単体 COMPONENT 6**。「置ける単位」の数 |
+| ローカル変数 **92 件** | `ComeGin / primitives` 48 ＋ `ComeGin / tokens` 44 |
+| 文字スタイル **55 件** | `JP|Latin` × `Desktop|Mobile` × 9 段階 ＝ 36、`JP|Latin/UI/*` 8 種 ＝ 16、`Mono/*` 3 |
 
-## 1. 最重要の注意（kit の癖）
+> **節番号の読み方**: 本書の中の `§x.y` は、断りがなければ**ブランドガイドライン**の節を指す（例 `§9.5` ＝ GL の Web サイト）。**本書自身の節を指すときは「本書 §x.y」と書く。**
 
-1. **kit の文字は Geist フォント**（`font definitions/font-family = Geist`。kit の文字スタイル heading 1〜4 / paragraph * もすべて Geist）。コード側は Inter、和文は Noto Sans JP なので、**kit instance の文字を書き換えたら必ずローカルの文字スタイル（`JP/UI/*` など）を当て直す**（§5 のレシピ）。Geist には和文グリフが無い。
-2. instance 内のテキストを触る前に、**そのノードの現在のフォント（Geist Medium など）を load する**。load しないと `unloaded font "Geist Medium"` で落ちる（instance を `appendChild` するだけでも落ちる）。
-3. Button・Badge・Label・Accordion などのラベル文字は **TEXT プロパティで公開されていない**もの が多い。表の「文字の変え方」列を見る。`TEXT プロパティ` とあるものだけ `setProperties()` で変えられる。
-4. Card・Sheet・Breadcrumb・Pagination・Navigation Menu・Tabs は **SLOT** プロパティ（中身を差し込む枠）でできている。中身を差し替えるのは不安定なので、サイト用の複合部品は design-system が `03 Components` に作る（T4）。builder はそちらを使う。
-5. kit の色変数には **Web のコードシンタックスが設定されていない**。Dev Mode で `var(--…)` は出ないので、対応は §3 の表で引く。
+**2026-10-01 の後追い修正**: `SiteFooter` の `Device=Mobile` の `Description`（`32:661`）が `role/text-link` にバインドされていた（Desktop は `role/text-muted` で正しい）。**同じ文が Desktop ではグレー、Mobile では青**になり、下線の無いリンク色という §9.5 から外れた状態だった。`role/text-muted` に修正。instance 側に上書きは無いので全 11 ページに伝わる。builder-sales の「`role/text-link` にバインドされているのに下線が無い TEXT」という検査で見つかった。
 
-## 2. コンポーネント対応表
+`BookingEmbed` も同じ基準で検査済み（38 ノード・塗り/線 26 件: パレット外 0 件・未バインド 0 件・kit の色バインド 0 件・規定外の書体 0 件。2026-10-01 18:21 JST）。
 
-`種類` が SET のものは `figma.importComponentSetByKeyAsync(key)`、COMPONENT のものは `figma.importComponentByKeyAsync(key)`。
-variant の選び方は `set.children.find(c => c.name.includes('Variant=Primary') && c.name.includes('Size=Large') && c.name.includes('State=Default'))`（variant 名は `Size=…, Variant=…, State=…` の順で並ぶ。順序に依存せず `includes` で探す）。
+### 0.1 ファイル全体のリンク下線（2026-10-01 19:03 JST に全 11 ページを走査）
 
-| shadcn/ui 名 | kit コンポーネント名 | componentKey | 種類 | 主要 variant（既定値を先頭） | TEXT プロパティ or 文字の変え方 |
-|---|---|---|---|---|---|
-| Button | Button - Nova | `22936fd168a2a7dc4850c1de73260d0c19ab09a4` | SET（120） | Size: Default / Small / Large / Extra small。Variant: Primary / Secondary / Outline / Ghost / Destructive / Link。State: Default / Hover & Active / Focus / Disabled / Invalid | **TEXT プロパティなし**。子の TEXT ノード `Label`（Geist Medium 14）を直接書き換え → `JP/UI/Label` を当てる。BOOLEAN `Show left icon#1495:483` / `Show right icon#1495:0` / `Show spinner#6046:3`、INSTANCE_SWAP `⮑ Left icon#1495:322` / `⮑ Right icon#1495:161` |
-| Button（アイコンのみ） | Icon Button - Nova | `f0e46dcd729212c589f2963150bc90ebcf9b3d78` | SET（100） | Size: Default / Large / Small / Extra small。Variant: Primary / Secondary / Outline / Ghost / Destructive。State: Button と同じ | 文字なし。INSTANCE_SWAP `Icon#1531:702` にアイコン（§2.1）を入れる。ハンバーガー・閉じるボタンに使う |
-| Badge | Badge | `8ed8477b69ce4a43766d80bedf22ee958ab344fa` | SET（10） | Variant: Primary / Secondary / Outline / Ghost / Destructive。State: Default / Focus | **TEXT プロパティ `Label#1530:99`** で変えられる（Geist SemiBold 12）。変えたあと子の TEXT に `JP/UI/Small` を当てる。BOOLEAN `Show left icon#1530:36` / `Show right icon#1530:57`、INSTANCE_SWAP `⮑ Icon left#1530:15` / `⮑ Icon right#1530:78` |
-| Card | Card - Nova | `815374b06553050e72c84d634d6bba04dfbc56f8` | SET（3） | Slot count: 1 / 2 / 3 | 文字なし（SLOT 構造）。BOOLEAN `Show header#5841:0` / `Show content#5841:1` / `Show footer#5841:2`。**直接は使わず** 03 Components のカード系部品を使う |
-| Input | Input - Nova | `63624c22752ff97231a31a43d96173918f2026b8` | SET（128） | Position: Default / Left / Right / Middle。Size: Regular / Large / Small / Extra small。State: Empty / Placeholder / Value / Focus / Error / Error Focus / Disabled / Error Placeholder | **TEXT プロパティ `Value#1533:897`**（Placeholder 状態でもこの文字が出る）。変えたあと `JP/UI/Text` を当てる。BOOLEAN `Show decoration left#20:38` / `right#20:57` / `Show prepend text#1703:0` / `Show append text#1703:57` / `Show cursor#22:0` |
-| Textarea | Textarea - Nova | `9613af4146f90b2ea37903289f11959292ba06e3` | SET（7） | State: Empty / Placeholder / Value / Focus / Error / Error Focus / Disabled | TEXT プロパティなし。Empty 以外の state で子の TEXT を書き換え → `JP/UI/Text`。BOOLEAN `Show resizable#761:0` |
-| Select | Select & Combobox - Nova | `717b3328bfea9a4149215afc2e04d483fd3ee277` | SET（72） | Size: Default / Large / Small / Extra small。State: Placeholder / Default / Focus / Error focus / Disabled / Error。Lines: 1 Line / 2 Lines / 2 Lines Alt | TEXT プロパティなし。子の TEXT `Select an item`（Geist Regular 14）を書き換え → `JP/UI/Text`。chevron-down は内包済み |
-| Checkbox | Checkbox - Nova | `3877d60af70c87f150a4b5e0413bee439259182c` | SET（11） | Checked?: False / True / Indeterminate。State: Default / Focus / Error Focus / Disabled | 文字なし（16×16 の箱だけ）。ラベルは Label と横並びにする。群なら Checkbox Group - Nova `28ca64d04f840e0bd96d3939fdeab0379b702df0`（SET） |
-| Label | Label | `ac0d65e4ae6cdcc6aa33c6f60971535451f8bf8a` | SET（8） | Layout: Inline / Block。State: Default / Error。Weight: Medium / Normal | TEXT プロパティなし。子の TEXT `Label`（Geist Medium 14）を書き換え → `JP/UI/Label` |
-| Field（Label＋入力＋説明） | Vertical Field - Nova | `d5d9cc173aaec17abf2cc4ac4634f71598b955d3` | SET（12） | Type: Select / Text Value / Radio / Textarea / Checkbox / Slider。State: Default / Error | 中の `Label`・`Input - Nova` instance を個別に書き換える（Input は `Value#1533:897`）。BOOLEAN `Show error#2301:0`（既定 true。通常は false にする）/ `Show description#5677:5`。横並びは Horizontal Field - Nova `44b789aaa092b63101537af6b1e6feced9127780` |
-| Radio Group | Radio Group - Nova | `32551771f0f2bacf3c33c4de2135c34f08b8699a` | SET | （未検査。お問い合わせ種別で使うなら要確認） | 単体は Radio - Nova `a45d0bb461d14b3d2c4f5e576ecf3a534b24b6d6`（SET） |
-| Switch | Switch - Nova | `5b3905ad5369947722105d2891c6958a71f3bdcc` | SET | （未検査。Cookie 設定で使う候補） | — |
-| Accordion（FAQ） | Line Accordion Trigger - Nova | `07f42fbdf10611c5b0a098a20f323c5595c90f6f` | SET（5） | State: Closed / Open / Focus / Hover / Disabled | TEXT プロパティなし。子の TEXT `Label`（Geist Medium 14）を書き換え → `JP/UI/Label` または `JP/Desktop/Body`。chevron-down 内包 |
-| Accordion（枠付き） | Bordered Accordion Trigger - Nova | `1c3cb01534663ef6c0480be896a4071bea00f2c9` | SET（20） | State: Closed / Open / Focus / Hover / Disabled。Position: First / Middle / Last / Single | 同上。BOOLEAN `Show border#1779:0` |
-| Accordion の本文 | Bordered Accordion Content - Nova | `cd49022b177463f9629bd182c792510ff3a82591` | SET（2） | Type: Default / End | TEXT プロパティなし。子の TEXT（Geist Regular 14）を書き換え → `JP/UI/Text` か `JP/Desktop/Small` |
-| Table（セル） | Basic Table Cell - Nova | `c06ba7e922521c1e0499fb6672bba3a01f2fdd10` | SET（4） | Parity: Odd / Even。Alignment: Right / Left | TEXT プロパティなし。子の TEXT `Value`（Geist Regular 16）→ `JP/Desktop/Body`。料金表・特商法表記の表に使う |
-| Table（見出しセル） | Basic Table Header - Nova | `14081f47f709a918dc90ea13f068a2fa0eb1cb80` | SET（1） | Cell Type: Heading | 子の TEXT `Value`（Geist Medium 16）→ `JP/Desktop/H4` 相当なら `JP/UI/Label` |
-| Tabs | Tabs (segmented) - Nova | `4989867590990168f52ddbb3429aeb4ca5fe49e1` | SET（3） | Size: Default / Large / Small | SLOT 構造。中の Tab を個別に書き換える |
-| Tab（1 個） | Tab (segmented) - Nova | `c5822592fcfa4f37621b1539f24adbc108f3e4f8` | SET（54） | Size: Default / Large / Small。Content: Label / Icon / Icon + Label。State: Inactive / Inactive Hover / Inactive Focus / Active / Active Focus / Disabled | 子の TEXT `Label`（Geist Medium 14）→ `JP/UI/Label`。Blog のカテゴリ切替に使える |
-| Breadcrumb | Breadcrumb | `4cdd93918846266b80217cac0836613ca76c058b` | COMPONENT | variant なし（既定 6 階層） | SLOT `Breadcrumb Items#1962:0`。中の `.Breadcrumb item` instance ごとに **TEXT プロパティ `⮑ Label#1354:0`** がある。不要な階層は item と separator の `visible=false` |
-| Navigation Menu | Navigation Menu - Nova | `0d689aecfedf03661076c229ca4426710efdef63` | COMPONENT | variant なし | SLOT 構造。中の `Navigation Menu Button - Nova` の TEXT `Nav Label` を書き換える。**SiteHeader は 03 Components の部品を使う** |
-| Navigation Menu のボタン | Navigation Menu Button - Nova | `b32f041255d4ec5c033f1b9b62e2b0129650d70b` | SET（3） | State: Default / Hover & Active / Focus | TEXT プロパティなし。子の TEXT `Nav Label`（Geist Medium 14）→ `JP/UI/Label`。BOOLEAN `Show Left Icon#6857:0` / `Show Right Icon#6983:0` |
-| Navigation Menu のドロップダウン項目 | Navigation Menu Item - Nova | `895e6cbc269fb65e5e674a5ec0b9b67289498eea` | SET（3） | State: Default / Hover & Active / Focus | 子の TEXT `Nav dropdown item` → `JP/UI/Label`。BOOLEAN `Show Line 2#6856:1` |
-| Sheet（モバイルメニュー） | Sheet | `13c5e42af74e0e865d65f0efb946fd825b8a80e0` | SET（2） | Scrollable: False / True | SLOT `Slot#5685:0`。ヘッダー（x ボタン）とフッター（Button 2 個）内包。342×844 |
-| Separator | Separator | `9ff39d4c590213c98d528a88a7c66c04b39a2a0b` | SET（6） | Spacing: Regular / None / Spacious。Direction: Default / Vertical | 文字なし。親が auto-layout なら `layoutSizingHorizontal='FILL'` |
-| Alert | Alert - Nova | `82c2d62c289d9faf98389822d93d4f92777a3049` | SET（2） | Type: Neutral / Error | **TEXT プロパティ `Title#1530:5` / `⮑  Description#1530:10`**（Description は全角空白ではなく半角スペース 2 個）。BOOLEAN `Show Title#8104:0` / `Show Description#58:0` / `Show Button#279:1`、INSTANCE_SWAP `⮑ Icon#1530:0`。フォームのエラー・送信完了に使う |
-| Avatar | Avatar Placeholder | `066a327523a62d1f177d03eac36ec1d154046340` | SET（3） | Size: Default / Small / Large | 子の TEXT `CN`（イニシャル）。画像は使わない方針なのでダミー枠はこれで足りる。画像版は Avatar With Image `e4fe77495007f6e74ff6473fce20de3f316cfc46` |
-| Pagination | Pagination | `0e019e06c21983e28498a37d1b7eedbb88d1a19b` | COMPONENT | variant なし | SLOT `Pages#1962:1`。中身は Button - Nova（Previous / Next）と Pagination Number Button。Previous / Next の TEXT `Label` を「前へ」「次へ」に書き換える |
-| Pagination の番号 | Pagination Number Button - Nova | `348107600d713aecc0908056240cb75c923cfc20` | SET | Active: On / Off | 子の TEXT `Label`（番号） |
-| Skeleton | Skeleton | `c89c129d3e0a0a989d053a792f4b56ecc116fcf9` | COMPONENT | variant なし（320×160） | 文字なし。部品単位は Skeleton / Placeholder Line `5144aeac96c4612e6fe46655ddeb6f342aa0b44a`、Placeholder Object `2f43eadca56d2599f8d52653baadaf9ec0a5eb86`、Placeholder Avatar `b5a40cb0e2bd620596d2111db278efd1df9c9214` |
-| Tooltip | Tooltip - Nova | `0977f598a79680b30157a021b01c5285b507e531` | SET（12） | Side: Top / Bottom / Left / Right。Type: Default / Formatted / Shortcut | **TEXT プロパティ `Tooltip text#1586:419`**（Geist Regular 12）→ 変えたあと `JP/UI/Small` |
-| Dialog | Dialog - Nova | `6587310bed2366d56b73641c53dda6d2424be9e6` | SET | （未検査） | — |
-
-### 2.1 Lucide アイコン（すべて COMPONENT。`importComponentByKeyAsync`）
-
-Button などの INSTANCE_SWAP には `setProperties({ '⮑ Right icon#1495:161': iconComponent.id })` のように**コンポーネントの node ID** を渡す。
-
-| アイコン | kit 名 | componentKey |
-|---|---|---|
-| menu（ハンバーガー） | Lucide / menu | `c5245397f5e1244def01370c3908607b669f7284` |
-| x（閉じる） | Lucide / x | `04757da4546e3b11401d432f72aff714c35c6db6` |
-| check | Lucide / check | `5cc213bcdc1c63e896d0a4dea53119b090a42cf2` |
-| circle-check（送信完了） | Lucide / circle-check | `7c9f8a5c2d9b7f2788fe53998afdb43ef46f6cb5` |
-| arrow-right | Lucide / arrow-right | `4b05c2dd535328a55b83f5421d48230d2c713b3c` |
-| chevron-right | Lucide / chevron-right | `52c0cfe0407a9516bbd2a7464137c37bdc11979c` |
-| chevron-down | Lucide / chevron-down | `be8e1894c9a17c0c4d55ade08428d239a65995ef` |
-| download（副 CTA） | Lucide / download | `d3a2da3c2d0776ada5ecab33339acdb331089fc5` |
-| message-circle（主 CTA） | Lucide / message-circle | `36c14d6b319a02109f9f5019e67cfb2b77177983` |
-| mail | Lucide / mail | `a91f315360ff05be1f6222f6e65c8bb21fe570b1` |
-| external-link | Lucide / external-link | `5bec4b74091d01515bc6ffd02ed8e06fa167f47c` |
-| info | Lucide / info | `2fdec0e879deb0edabc1998ac66293c43c42b4ab` |
-
-ほかのアイコンは `search_design_system` で `Lucide / <lucide の名前>` を 1 語ずつ検索すれば出る。
-
-## 3. 変数（kit）と global.css の対応
-
-`figma.variables.importVariableByKeyAsync(key)` で import し、色は `figma.variables.setBoundVariableForPaint(paint, 'color', v)`、余白・角丸は `node.setBoundVariable('paddingLeft' | 'itemSpacing' | 'topLeftRadius' …, v)` でバインドする。
-
-### 3.1 色（コレクション `shadcn colors`、モード `shadcn` = Light / `shadcn-dark`）
-
-本サイトは Light のみ。kit の値は Tailwind v3 系の hex で、global.css（Tailwind v4 の oklch）と一部ずれる。**差分はどれも見た目ではほぼ判別できない量なので、Figma では kit 変数をそのまま使う**（ローカルに同名の上書き変数は作らない＝色の出どころを 1 つに保つ）。実装は global.css が正。
-
-| kit 変数名 | key | global.css | kit の値 | global.css の値 | 判定 | scope |
-|---|---|---|---|---|---|---|
-| shadcn colors/general/background | `2c49e73c336348efc4bbd8b2d0c8da57c2fba610` | `--background` | #ffffff | oklch(1 0 0) = #ffffff | 一致 | FRAME_FILL, SHAPE_FILL |
-| shadcn colors/general/foreground | `c105bb37aa8ea5d7a0410852d12219e0b35091c5` | `--foreground` | #000000 | oklch(0.145 0 0) = #0a0a0a | 差分 | SHAPE_FILL, TEXT_FILL, STROKE_COLOR |
-| shadcn colors/general/card | `30e0495632a74a5bb54597d7f2badfd0a0f560c3` | `--card` | #ffffff | #ffffff | 一致 | FRAME_FILL, SHAPE_FILL |
-| shadcn colors/general/card foreground | `b1e7ef8b765a0db60c55a9d89cdd0190387bff74` | `--card-foreground` | #0a0a0a | #0a0a0a | 一致 | TEXT_FILL ほか |
-| shadcn colors/general/popover | `f796f5e0dba3214f1c756f87b1615209fb648c49` | `--popover` | #ffffff | #ffffff | 一致 | FRAME_FILL, SHAPE_FILL |
-| shadcn colors/general/popover foreground | `273a71c6b87df91216626bd5eb780dbe9fdddd9a` | `--popover-foreground` | #0a0a0a | #0a0a0a | 一致 | TEXT_FILL ほか |
-| shadcn colors/general/primary | `0d0ac0d1c699da0616b26e4c9e92270a05984840` | `--primary` | #171717 | oklch(0.205 0 0) = #171717 | 一致 | FRAME_FILL, SHAPE_FILL, STROKE_COLOR |
-| shadcn colors/general/primary foreground | `055bb69546ceeb025c7c85b78c2c8dd42e28e3ee` | `--primary-foreground` | #ffffff | oklch(0.985 0 0) = #fafafa | 差分 | TEXT_FILL ほか |
-| shadcn colors/general/secondary | `f4b49be3473d33bbdbe4e4a9d8ef820c3a785f66` | `--secondary` | #f5f5f5 | oklch(0.97 0 0) = #f5f5f5 | 一致 | FRAME_FILL, SHAPE_FILL |
-| shadcn colors/general/secondary foreground | `da5b3990550ef95a2bbcc83c19fb507c07545a65` | `--secondary-foreground` | #171717 | #171717 | 一致 | TEXT_FILL ほか |
-| shadcn colors/general/muted | `2d143e23ee25bc63b3d732833664c06cb9bf73bd` | `--muted` | #f5f5f5 | #f5f5f5 | 一致 | FRAME_FILL, SHAPE_FILL |
-| shadcn colors/general/muted foreground | `d3f6f425f4d757939c04b4b83b2f89faa7d72bf9` | `--muted-foreground` | #737373 | oklch(0.556 0 0) = #737373 | 一致 | TEXT_FILL ほか |
-| shadcn colors/general/accent | `69b1d746c8b0a5fc63353dff4dd9f09507706b18` | `--accent` | #f5f5f5 | #f5f5f5 | 一致 | FRAME_FILL, SHAPE_FILL |
-| shadcn colors/general/accent foreground | `2beb6dd2b21973434ff5505a2eae719dd089cbb1` | `--accent-foreground` | #000000（foreground への alias） | oklch(0.205 0 0) = #171717 | 差分 | TEXT_FILL ほか |
-| shadcn colors/general/destructive | `aaa342e351b7a37b7010e0f0e97d2c86b4137cfb` | `--destructive` | #dc2626（v3 red-600） | oklch(0.577 0.245 27.325) = #e7000b（v4 red-600） | 差分 | FRAME_FILL, SHAPE_FILL, TEXT_FILL, STROKE_COLOR |
-| shadcn colors/general/border | `c8b03ca6be23e363315d17fcfc24e2e9f73a83b9` | `--border` | #e5e5e5 | oklch(0.922 0 0) = #e5e5e5 | 一致 | FRAME_FILL, SHAPE_FILL, STROKE_COLOR |
-| shadcn colors/general/input | `4a865a59138f7d37866829e0fb43e3e72fc97e0d` | `--input` | #e5e5e5 | #e5e5e5 | 一致 | FRAME_FILL, SHAPE_FILL, STROKE_COLOR |
-| shadcn colors/focus/ring | `8e0398a9769fd39e450f077f974bf979ef34aac8` | `--ring` | #d4d4d4 | oklch(0.708 0 0) = #a1a1a1 | 差分 | STROKE_COLOR, EFFECT_COLOR |
-| shadcn colors/focus/ring error | `928fe06e5bb1fbe419e832dd35387dbb2bda477c` | （global.css に無い） | #fecaca | — | kit のみ | ALL_SCOPES |
-| shadcn colors/sidebar/sidebar | `f556ed6664001a45150e8837e296c1e809677e2a` | `--sidebar` | #fafafa | #fafafa | 一致 | サイトでは使わない |
-| shadcn colors/sidebar/sidebar foreground | `6c9f361ccbe2c1c593071298e86568f18361b5b7` | `--sidebar-foreground` | #404040 | #0a0a0a | 差分 | 同上 |
-| shadcn colors/sidebar/sidebar primary | `b7c0fac6a83a9fa8a48e4e6ebe2edb2051a5f956` | `--sidebar-primary` | #404040 | #171717 | 差分 | 同上 |
-| chart colors/chart 1〜5（コレクション `theme`） | `dfce75e3…` ほか | `--chart-1〜5` | 青系（#93c5fd〜#1e40af） | 灰系（0.87〜0.269） | 差分 | サイトでは使わない |
-
-補足: kit にはこのほか `alpha/black|white/*`（透過色 60 個）、`theme/neutrals/0〜1000`（primitive、scope が ALL_SCOPES なので直接バインドしない）、`raw tailwind colors`（`tw-raw/*`、Tailwind **v3** の hex。v4 とは値が違うので使わない）がある。
-
-### 3.2 余白（コレクション `spacing`、scope = WIDTH_HEIGHT, GAP。auto-layout の padding にもバインドできる）
-
-| kit 変数 | key | 値 | Tailwind | サイトでの主な用途 |
-|---|---|---|---|---|
-| 3xs | `cefc542084e1d2a5538e13eb4a397e6a20045cf1` | 2 | 0.5 | — |
-| 2xs | `f99bf1b6b8b3bcc2182e6f9fee7c357a896d7906` | 4 | 1 | ラベルとヒントの間 |
-| xs | `b2152ca60b8d44688cec2c6f39473eb18b9fa895` | 8 | 2 | アイコンと文字、ボタン同士 |
-| sm | `011fc0693adf6df9065e74503f0f61e2961ce438` | 12 | 3 | 見出しと本文 |
-| md | `aa9c3236e382fbd042d14a6f3cde163beed13457` | 16 | 4 | Mobile の左右余白、フォーム項目間 |
-| lg | `640e64b418a1927c6514cf87e64d26db2837dcba` | 20 | 5 | — |
-| xl | `080e09f34b6063a977300f31759441ad7f8b1368` | 24 | 6 | カード内余白、カード間（Mobile） |
-| 2xl | `d5476d04eb9986fa7c469e32c964891eefce8119` | 32 | 8 | カード間（Desktop）、セクション見出しと中身 |
-| 3xl | `10d4271c567a2fb37e5e7800904b7db8b2dd527c` | 40 | 10 | — |
-| 4xl | `3a08d989979509d14e61d86912330a69b241111f` | 48 | 12 | セクション見出しと中身（Desktop） |
-| 5xl | `0deb18e6582929f63bfa04bac5cfb81944463790` | 64 | 16 | **セクション上下（Mobile）**、ヘッダー高さ |
-| 6xl | `5e8adfd2894cae1bf9bd28fa2855350b2a7ac02b` | 80 | 20 | — |
-| 7xl | `1b630db3e9ece1bbd4e5ae17665c5ff7b99c8e89` | 96 | 24 | **セクション上下（Desktop）** |
-| 8xl | `c7498a5a5b84c3a7ff5541cc6d9a5709d4690634` | 112 | 28 | — |
-| 9xl | `6cc8568b375bf2284e1281f5198f55511930ebca` | 128 | 32 | Hero 上下 |
-| 10xl | `a26edda51d8b11bd51964adf4ce314c2cf170fca` | 144 | 36 | **Desktop の左右余白**（(1440 − 1152) / 2） |
-
-`out-of-scale/*`（3, 5, 5.5, 6, 7, 7.5, 8.5, 9, 9.5, 10, 14, 15.5）は kit 内部の調整用。サイトでは使わない。
-
-### 3.3 角丸（コレクション `border radii`、scope = CORNER_RADIUS）
-
-| kit 変数 | key | kit 値 | global.css | 判定 |
-|---|---|---|---|---|
-| radius-none | `2bd3fea4512023fa0a8789033968e3fe7faaa8ed` | 0 | — | 一致 |
-| radius-sm | `35f36386926923d642d0f4faea1aa1076f3ecd28` | 6 | `--radius-sm` = radius × 0.6 = 6 | 一致 |
-| radius-md | `459a5bf13640cd654f0a3238458f4c49d9c0a3b6` | 8 | `--radius-md` = × 0.8 = 8 | 一致 |
-| radius-lg (radius) | `8c263013dcc8ca6a91590788123ab567af06e020` | 10 | `--radius-lg` = `--radius` = 0.625rem = 10 | 一致 |
-| radius-xl | `52fdad8de64b36a87c6f0946fae479ed39c260a1` | 14 | `--radius-xl` = × 1.4 = 14 | 一致 |
-| radius-2xl | `bb6611f41197ee115eb44388d634908f8066eca5` | 16 | `--radius-2xl` = × 1.8 = **18** | 差分 |
-| radius-3xl | `e51e362602fb32bc3d83a6c35f7acf82ea5a64fe` | 22 | × 2.2 = 22 | 一致 |
-| radius-4xl | `3b673b58ac23fe5e5a319e3e2ecf41f8ac5c45a4` | 26 | × 2.6 = 26 | 一致 |
-| radius-full | `f23e0afbe4aa01c7f1e5ca7c87f5f857bea076e6` | 999 | `rounded-full` | 一致 |
-
-目安: ボタン・入力は kit の既定のまま、カードは radius-xl、大きな面（CTA 帯など）は radius-2xl。
-
-### 3.4 ローカル変数（design-system が追加。同じファイル内なので import 不要）
-
-`(await figma.variables.getLocalVariablesAsync()).find(v => v.name === '…')` で取る。
-
-| コレクション | 変数名 | ID | 値 | scope | WEB コードシンタックス |
-|---|---|---|---|---|---|
-| ComeGin / primitives（Value） | blue/50, blue/700, blue/800 | `VariableID:8:3` / `8:4` / `8:5` | #eff6ff / #1447e6 / #193cb8 | なし（非表示） | `var(--color-blue-50)` など |
-| 同上 | emerald/50, emerald/700, emerald/800 | `8:6` / `8:7` / `8:8` | #ecfdf5 / #007a55 / #006045 | なし | `var(--color-emerald-*)` |
-| 同上 | orange/50, orange/700, orange/800 | `8:9` / `8:10` / `8:11` | #fff7ed / #ca3500 / #9f2d00 | なし | `var(--color-orange-*)` |
-| ComeGin / tokens（Light） | **accent/base**（採用） | `VariableID:19:476`（key `d6ab35758b26c47ceab5c085e2645d6c4d6f2bcd`） | emerald-700 #007a55（accent/option-b/base への alias） | 塗り・線・文字 | `var(--brand)` |
-| 同上 | **accent/hover** | `19:477`（key `bfd383d805a6285812656dcfe7eb9279f863f390`） | emerald-800 #006045 | 塗り・線・文字 | `var(--brand-hover)` |
-| 同上 | **accent/foreground** | `19:478`（key `6e54488576047037fbdbc3abf8943920bcc1e2e0`） | kit primary foreground #ffffff | 文字 | `var(--brand-foreground)` |
-| 同上 | **accent/subtle** | `19:479`（key `e5ae69e4c1dc81386e377b70c594009d56813989`） | emerald-50 #ecfdf5 | 塗り | `var(--brand-subtle)` |
-| 同上 | **accent/subtle-foreground** | `19:480`（key `4f532580b8b6eb4ac4265355add5ca4b53d6265d`） | emerald-800 #006045 | 文字・線 | `var(--brand-subtle-foreground)` |
-| 同上 | accent/option-a/{base, hover, foreground, subtle, subtle-foreground} | `8:13`〜`8:17` | blue 系（**不採用**。判断の記録） | 同上 | 同上 |
-| 同上 | accent/option-b/{…} | `8:18`〜`8:22` | emerald 系（**採用**。accent/* が参照する） | 同上 | 同上 |
-| 同上 | accent/option-c/{…} | `8:23`〜`8:27` | orange 系（**不採用**） | 同上 | 同上 |
-| 同上 | layout/container-max | `VariableID:8:28` | 1152 | WIDTH_HEIGHT | `var(--container-6xl)` |
-
-### 3.5 面と文字の規則（コントラスト。01-content-spec 0.1 と同じ）
-
-**読ませる文字（本文・補足・エラー文・リンク）は白い面（`card` / `background`）に載せる。** 色トークンの値は Figma 側で変えない（正本は global.css）。面の選び方だけで AA を満たす。
-
-| 組み合わせ | 比 | 判定 |
-|---|---|---|
-| `muted foreground` #737373 × `muted` #f5f5f5 | 4.35 : 1 | **不可**（通常サイズは 4.5 : 1 が必要） |
-| `muted foreground` #737373 × 白 #ffffff | 4.74 : 1 | 可 |
-| `destructive` #dc2626 × `muted` #f5f5f5 | 4.43 : 1 | **不可** |
-| `destructive` #dc2626 × 白 #ffffff | 4.83 : 1 | 可 |
-| `foreground` #000000 × `muted` #f5f5f5 | 18.1 : 1 | 可（muted に文字を載せるならこれだけ） |
-| `accent/base` #007a55 × 白 #ffffff | 5.37 : 1 | 可（テキストリンク） |
-| `accent/base` #007a55 × `muted` #f5f5f5 | 4.88 : 1 | 可 |
-
-反転面（`CTABanner` の Standard）の実測値: 見出し・本文とも `primary foreground` #ffffff × `primary` #171717 = **17.93 : 1**、ボタンのラベル #ffffff × `accent/base` #007a55 = **5.36 : 1**、ボタンの面 × 反転面 = **3.34 : 1**（非テキストの基準 3.0 を満たす）。**反転面に `muted foreground` 相当は置かない**（#737373 × #171717 = 3.5 : 1 で足りない）。
-
-muted の面を使ってよいのは、文字を載せない装飾の帯（`AnnouncementBanner` の帯）と、`foreground` の文字だけを載せる面（画像枠の「画像（準備中）」など）。面を分けたいだけのときは**白＋`border`** にする。
-
-**白い面のトークンの使い分け**（`card` と `background` はどちらも #ffffff だが、役割で固定する。将来どちらかの値が変わってもずれないようにするため）:
-
-| トークン | 使う面 | 部品 |
-|---|---|---|
-| `background` | ページの地の面 | `SiteHeader`・`SiteFooter`・`PageIntro` |
-| `card` | 枠線や影で浮かせる面（カード・パネル・ブロック・Sheet・バナー） | `ServiceCard`・`PricingCard`・`StatCard`・`TestimonialCard`・`BlogCard`・`IconCard`・`CookieBanner`・`SourceDownloadBlock`（控えめ版・強調版とも）・`CTABanner` の Inline・`MobileMenuSheet` のパネル |
-| `muted` | 文字を載せない装飾の面 | `ImagePlaceholder`・`ChatWidgetPlaceholder`・`AnnouncementBanner` |
-| `primary` | 反転面 | `CTABanner` の Standard |
-
-`SourceDownloadBlock` の控えめ版と強調版の違いは、**見出しの段階（H3 / H2）・影（なし / shadow-md）・ボタン（kit Secondary / CTAButton＝accent）**の 3 つ。面の色では区別しない（01-content-spec 0.1）。
-
-**builder が使うのは `accent/base` など採用トークンの 5 個だけ**（`accent/option-*` は直接使わない）。同じファイル内なので import は不要で、`(await figma.variables.getLocalVariablesAsync()).find(v => v.name === 'accent/base')` で取れる。
-
-**アクセント色を使ってよい場所**: 主 CTA のボタン（= `CTAButton`）、テキストリンク、強調バッジ、強調したいアイコン。それ以外のボタン（Outline・Ghost・Secondary・Link 以外の用途）と、セクションの背景・枠線には使わない。
-
-`--brand*` は global.css にまだ無い（`--accent` は neutral の別トークン）。実装への提案は `03-handoff.md` に載せる。
-
-## 4. 文字スタイル・エフェクトスタイル
-
-### 4.1 ローカル文字スタイル（design-system が追加。和欧混植）
-
-和文は Noto Sans JP、欧文・数字は Inter。Figma の 1 スタイルは 1 書体しか持てないので、**`JP/…` と `Latin/…` を組で使う**（テキスト全体に JP、半角英数字の連続部分に Latin を範囲適用。§5 のレシピ）。
-取り方: `(await figma.getLocalTextStylesAsync()).find(s => s.name === 'JP/Desktop/H1')`。
-
-| 段階 | Desktop（サイズ / 行間） | Mobile | ウェイト | 和文の字間 | 欧文の字間 | Tailwind（D / M） |
-|---|---|---|---|---|---|---|
-| Display | 60 / 130% | 36 / 130% | Bold | 2% | −2% | text-6xl / text-4xl |
-| H1 | 48 / 140% | 30 / 140% | Bold | 2% | −1.5% | text-5xl / text-3xl |
-| H2 | 36 / 140% | 24 / 140% | Bold | 2% | −1% | text-4xl / text-2xl |
-| H3 | 24 / 140% | 20 / 140% | Bold | 2% | −0.5% | text-2xl / text-xl |
-| H4 | 20 / 150% | 18 / 150% | Medium | 2% | 0 | text-xl / text-lg |
-| Body L | 18 / 180% | 16 / 180% | Regular | 3% | 0 | text-lg / text-base |
-| Body | 16 / 175% | 16 / 175% | Regular | 3% | 0 | text-base |
-| Small | 14 / 170% | 14 / 170% | Regular | 3% | 0 | text-sm |
-| Caption | 12 / 160% | 12 / 160% | Regular | 4% | 0 | text-xs |
-
-スタイル名は `JP/Desktop/<段階>`・`JP/Mobile/<段階>`・`Latin/Desktop/<段階>`・`Latin/Mobile/<段階>`（段階名は表の通り。`Body L` は空白入り）。
-
-**`Body`・`Small`・`Caption` の 3 段階は Desktop と Mobile で値が同じ**（16/175%/3%、14/170%/3%、12/160%/4%）。そのため Device variant を持たない部品（`ServiceCard`・`Steps` の項目・`FAQItem` など）は `JP/Desktop/*` を Mobile の画面でもそのまま使っている。**見た目は変わらない**ので直す必要はない。値が違うのは `Display`・`H1`〜`H4`・`Body L` なので、こちらは Device に合わせて必ず使い分ける。
-
-kit instance の文字を置き換えるための UI 用（行間は px 固定、字間 0）:
-
-| スタイル | 内容 | 置き換える kit の文字 |
-|---|---|---|
-| `JP/UI/Label` + `Latin/UI/Label` | Medium 14 / 20px | Button・Label・Nav・Tab・Accordion Trigger（Geist Medium 14） |
-| `JP/UI/Text` + `Latin/UI/Text` | Regular 14 / 20px | Input・Select・Textarea の値、Breadcrumb、Accordion 本文（Geist Regular 14） |
-| `JP/UI/Small` + `Latin/UI/Small` | Medium 12 / 16px | Badge・Tooltip（Geist 12） |
-| `JP/UI/Logo` + `Latin/UI/Logo` | Bold 20 / 28px | 文字ロゴ「ComeGin」（ヘッダー・フッター。ロゴ画像が決まるまで） |
-| `JP/UI/Card Title` + `Latin/UI/Card Title` | Bold 20 / 140% | カードの見出し（h3）。Desktop / Mobile 共通 |
-| `JP/UI/Price` + `Latin/UI/Price` | Bold 32 / 130% | 料金カードの金額、実績数値の「—」 |
-
-kit の文字スタイル（`heading 1〜4`、`paragraph */normal|medium|bold`。すべて Geist）は**使わない**。
-
-### 4.2 エフェクトスタイル（kit。`figma.importStyleByKeyAsync(key)` → `await node.setEffectStyleIdAsync(style.id)`）
-
-| kit スタイル | key | 中身 | 用途の目安 |
+| ページ | ノード | リンクの TEXT | 下線漏れ |
 |---|---|---|---|
-| shadow-2xs | `55f35962c3c43b28bdd0c918170dfcbd977e4aad` | 0 1 0 / 5% | — |
-| shadow-xs | `519909e7aea01e34566f191de3ce65ed070c3470` | 0 1 2 / 5% | カード |
-| shadow-sm | `9d7913ec91674f1b5ae9bcd7d8bee351667f9d14` | 0 1 3 + 0 1 2 −1 / 10% | 料金カードの強調 |
-| shadow-md | `35f2ff7e3704e0793f595df7a61f4a134ab65d14` | 0 4 6 −1 + 0 2 4 −2 / 10% | 固定ヘッダー、Cookie バナー |
-| shadow-lg | `59ac7928529c6ac89219ed3d5fd45c8a2a427ea7` | 0 10 15 −3 + 0 4 6 −4 / 10% | Sheet・ダイアログ |
-| shadow-xl | `f59eb68c35c9d8f225bd160c2027e508cb7c6077` | 0 20 25 −5 + 0 8 10 −6 / 10% | — |
-| shadow-2xl | `94926c1d5bac34915e0c0e3cee59ad816e8e909b` | 0 25 50 −12 / 25% | — |
+| 00 Cover / 01 Sitemap / 02 Foundations | 274 / 340 / 790 | 0 / 0 / 0 | 0 |
+| 03 Components | 2,904 | 55 | **0** |
+| 10 Top / 11 Services / 12 Pricing | 2,467 / 1,360 / 833 | 67 / 50 / 26 | **0** |
+| 13 About / 14 Contact / 15 Blog / 16 System | 514 / 2,204 / 1,087 / 1,521 | 24 / 122 / 52 / 72 | **0** |
+| **合計** | **14,294** | **468** | **0** |
 
-## 5. レシピ（コピーして使う）
+§9.5 の「リンクには下線」はファイル全体で満たされている。走査のやり方は §8.4 を参照（`findAll(述語)` を他ページに使うと取りこぼす）。
 
-### 5.1 フォントの load（毎回スクリプトの先頭で）
+**名前に頼らない突き合わせでも確認した**（2026-10-01 19:05 JST）。`03 Components` で下線が入っている TEXT の**部品内ノード ID 36 件**を集め、全ページの instance サブレイヤーを **ID の末尾で突き合わせて 495 件**を検査した結果、**ずれは 0 件**。
+
+```js
+// instance サブレイヤーの ID は "I<instanceのパス>;<部品内ノードID>" の形
+const raw = t.id.includes(';') ? t.id.split(';').pop() : t.id;
+```
+
+この方法は**名前が一致しないリンクも拾える**（kit の Link variant のラベルはノード名が `Label` で、名前での検索では引っかからない）。部品の修正が instance に伝わっているかを確かめるときは、名前ではなくこの ID の突き合わせを使う。
+
+---
+
+### 0.2 部品ページの旧表記の走査（2026-10-01 11:38 JST）
+
+`builder-sales` のページでレイヤー名に旧表記が 24 件見つかったため、部品ページも同じ観点で走査した（lead 依頼）。**ノード名・テキスト内容・コンポーネントプロパティ名・プロパティ既定値・variant 値**を母数にしている。
+
+当てた条件: 禁止表現（弊社・当社・お気軽）、旧トークン（`accent` / `emerald` / `option-a|b|c`）、旧フォント（`Inter`）、旧プロパティ（`cta_type`）、数字と単位の間の空白、emerald の hex、`sky` / `blue.500` への言及。
+
+| ページ | ノード | プロパティ所有者 | 当たり | 旧表記として直したもの |
+|---|---|---|---|---|
+| `03 Components` | 2,791 | 28 | 1 | **1** |
+| `02 Foundations` | 796 | — | 24 | **2** |
+
+**当たり 25 件のうち、旧表記は 3 件だけだった。残り 22 件は現行トークン名で、直してはいけないもの。**
+
+直した 3 件（範囲の文字スタイルを壊さないよう、`characters` を丸ごと代入せず `deleteCharacters` ＋ `insertCharacters` で 1 文字だけ差し替えた。セグメント数は 17→17 / 8→8 / 3→3 で保たれている）:
+
+| ノード | 誤 | 正 | なぜ旧表記か |
+|---|---|---|---|
+| `19:680`（`03 Components` の説明） | `role/surface-brand（brand.blue.500）` | `brand.blue.600` | C-1 で `role/surface-brand` を blue.600 に差し替えたのに説明文が追随していなかった |
+| `140:13463`（§5.4 の 60:30:10） | `10% 強調・図版 blue.500` | `blue.600` | 同じ理由。10% のアクセントは `role/surface-brand` ＝ blue.600 |
+| `87:53` / `19:680` | `assets/tokens/tokens.json` | `Assets/tokens/tokens.json` | 実パスは大文字始まり。**Linux では大文字小文字を区別するため、このまま辿れない** |
+
+**直さなかった 22 件の判断根拠**（変数の実値と突き合わせた）:
+
+| 当たった文字列 | 判定 | 根拠 |
+|---|---|---|
+| `role/text-accent-subtle` / `role/surface-accent-subtle` | **現行** | 存在する現行トークン（navy/700 `#003577` / blue/50 `#E9F5FE`）。退役させたのは emerald の `accent/*` と `accent/option-a|b|c` だけで、`*-accent-subtle` は別物 |
+| `swatch / brand-blue/500`・`blue.500`・`brand.sky` | **現行** | プリミティブの見本。`brand-blue/500` は現役で、`role/focus-ring` が参照している |
+| `blue.500 の 2px アウトライン＋2px オフセット`（`89:85`） | **現行** | `role/focus-ring` → `brand-blue/500` `#0581DB`。フォーカスリングだけは blue.500 のまま |
+| `brand.blue.500 #0581DB は 4.06:1 で本文に使えない…本文リンクは role.text-link #0579CE`（`88:214`） | **現行** | §5.3 の記述として正しい。`role/text-link` → `raw/info` `#0579CE` |
+
+**「`accent` という語が出たら旧表記」と機械的に判定すると 4 件を壊すところだった。** 語の一致ではなく、**その名前の変数が今も存在し何を指しているかを変数側で確かめる**こと。`role/focus-ring` が blue.500 を指し続けている以上、「blue.500 への言及はすべて古い」とも言えない。
+
+### 0.3 レイヤー名の取り残し（2026-10-01 11:42〜11:44 JST）
+
+§0.2 の語彙による走査では**レイヤー名の取り残しを 1 件も検出できなかった**。語彙の当たりに頼らない条件で測り直したら **3 件見つかった**。検出条件の作り方そのものが論点なので手順を残す。
+
+**ボツにした条件: 「レイヤー名 ≠ 本文」。** Figma は自動命名なら名前が本文に追随するので、食い違い＝手で改名された印にはなる。しかし部品ページの命名規約は**役割名**（`Label` / `Helper` / `Error` / `Link`）なので、`03 Components` では **758 件中 756 件が食い違う**。指標として使えない。
+
+**使えた条件: 「レイヤー名が『コピーらしい』のに本文と一致しない」。** コピーらしさは「日本語を含む、または 20 文字超」で判定した。さらに**空白・改行の畳み込みだけの差を除く**（Figma の自動命名は連続スペースを 1 つに、改行を半角スペースに畳むため、`norm = s.replace(/[\s　]+/g, ' ').trim()` で正規化してから比べる）。
+
+| ページ | TEXT | 名前＝本文 | 役割名 | 空白の畳み込みだけ | **取り残し** |
+|---|---|---|---|---|---|
+| `02 Foundations` | 366 | 334 | 14 | 18 | **0** |
+| `03 Components` | 758 | 2 | 732 | 0 | **24** |
+
+**`03 Components` の 24 件は `SiteFooter` のリンクで、`Link / <文言>` という命名規約だった。** 規約として名前に文言を埋めているので「名前 ≠ 本文」は正常。**そのうち 2 件だけが本当の取り残し**だった。
+
+| ノード | 誤 | 正 |
+|---|---|---|
+| `32:648` / `32:674` | `Link / ソースコード無料DL` | **`Link / ソースコード無料 DL`** |
+| `42:4283`（親フレーム） | `Row / ソースコード無料DL` | **`Row / ソースコード無料 DL`** |
+
+**`DL` の前の半角スペースが名前側だけ抜けていた。** 本文は `ソースコード無料 DL` で正しい。文言を直したときに名前を追わなかった形で、**`builder-sales` のページで 24 件見つかったのと同じ種類**。
+
+容器側も別に測った。**`接頭辞 / 文言` の形で日本語を含む非 TEXT ノードが 66 件**あり、配下の TEXT の本文と突き合わせて**空白のずれ 1 件（上の `42:4283`）・不一致 0 件**。
+
+**レイヤー名に文言を埋める規約は、文言を直すたびに必ず腐る。** `SiteFooter` の 12 リンク（× 2 variant）はこの形なので、文言を変えるときは名前も同時に変える。`MobileMenuSheet` の 6 件は `Label` という役割名なので腐らない。**命名規約を選ぶ時点で、同期の手間を引き受けるかどうかが決まっている。**
+
+---
+---
+## 1. ガイドライン適用で変わったこと（旧版からの差分）
+
+| 項目 | 旧（2026-09-20） | 新（2026-10-01） |
+|---|---|---|
+| アクセント色 | emerald 系 `accent/base` ほか 5 件（ゲート G1 で「案 B 成長の緑」） | **廃止・削除**。ブランドの `role/surface-brand`（brand.blue.500）ほかに置換 |
+| 色の出どころ | kit の `shadcn colors/*` | **ComeGin のブランドトークン**。kit 色変数への参照は 0 件 |
+| 欧文書体 | Inter | **Poppins**（§6.1） |
+| 等幅書体 | なし | **JetBrains Mono**（`Mono/Body|Small|Caption`） |
+| タイプスケール | 独自（Desktop H1 48px ほか） | **§6.3 のスケール**（H1 36px・H2 30px ほか） |
+| 和文の字間 | +2〜3% | **§6.3 のとおり 0 / −1% / +4%** |
+| 角丸 | kit の 6/8/10/14/16/22px | **§7.3 の 4 / 8 / 12px（＋ピル・2px）** |
+| 影 | kit の shadow-xs〜2xl（グレー） | **`shadow/sm|md|lg`（ネイビー透過）の 3 段階のみ** |
+| フォーカス | 表現なし（State=Focus の variant が 0 件） | **`focus/ring` を作り、CTAButton・FormField・ConsentCheckbox に State=Focus を追加** |
+| ロゴ | 文字「ComeGin」（`UI/Logo` スタイル） | **`Logo` 部品（SVG マスター・16 variant）** |
+| ヘッダー | 高さ 64px / 文字ロゴ | **高さ 56px / シンボル単体 32px**（本書 §6。当初は横組み 160px としたが撤回した） |
+
+削除した変数 29 件（**削除前の「参照 0 件」の確認は成立していなかった**。本書 §9.3 の C4 を参照。28 件の参照が残っていた）: `accent/{base,hover,foreground,subtle,subtle-foreground}`、`accent/option-{a,b,c}/*` 15 件、旧 primitives `blue|emerald|orange/{50,700,800}` 9 件。
+
+---
+
+## 2. 変数
+
+コレクションは 2 つ。**部品に当てるのは `ComeGin / tokens` の役割トークンだけ**で、primitives を直接指定しない。
+取り方: `(await figma.variables.getLocalVariablesAsync()).find(v => v.name === 'role/surface-brand')`。同じファイル内なので import は不要。
+
+### 2.1 `ComeGin / primitives`（モード `Value`・48 件・scope は空＝ピッカーに出ない）
+
+| 変数 | 値 | 備考 |
+|---|---|---|
+| `brand-navy/50 … 900` | #E8F2FF / #CCE3FF / #A3CCFF / #66AAFF / #1C81FF / #005FD6 / #0049A3 / **#003577** / **#00215B** / #001C40 | 700 がワードマーク Come、800 がカタカナの濃部（ロゴ実値） |
+| `brand-blue/50 … 900` | #E9F5FE / #CDE9FE / #A0D6FD / #62BBFB / #219FFA / **#0581DB** / #0471C0 / #045D9D / #03497D / #02365C | 500 がワードマーク Gin（ロゴ実値） |
+| `brand-sky` | #1298E8 | シンボル最明部 |
+| `brand-ink` | #00215B | brand-navy/800 と同値 |
+| `gradient/1 … 5` | #0052AD / #036AC3 / #0074D2 / #0581DB / #1298E8 | シンボルの階調。**並び順を入れ替えない**（§5.5-7） |
+| `neutral/0,25,50,100,200,300,400,500,600,700,800,900` | #FFFFFF / #FCFCFC / #F5F7F9 / #ECF0F4 / #DCE3EA / #C2CCD8 / #97A5B5 / #6F7F92 / #546274 / #3D4856 / #2A323C / #1A1A1A | 無彩色ではなくわずかにブルー寄り |
+| `raw/success|warning|danger|info` | #0F7A46 / #9A5B00 / #C0302A / #0579CE | semantic の素の値 |
+| `raw/shadow-navy` | #0A3B7A | `rgba(10, 59, 122, a)` の RGB。影のベース |
+| `raw/logo-black` | #000000 | §4.2 の単色黒版専用。**UI の色には使わない** |
+
+WEB コードシンタックスは `tokens.css` の名前に一致させてある（例 `var(--color-brand-navy-700)`）。
+
+### 2.2 `ComeGin / tokens`（モード `Light`・44 件）
+
+**色**（すべて primitives への alias）
+
+| トークン | 参照先 | 白背景コントラスト | 使う場所 |
+|---|---|---|---|
+| `role/text-primary` | brand-navy/900 #001C40 | 16.93:1 | 最も強い文字・重要な数値 |
+| `role/text-heading` ◆ | brand-navy/700 #003577 | 11.83:1 | **見出し全般**（§9.5 ファーストビューの H1） |
+| `role/text-body` | neutral/900 #1A1A1A | 17.40:1 | 本文 |
+| `role/text-muted` | neutral/600 #546274 | 6.22:1 | 補足・キャプション |
+| `role/text-inverse` | neutral/0 #FFFFFF | — | 濃色面の文字 |
+| `role/text-link` | raw/info #0579CE | 4.53:1 | **本文リンク。必ず下線を付ける** |
+| `role/text-link-hover` ◆ | brand-blue/700 #045D9D | 6.87:1 | リンクのホバー（§9.5） |
+| `role/text-brand` ◆ | brand-blue/700 #045D9D | 6.87:1 | **ブランドブルーで見せたい「リンクではない」文字**（タグラインなど）。下線を付けない |
+| `role/text-accent-subtle` ◆ | brand-navy/700 | 11.83:1 | accent-subtle 面の文字・強調アイコン |
+| `role/surface` | neutral/0 #FFFFFF | — | 紙の面・カード・ヘッダー |
+| `role/surface-subtle` | neutral/50 #F5F7F9 | — | **ファーストビューの地**（§9.5）・薄い面 |
+| `role/surface-brand` | brand-blue/500 #0581DB | 4.06:1 | **主ボタンの地**。文字は 16px 以上太字 |
+| `role/surface-brand-hover` ◆ | brand-blue/700 #045D9D | 6.87:1 | 主ボタンのホバー |
+| `role/surface-brand-strong` | brand-navy/700 #003577 | 11.83:1 | 反転面（CTA 帯・OGP） |
+| `role/surface-accent-subtle` ◆ | brand-blue/50 #E9F5FE | — | 薄いアクセント面（§5.5-6 に従いランプ 50 を使う） |
+| `role/border` | neutral/200 #DCE3EA | — | 罫線・ヘッダー下の 1px |
+| `role/border-strong` | neutral/300 #C2CCD8 | — | 表の外枠 |
+| `role/border-brand` ◆ | brand-navy/700 #003577 | — | **副ボタンの枠**（§9.5） |
+| `role/focus-ring` | brand-blue/500 #0581DB | — | フォーカスリング |
+| `semantic/success` | raw/success #0F7A46 | 5.39:1 | 完了・達成 |
+| `semantic/warning` | raw/warning #9A5B00 | 5.43:1 | 注意・期限 |
+| `semantic/danger` | raw/danger #C0302A | 5.68:1 | **警告専用。アクセントに使わない**（§5.5-5） |
+| `semantic/info` | raw/info #0579CE | 4.53:1 | 補足 |
+
+◆ = tokens.json の `color.role` には無い**拡張トークン**。いずれも §9.5・§5.5 の規定から導いた値で、新しい色は足していない（既存ランプの段を指しているだけ）。実装へは `03-handoff.md` で提案する。
+
+**寸法**
+
+| トークン | 値 | 用途（§7.1） |
+|---|---|---|
+| `space/0 … 10` | 0 / 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96 / 128 | 1 アイコンと文字 ／ 2 関連要素 ／ 3 ラベルと入力欄 ／ 4 段落・カード内 ／ 5 小見出しの前 ／ 6 ブロック間 ／ 7 セクション間 ／ 8 大見出しの前 ／ 9 ページ上下 ／ 10 ヒーロー |
+| `radius/none,xs,sm,md,lg,full` | 0 / 2 / 4 / 8 / 12 / 9999 | **sm=入力欄・タグ、md=カード・ボタン、lg=モーダル**（§7.3） |
+| `layout/container-max` | 1152 | Desktop のコンテンツ幅 |
+| `layout/gutter-desktop` | 144 | (1440−1152)/2 |
+| `layout/gutter-mobile` | 16 | space.4 |
+| `layout/logo-header` | 32 | §9.5 が書いているヘッダーのロゴ高さ（下記 §6 の要判断事項を参照） |
+
+> `space/0` を 0 の余白にバインドするのはノイズになるため、適用後に 1,357 件を外した。0 の余白は変数を付けない。
+
+### 2.3 エフェクトスタイル（5 件）
+
+| スタイル | 中身 | 用途 |
+|---|---|---|
+| `shadow/sm` | 0 1px 2px rgba(10,59,122,.08) | カード |
+| `shadow/md` | 0 2px 8px rgba(10,59,122,.10) | 固定ヘッダー・Cookie バナー・料金カードの強調 |
+| `shadow/lg` | 0 8px 24px rgba(10,59,122,.12) | Sheet・ダイアログ |
+| `focus/ring` | 白 2px オフセット ＋ `role/focus-ring` 2px | **フォーカス。絶対に消さない**（§9.5） |
+| `focus/ring-error` | 白 2px オフセット ＋ `semantic/danger` 2px | エラー時のフォーカス |
+
+**影はこの 3 段階だけ。グレーの影を使わない（§7.3）。** 色はすべて変数にバインドしてある。
+
+> ⚠ **効果の色に変数をバインドすると、効果側の不透明度は変数の不透明度で上書きされる。**
+> `raw/shadow-navy`（不透明なネイビー）をバインドしていたため、**2026-10-01 まで 3 つの影がすべて不透明**だった（ヘッダーの境目が 1px の濃い線として出ていた）。
+> 不透明度込みの **`raw/shadow-sm` / `raw/shadow-md` / `raw/shadow-lg`**（rgba(10,59,122,.08/.10/.12)）を作り、そちらをバインドして解決した。
+> **効果に色変数を当てるときは、変数側に不透明度を持たせる。**
+フォーカスリングは「白 2px → 青 2px」の順で重ねてある。CSS の `outline` ＋ `outline-offset` と同じ見え方で、**白い面・neutral.50 の面の上でのみ正しく見える**。濃色面に置く部品では、オフセットの色を面の色に差し替える必要がある（現状そのような部品は無い）。
+
+---
+
+## 3. 文字スタイル（55 件）
+
+**欧文 Poppins / 和文 Noto Sans JP / 等幅 JetBrains Mono**（§6.1）。Figma の 1 スタイルは 1 書体しか持てないので、`JP/…` と `Latin/…` を組で使う（テキスト全体に JP、半角英数字の連続部分に Latin を範囲適用。§8 のレシピ）。
+
+ウェイトは **Regular 400 / Medium 500 / SemiBold 600 / Bold 700 のみ**。Light（300 以下）と Black（800 以上）は使わない（§6.2）。
+
+> **和文の 600 は Bold(700) を当てている。** Noto Sans JP に SemiBold が無いため。Medium(500) は Poppins SemiBold と並べると和文が明確に細く見え、和文主体の本サイトでは見出しの階層が立たない。また §6.2 は Medium を「表の見出し・ラベル」に割り当てているので、見出しに回すとラベルとの区別が消える。代償として JP では H1(700) と H2〜H4(600) が同ウェイトになるが、§6.3 が 36/30/24/20 とサイズで差を付けているので階層は保てる。
+
+### 3.1 §6.3 タイプスケール（`JP|Latin / Desktop|Mobile / <段階>`）
+
+| 段階 | Desktop | Mobile | 和文ウェイト | 欧文ウェイト | 行送り | 字間 |
+|---|---|---|---|---|---|---|
+| Display | 60px | 36px | Bold | Bold | 130% | −1% |
+| H1 | **36px** | 30px | Bold | Bold | 130% | −1% |
+| H2 | **30px** | 24px | Bold | SemiBold | 130% | 0 |
+| H3 | 24px | 20px | Bold | SemiBold | 150% | 0 |
+| H4 | 20px | 18px | **Bold** | SemiBold | 150% | 0 |
+| Body L | 18px | 16px | Regular | Regular | 175% | 0 |
+| Body | 16px | 16px | Regular | Regular | 175% | 0 |
+| Small | 14px | 14px | Regular | Regular | **175%** | 0 |
+| Caption | 12px | 12px | Regular | Regular | 150% | **4%** |
+
+Desktop の値が §6.3 そのもの。Mobile はタイプスケールの 1 段下（Display 60→36、H1 36→30、H2 30→24、H3 24→20、H4 20→18、Body L 18→16）で、**Body・Small・Caption は Desktop と同値**。
+和文の行送り 1.75 は §6.3 の基準。見出しだけ 1.3 に詰めて塊として見せる。
+**本文を 14px 未満にしない**（§6.5-4）。
+
+### 3.2 UI 用（kit instance の文字を置き換える。行送りは px 固定）
+
+| スタイル | 内容 | 置き換える対象 |
+|---|---|---|
+| `JP|Latin/UI/Button` | 16 / 24px、JP Bold・Latin Bold | **主ボタンのラベル。§9.5「ボタン文字は 16px 以上太字」** |
+| `JP|Latin/UI/Button Subtle` | 16 / 24px、JP Medium・Latin Medium | **副ボタン（Secondary・Outline）のラベル。** 主と同じ 16px でウェイトだけ落として重みの差を付ける |
+| `JP|Latin/UI/Label` | 14 / 20px、Medium | Label・Nav・Tab・Accordion Trigger（kit の Geist Medium 14） |
+| `JP|Latin/UI/Text` | 14 / 20px、Regular | Input・Select・Textarea の値、Breadcrumb、Accordion 本文 |
+| `JP|Latin/UI/Small` | 12 / 16px、Medium | Badge・Tooltip |
+| `JP|Latin/UI/Card Title` | 20 / 150%、JP Bold・Latin SemiBold | カードの見出し。§6.3 H4 と同値 |
+| `JP|Latin/UI/Price` | **30** / 130%、Bold | 料金カードの金額。旧 32px はタイプスケール外だったため 30px（§6.3 H2 のサイズ）に修正 |
+| `JP|Latin/UI/Logo` | 20 / 28px、Bold | **非推奨**。`Logo` 部品に置き換え済み。新規に使わない |
+| `Mono/Body` | JetBrains Mono 16 / 175% | コード・API キー・登録番号 |
+| `Mono/Small` | JetBrains Mono 14 / 175% | 同上（小） |
+| `Mono/Caption` | JetBrains Mono 12 / 150% / 4% | 図版の値・HEX |
+
+kit の文字スタイル（`heading 1〜4`、`paragraph */*`。すべて Geist）は**使わない**。Geist には和文グリフが無い。
+
+---
+
+## 4. `Logo` 部品（`03 Components` / ノード `78:2581` / key `7312e45ec8dafd6fb3bdb556a4ec4bad92e388f0`）
+
+SVG マスター（`Assets/logo/*.svg`）をベクターのまま取り込み、**塗り 102 箇所すべてをブランド変数にバインド**してある。
+
+- variant: `Lockup` = Horizontal / Vertical / Symbol / Wordmark × `Color` = Fullcolor / Navy / White / Black（**16 variant**）
+- 既定サイズ（= tokens.json の画面最小幅ちょうど）: **Horizontal 160 × 49.16 / Vertical 112 × 116.42 / Symbol 24 × 21.46 / Wordmark 112 × 30.12**
+- 拡大は**等比のみ**。縦横比を変えない・回転させない・効果を足さない・パレット外で塗らない（§4.6）
+
+### 4.1 最小サイズ（幅）— **tokens.json を正とする**
+
+| 組み | 通常（tokens.json） | 絶対下限（tokens.json） | 参考: PDF §4.4 本文 |
+|---|---|---|---|
+| 縦組み | **112px** | **96px** | 96px / 80px |
+| 横組み | **160px** | **136px** | 144px / 120px |
+| シンボル | **24px** | **16px** | 20px / 14px |
+| ワードマーク | 112px | — | 規定なし（カタカナを含むため縦組みと同幅を下限とした） |
+
+下限を割るときは**その組みを使わずシンボル単体に切り替える**（§4.4）。シンボルが 24px 未満なら `Color=Navy` を使う（輪郭が立つ）。
+
+### 4.2 アイソレーション（§4.3）
+
+X ＝ ワードマーク「C」のキャップハイト。全高に対する比率は **縦組み 16.5% / 横組み 33.6% / シンボル単体 25.0%**。
+例: 横組み 160×49.16 なら X ＝ 49.16 × 0.336 ≒ **16.5px** を上下左右に確保する。
+この余白に文字・罫線・画像・他社ロゴを入れない。ページ端・断ち落とし・折り目に対しても確保する。
+
+### 4.3 背景別の選び方（§4.5）
+
+| 背景 | Color |
+|---|---|
+| 白・neutral 25〜100 | Fullcolor |
+| neutral 200〜400 などの淡色 | Navy |
+| brand navy 700〜900・brand blue 500 以上の濃色、写真 | White |
+| 1 色印刷・FAX・捺印を伴う書面 | Black |
+
+判断の目安はロゴ最暗部が背景に対して 3:1 を確保できるか。迷ったら単色版。
+
+### 4.4 取り込み時の処理
+
+§4.7 の既知の残留パス（カタカナ「ギ」の `#918EBC`・不透明度 7.45%）を **3 点削除**した（Horizontal・Vertical・Wordmark）。肉眼では見えないがパレット外の色なので、Figma 側には持ち込んでいない。マスターが更新されたら取り込み直す。
+
+---
+
+## 5. §9.5 Web サイト規定の実装状況
+
+| 箇所 | 規定 | Figma での実装 |
+|---|---|---|
+| ヘッダー | ロゴ横組み 左、高さ 32px。背景 neutral.0、下に 1px neutral.200 | `SiteHeader` 全 4 variant。**`Logo` の `Lockup=Symbol` を高さ 32px（35.79×32）で左に**、背景 `role/surface`、下に 1px `role/border`。ヘッダーは **56px**。§4.4 の「下限を割る場合はシンボル単体に切り替える」に従った形で、**§9.5 の「高さ 32px」とも一致する**（本書 §6） |
+| ファーストビュー | 見出しは navy.700 の H1、背景は neutral.50 | `PageIntro` 2 variant の地を `role/surface-subtle`、見出しを `role/text-heading` に |
+| リンク | role.text-link ＋ 下線。ホバーで blue.700 | `Detail link` / `Sub link` / `Link`（9 件）とフッターのリンク列（15 件）に `role/text-link` ＋ 下線。ホバー色は `role/text-link-hover` |
+| ボタン（主） | 地 blue.500 ／文字 #FFFFFF。4.06:1 のため 16px 以上太字 | kit `Variant=Primary` の 42 instance。**地は `role/surface-brand` ＝ brand.blue.600 #0471C0（5.09:1 ＝ AA 適合）。** §9.5 の blue.500 は 4.06:1 で 16px 太字では AA に届かないため、2026-10-01 のユーザー判断で 600 に変更した。文字は `role/text-inverse` ＋ `UI/Button`（16px Bold） |
+| ボタン（副） | 地 neutral.0 ／枠 navy.700 ／文字 navy.700 | kit `Variant=Secondary|Outline` の 14 instance。地 `role/surface`、枠 `role/border-brand` 1px、文字 `role/text-heading` ＋ `UI/Button Subtle` |
+| フォーカスリング | blue.500 の 2px アウトライン ＋ 2px オフセット。絶対に消さない | `focus/ring` を作成。`CTAButton`・`FormField`・`ConsentCheckbox` に **State=Focus を 10 variant 追加** |
+| 角丸 | sm 4（入力欄・タグ）／ md 8（カード・ボタン）／ lg 12（モーダル） | 158 ノードを再バインド（10→8 が 57、入力系 10→4 が 16、14→8 が 11、16→12 が 22 ほか） |
+| 影 | shadow.sm/md/lg のみ。グレーの影は使わない | 16 ノードを `shadow/sm|md|lg` に差し替え |
+| ファビコン・OGP | — | Figma 側の対象外。`03-handoff.md` で実装に申し送る |
+
+**ナビゲーションに下線を付けていない。** §9.5 の「リンク ＋ 下線」は本文・カード・バナー・フッターのテキストリンクに当てた。ヘッダーのグローバルナビとモバイルメニューの主要ナビは `role/text-heading`（navy.700）のままにしてある。ナビ全体を青＋下線にすると §5.4 の配色比 60:30:10 の「青 10%」を大きく超えるため。
+
+---
+
+## 6. 判断の記録: ヘッダーのロゴ（2026-10-01 ユーザー確定）
+
+**結論: ヘッダーのロゴは `Lockup=Symbol` を高さ 32px で置く。ヘッダーは 56px、下端の 1px 罫線はそのまま。**
+
+| | 当初の判断（撤回） | 確定 |
+|---|---|---|
+| ロゴ | 横組み 160 × 49.16px | **シンボル単体 35.79 × 32px** |
+| ヘッダーの高さ | 74.16px | **56px**（32 ＋ 12 × 2。8pt グリッドに乗る） |
+| 下端 | 1px 罫線 → 一時的に `shadow/sm` | **1px 罫線に戻す** |
+| アイソレーション X | 16.52px（上下 12px では不足） | **8px**（32 × 0.25。上下 12px で足りる） |
+
+**これで GL §4.3（アイソレーション）・§4.4（最小サイズと切り替えの指示）・§4.6-8（ゾーン内に罫線を入れない）・§9.5（高さ 32px）のすべてを満たす。** Mobile の左 16px も 8px を超えるので足りる。
+
+### 当初の判断は誤りだった
+
+**私（design-system）は「§9.5 の 32px と §4.4 の最小幅 160px が矛盾している」と読み、可読性を優先して横組み 160px を提案した。lead が承認した。**
+
+**しかし矛盾ではなかった。** §4.4 は「**下限を割る場合はその組みを使わずシンボル単体に切り替える**」と**解決を用意しており、ヘッダーはまさにその場面**だった。§9.5 の「高さ 32px」は、シンボル単体を前提にした寸法として読める。**ガイドラインは正しく、こちらの読み落としだった。**
+
+**気づけなかった原因は、最小サイズだけを見てアイソレーションを計算しなかったこと。** 横組みは「160px 以上 **＋ 上下左右に 16.52px 以上**」を要求するので、**高さの限られたヘッダーには構造的に収まらない**。この計算を当初していれば、§4.4 の切り替えの指示が「まさにこの場面の話」だと読めたはずだった。
+
+**寸法の判断をするときは、§4.3（アイソレーション）・§4.4（最小サイズ）・§4.5（背景）をセットで確かめる。** 1 つの節だけを見て「矛盾している」と結論しない。
+
+### ヘッダーだけがシンボル
+
+**`SiteHeader` 以外のロゴは横組みのままで正しい**（`Logo` の instance は全体で 42 件）。§4.4 の切り替えの指示は**高さが限られた面に対する規定**で、フッター・OGP・提案書・名刺などは高さに余裕があり、**横組みの最小幅 160px を満たせるうえワードマークを出せる**。サイト全体からワードマークが消えるわけではない。
+
+### ガイドラインへの指摘は 2 件撤回した
+
+「§9.5 の 32px が §4.4 の最小幅と矛盾する」と「§4.3 のアイソレーションと §9.5 のヘッダーが噛み合わない」の 2 件は、**どちらも読み落としが原因なので撤回**した（`01-content-spec.md` の R-1）。**指摘を立てたまま GL を直すと、正しい規定を壊すことになっていた。**
+
+残る食い違いは**数値そのものの誤り**なので有効。
+
+| # | 食い違い | tokens.json（採用） | PDF 本文 |
+|---|---|---|---|
+| 1 | ロゴ最小サイズ・画面（幅） | 縦 112 / 横 160 / 記号 24、下限 96 / 136 / 16 | §4.4 縦 96 / 横 144 / 記号 20、下限 80 / 120 / 14 |
+| 2 | **ロゴ最小サイズ・印刷（幅）** | **縦 20mm / 横 32mm / 記号 8mm** | §4.4 縦 18mm / 横 28mm / 記号 6mm |
+| 3 | 影のベース色 | `rgba(10, 59, 122, a)` | §7.3 `rgba(0, 53, 119, a)` |
+| 4 | ワードマークの最小サイズ | 規定なし | 規定なし（縦組みと同幅 112px を下限として本書で補った） |
+
+**#1 と #2 は §4.4 の同じ表の中の別の行。** 画面と印刷の両方がずれているので、**§4.4 の表は全体が古い版のまま残っている**と読むのが妥当。直すときは 1 行ではなく表ごと差し替える。
+
+### 6.1 ガイドライン自体の矛盾（2026-10-01 にユーザー判断で解決）
+
+**寸法の食い違い（上の表）とは別に、GL の規定どうしが噛み合っていない箇所が 1 つ見つかった。** Figma 側では解決済みだが、**GL を直すべき指摘**として `03-handoff.md` と `01-content-spec.md` §11.6 に記録してある。
+
+| # | GL の箇所 | 矛盾の内容 | 解決 |
+|---|---|---|---|
+| A | **§9.5「ボタンの地は blue.500 ／ 文字は 16px 以上の太字」** | この処方では **AA を満たせない**。WCAG の「大きい文字」は 18.66px 以上の太字なので、**16px Bold には 4.5:1 が必要**。blue.500 は 4.06:1。**§5.3 の適合表（blue.500 ＝ 本文 ✕ / 大文字・UI ○）と §9.5 の処方が噛み合っていない** | **地を `brand.blue.600` #0471C0（5.09:1）に変更。** 文字サイズは 16px 太字のまま。トークン 1 つの差し替えで済み、実装も `--color-role-surface-brand` の 1 行 |
+
+**B（アイソレーション）として挙げていた項目は撤回した。** §6 のとおり、ガイドラインの矛盾ではなく読み落としだった。
+
+---
+
+## 7. サイト部品（28 個 / variant 133）
+
+すべて Figma ページ `03 Components`（ID `4:4`）。**同じファイル内なので import は不要**で、
+`const set = await figma.getNodeByIdAsync('<ノード ID>')` → variant を選んで `createInstance()`。別ファイルからは `figma.importComponentSetByKeyAsync('<key>')`。
+
+variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].every(q => c.name.includes(q)))`。
+文言の差し替え: `inst.setProperties({ 'Title#29:0': '…' })`。
+
+| 部品 | ノード ID | key | 種類 | variant | TEXT / BOOLEAN / INSTANCE_SWAP プロパティ |
+|---|---|---|---|---|---|
+| **Logo**（新規） | `78:2581` | `7312e45ec8dafd6fb3bdb556a4ec4bad92e388f0` | SET（16） | Lockup=Horizontal/Vertical/Symbol/Wordmark、Color=Fullcolor/Navy/White/Black | なし |
+| CTAButton | `19:800` | `fac92b941ede8d7f133a3096fec13badc8be01b9` | SET（**24**） | Size=Small/Default/Large、State=Default/Hover/**Focus**/Loading、Width=Hug/Full | なし（ラベルは中の TEXT「Label」を直接書き換える。`UI/Button` を当て直す） |
+| SiteHeader | `30:854` | `fb8fa1c8789cb08207f68abb0178e7a9779d2637` | SET（4） | Device=Desktop/Mobile、CTA=Primary/Outline | **`Logo#30:0` は削除**（文字ロゴを `Logo` 部品に置き換えたため）。現在地は exposed instance「Nav / 料金」などに `setProperties({State:'Hover & Active'})` |
+| MobileMenuSheet | `31:669` | `0acda40d8aac93e5e5a5875eede985f32613da72` | SET（2） | CTA=Primary/Outline | なし |
+| SiteFooter | `32:683` | `2448b08a1d851e44653b91389dc4f33923f8d952` | SET（2） | Device=Desktop/Mobile | **`Logo#32:6` は削除**。`Description#32:0`・`Copyright#32:3` |
+| AnnouncementBanner | `28:509` | `108b0cdb31df7b5463ea1ac896b61e46a65cbb00` | SET（2） | Device=Desktop/Mobile | `Text#28:0`・`Short text#28:3` |
+| PageIntro | `29:712` | `b54aee6e44f805dd0e07c71b1c131f43a374883d` | SET（2） | Device=Desktop/Mobile | `Title#29:0`・`Body#29:3`／`Show badge#29:6`・`Show button#29:9`・`Show image#29:12`・`Show breadcrumb#29:15` |
+| SectionHeading | `21:383` | `cce2962d041362cd6dbc28933147ab85c30361d0` | SET（4） | Device=Desktop/Mobile、Align=Left/Center | `Title#21:19`・`Lead#21:24`／`Show lead#21:29`・`Show badge#21:34` |
+| ServiceCard | `23:476` | `0da4b8d729132de0de28942d5f57a92cdd60a139` | SET（2） | Price rows=1/2 | `Title#23:0`・`Body#23:3`・`Product 1#23:6`・`Price 1#23:9`・`Period 1#23:12`・`Product 2#23:15`・`Price 2#23:18`・`Period 2#23:21`・`Note#23:24`／`Show badge#23:27`・`Show note#23:30`・`Show sub link#23:33` |
+| PricingCard | `24:443` | `39cd29f7f8b8a9d0aadd41f94f3571f7c704eb7b` | COMPONENT | — | `Product#24:0`・`Description#24:1`・`Price#24:2`・`Period#24:3`・`Note#24:4`／`Show badge#24:5`・`Show description#24:6`・`Show note#24:7`・`Show sub link#24:8` |
+| StepItem | `22:240` | `ac50d7daa7aed9e4c65f948b415784e32b8de245` | SET（2） | Layout=Stacked/Inline | `Number#22:0`・`Title#22:3`・`Body#22:6`／**`Show body#128:0`**（既定 true。false で本文の行が消える。Stacked は 165→82px） |
+| Steps | `22:499` | `5c3b919a167c84b5ce50c70bbbc1df69c892a70f` | SET（6） | Direction=Horizontal/Vertical、Count=4/5/6 | なし（中の「Step 1」… が StepItem の exposed instance）。**variant ごとに既定の文言が入っている**（下記 7.2） |
+| FAQItem | `39:2162` | `aa446a2066498ef3f9b4f756d33837ed3841098c` | SET（2） | State=Closed/Open | `Answer#39:0`／`Show marker#50:0` |
+| CTABanner | `27:502` | `aa958d4c3db370c83b5bc0b1e032947876a1d9fd` | SET（4） | Type=Standard/Inline、Device=Desktop/Mobile | `Title#27:0`・`Body#27:5`／`Show body#27:10` |
+| SourceDownloadBlock | `35:1578` | `8337e7fd91811468a95143ad7060f47c640fcf7a` | SET（20） | Emphasis=Subtle/Strong、State=Default/Error/Loading/Failed/Success、Device=Desktop/Mobile | `Title#35:0`・`Body#35:21` |
+| ContactForm | `36:2481` | `fb2b148716e5a0290a339aa794b5606dce646904` | SET（7） | State=Default/Error/Loading/Failed/Duplicate（Desktop）、Device=Desktop/Mobile | なし（各項目は FormField の instance）。**ボタン下の注記の既定値は 01-content-spec §5.1 の確定文言**（2026-10-01 に 7 variant を差し替え。旧「通常【要記入】営業日以内に…」は残っていない） |
+| **BookingEmbed**（新規） | `108:8011` | `d957b37bdc9ce084bd43fe235620e4ff6b37a9e3` | SET（4） | Device=Desktop/Mobile、State=Default/Error | なし（文言は 01-content-spec §4.6 の 6'-2 で確定。下記 7.3） |
+| FormField | `20:2828` | `886f9ad9fbb4623284ac08fee2b1f9785352a5f3` | SET（**12**） | Type=Input/Textarea/Name、State=Default/Error/Disabled/**Focus** | `Label#20:0`・`Helper#20:10`・`Error#20:20`／`Show required#20:30` |
+| ConsentCheckbox | `21:299` | `11f35dd56c6accf911d33f4bdeb04aedb6152ea8` | SET（**4**） | State=Default/Checked/Error/**Focus** | `Link#21:0`・`Label#21:4`・`Error#21:8`／`Show required#21:12` |
+| CheckboxField | `21:334` | `76203a7407c60ea369248a1caa9e80364a16dae7` | SET（2） | State=Default/Checked | `Label#21:16` |
+| IconCard | `42:2936` | `8e25a72dc952e791997a95bab64263fb783d3b09` | SET（2） | Device=Desktop/Mobile | `Title#42:0`・`Body#42:3`・`Link#42:89`／`Show icon#42:9`・`Show avatar#47:3`・`Show image#42:92`・`Show button#42:95`・`Show link#42:98`／INSTANCE_SWAP `Icon#42:6` |
+| BlogCard | `26:457` | `f5ee307c4e70821d589f2645c1489946ea972300` | COMPONENT | — | `Title#26:0`・`Excerpt#26:1`・`Date#26:2` |
+| LogoCloud（ダミー） | `25:485` | `e0a6130533e7d9c5469a8dc7e0e4ebbb7bb5fce3` | SET（2） | Device=Desktop/Mobile | なし |
+| TestimonialCard（ダミー） | `25:445` | `b1a0347ebab9668d5d338ff73ab5da6142fe8e99` | COMPONENT | — | `Title#25:3`・`Body#25:4` |
+| StatCard（ダミー） | `25:441` | `a62cdb041e1a98c43631a3ede44a86203a05fc4e` | COMPONENT | — | `Label#25:0`・`Value#25:1`（必ず「—」）・`Caption#25:2`／**`Show caption#99:1`**（既定 true。false で出典・注記の行が消え、カード高が 135→113px） |
+| CookieBanner | `37:2137` | `a76ad9a28c761e529a31953b3215de07e5a9554d` | SET（2） | Device=Desktop/Mobile | `Title#37:0`・`Body#37:3`・`Link#37:6` |
+| ImagePlaceholder | `19:681` | `024f3fa2b80063f88a835f725cdce6fa95a2d7cc` | COMPONENT | — | `Label#19:1` |
+| ChatWidgetPlaceholder | `39:2163` | `881e16cde7562e31548e47a9235578ed2f6b6018` | COMPONENT | — | `Label#39:3` |
+
+各部品の使い方・注意は Figma の description に書いてある（右パネルか `node.description`）。
+
+### 7.1 サイト部品を使うときの約束
+
+1. **kit のボタンのラベルは TEXT プロパティにできない。** instance の中の TEXT（多くは名前が `Label`）を直接書き換え、**主ボタンなら `UI/Button`、副ボタンなら `UI/Button Subtle` を当て直す**（§8 のレシピ）。
+2. **variant セットの TEXT プロパティの既定値は、セット全体で 1 つ**（Figma の仕様）。`SourceDownloadBlock` を Strong に切り替えても Title は Subtle の文言のままなので `setProperties()` で差し替える。
+3. **exposed instance** は `inst.exposedInstances` で取る。Badge の文言、Input の値、ナビの active、アイコンの差し替えはここから。
+4. 幅は置いた先で `layoutSizingHorizontal = 'FILL'`。Desktop はコンテンツ幅 1152（左右 144 = `layout/gutter-desktop`）、Mobile は 358（左右 16）。
+5. カードを横並びにして高さをそろえるときは `layoutSizingVertical = 'FILL'` だけでよい（`PricingCard`・`ServiceCard` は外側が `SPACE_BETWEEN` なのでボタンが下端でそろう）。instance 側で `primaryAxisAlignItems` を触らない。
+6. **instance の中の層は `resize()` できない**（エラーを出さずに無視される）。ただし **`layoutSizingHorizontal` と `textAutoResize` は設定できる**（builder-site が 2026-10-01 に実地で確認）。固定幅にしたいのでなく「親に合わせたい」「文字の高さに追従させたい」だけなら、この 2 つで足りることが多い。
+   - 例: `Basic Table Cell - Nova` は、**セルを縦 HUG・見出しセルを縦 FILL** にしないと行が文字の高さに追従しない（法務ページの表 129 テキスト / 77 行をこれで解決）。
+   - 本当に大きさ違いが要るときは design-system に依頼する（部品側に別の枠と BOOLEAN を用意する）。
+   - **instance の「ルート」は制約が違う。** ルートなら塗り・線・角丸・余白を上書きできる（`CTAButton` の内側余白 10→16px、`Pagination` の未バインドの塗りはこれで直した）。上書きできないのは**サブレイヤー**の寸法だけ。
+7. **非表示のレイヤーは instance に含まれない。** `FAQItem` の Closed の Answer などは `findAll()` に出てこないが、`inst.componentProperties['Answer#39:0'].value` では読める。閉じた FAQ でも Answer は必ず設定する。
+8. **INSTANCE_SWAP でアイコンを差し替えたら色を当て直す**（差し替え後は kit の既定色で入る）。強調アイコンは `role/text-accent-subtle`、本文中のアイコンは `role/text-body`。
+9. 部品を直さないと収まらないときは **instance を detach せず、design-system に SendMessage で依頼する**。
+10. **アクセント色を使ってよい場所**: 主 CTA のボタン（`CTAButton`）、テキストリンク、強調バッジ、強調したいアイコン。**セクションの背景・枠線には使わない**（§5.4 の青 10%）。
+11. **テキストリンクには下線が入っている**（§9.5）。`Link` / `Sub link` / `Detail link` / `Link / *` という名前の TEXT ノード **55 件**が `role/text-link` ＋ `UNDERLINE`。instance 側で外さない。
+12. **TEXT プロパティの既定値 17 件は `【要記入】…` という印になっている**（本書 §7.4）。`【要記入】見出し` / `リード文` / `本文` / `金額` / `期間` / `注記` / `説明` の 7 種。**置いたら必ず上書きする。** 上書きを忘れると画面に印が出る。
+    - **仕様書側の `【要記入】` とは別物。** `01-content-spec.md` の未決事項（契約の書類・契約期間など）は**画面に出すことが決まっている**もので、公開前に埋める。部品由来の印は**出てはいけない**もの。
+    - **検査では文字列で区別する。** 部品由来は `【要記入】` の直後に上の 7 語のいずれかが続く。`【要記入】` だけで数えると両方が混ざる（2026-10-01 時点で仕様書側が 34 件ある）。
+    - **ページでも区別する。** `03 Components` では印が variant の見本として**出ているのが正常**。違反として数えるのは builder のページ（`4:5`〜`4:11`）だけで、部品ページは既定値の走査だけで見る（qa-reviewer が 55 件の誤検知を直した件）。
+
+### 7.2 `Steps` の既定文言（2026-10-01 追記）
+
+**variant ごとに既定の文言が入っている。** 別の用途で使うときは全段を必ず差し替える。差し替え漏れがあると、その段だけ別セクションの文言が画面に出る。
+
+| variant | 既定の内容 |
+|---|---|
+| Count=5 | 事業経営基盤の PDCA（観測 / 提案 / 承認 / 反映 / 検証） |
+| Count=6 | 受託開発の流れ（要件定義 / 設計 / 開発 / テスト / リリース / 運用保守） |
+| Count=4 | Count=5 の先頭 4 段 |
+
+**1 段でも使わないなら、Body に半角スペースを入れるのではなく `Count` を 1 つ小さい variant に変える。** 空の段が残ると矢印と折り返し位置がずれる。
+
+**見出しだけの手順にするときは `Show body#128:0` を false にする（2026-10-01 追加・既定 true）。** Body に半角スペースを入れて空にすると、**その段だけ本文 1 行ぶん高くなって段がそろわない**。実例: 14 Contact の「ご相談の流れ」7 instance では、1〜4 段目は Body を隠し、5 段目だけ半角スペースが残っていたため、**5 段目が 53px・ほかが 40px** と 13px ずれていた。**全段そろえて false にする。**
+
+`Title` と `Number` は **6 variant・全段とも `UI/Card Title`（20px）** で統一してある（部品側に段ごとの差は無い）。1 段だけ `UI/Label`（14px）に落とすと段の高さがそろわなくなるので、変えるなら全段そろえる。部品側に小さい版が要るなら design-system に依頼する（`Size` 軸を足すと Direction 2 × Count 3 × Size 2 = 12 variant になるため、必要性を確認してから入れる）。
+
+### 7.3 `BookingEmbed`（2026-10-01 新規）
+
+完了画面（`/contact/thanks`）の 6'-2 で使うオンライン面談の予約枠。仕様は `01-content-spec.md` §4.6 の 6'-2。
+
+| variant | 幅 | 高さ | 中身 |
+|---|---|---|---|
+| Device=Desktop, State=Default | 720 | 869 | 見出し（H2・navy.700）＋ 本文 ＋ 予約枠 720×640 ＋ 注記 3 行 |
+| Device=Desktop, State=Error | 720 | 141 | 見出し ＋ `Alert`（Type=Neutral・`Lucide / info`） |
+| Device=Mobile, State=Default | 358 | 877 | 同上（枠は全幅×560） |
+| Device=Mobile, State=Error | 358 | 224 | 同上 |
+
+- **予約枠は実物を作らない。** Cal.com が描画するため、`ImagePlaceholder` と同じ破線（`role/surface-subtle` ＋ `role/border` の 1px・dash 6/4・`radius/md`）の枠を置く。Chatwoot のウィジェットと同じ扱い。
+  - **注記 3 行目は「範囲の塗り」で色と下線を当てている。** `くわしくは`＝`role/text-muted` / `プライバシーポリシー`＝`role/text-link` ＋ 下線 / `をご覧ください。`＝`role/text-muted` の 3 セグメント。
+    **`characters` で文言を書き換えると、この範囲指定が消えて下地の塗り 1 色に戻る。** 書き換えたら**範囲の色と下線を当て直す**こと（本書 §8.7）。
+    下地は `role/text-muted` にバインドしてあるので、万一範囲が消えても**露出するのはブランドの色**で、kit の色には戻らない（2026-10-01 に builder-site の指摘で確認）。
+  - **枠の中の文字は「予約枠」だけ**（2026-10-01 に「予約枠（Cal.com の埋め込み）」から短縮）。**説明は dev annotation に書き、枠の中に入れない。** 理由は 2 つ: ①「説明の全文が文言の指定として読まれる」事故を避ける（§1.5 のチャットの枠で実際に起きた）② 6'-2 は**製品名を画面に出さない**と決めており、枠のラベルだけ Cal.com が残るのは意図とずれる。
+- **`State=Error` を必ず実装に渡す。** この画面が商談プロセスの唯一の入口で、埋め込みが落ちると予約もメールもできない行き止まりになる。セルフホストの予約システムは ALB の後ろの他の 3 システムと同時に落ちうる（`DetailedDesign/02` の 1.3）。
+- **注記 3 行を消さない。** とくに 2 行目「ご予約が成立すると…Google カレンダーに送ります。」は必須。**予約のボタンを押す前に、外に出る情報を知らせる**のがこの注記の役目で、押したあとに知らせても意味がない。3 行目の「プライバシーポリシー」は `/legal/privacy` へのリンク（下線 ＋ `role/text-link` を範囲指定で当ててある。新しいタブ）。
+- **`State=Error` では本文と注記を出さない。** 枠が無い以上「空いている日時が表示されます」は事実と違い、予約が成立しないかぎり Google への提供も起きないため。
+- 文言は変えない。とくに「確認のメールが届きます」を「ComeGin からお送りします」に書き換えない（送信経路が未確定で、二重に届く可能性がある。01-content-spec §10.5 の B7）。「外部のサービス」とも書かない（Cal.com はセルフホストのため事実と違う）。
+- 計測: 枠が 50% 見えたら `booking_viewed`、予約完了の通知で `booking_scheduled`（`DA-02`）。**CV には数えない。**
+
+---
+
+### 7.4 部品の既定値に、特定のセクション向けの文言を入れない（2026-10-01 の規則）
+
+**既定値は `【要記入】` のように、それ自体が異常だと分かる印にする。**
+
+完成した日本語の文を既定値にすると、**差し替えを忘れてもそのまま画面に出てしまい、目視レビューでも検査でも通る**。`Title` や `Lorem` なら一目で分かるが、日本語として成立している文は気づけない。
+
+2026-10-01 に次の 2 件を変更した。
+
+| 部品 | プロパティ | 変更前の既定値 | 変更後 |
+|---|---|---|---|
+| `SectionHeading` | `Lead#21:24` | 「ComeGin の事業経営基盤は、次の 5 つのステップを繰り返します。AI エージェントが…」 | **`【要記入】リード文`** |
+| `CTABanner` | `Body#27:5` | 「どこから手を付けるべきかの整理からご一緒します。相談は無料です。」 | **`【要記入】本文`** |
+| `CTABanner` | `Title#27:0` | 「まずは、いまの課題をお聞かせください」（**トップ 1-11 の旧タイトル。仕様書では差し替え済み**） | **`【要記入】見出し`** |
+| `SectionHeading` | `Title#21:19` | 「観測から検証までを、ひとつのループに」 | **据え置き**（下記） |
+
+**`Title` のほうが危ない。** `Lead` / `Body` には `Show…` の切り替えがあるが、**`Title` は常に表示される**。新しく置いて入れ忘れると、仕様書から消えたはずのコピーがそのまま画面に出る。
+
+**`SectionHeading` の `Title#21:19` は据え置いている。** 既定値「観測から検証までを、ひとつのループに」は**トップ 1-5 の現在の正しいタイトル**で、10 Top の 5 instance（`42:2978` / `110:3253` / `42:6246` / `110:3335` / `110:3417`）が**上書きを持たずに既定値へ依存している**。先にこの 5 件へ同じ文字列を明示的に入れてから既定値を変える。順序を逆にすると 1-5 の見出しが印に化ける。
+
+`【要記入】` を選んだのは、**既にこのプロジェクトの検査対象の印**だから（`01-content-spec.md` の未決箇所に使っており、`qa-audit.js` でも拾える）。新しい印を作らず既存の検査に乗せる。
+
+**見つかった経緯**: builder-site が「`Show…=false` で隠れている既定値 853 件」を洗い出す過程で、`SectionHeading` の `Lead` にトップ 1-5 専用の文が入っていることに気づいた。builder-sales の実測では、**トップ 1-5 の `Lead` は既定値と書き出しの 30 字がほぼ同一**で（違いは「5 つ」→「5つ」の助数詞の密着と文の分割だけ）、**完全一致で比較していなければ誤判定していた**。この紛らわしさは既定値がそのセクション由来である以上避けられない。
+
+**既定値を変えるときの順序**: 既定値は**上書きしていない instance すべてに伝播する**。変える前に「表示されていて、かつ上書きが無い」instance が 0 件であることを**完全一致で**確かめる。1 件でもあれば、先にその instance へ明示的な値を入れてから既定値を変える（順序を逆にすると、見えている文言が印に書き換わる）。
+
+#### 既定値と同じ値を明示的に持たせたいときの落とし穴（2026-10-01・builder-sales が発見）
+
+**instance のプロパティ上書きは、値が既定値と同一文字列だと「登録されたか」を確認できない。** `componentProperties` は解決後の値しか返さないので既定値由来か上書き由来かを区別できず、`overrides` は node 単位のフィールド（`fills`・`characters` の直接編集）用で、component プロパティの上書きは出てこない。
+
+**確認できるのは既定値を変えた直後だけ**（化ければ登録されていなかった）。したがって、
+
+1. builder が 5 件に明示値を入れる（値は既定値と同じ文字列）
+2. design-system が既定値を `【要記入】…` に変える
+3. **その直後に** builder が同じ 5 件を実測する
+4. 化けていたら、**既定値が別の文字列になった後なら `setProperties()` 1 回で確実に上書きが作れる**ので入れ直す
+
+という**組で動かす**。2 と 3 のあいだに他の確認を挟まない。
+
+実例: `SectionHeading.Title#21:19` の既定値「観測から検証までを、ひとつのループに」は**トップ 1-5 の現行の正しいタイトル**で、10 Top の 5 instance（`42:2978` / `110:3253` / `42:6246` / `110:3335` / `110:3417`）が上書きを持たずに依存していた。**トップのヒーロー直下の H2 なので、化けたまま残ると最も目立つ場所に印が出る。**
+
+これは「書いたことではなく、出た結果を測る」（§8.5）が**原理的に測れない**ケースで、**測れる瞬間を作ってから測る**という形の対処になる。
+
+**確認した実数（最終・2026-10-01 19:36 JST・`setCurrentPageAsync` で 1 ページずつ）**
+
+既定値 17 件を印に変えたあと、7 ページで **`【要記入】{見出し|リード文|本文|金額|期間|注記|説明}` の表示は 0 件**。
+
+| ページ | ノード | 文字 | 部品由来の印 | 仕様書側の `【要記入】` |
+|---|---|---|---|---|
+| 10 Top | 2,467 | 803 | **0** | 0 |
+| 11 Services | 1,360 | 382 | **0** | 0 |
+| 12 Pricing | 833 | 243 | **0** | 4 |
+| 13 About | 514 | 142 | **0** | 4 |
+| 14 Contact | 2,201 | 565 | **0** | 0 |
+| 15 Blog | 1,087 | 344 | **0** | 0 |
+| 16 System | 1,521 | 533 | **0** | 26 |
+| **計** | **9,983** | **3,012** | **0** | **34** |
+
+仕様書側の 34 件は未決項目（契約の書類・契約期間など）で、**この変更とは無関係**。印を数えるときは**部品由来の印と仕様書側のプレースホルダを文字列で区別する**（`【要記入】` だけで数えると混ざる）。
+
+#### 全 53 件の洗い出し（2026-10-01 19:33 JST）
+
+**母数: 28 部品 / 112 プロパティ中 TEXT 型 53 件。** 依存の確認は 7 ページ・instance 2,083 件・プロパティ照合 1,859 回。
+
+| 分類 | 件数 | 扱い |
+|---|---|---|
+| `【要記入】…` に変更した | **17** | 下の一覧 |
+| どこに置いても正しい／それ自体が仮の印 | 21 | そのまま |
+| **判断して据え置いた（依存あり）** | **11** | **下の一覧。見落としではない** |
+| 判断して据え置いた（項目種別で正しい） | 4 | `FormField.Helper`/`Error`、`CheckboxField.Label`、`IconCard.Link` |
+
+あわせて 53 件を**禁止表現**と**単位の前のスペース**で検査した。結果は下の「既定値も検査の対象にする」。
+
+#### 判断して据え置いた 11 件（依存 72 件）
+
+**これらの既定値は「中立な印」ではなく「最も多く使う正しい値」である。**
+
+| 部品 / プロパティ | 既定値 | 依存 |
+|---|---|---|
+| `PageIntro / Title#29:0` | 受託開発：バイブコーディングから要件定義〜運用保守まで | 2 |
+| `FAQItem / Answer#39:0` | はい。環境構築に使うソースコードは無料で配布しています。… | 5 |
+| `ServiceCard / Title#23:0` | 環境構築 | 7 |
+| `ServiceCard / Product 1#23:6` | 本プロジェクトの環境構築 | 7 |
+| `ServiceCard / Product 2#23:15` | 受託開発：要件定義〜運用保守 | 28 |
+| `PricingCard / Product#24:0` | 本プロジェクトの環境構築 | 2 |
+| `PricingCard / Note#24:4` | ソースコードは無料で配布 | 2 |
+| `StepItem / Title#22:3` ／ `Body#22:6` | 観測 ／ 検索順位、流入、問い合わせ、表示速度などの… | 5 ずつ |
+| `StatCard / Label#25:0` | 導入社数 | 5 |
+| `SourceDownloadBlock / Title#35:0` | 環境構築のソースコードを無料で配布しています | 4 |
+
+据え置いた理由（lead 判断・2026-10-01）:
+
+1. **72 件すべてが「いま正しい使い方」**。`ServiceCard / Product 2` の 28 件はどれも本当に「受託開発：要件定義〜運用保守」のカードで、セクション固有のコピーではなく**最も多く使う正しい値が既定値になっている**状態
+2. **72 件の打ち直しは、それ自体が事故の源**。しかも全件が「値が既定値と同一文字列」の問題（上記）を踏むため、1 件ごとに「既定値を変えた直後に実測」が必要になる。**防ごうとしている誤りより、作業で入る誤りのほうが大きい**
+3. **Figma は派生物で保守されない**（`BA/02-capability-map.md:106`）。リスクは実装側に移る
+
+**したがって次の 2 点が残る。**
+
+- **`Show…` を true にして差し替えを忘れると、もっともらしい値が出る。** 印は出ない
+- **実装（Astro）に写すときは、この既定値を props のデフォルトに持ち込まない**（`03-handoff.md` の H-16）
+
+#### 既定値も検査の対象にする（2026-10-01 に穴が見つかった）
+
+**描画されている TEXT だけを検査していると、`componentPropertyDefinitions` の中が検査されない。**
+
+| 検査 | 変更前 | 変更後 |
+|---|---|---|
+| 禁止表現（GL §8.3・§8.4） | **1 件** — `ServiceCard / Note#23:24` の「**弊社**」 | **0 件** |
+| 単位・助数詞の前のスペース（§6.4-4） | **8 件** — 「23,000 円」「1 日」「60〜90 日」「2 つ」 | **0 件** |
+
+**「弊社」は 2026-10-01 に 21 instance で「ComeGin」に直した語が、部品の既定値に 1 件生き残っていたもの。** 両 builder の「禁止表現 0 件」は描画されている TEXT の走査結果で、既定値は対象外だった。**検査の母数に既定値 53 件を含める。**
+
+#### 分類を誤っていた 2 件（検査が拾った）
+
+`SourceDownloadBlock` の `Title` と `Body` を最初「この部品専用だからどこでも正しい」と (a) に分類したが、**単位スペースの検査で既定値だけ「23,000 円」と空きがあることに気づき**、instance の実値を見たところ **ページごとに文言が違った**。
+
+| | 10 Top | 11 Services / 12 Pricing |
+|---|---|---|
+| `Title` | 自分の手で立ち上げたい事業所へ、ソースコードと構築の手順をお渡しします | 環境構築のソースコードを無料で配布しています |
+| `Body` | お渡しするのは、ComeGin が自分の事業で使っている基盤一式です。… | この基盤をご自身の手で立ち上げたい方へ。… |
+
+つまりセクション固有だった。**`Body` は依存 0 件だったので `【要記入】本文` に変更**、`Title` は依存 4 件のため据え置き。
+**部品の用途が 1 つでも、文言が 1 つとは限らない。** 分類は既定値の文面ではなく、**instance の実値を突き合わせて**決める。
+
+**実装側にも同じ罠が移る。** Astro のコンポーネントの既定 props に特定セクションのコピーを入れない（`03-handoff.md`）。
+
+## 8. レシピ
+
+### 8.1 フォントの load（毎回スクリプトの先頭で）
 
 ```js
 await Promise.all([
   ['Noto Sans JP','Regular'],['Noto Sans JP','Medium'],['Noto Sans JP','Bold'],
-  ['Inter','Regular'],['Inter','Medium'],['Inter','Bold'],
+  ['Poppins','Regular'],['Poppins','Medium'],['Poppins','SemiBold'],['Poppins','Bold'],
+  ['JetBrains Mono','Regular'],
   ['Geist','Regular'],['Geist','Medium'],['Geist','SemiBold'], // kit instance を置く・書き換えるとき
 ].map(([family, style]) => figma.loadFontAsync({ family, style })));
 ```
 
-Noto Sans JP に SemiBold は無い。Inter の中間ウェイトは `Semi Bold`（空白入り）。
+Noto Sans JP に SemiBold は無い。**Poppins は `SemiBold`（スペース無し）**、JetBrains Mono も `ExtraBold` のようにスペース無し。Inter の `Semi Bold`（スペース入り）とは別なので取り違えない。
 
-### 5.2 和欧混植でテキストを作る / 既存テキストに当てる
+**フォントのロードは `characters` の書き換えだけでなく、文字ノードへのあらゆる書き込みに掛かる。** `textDecoration` / `setRangeTextDecoration` / `setRangeFills` / `setTextStyleIdAsync` / 文字を含むノードの `appendChild` でも `Cannot write to node with unloaded font` で落ちる（builder-sales が 2026-10-01 に `textDecoration` で踏んだ）。**既存のテキストを触るときは、そのノードの現在のフォントを `getStyledTextSegments(['fontName'])` で調べてロードする**（kit instance の中なら Geist が混ざっている）。
+
+### 8.2 和欧混植でテキストを作る / 既存テキストに当てる
 
 ```js
 const S = Object.fromEntries((await figma.getLocalTextStylesAsync()).map(s => [s.name, s]));
-// style は 'Desktop/H1'・'Mobile/Body'・'UI/Label' など（JP/ と Latin/ を除いた部分）
+// style は 'Desktop/H1'・'Mobile/Body'・'UI/Button' など（JP/ と Latin/ を除いた部分）
 async function applyMixed(t, style) {
   await t.setTextStyleIdAsync(S['JP/' + style].id);
   const re = /[\x21-\x7E]+(?: [\x21-\x7E]+)*/g; // 半角英数字・記号の連続（間の半角スペース 1 個は含める）
@@ -289,163 +656,300 @@ async function applyMixed(t, style) {
     await t.setRangeTextStyleIdAsync(m.index, m.index + m[0].length, S['Latin/' + style].id);
   }
 }
-const t = figma.createText();
-t.characters = '要件定義〜運用保守 500,000 円／月';
-await applyMixed(t, 'Desktop/H3');
-t.fills = [figma.variables.setBoundVariableForPaint(
-  { type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color',
-  await figma.variables.importVariableByKeyAsync('c105bb37aa8ea5d7a0410852d12219e0b35091c5'), // foreground
-)];
-// 折り返す段落: 親（auto-layout）に append してから
-// t.textAutoResize = 'HEIGHT'; t.layoutSizingHorizontal = 'FILL';
 ```
 
-### 5.3 kit instance の文字を書き換える（Button の例。TEXT プロパティが無いもの）
+### 8.3 色・余白・角丸のバインド
 
 ```js
-const set = await figma.importComponentSetByKeyAsync('22936fd168a2a7dc4850c1de73260d0c19ab09a4');
-const v = set.children.find(c => ['Size=Large', 'Variant=Primary', 'State=Default'].every(q => c.name.includes(q)));
-const btn = v.createInstance();
-parent.appendChild(btn);                        // Geist を load 済みであること
-const label = btn.findOne(n => n.type === 'TEXT' && n.name === 'Label');
-label.characters = '無料相談する';
-await applyMixed(label, 'UI/Label');            // Geist → Noto Sans JP / Inter に置き換え
-```
+const V = Object.fromEntries((await figma.variables.getLocalVariablesAsync()).map(v => [v.name, v]));
 
-TEXT プロパティがあるもの（Badge `Label#1530:99`、Input `Value#1533:897`、Alert `Title#1530:5`、Tooltip `Tooltip text#1586:419`、Breadcrumb item `⮑ Label#1354:0`）は `inst.setProperties({ 'Label#1530:99': '新着' })` のあと、同じく子の TEXT に `applyMixed()` を当てる。
+// 解決値をリテラルにも入れておく。入れないと、何かの拍子に素の色（黒）が出る
+const cache = {};
+async function resolve(id, d = 0) {
+  if (id in cache) return cache[id];
+  const v = await figma.variables.getVariableByIdAsync(id);
+  const raw = v.valuesByMode[Object.keys(v.valuesByMode)[0]];
+  return (cache[id] = raw && raw.type === 'VARIABLE_ALIAS' ? await resolve(raw.id, d + 1) : raw);
+}
+async function paint(name) {
+  const v = V[name], c = await resolve(v.id);
+  return figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: c.r, g: c.g, b: c.b } }, 'color', v);
+}
 
-### 5.4 色・余白・角丸のバインド
-
-```js
-const V = k => figma.variables.importVariableByKeyAsync(k);
-const paint = v => figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', v);
 const frame = figma.createAutoLayout('VERTICAL');
-frame.fills = [paint(await V('30e0495632a74a5bb54597d7f2badfd0a0f560c3'))];       // card
-frame.strokes = [paint(await V('c8b03ca6be23e363315d17fcfc24e2e9f73a83b9'))];     // border
+frame.fills   = [await paint('role/surface')];
+frame.strokes = [await paint('role/border')];
 frame.strokeWeight = 1;
-const xl = await V('080e09f34b6063a977300f31759441ad7f8b1368');                  // spacing xl = 24
-for (const p of ['paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight', 'itemSpacing']) frame.setBoundVariable(p, xl);
-const r = await V('52fdad8de64b36a87c6f0946fae479ed39c260a1');                   // radius-xl = 14
-for (const c of ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius']) frame.setBoundVariable(c, r);
+for (const p of ['paddingTop','paddingBottom','paddingLeft','paddingRight','itemSpacing']) frame.setBoundVariable(p, V['space/5']);   // 24
+for (const c of ['topLeftRadius','topRightRadius','bottomLeftRadius','bottomRightRadius']) frame.setBoundVariable(c, V['radius/md']); // 8
+await frame.setEffectStyleIdAsync((await figma.getLocalEffectStylesAsync()).find(s => s.name === 'shadow/sm').id);
 ```
 
-**`figma.createAutoLayout()` は既定で白（未バインド）の塗りを持つ。** 背景の要らないレイアウト用フレームは `frame.fills = []` にする（未バインドの hex が残るのを防ぐ）。
+> **`figma.createAutoLayout()` は既定で白（未バインド）の塗りを持つ。** 背景の要らないレイアウト用フレームは `frame.fills = []` にする。
+> **`setBoundVariableForPaint` に渡す素の色を `{r:0,g:0,b:0}` のままにしない。** 渡した値はそのままリテラルに残り、**変数と食い違っていても Figma は直さない**ので黒が描かれる（下の 2 を参照）。上の `paint()` のように解決値を入れる。
 
-## 6. サイト部品（`03 Components`。design-system が作った 26 個）
+#### 色を測るとき、リテラルと解決値のどちらを読むか（2026-10-01 実測）
 
-すべて Figma ページ `03 Components`（ID `4:4`）にある。**同じファイル内なので import は不要**で、
-`const set = await figma.getNodeByIdAsync('<ノード ID>')` → variant を選んで `createInstance()`、
-または `figma.importComponentSetByKeyAsync('<key>')`（別ファイルから使うとき）で取れる。
+**事実は 2 つある。混ぜないこと。**
 
-variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].every(q => c.name.includes(q)))`。
-文言の差し替え: `inst.setProperties({ 'Title#29:0': 'サービス：事業経営基盤の構築から運用まで' })`。
+**1. 変数の値を差し替えると、Figma はバインド済み塗りの `paint.color` リテラルも更新する。instance の override 側も含めて。** `role/surface-brand` を blue.500 → blue.600 に差し替えたあとの実測:
 
-| 部品 | ノード ID | key | 種類 | 主要 variant | TEXT / BOOLEAN プロパティ |
-|---|---|---|---|---|---|
-| CTAButton | `19:800` | `fac92b941ede8d7f133a3096fec13badc8be01b9` | SET（18） | Size=Small/Default/Large、State=Default/Hover/Loading、Width=Hug/Full | なし（ラベルは中の TEXT「Label」を直接書き換える）。アイコンは exposed instance「Button」 |
-| SiteHeader | `30:854` | `fb8fa1c8789cb08207f68abb0178e7a9779d2637` | SET（4） | Device=Desktop/Mobile、CTA=Primary/Outline | `Logo#30:0`。現在地は exposed instance「Nav / 料金」などに `setProperties({State:'Hover & Active'})` |
-| MobileMenuSheet | `31:669` | `0acda40d8aac93e5e5a5875eede985f32613da72` | SET（2） | CTA=Primary/Outline | なし（リンク文言は中の TEXT を直接書き換える） |
-| SiteFooter | `32:683` | `2448b08a1d851e44653b91389dc4f33923f8d952` | SET（2） | Device=Desktop/Mobile | `Logo#32:6`・`Description#32:0`・`Copyright#32:3` |
-| AnnouncementBanner | `28:509` | `108b0cdb31df7b5463ea1ac896b61e46a65cbb00` | SET（2） | Device=Desktop/Mobile | `Text#28:0`（Desktop）・`Short text#28:3`（Mobile）。Badge は exposed instance |
-| PageIntro | `29:712` | `b54aee6e44f805dd0e07c71b1c131f43a374883d` | SET（2） | Device=Desktop/Mobile | `Title#29:0`・`Body#29:3`／`Show badge#29:6`・`Show button#29:9`・`Show image#29:12`・`Show breadcrumb#29:15` |
-| SectionHeading | `21:383` | `cce2962d041362cd6dbc28933147ab85c30361d0` | SET（4） | Device=Desktop/Mobile、Align=Left/Center | `Title#21:19`・`Lead#21:24`／`Show lead#21:29`・`Show badge#21:34` |
-| ServiceCard | `23:476` | `0da4b8d729132de0de28942d5f57a92cdd60a139` | SET（2） | Price rows=1/2 | `Title#23:0`・`Body#23:3`・`Product 1#23:6`・`Price 1#23:9`・`Period 1#23:12`・`Product 2#23:15`・`Price 2#23:18`・`Period 2#23:21`・`Note#23:24`／`Show badge#23:27`・`Show note#23:30`・`Show sub link#23:33` |
-| PricingCard | `24:443` | `39cd29f7f8b8a9d0aadd41f94f3571f7c704eb7b` | COMPONENT | — | `Product#24:0`・`Description#24:1`・`Price#24:2`・`Period#24:3`・`Note#24:4`／`Show badge#24:5`・`Show description#24:6`・`Show note#24:7`・`Show sub link#24:8`。**Badge は見出しと同じ行。幅が足りないと自動で上の行に回る**（見出しの最小幅 260px。2 列 564 は同じ行、3 列 368 と Mobile 358 は上の行） |
-| StepItem | `22:240` | `ac50d7daa7aed9e4c65f948b415784e32b8de245` | SET（2） | Layout=Stacked/Inline | `Number#22:0`・`Title#22:3`・`Body#22:6` |
-| Steps | `22:499` | `5c3b919a167c84b5ce50c70bbbc1df69c892a70f` | SET（6） | Direction=Horizontal/Vertical、Count=4/5/6 | なし（中の「Step 1」… が StepItem の exposed instance）。**Desktop はすべて折り返す**（Count=4 は 2＋2 で 1 項目 544px、Count=5 は 3＋2・Count=6 は 3＋3 で 1 項目 346px。折り返し位置の矢印は非表示）。01-content-spec 0.3 の「1 列に 1 行 20 字以上」を満たす |
-| FAQItem | `39:2162` | `aa446a2066498ef3f9b4f756d33837ed3841098c` | SET（2） | State=Closed/Open | `Answer#39:0`（質問文は中の「Question」→ TEXT「Label」を直接書き換える）／`Show marker#50:0`（回答に【要記入】【要確認】がある項目に「要確認」バッジを出す。文言は exposed instance の Marker） |
-| CTABanner | `27:502` | `aa958d4c3db370c83b5bc0b1e032947876a1d9fd` | SET（4） | Type=Standard/Inline、Device=Desktop/Mobile | `Title#27:0`・`Body#27:5`／`Show body#27:10` |
-| SourceDownloadBlock | `35:1578` | `8337e7fd91811468a95143ad7060f47c640fcf7a` | SET（20） | Emphasis=Subtle/Strong、State=Default/Error/Loading/Failed/Success、Device=Desktop/Mobile | `Title#35:0`・`Body#35:21`（フォーム部分は中の FormField / ConsentCheckbox / CheckboxField の instance で変える） |
-| ContactForm | `36:2481` | `fb2b148716e5a0290a339aa794b5606dce646904` | SET（7） | State=Default/Error/Loading/Failed/Duplicate（Desktop）、Device=Desktop/Mobile（Mobile は Default と Error のみ） | なし（各項目は FormField の instance）。Desktop は**中身に最大幅 640・左揃え**（カラム幅 736 のまま、送信ボタンが帯のように伸びないようにするため） |
-| FormField | `20:2828` | `886f9ad9fbb4623284ac08fee2b1f9785352a5f3` | SET（9） | Type=Input/Textarea/Name、State=Default/Error/Disabled | `Label#20:0`・`Helper#20:10`・`Error#20:20`／`Show required#20:30`。入力値は中の Input の exposed instance |
-| ConsentCheckbox | `21:299` | `11f35dd56c6accf911d33f4bdeb04aedb6152ea8` | SET（3） | State=Default/Checked/Error | `Link#21:0`・`Label#21:4`・`Error#21:8`／`Show required#21:12` |
-| CheckboxField | `21:334` | `76203a7407c60ea369248a1caa9e80364a16dae7` | SET（2） | State=Default/Checked | `Label#21:16` |
-| IconCard | `42:2936` | `8e25a72dc952e791997a95bab64263fb783d3b09` | SET（2） | Device=Desktop/Mobile | `Title#42:0`・`Body#42:3`・`Link#42:89`／`Show icon#42:9`（既定 true）・`Show avatar#47:3`（96 角の画像枠）・`Show image#42:92`（横いっぱいの画像枠）・`Show button#42:95`・`Show link#42:98`（既定 false）／INSTANCE_SWAP `Icon#42:6`（既定 Lucide / file-text） |
-| BlogCard | `26:457` | `f5ee307c4e70821d589f2645c1489946ea972300` | COMPONENT | — | `Title#26:0`・`Excerpt#26:1`（2 行で省略）・`Date#26:2`。画像枠とカテゴリ Badge は exposed instance |
-| LogoCloud（ダミー） | `25:485` | `e0a6130533e7d9c5469a8dc7e0e4ebbb7bb5fce3` | SET（2） | Device=Desktop（6 列）/Mobile（3 列 ×2） | なし（各枠は ImagePlaceholder「ロゴ（準備中）」） |
-| TestimonialCard（ダミー） | `25:445` | `b1a0347ebab9668d5d338ff73ab5da6142fe8e99` | COMPONENT | — | `Title#25:3`・`Body#25:4` |
-| StatCard（ダミー） | `25:441` | `a62cdb041e1a98c43631a3ede44a86203a05fc4e` | COMPONENT | — | `Label#25:0`・`Value#25:1`（必ず「—」）・`Caption#25:2` |
-| CookieBanner | `37:2137` | `a76ad9a28c761e529a31953b3215de07e5a9554d` | SET（2） | Device=Desktop（420 幅のカード）/Mobile（下端パネル） | `Title#37:0`・`Body#37:3`・`Link#37:6` |
-| ImagePlaceholder | `19:681` | `024f3fa2b80063f88a835f725cdce6fa95a2d7cc` | COMPONENT | — | `Label#19:1`（「画像（準備中）」「ロゴ（準備中）」）。置いた先で `resize()` |
-| ChatWidgetPlaceholder | `39:2163` | `881e16cde7562e31548e47a9235578ed2f6b6018` | COMPONENT | — | `Label#39:3`。56px の円。トップと無料相談の右下にだけ置く |
-
-各部品の使い方・注意は Figma の description に書いてある（Figma の右パネルか `node.description` で読める）。
-
-**カードの使い分け**: 本文カードは `IconCard` 1 つにまとめてある（2026-09-20、builder-site の依頼で `InfoCard` は取りやめ・削除。部品を二重に持たないため）。
-
-| 使いたい形 | IconCard の設定 | 使う場所 |
+| 走査範囲 | バインド済みの塗り | リテラル≠解決値 |
 |---|---|---|
-| アイコン＋見出し＋本文 | 既定のまま（`Show icon` = true） | トップ 1-4「こんな課題はありませんか」 |
-| 見出し＋本文だけ | `Show icon` = false | 会社概要 5-4、完了 6'-1 |
-| ＋ ボタン | `Show button` = true（kit Button Outline。既定は Lucide / message-circle ＋「チャットで質問する」） | 無料相談 6-5 カード 2 |
-| ＋ テキストリンク | `Show link` = true、`Link` に文言 | 無料相談 6-5 カード 3 |
-| 画像枠（横いっぱい 180px）＋見出し＋本文 | `Show image` = true、`Show icon` = false | 会社概要 5-7 メンバー |
-| 小さい画像枠（96 角）＋見出し＋本文 | `Show avatar` = true、`Show icon` = false | ブログ記事 8-7 著者 |
-| 見出し＋本文（Mobile の表の代わり） | `Show icon` = false | サービス一覧 2-5 の Mobile（上に「こんなとき」、下に「おすすめ」） |
+| 13 About | 373 | **0** |
+| 14 Contact | 1,336（別途 builder-site が 1,209 件で再確認） | **0** |
+| 15 Blog | 768 ＋ テキスト範囲塗り 344 | **0** |
+| 16 System | 1,229 ＋ テキスト範囲塗り 605 | **0** |
+| `03 Components` | 55 | **0** |
+| 計 | **4,710** | **0** |
 
-番号付きの手順（無料相談 6-5 カード 1「ご相談の流れ」）はカードにせず `Steps`（Direction=Vertical, Count=4）を置く。
+> **14 Contact の 1,336 と builder-site の 1,209 は同じものを数えていない。** 差 127 は走査条件の違いで、builder-site 側は `page.children` のうち `findAll` を持つものだけを起点にしたため、**ページ直下の素の TEXT を母数から落としている**（§8.4 で qa-reviewer が踏んだのと同じ穴）。**どちらの範囲でも食い違いは 0 件**なので結論は変わらない。
 
-**判断の記録（2026-09-20）: `IconCard` の本文は 16px のまま**。Desktop の 3 列（カード 368・本文幅 318）で 1 行 19.3 字となり、01-content-spec §0.3 の「1 列に 1 行 20 字以上」をわずかに下回る。実測（同じ 37 字の文言、318px 幅）は次のとおり。
+古い `#0581DB` は 1 件も残っていなかった。**つまり「変数を差し替えたらリテラルが古いまま残る」という現象は無い。** 差し替え後の検査はリテラルで測っても正しい値が出る（そのほうが速い）。
 
-| 本文のサイズ | 1 行あたり | 行数 | 高さ |
-|---|---|---|---|
-| **16px（`JP/Desktop/Body`。現状）** | **19 字** | 3 行 | 84px |
-| 14px（`JP/Desktop/Small`） | 22 字 | 2 行 | 48px |
+**2. 一方、こちらが `setBoundVariableForPaint` に渡したリテラルが変数とずれている場合、Figma はそれを直さない。** ヘッダーが黒く出た事故（§上）がこれで、バインドはあったのにリテラルに `{r:0,g:0,b:0}` が入ったまま残り、黒が描かれた。
 
-14px にすれば字数の規則は満たすが、**規則の目的は語中改行を避けることで、19.3 字では語中改行は起きていない**。通読させたい課題カードの本文を、手段（20 字）のために小さくするのは本末転倒なので現状維持とした（lead 確定）。`03-handoff.md` の H-5 と 01-content-spec §0.3 の前提（カード左右余白は 16 ではなく **24**、本文幅 318px）は実態に合わせて修正済み。本文が 16px なのは `IconCard` だけで、`ServiceCard`・`PricingCard`・`BlogCard` は 14px のため 22 字前後で通っている。
+**Figma がリテラルを更新するのは「変数の値が変わったとき」だけで、「バインド時に渡された値が変数と違うとき」ではない。書く側のミスは検出も修正もされない。**
 
-**1 行の長さ**: `PageIntro` の本文は Desktop で `maxWidth = 720`、`SectionHeading` のリードは Desktop の Left が 720・Center が 768（部品側で固定してあるので、画像枠を消しても 1 行が伸びきらない）。builder が instance 側で絞る必要はない。
+**したがって検査は `boundVariables.color` から alias を辿る。** 理由は「リテラルが古いから」ではなく、**リテラルが一致していてもその値が仕様どおりである根拠にならない**ため。違反を報告するときに「どの変数が悪いのか」まで言うには、どちらにしても変数名まで遡る必要がある。
 
-**面の色**（2026-09-20 に変更。qa-reviewer の B1 と ia-copy の 0.1 に合わせた）: `SiteFooter`・`ServiceCard` の価格行・`CTABanner` の Inline・`SourceDownloadBlock` の控えめ版は、muted の面をやめて**白＋`border`** にした。控えめ版と強調版の違いは、面の色ではなく**枠線と影とボタンの variant**（Secondary か CTAButton か）で表す。
+**テキストの文字色は `node.fills` では母数から落ちる。** 範囲ごとに色が違うテキストで `node.fills` は `figma.mixed` になり、`Array.isArray()` で弾かれる。`role/text-link` ＋ UNDERLINE のリンクはまさにこの形。**`getStyledTextSegments(['fills'])` を併用する**（15 Blog 344 件・16 System 605 件がこの経路でしか取れなかった）。
 
-### 6.1 サイト部品を使うときの約束
+コントラスト判定のしきい値（builder-site の実装、4 ページ 1,620 件で違反 0）: **24px 以上、または 18.66px 以上かつ Bold / Black / Medium は 3.0、それ以外は 4.5。**
 
-1. **kit のボタンのラベルは TEXT プロパティにできない。** Figma は instance の中の層にプロパティを結べない（`Cannot set component property references on instance sublayer`）。CTAButton・リンク・アコーディオンの見出しは、instance の中の TEXT（多くは名前が `Label`）を直接書き換える。
-   ```js
-   await figma.loadFontAsync({family:'Noto Sans JP', style:'Medium'});
-   await figma.loadFontAsync({family:'Inter', style:'Medium'});
-   const label = btn.findOne(n => n.type === 'TEXT' && n.name === 'Label');
-   label.characters = 'このプランで相談する';           // 和文だけならスタイルはそのまま
-   // 英数字が混ざるときは §5.2 の applyMixed(label, 'UI/Label') を当て直す
-   ```
-2. **variant セットの TEXT プロパティの既定値は、セット全体で 1 つ**（Figma の仕様）。例えば `SourceDownloadBlock` を Strong に切り替えても Title は控えめ版の文言のままなので、`setProperties()` で 01-content-spec の文言に差し替える。
-3. **exposed instance**（中の kit instance を操作できるようにしたもの）は `inst.exposedInstances` で取る。Badge の文言、Input の値、ナビの active、アイコンの差し替えはここから。
-4. 幅は置いた先で `layoutSizingHorizontal = 'FILL'`。Desktop はコンテンツ幅 1152（左右 144）、Mobile は 358（左右 16）を前提に作ってある。
-5. **カードを横並びにして高さをそろえるときは、instance を `layoutSizingVertical = 'FILL'` にするだけでよい。** `PricingCard` と `ServiceCard` は中身が「Top（見出し〜備考）」と「Bottom（ボタン・リンク）」の 2 ブロックに分かれていて、外側が `SPACE_BETWEEN` なので、**ボタンがカードの下端でそろう**。1 枚だけ置く（高さ HUG の）ときの見た目は変わらない。instance 側で `primaryAxisAlignItems` を触らないこと。
-   - 副リンク（「ソースコードを無料DL」）を出したカードは、その分ボタンが 1 行ぶん上に来る。ボタンの行までそろえたいときは、リンクの無いカードでも `Show sub link` を true にして文言を空にするのではなく、**並べ方（副リンクのあるカードを端に置く）で調整する**。
-6. 部品を直さないと収まらないときは **instance を detach せず、design-system に SendMessage で依頼する**。
-7. **instance の中の層は大きさを変えられない。** `inst.findOne(...).resize(96, 96)` は**エラーを出さずに無視される**（Figma が instance のサブレイヤーのサイズ上書きを受け付けないため）。`layoutSizingHorizontal` を `FIXED` にしてから呼んでも同じ。大きさ違いが要るときは、部品側に別の枠と BOOLEAN を用意する（例: `IconCard` の `Show avatar` = 96 角 と `Show image` = 横いっぱい）。足りないときは design-system に依頼する。
-8. **非表示のレイヤーは instance に含まれない。** 部品側で `visible=false` にしてある層（`FAQItem` の Closed の Answer など）は、instance にノードとして存在しない。**文言は TEXT プロパティの値としては保持される**ので `inst.componentProperties['Answer#39:0'].value` で読めるが、キャンバスにも `findAll()` にも出てこない。
-   - そのため **閉じた FAQ でも Answer は必ず設定する**（開いたときに出る／Dev Mode でプロパティとして読める）。
-   - 回答に `【要記入】` `【要確認】` が入る項目は、**`Show marker#50:0` を true** にして「要確認」バッジを出す。閉じたままでも印が画面に残る（01-content-spec 0.1）。文言を「要記入」にするときは exposed instance の `Marker` に `setProperties({'Label#1530:99': '要記入'})`。
-   - バッジは**質問の行の右端**にある（chevron の内側には置けない。質問の行が kit instance のため）。**質問文の左端は marker の有無にかかわらずそろう**。ただしバッジは 52px ＋ 余白 12px ぶん幅を使うので、**Mobile では質問が 2 行になることがある**（Desktop は 44px で一定）。
-   - **区切り線は `FAQItem` の下罫線で引いている**（kit trigger が持っていた線は消した）。バッジで質問の行が縮んでも**線は全幅のまま**。Open のときは線を引かない（kit の元の挙動と同じ）。
-   - 判断の記録（2026-09-20）: kit trigger の線のままだと marker のある行だけ線が 64px 短くなる。**variant を増やさず・instance の再設定も不要・Open の挙動も変わらない**ので、item 側に移す形で対応した。バッジ自体は公開前に埋める箇所を見つけるためのもので、**公開時には消える**（marker は 11 件 → 7 件と減っている）。
-   - `FAQItem` の中の TEXT を名前で探すときは注意する。**質問は `Question` instance の中の `Label`**、バッジの文字は `Marker label`。`item.findOne(n => n.name === 'Label')` だと状況によってバッジ側を掴むので、`item.findOne(n => n.name === 'Question').findOne(n => n.name === 'Label')` と辿る。
-9. **INSTANCE_SWAP でアイコンを差し替えたら、色を当て直す**（差し替え後のアイコンは kit の既定色で入る）。
-   ```js
-   const card = iconCardDesktop.createInstance();
-   const unplug = await figma.importComponentByKeyAsync('9fc0c411287312c74e46522347b8700a583e5624');
-   card.setProperties({ 'Icon#42:6': unplug.id, 'Title#42:0': '…', 'Body#42:3': '…' });
-   const accentFg = (await figma.variables.getLocalVariablesAsync()).find(v => v.name === 'accent/subtle-foreground');
-   const paint = v => figma.variables.setBoundVariableForPaint({type:'SOLID', color:{r:0,g:0,b:0}}, 'color', v);
-   for (const vec of card.findOne(n => n.name === 'Icon').findAll(n => n.type === 'VECTOR')) vec.fills = [paint(accentFg)];
-   ```
-   トップ 1-4 で使うアイコンの key: `Lucide / file-text` = `6ecac9fbfbf8ed4a8c1a56e26cffd499946aa22d`、`Lucide / unplug` = `9fc0c411287312c74e46522347b8700a583e5624`、`Lucide / user-round` = `4f44d0b00ad76c2fb8235a30a1010149a633c9be`。
+### 8.4 ほかのページを走査するときの注意（2026-10-01 に 2 回踏んだ）
 
-## 7. 実装（03-handoff.md）への申し送り候補
+**`page.loadAsync()` だけでは中身が全部読めない。検査の走査は必ず `setCurrentPageAsync` で 1 ページずつ行う。**
 
-- global.css の `--font-sans` は `'Inter Variable', sans-serif` だけで、和文フォントの指定が無い。Figma に合わせるなら `'Inter Variable', 'Noto Sans JP', sans-serif`（`@fontsource-variable/noto-sans-jp` の追加）を提案する。
-- アクセント色（G1 で案 B に決定）を `:root` に**追加する提案**として渡す。値は Tailwind v4 の既定パレットそのもの。
-  ```css
-  --brand: var(--color-emerald-700);                 /* oklch(0.508 0.118 165.612) = #007a55 */
-  --brand-hover: var(--color-emerald-800);           /* oklch(0.432 0.095 166.913) = #006045 */
-  --brand-foreground: var(--color-white);            /* Figma は kit の primary foreground を参照 */
-  --brand-subtle: var(--color-emerald-50);           /* oklch(0.979 0.021 166.113) = #ecfdf5 */
-  --brand-subtle-foreground: var(--color-emerald-800);
+同じ 10 Top を 3 通りで数えた実測値:
+
+| 方法 | ノード数 | 文字数 |
+|---|---|---|
+| `loadAsync()` ＋ `findAll(述語)` | — | **リンク 0 件**（誤り） |
+| `loadAsync()` ＋ `findAll(() => true)` | **421**（誤り） | **50**（誤り） |
+| **`setCurrentPageAsync()` ＋ `findAll(() => true)`** | **2,467** | **803** |
+
+`loadAsync()` は解決しても中身が揃っていないことがあり、**同じコードでも実行ごとに結果が変わる**（19:03 の走査では正しい件数が出て、19:17 の走査では桁が落ちた）。ページをまたぐ検査は、**対象ページごとに `use_figma` を分けて `setCurrentPageAsync` する**。読み取りだけなら並列に投げてよい。
+
+**検査の結果を出すときは、必ずノード数・文字数も一緒に返して桁を確かめる。** 「0 件でした」が「本当に 0 件」なのか「走査が届いていない」のかは、母数を見ないと区別できない。**母数が前回と違っていたら、まず走査を疑う。**
+
+#### `findAll()` は自分自身を含まない（2026-10-01・builder-sales が発見）
+
+**`node.findAll(...)` は子孫だけを返し、`node` 自身は入らない。** ヘッダーの罫線は**ルートのノード**に付いているので、`header.findAll(n => n.strokes...)` では出てこない。
+
+```js
+// 危ない — ルートに付いた塗り・線・効果を取りこぼす
+const hits = header.findAll(n => Array.isArray(n.strokes) && n.strokes.length);
+
+// 安全 — 自分自身を足す
+const hits = [header, ...header.findAll(() => true)].filter(n => Array.isArray(n.strokes) && n.strokes.length);
+```
+
+**この取りこぼしは「無いものを有る」ではなく「有るものを無い」と読む向きに出る。** builder-sales は「罫線 0 件」と出て**罫線が消えたと誤認しかけた**（実際は付いていた）。**同じスクリプトの中で、影の検査では自分自身を足していたのに罫線の検査では足し忘れていた**、という形だった。
+
+**部品のルートに付く property（背景の塗り・枠線・影・角丸・余白）を検査するときは、必ず自分自身を含める。**
+
+### 8.5 部品を直しても instance に伝わらないとき
+
+**instance 側に同じプロパティの上書きが残っていると、部品の修正は反映されない。**
+`IconCard` のリンクに下線を足したとき、部品側は `UNDERLINE` になったのに、builder のページの instance は `textDecoration` の上書きが残っていたため `NONE` のままだった（builder-site が 2026-10-01 に発見）。
+
+- **部品を直したら、instance 側を実測して確かめる。** 「部品を直したから伝わっているはず」で済ませない。
+  ```js
+  t.getStyledTextSegments(['textDecoration']).map(s => s.textDecoration)
   ```
-  `--accent`（neutral の #f5f5f5）は shadcn の既存トークンなので**名前を奪わない**。
-- コンテンツ最大幅は `max-w-6xl`（1152）を前提に組んである（Figma のローカル変数 `layout/container-max`）。本文の 1 行は Desktop で 720 までに抑える（`PageIntro`・`SectionHeading` は部品側で `max-width` 相当を入れてある）。
-- **`--muted-foreground` を `bg-muted` の上に置かない**（4.35 : 1 で AA に届かない。§3.5）。新しい色トークンは足さず、**面を `bg-card` ＋ `border` にして解決する**方針にした。実装でも同じ規則にそろえる（`text-muted-foreground` は白い面の上だけ）。
-- Mobile の主 CTA の高さは base-nova の `h-9`（36px）のまま Figma に写してある。タップ領域を広げるかはコード側の判断（`button.tsx` が正本）。
-- kit と global.css の差分（foreground・primary-foreground・accent-foreground・destructive・ring・radius-2xl）は Figma 側の近似。実装は global.css のまま変えない。
+- 上書きを外すなら `inst.resetOverrides()`。ただし**文言の差し替えなど意図した上書きも一緒に消える**ので、何が上書きされているかを確かめてから使う（`ContactForm` の注記の差し替えはこれで正しく動いた）。
+- **塗り・変数バインドは上書きが無ければ素直に伝わる**（`ConsentCheckbox` の下線は instance 側で何もせずに反映された）。伝わらないのは、その instance に同じプロパティの上書きが残っている場合だけ。
+
+### 8.6 文の一部だけ色や下線を変える（範囲の塗り）
+
+文の途中に 1 語だけリンクがあるときは、**文を分割せず範囲で塗る**（分割すると折り返しが語の途中で固定される）。
+
+```js
+const t = /* …テキストノード… */;
+const idx = t.characters.indexOf('プライバシーポリシー');
+t.setRangeTextDecoration(idx, idx + 'プライバシーポリシー'.length, 'UNDERLINE');
+t.setRangeFills(idx, idx + 'プライバシーポリシー'.length, [await paint('role/text-link')]);
+```
+
+**守ること 2 つ。**
+
+1. **`characters` で文言を書き換えると範囲指定が消え、下地の塗り 1 色に戻る。** 書き換えたら**必ず当て直す**。順序は「`characters` → 文字スタイル → 範囲の色と下線」。
+   - **`editComponentProperty` で既定値を変えた場合も同じ。** 部品側のノードの文字が内部的に書き換わるため、範囲の下線や色が落ちる。
+     2026-10-01 に「無料DL」→「無料 DL」を `IconCard / Link#42:89` の既定値で直したとき、**範囲の下線が 2 件落ちた**（qa-reviewer が発見）。**この §8.6 を書いた直後に自分で踏んでいる。**
+   - **一括で文言を直すときは、対象に範囲指定を持つノードが含まれていないかを先に確かめる**（`getStyledTextSegments(['fills','textDecoration']).length > 1` で判定できる）。
+2. **下地（`node.fills`）もブランドトークンにバインドしておく。** 万一範囲が消えても、露出するのはブランドの色になる。下地が kit の色のままだと、**範囲が消えた瞬間に kit の色が復活する**（builder-site が特商法の表で踏んだ）。
+
+**検査での見え方に注意。** 範囲の塗りは `node.fills` が `figma.mixed` になるため、`fills[0]` だけを見る検査は素通りする。`getStyledTextSegments(['fills'])` でセグメントごとに見る。`qa-audit.js` では C3 が「寸法」側に分類して出す（`boundVariables.fills` の `where` が `寸法.fills` になるため）ので、**色の問題なのに寸法の欄に出る**。
+
+`03 Components` で範囲の塗りを使っているのは **`BookingEmbed` の注記 3 行目の 2 件だけ**（本書 §7.3）。
+
+### 8.7 ロゴを置く
+
+```js
+const set = await figma.getNodeByIdAsync('78:2581');
+const comp = set.children.find(c => c.name === 'Lockup=Horizontal, Color=Fullcolor');
+const logo = comp.createInstance();
+const W = 160;                       // tokens.json の画面最小幅。これを下回らない
+logo.resize(W, logo.height * (W / logo.width));   // 必ず等比
+```
+
+---
+
+## 9. kit（Obra shadcn/ui kit）との関係
+
+**色と角丸は全廃した。** `03 Components` に kit の色変数への参照は **0 件**、kit の角丸変数への参照も **0 件**（2026-10-01 17:53 / 18:02 JST に走査）。
+部品の骨格（Button・Input・Checkbox などの instance）は kit のまま使っているので、**残っているのは余白・間隔だけ**。
+
+**下の件数の単位は「バインドの件数」で、ノード数ではない。** 1 つのフレームが `paddingTop` / `paddingBottom` / `paddingLeft` / `paddingRight` / `itemSpacing` で 5 件を持つため、**ノード数の数倍になる**。「509 個のノードに kit の余白が残っている」とは読まないこと。ノード単位で把握したいときは別に走査する。
+
+| 残っているもの | 件数 | 扱い |
+|---|---|---|
+| ブランドトークンにバインド済みの寸法（角丸を含む） | **2,633** | これが正 |
+| kit の**色**変数への参照 | **0** | 全廃 |
+| kit の**角丸**変数への参照 | **0** | 全廃。§7.3 の 4 / 8 / 12px（＋ピル・2px）だけになっている |
+| kit instance の**ルート**に残る kit の余白・間隔 | **509** | 上書きは可能だが、変えると部品の寸法が動いて builder の 32 フレームに波及するため手を付けていない。内訳は `xs`(8px) 172・`out-of-scale/1,5`(6px) 93・`out-of-scale/2,5`(10px) 74・`3xs`(2px) 64・`2xs`(4px) 56・`sm`(12px) 28・`out-of-scale/1,375`(5.5px) 16・`md`(16px) 6 |
+| kit instance の**内側**に残る kit の余白・間隔 | **777** | **Figma の仕様で上書きできない**（instance のサブレイヤーの auto-layout 値は変更不可）。detach しない限り解消しない |
+
+> ⚠ **kit の部品かどうかを「名前」で判定しない。** `<名前> - Nova` のような名前で判定すると、**instance を改名した瞬間に自作扱いになる**。
+> **`(await inst.getMainComponentAsync()).remote` で判定する。** qa-reviewer が名前で判定していたため、`Required` を含む **162 件を「自作のノードに kit の寸法変数が残っている」と誤検出**しかけた（実際は全件 kit instance。10 Top でも 155 件）。
+> 変数の出どころを見るときも同じで、**`variable.remote`** を使う（本書 §9.3 の C3）。
+
+**見た目に効く差は残っていない。** 角丸は 100% ブランド値（カードやボタンが 10px のまま残る、といった状態は無い）。残る 1,286 件はすべて kit 部品の内側の余白・間隔で、いずれも数 px の詰めであり面の形や色には出ない。**許容事項として扱う。**
+
+### 9.4 判断して据え置いた 15 件（自前のノードだが波及を避けた）
+
+**`FormField` 12 variant と `ConsentCheckbox` 3 variant の `Label row/Required` の上下余白が 2px** で、§7.1 の 8pt グリッド（4px 半ステップ）から外れている。**kit 由来ではなく自前のノードなので直せるが、据え置いた**（2026-10-01 lead 判断）。
+
+1. **4px にするとフォームの各行が 4px ずつ高くなり、builder 7 ページのフォーム全部の高さが変わる。** 両 builder が高さを実測し終えた直後で、再検証の手間に見合わない
+2. qa-reviewer も「見た目への影響は小さいので優先度は低い」としている
+3. **8pt グリッドの 4px 半ステップは「余白・サイズ」の規則**であり、`Required` の印のような微細な内側の余白まで律する意図ではないと読める
+
+**見落としではなく判断して残したもの。** qa-reviewer には指摘不要と伝えてある。
+
+6px・10px・2px・5.5px は §7.1 の 8pt グリッド（4px 半ステップ）から外れる。**これは kit 側の内部値であって、こちらが置いた余白ではない。** 自前のフレームで 8pt グリッドから外れていたのは 3 ノード 8 箇所だけで、20px→24px（`space/5`）・6px→8px（`space/2`）に寄せて解消済み。
+
+**主ボタンだけは例外的に kit の内側余白を上書きした。** §9.5 がラベルを 16px 太字と定めており、kit の既定（左右 10px）では文字が枠に接して読めなくなるため、`CTAButton` 24 variant の `Button` instance の左右余白を `space/4`（16px）にしてある。instance ルートの余白は上書きできることを確認済み（24/24 成功）。
+
+### 9.1 kit 色変数 → ブランドトークンの対応表（正本）
+
+**この表が唯一の対応表。** `03 Components` の 1,066 バインドはこの表で移行した。builder のページに残っている kit 色変数を直すときも、**必ずこの表を使う**（別々の対応表を作ると画面ごとに色がずれる）。
+
+| kit 変数 | ブランドトークン | 備考 |
+|---|---|---|
+| `shadcn colors/general/foreground` | `role/text-body` | **ただし見出しスタイル（Display / H1〜H4 / Card Title / Price）が当たった TEXT は `role/text-heading`**（navy.700。§9.5） |
+| `shadcn colors/general/card foreground` | `role/text-body` | 同上 |
+| `shadcn colors/general/muted foreground` | `role/text-muted` | neutral.600。白地 6.22:1 で、kit の #737373（4.35:1）より改善する |
+| `shadcn colors/general/muted` | `role/surface-subtle` | neutral.50 |
+| `shadcn colors/general/card` | `role/surface` | |
+| `shadcn colors/general/background` | `role/surface` | |
+| `shadcn colors/general/popover` | `role/surface` | |
+| `shadcn colors/general/border` | `role/border` | neutral.200 |
+| `shadcn colors/general/input` | `role/border` | |
+| `shadcn colors/general/secondary` | `role/surface-subtle` | |
+| `shadcn colors/general/secondary foreground` | `role/text-heading` | 副ボタンの文字 navy.700（§9.5） |
+| `shadcn colors/general/destructive` | `semantic/danger` | |
+| `shadcn colors/general/primary` | `role/surface-brand-strong` | 反転面 navy.700 |
+| `shadcn colors/general/primary foreground` | `role/text-inverse` | |
+| `shadcn colors/focus/ring` | `role/focus-ring` | 効果に当てるなら `focus/ring` スタイルを使う |
+| `shadcn colors/focus/ring error` | `semantic/danger` | 同じく `focus/ring-error` |
+| `alpha/white/outline-bg` | `role/surface` | 副ボタンの地（§9.5） |
+| `alpha/white/switch/alpha-001` | `role/surface` | **元の変数が持つ透明度を paint の `opacity` に移して見た目を保つ** |
+| `alpha/white/switch/alpha-100` | `role/surface` | |
+| `alpha/black/no-switch/alpha-50` | `role/text-body` | スクリム。同じく透明度を移す |
+
+旧 `accent/*` は削除済み。**付け替え先は対象で分ける**（2026-10-01 に builder-site・builder-sales と合意）: **テキストのリンク**なら `role/text-link` ＋ 下線、**アイコンや図形（VECTOR）**なら `role/text-accent-subtle`、**面**なら `role/surface-brand`。もし残骸があれば `accent/base` → 上の分け方で、`accent/hover` → `role/surface-brand-hover`、`accent/foreground` → `role/text-inverse`、`accent/subtle` → `role/surface-accent-subtle`、`accent/subtle-foreground` → `role/text-accent-subtle`。
+
+**寸法の対応**（値が一致するものは機械的に。一致しないものは下の寄せ方で確定）
+
+| kit | 値 | 寄せ先 | 理由 |
+|---|---|---|---|
+| `2xs` / `xs` / `sm` / `md` / `xl` / `2xl` / `4xl` / `7xl` / `9xl` | 4 / 8 / 12 / 16 / 24 / 32 / 48 / 96 / 128 | `space/1`〜`space/10` の同値 | 一致 |
+| `10xl` | 144 | `layout/gutter-desktop` | Desktop の左右余白。`space/*` には無い値 |
+| `md`（**Mobile のページ左右余白として使っている箇所だけ**） | 16 | `layout/gutter-mobile` | **それ以外の 16px は `space/4`。** ページの左右余白とそれ以外を取り違えない |
+| `3xl` | 40 | `space/6`（32） | §7.1 に 40 が無い。**近い値ではなく用途で選ぶ**: セクション内のブロック間なら `space/6`(32)、セクション間なら `space/7`(48) |
+| `radius-lg (radius)` | 10 | `radius/md`（8） | §7.3 のカード・ボタン。ただし**入力欄・タグは `radius/sm`（4）** |
+| `radius-xl` | 14 | `radius/md`（8） | カード |
+| `radius-2xl` | 16 | `radius/lg`（12） | 大きな面・モーダル |
+| `out-of-scale/2` | 2 | `radius/xs`（2） | チェックボックス |
+
+**付け替えのスクリプトは §8.3 の `paint()` を使う。** リテラルの色を `{r:0,g:0,b:0}` のままにすると、バインドが解決されない場面で黒が出る（実際にヘッダーが真っ黒になった）。
+
+**新しく kit の instance を置くと、kit の色バインドが一緒に入ってくる。** `BookingEmbed` を作ったときも `Alert` が `#E5E5E5`（kit border）を 2 件持ち込んだ。**kit instance を置いた部品は、置いたあとに必ずこの表で付け替えて検査し直す。**
+
+### 9.2 kit instance が持ち込む「未バインドの塗り」（2026-10-01 検証）
+
+kit の部品には、**変数にバインドされていない生の塗りを instance のルートに持つもの**がある。入ってくる経路は 9.1 の kit 色変数と同じだが、**バインドされていないので「パレット外の色」検査にも「remote バインド」検査にも引っかからない**。見つかるのは未バインド検査だけ。
+
+| 部品 | 箇所 | 件数 | 状態 |
+|---|---|---|---|
+| `Pagination Number Button - Nova` | instance ルートの塗り `#FFFFFF` | 4（15 Blog の Desktop 3・Mobile 1） | **`visible = false` の不可視の塗り**。描画には出ない |
+
+**これは instance の「ルート」にあるので上書きできる。**（サブレイヤーの塗りと違って制約が無い。`03 Components` に捨てインスタンスを置いて検証済み: バインドは成功し、`visible = false` も保たれる。）
+対処は `role/surface` にバインドするだけでよく、**サイト固有のページ送り部品を作る必要は無い**（15 Blog の 2 か所でしか使っておらず、不可視なので見た目の問題も無いため）。
+
+```js
+// instance ルートの未バインドの塗りをブランドトークンに寄せる。visible / opacity は元のまま保つ
+for (const n of page.findAll(x => x.type === 'INSTANCE' && /Pagination Number Button/.test(x.name))) {
+  const out = [];
+  for (const p of n.fills) {
+    out.push(p.type === 'SOLID' && !(p.boundVariables && p.boundVariables.color) ? await paint('role/surface', p) : p);
+  }
+  n.fills = out;   // paint() は §8.3。opacity と visible を引き継ぐこと
+}
+```
+
+---
+
+### 9.3 色の検査は 4 本必要（2026-10-01・qa-reviewer が 4 本目を発見）
+
+**1 本でも欠けると、残った色が検査をすり抜ける。** 3 本で足りると思っていたのは誤りだった。
+
+| # | 検査 | 何を拾うか | 拾えないもの |
+|---|---|---|---|
+| C1 | **パレット外の色** | ブランドパレットに無い HEX | バインド済みでパレット内の色 |
+| C2 | **未バインドの塗り・線** | 変数に結ばれていない塗り（本書 §9.2 の kit instance ルートなど） | バインドされていれば素通り |
+| C3 | **remote バインド** | kit（library）の変数への参照 | ローカル変数への参照は素通り |
+| C4 | **削除済み変数への参照** | **ローカル一覧にも無く `remote` でもない変数への参照** | — |
+
+**C4 が必要な理由。Figma は削除した変数を、参照が残っているかぎり `getVariableByIdAsync()` で名前も値も返し続ける。**
+そのため「`getVariableByIdAsync()` が `null` を返したら、ぶら下がり」という検査は**原理的に 0 件しか返さない**。2026-10-01 に `accent/*` を削除したあと「全 11 ページでぶら下がり 0 件」と報告したが、**その検査はこの事象を検出できない作りだった**。実際には **22 ノード**（11 Services 8・16 System 10・15 Blog 4）**が `accent/base`（#007A55）を参照したまま緑で描画されていた**（qa-reviewer が発見）。
+
+C4 の判定:
+
+```js
+const local = new Set((await figma.variables.getLocalVariablesAsync()).map(v => v.id));
+// 参照先が「ローカル一覧に無い」かつ「remote でもない」なら、削除済み変数への参照
+const v = await figma.variables.getVariableByIdAsync(id);
+const dangling = v && !v.remote && !local.has(v.id);
+```
+
+**変数を削除する前には、全ページで参照 0 件を C4 の形で確かめる。** 削除してからでは、描画は正しく見えるのに検査だけが通ってしまう。
+
+## 10. 実装（`03-handoff.md`）への申し送り候補
+
+- **`global.css` のトークンを tokens.css に寄せる。** `Assets/tokens/tokens.css` がそのまま使える形で生成されているので、`--color-brand-*` / `--color-neutral-*` / `--color-role-*` / `--space-*` / `--radius-*` / `--shadow-*` を取り込み、shadcn の `--background` ほかをそれらの alias にする案を出す。Figma の変数のコードシンタックスは tokens.css の名前に一致させてある。
+- **書体を Inter → Poppins に差し替える。** `--font-sans` は `"Poppins", "Noto Sans JP", Montserrat, "Century Gothic", "Helvetica Neue", Arial, sans-serif`。等幅は `"JetBrains Mono", …`。`@fontsource` のパッケージ追加が要る。
+- **主ボタンの文字は 16px 以上の太字にする**（§9.5）。`base-nova` の既定（14px medium）では blue.500 の 4.06:1 を救えない。
+- **フォーカスリングを消さない。** `outline: 2px solid var(--color-role-focus-ring); outline-offset: 2px;` を全フォーカス可能要素に。`outline: none` を書かない。
+- **リンクに下線を付ける**（`text-decoration: underline`）。色は `--color-role-text-link` #0579CE、ホバーで `--color-brand-blue-700`。
+- **ヘッダーのロゴは横組み 160px 幅**（§6 の要判断が案 A のままなら）。`Assets/logo/comegin-logo-horizontal.svg` をそのまま使う。ファビコンは `Assets/logo/favicon/` を 16/32/48/180/512 すべて設置（§9.5）。
+- **本文に `brand.blue.500`・`brand.sky` を使わない**（§5.5-2,3）。本文リンクは `role.text-link` #0579CE。
+- **青の面積を全体の 10% 以内に抑える**（§5.4）。公開前チェックリスト（付録 A）の項目として `03-handoff.md` に入れる。
+- Mobile の主 CTA の高さは `base-nova` の `h-9`（36px）のまま Figma に写してある。16px ラベルにしたことで Figma 上は 36〜40px。タップ領域を広げるかはコード側の判断（`button.tsx` が正本）。
+- `JP|Latin/UI/Logo` の文字スタイルは非推奨。実装でも文字ロゴを使わない。
+- **和欧間の空きを、Figma からそのままコピーしない。** GL §6.4-2 は「CSS では `text-spacing-trim` ／手動の場合は半角スペース」と定めているが、**Figma の文字スタイルには `text-spacing-trim` 相当の設定が無い**ため、Figma のテキストは**必ず文字としての半角スペース込み**になる（例「ComeGin の提案」「ソースコードを無料 DL」）。実装で CSS に任せるなら、**和欧の境目のスペースだけを除く処理**が要る（単語間のスペースは残すので単純な置換ではできない）。入れたままにすると二重に空く。`01-content-spec.md` §0.2 と対になる申し送り。
+
+---
+
+## 11. 公開前チェックリスト（付録 A のうち Figma で確認できるもの）
+
+- [x] ロゴ: 背景に応じた Color を使っている／最小サイズを下回っていない／縦横比を変えていない／効果を追加していない
+- [x] カラー: パレット外の色を使っていない（走査 0 件）
+- [x] カラー: 本文の文字色が白背景で 4.5:1 以上ある（`role/text-body` 17.40:1・`role/text-muted` 6.22:1）
+- [x] カラー: `brand.sky` を文字色に使っていない（走査 0 件）
+- [ ] カラー: 青の面積が全体の 10% を超えていない — **ページを組んだ段階で builder／lead が目視で確認する**
+- [x] 文字: 指定書体（Poppins / Noto Sans JP / JetBrains Mono）を使っている（走査 0 件の違反）
+- [x] 文字: 本文 14px 以上・行送り 1.75
+- [ ] 文字: 和欧間に四分アキが入っている — Figma の文字スタイルでは表現できない。実装側（`text-spacing-trim`）で担保する
+- [ ] 言葉・表記の項目 — ia-copy の担当

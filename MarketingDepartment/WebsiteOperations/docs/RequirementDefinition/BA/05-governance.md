@@ -1,6 +1,6 @@
 # 05. ガバナンス・セキュリティ運用
 
-BA（Business Architecture）層。ロール ID・Capability ID は EA 共通用語集の定義をそのまま使う。この領域の主担当は `R1`（`CAP-15` ガバナンス・アクセス管理）。
+BA（Business Architecture）層。ロール ID（正本は BA-03）・Capability ID（BA-02）はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。この領域の主担当は `R1`（`CAP-15` ガバナンス・アクセス管理）。
 
 ## SSO とアクセス権限制御の方針
 

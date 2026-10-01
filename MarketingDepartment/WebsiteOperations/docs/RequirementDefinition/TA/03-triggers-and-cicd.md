@@ -1,6 +1,6 @@
 # 03. トリガーと CI/CD
 
-TA（Technology Architecture）層。ID は EA 共通用語集の定義をそのまま使う。
+TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
 
 ## 1. トリガーの 4 系統

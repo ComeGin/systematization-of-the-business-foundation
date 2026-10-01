@@ -1,6 +1,6 @@
 # AA-03 エージェントアーキテクチャ
 
-AA（Application Architecture）層。ID は EA 共通用語集の定義をそのまま使う。
+AA（Application Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 
 BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA に引き渡されたのは `CAP-04`（コンテンツ制作代行）・`CAP-05`（Figma / Canva）・`CAP-16`（SEO コンサル）の 3 つ**である。このファイルは、その 3 つを含む実行主体としてのエージェントを定義し、**それぞれに必要最小の権限を割り当てる**。
 
@@ -40,7 +40,7 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 - **`agent/proposal-writer` を 1 本だけ置く。** 観測系の 4 エージェント（`seo-auditor` / `analytics-reporter` / `conversation-triage` / `ops-watcher`）はいずれも `E-12` までしか作らず、`E-13` を起票しない。BA-02 が「`CAP-14` を単一の合流点にする」と決めた理由（承認ゲートが Capability ごとに分散すると抜け道が増える）を、エージェント層でも**起票できる主体を 1 つに絞る**ことで実装する。
 - **`agent/content-writer` は公開しない。** `publishedAt` の設定は `承認` 分類（BA-05）であり、下書きの作成までが `自律`。BA-03 が `R4` をエージェント委任としつつ `A` を `R2` に残した構造が、そのまま権限の境界になる。**ADR-17 で、本番ではこれを約束ではなく仕組みで守ることにした。** `strapi-prod` の Admin トークンに公開・非公開化・削除の権限を与えず、公開は `R2` が本番の Strapi の管理画面で自ら行う（承認者と実行者が同じ人間になる）。
 - **`agent/analytics-reporter` は個々のコンタクトを読まない。** DA が「個人情報の保護は `ACCESS_LEVEL` と取得範囲で行う」と決めた以上、集計が目的のエージェントに個票を読ませない（2.2 で取得範囲として固定する）。
-- **`agent/knowledge-scout` の出力が Markdown なのは、`CAP-16` の知見に対応する `E-ID` が用語集に無いため**（BA-02 の `CAP-16` の成熟度が `未着手` である原因でもある）。勝手にエンティティを増やさず、6 節の未決定事項に記録する。
+- **`agent/knowledge-scout` の出力が Markdown なのは、`CAP-16` の知見に対応する `E-ID` が DA-01 に無いため**（BA-02 の `CAP-16` の成熟度が `未着手` である原因でもある）。勝手にエンティティを増やさず、6 節の未決定事項に記録する。
 
 ## 2. 権限設計
 
@@ -380,7 +380,7 @@ OpenSEO には本 EA の外で動く自動実行が 2 つある。**どちらも
 
 ## 8. 未決定事項
 
-- **`CAP-16` の知見に対応する `E-ID` が用語集に無い。** `agent/knowledge-scout` の出力を `docs/knowledge/` の Markdown としたが、これは正本としての定義を持たない。`E-12 AuditResult` の `source` に `research` を足すか、新しいエンティティを立てるかは用語集の更新が必要（勝手に増やさない）。
+- **`CAP-16` の知見に対応する `E-ID` が DA-01 に無い。** `agent/knowledge-scout` の出力を `docs/knowledge/` の Markdown としたが、これは正本としての定義を持たない。`E-12 AuditResult` の `source` に `research` を足すか、新しいエンティティを立てるかは指標 ID の正本（DA-02 の 4 節）への追加が必要。
 - **`agent/analytics-reporter` の「レポート系に限定する」が `ACCESS_LEVEL` では表現できない。** `mautic_get_contact`（個票）と `mautic_query_stats`（集計）はどちらも参照系として `read_only` に含まれるため、個票を読ませない制約はエージェントの指示側にしか置けない。これを構造的に保証するには、集計専用のツールだけを公開する 3 つ目の MCP サーバ（もしくは `mautic-mcp` への `ACCESS_LEVEL` 追加）が要る。
 - **`strapi-mcp` に書き込みを任せる 3 本（`keyword-researcher` / `content-planner` / `content-writer`）の権限保証。** 2.1 の表で Strapi 側の権限を割り当てているが、**`strapi-mcp` はリポジトリ管理外であり、`ACCESS_LEVEL` も `sanitize()` も保証できない**。この 3 本については、表に書かれた権限は「設計した権限」であって「保証された権限」ではない。問題の全体と選択肢は **AA-05 の ADR-07** に集約した（`R1` の判断待ち）。**ADR-16 で、本番（`strapi-prod`）では Admin トークンの権限が `ACCESS_LEVEL` 相当の境界になった**（削除を与えない）。**ADR-17 で公開・非公開化の権限も外し、下書きまでにした。** `sanitize()` と `CHARACTER_LIMIT` が及ばない点と、開発環境の `strapi-mcp` の境界は変わらない。
 - **（2026-09-19 に AA-05 の ADR-18 で解決）`E-15 AgentRun` の記録手段。** 本編成では大半のエージェントが Claude Code から直接走るため、n8n の実行履歴を正本にしても記録されなかった。ADR-14 の時点では「エージェントの起動元が監視アプリに一本化されるなら」という条件付きで、ADR-17 で一本化された。**ADR-18 で、監視アプリの実行記録を正本にした**（4.4、TA-07 の 3.6）。

@@ -1,6 +1,6 @@
 # 07. オンプレの管制環境（開発環境と監視アプリ）
 
-TA（Technology Architecture）層。ID は EA 共通用語集の定義をそのまま使う。
+TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
 
 AA-05 の ADR-14〜ADR-18 で、**正本のデータを持つシステム（Astro・Strapi・Mautic・Chatwoot・Umami・n8n）は本番としてクラウド、オンプレには全システムの開発環境と道具（Claude Code・MCP サーバ・監視アプリ・OpenSEO・ビルド）**を置き、**ローカルの Claude Code が MCP で開発環境と本番の両方を読み書きする**と決めた。本ファイルはオンプレ側、とくに**管理者の操作の起点になる監視アプリ（Next.js）**を扱う。本番の実行環境は TA-06、Astro の配信は TA-02 が扱う。
