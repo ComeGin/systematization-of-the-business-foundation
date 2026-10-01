@@ -3,7 +3,7 @@
 `CAP-01`（事業戦略・KPI 管理）と `CAP-10`（行動観測・効果測定）が使う指標を、式・測定元・取得手段まで一意に定義する。
 ここで決めた指標 ID は `E-13 ImprovementProposal` の `expectation.metric` から参照され、改善の成否判定に直接使われる。
 
-指標 ID は DA でのみ使うローカルな識別子（用語集の `E-` / `CAP-` / `R` とは別系統）。
+**指標 ID の採番の正本は本ファイルの 4 節である**（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。DA でのみ使うローカルな識別子であり、`E-` / `CAP-` / `R` とは別系統である。
 
 ## 1. CVR の定義（確定）
 
@@ -23,28 +23,41 @@
 
 | 候補 | 採否 | 理由 |
 |---|---|---|
-| Mautic のフォーム送信 | **採用** | CTA 3 種すべてがフォーム送信を伴い、「メールアドレスを取得してリードが成立した」という事業上の定義（`CAP-11`）と一致する。Mautic が `E-09 Contact` の正本でもあるため、CV とリードが同じ正本の中で数えられる |
+| Mautic のフォーム送信 | **採用** | **CV に数える CTA 2 種（無料相談・無料 DL。1.3）がどちらもフォーム送信を伴い**、「メールアドレスを取得してリードが成立した」という事業上の定義（`CAP-11`）と一致する。Mautic が `E-09 Contact` の正本でもあるため、CV とリードが同じ正本の中で数えられる |
 | Chatwoot の会話開始 | 補助指標として別枠 | 問い合わせはリードの成立ではなく相談であり、匿名のままでも起きる。CV に混ぜるとリード数と一致しなくなるため、`CVR-assist` として独立させる |
-| PostHog のカスタムイベント | 分子には使わない | CTA のクリックは計測できるが、クリックしても送信しない離脱を CV に数えると過大評価になる。PostHog は CTA のクリック率（`CTR-cta`）とフォーム離脱率の計測に使う |
+| PostHog のカスタムイベント | 分子には使わない | CTA のクリックは計測できるが、クリックしても送信しない離脱を CV に数えると過大評価になる。PostHog は CTA のクリック率（`CTR-cta`）とフォーム離脱率（`FORM-abandon`。4.2・4.4）の計測に使う |
 
 ### 1.3 CTA 種別ごとの分割
 
-**分割する。** 全体の `CVR-total` に加えて、CTA 3 種ごとに `CVR-wp` / `CVR-trial` / `CVR-demo` を定義する。
+**分割する。** 全体の `CVR-total` に加えて、**サイトに実在する CTA 2 種**ごとに `CVR-consult` / `CVR-source-dl` を定義する。
 
-- 理由: `CAP-02` の検索意図分類（潜在 / 準顕在 / 顕在・指名）に応じた CTA の出し分けが BA の中心的な施策であり、種別を分けないとその施策の効果を測れない（ホワイトペーパーが増えてデモ予約が減っても、合算では気付けない）。
-- 分母は 3 指標とも共通で、対象ページ群のセッション数を使う（CTA 別に分母を変えると合計が `CVR-total` に一致しなくなる）。
+- 理由: `CAP-02` の検索意図分類（潜在 / 準顕在 / 顕在・指名）に応じた CTA の出し分けが BA の中心的な施策であり、種別を分けないとその施策の効果を測れない（無料 DL が増えて無料相談が減っても、合算では気付けない）。
+- 分母は 2 指標とも共通で、対象ページ群のセッション数を使う（CTA 別に分母を変えると合計が `CVR-total` に一致しなくなる）。
+- **2026-10-01 に 3 種から 2 種に改めた。** 旧版は README の CTA 3 種（ホワイトペーパー / 無料トライアル / デモ予約）に合わせて `CVR-wp` / `CVR-trial` / `CVR-demo` を定義していたが、**デザインの検討で、サイトの CTA は無料相談と無料 DL の 2 種で、無料トライアルは存在しないことが確定した**（`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 6.1）。`cta_type` の値も同日に実態の名前へ改められた（DA-01 の 4 節の注記。F7）。詳細は下の「指標 ID を改めた理由」。
+
+#### 指標 ID を改めた理由（2026-10-01）
+
+| 旧 | 新 | 扱い |
+|---|---|---|
+| `CVR-wp` | **`CVR-source-dl`** | 改名。分子は無料 DL フォーム（Mautic の alias `source-dl`）の送信数 |
+| `CVR-demo` | **`CVR-consult`** | 改名。分子は無料相談フォーム（alias `consult`）の送信数 |
+| `CVR-trial` | **廃止** | **対応する CTA がサイトに無く、分子が永久に 0 になる。** 0 の指標を残すと、`E-13` の `expectation.metric` から参照できる見かけの選択肢が増え、「測れるのに測っていない」と「そもそも存在しない」の区別がつかなくなる |
+
+- **`cta_type` の `trial` は「使わない」として値を残すのに、指標 ID は廃止する。** 値を残すのは**将来トライアルを始めたときに意味が変わらないようにするため**（DA-01 の 4 節）だが、指標は**いま測るもの**の一覧であり、測れないものを並べない。トライアルを始めたときに `CVR-trial` を**作り直す**。
+- **指標 ID を `cta_type` の値に合わせる**（`consult` / `source_dl`）。ただし**指標 ID の区切りはハイフン**（既存の `CVR-total` `CVR-assist` `LH-seo` と同じ）なので `CVR-source-dl` とする。**`cta_type` の値（`source_dl`）とは区切り文字が違う**ことを承知の上でそろえている（指標 ID は DA のローカルな識別子で、イベントのプロパティの値とは別系統である。6 節）。
 
 ### 1.4 確定した式
 
 ```
-CVR-total = 期間内の Mautic フォーム送信数（3 種合計） / 期間内の Umami セッション数
-CVR-wp    = 期間内のホワイトペーパー用フォームの送信数 / 期間内の Umami セッション数
-CVR-trial = 期間内の無料トライアル用フォームの送信数 / 期間内の Umami セッション数
-CVR-demo  = 期間内のデモ予約用フォームの送信数 / 期間内の Umami セッション数
-CVR-assist = 期間内の Chatwoot の新規会話数 / 期間内の Umami セッション数
+CVR-total      = 期間内の Mautic フォーム送信数（2 種合計） / 期間内の Umami セッション数
+CVR-consult    = 期間内の無料相談フォームの送信数 / 期間内の Umami セッション数
+CVR-source-dl  = 期間内の無料 DL フォームの送信数 / 期間内の Umami セッション数
+CVR-assist     = 期間内の Chatwoot の新規会話数 / 期間内の Umami セッション数
 ```
 
 - 期間は月次（`CAP-01` の月次 CVR 改善会議に合わせる）。週次で見る場合も同じ式を使い、分母・分子とも同じ期間で切る。
+- **`CVR-total` の「2 種合計」は 2026-10-01 に 3 種から改めた**（1.3）。**フォームは 2 つしか作らない**ため（`MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`）、合計は常に 2 種である。
+- **オンライン面談の予約（`E-16`。`cta_type` が `booking`）は CVR に入れない。** CV の成立（フォームの送信）より**後ろの段**であり、入れると 1 人を 2 回数える（BA-04 の商談プロセス、4.4）。予約の歩留まりを測るかは 6 節。
 - **分母と分子が別システムにあるため、個々のセッションと送信を突合することはできない**（この比率は集計値どうしの比であり、セッション単位の CV フラグではない）。ページ単位の CVR を出すには DA-03 の ID 統合（Mautic のフォームに Umami のセッション ID を hidden field で載せる）が前提になる。
 
 ## 2. README の GA4 記述との矛盾
@@ -95,9 +108,10 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 
 | 指標 | 定義（式） | 測定元ツール | 取得手段 | 更新頻度 | 状態 |
 |---|---|---|---|---|---|
-| `CVR-wp` / `CVR-trial` / `CVR-demo` | 各 CTA のフォーム送信数 / Umami セッション数 | Mautic + Umami | `mautic_list_form_submissions`（`formId` 別）+ `get_website_stats` | 週次 | 未配線 |
+| `CVR-consult` / `CVR-source-dl` | 各 CTA のフォーム送信数 / Umami セッション数（**2026-10-01 に `CVR-wp` / `CVR-demo` から改名し、`CVR-trial` を廃止**。1.3） | Mautic + Umami | `mautic_list_form_submissions`（`formId` 別）+ `get_website_stats` | 週次 | 未配線 |
 | `CVR-assist` | Chatwoot の新規会話数 / Umami セッション数 | Chatwoot + Umami | `chatwoot_get_report_summary` + `get_website_stats` | 週次 | 未配線 |
-| `CTR-cta` | CTA クリック数 / CTA 表示回数 | PostHog | カスタムイベント（`cta_viewed` / `cta_clicked`） | 週次 | 未着手 |
+| `CTR-cta` | CTA クリック数 / CTA 表示回数 | PostHog | カスタムイベント（`cta_viewed` / `cta_clicked`。4.4） | 週次 | 未着手 |
+| `FORM-abandon` | 1 − （フォーム送信の成功数 / フォームの入力開始数） | PostHog | カスタムイベント（`form_submitted` / `form_started`。4.4） | 週次 | 未着手 |
 | `PAGE-sessions` | ページ別のセッション数 | Umami | `get_website_metrics`（`type=url`） | 週次 | 未配線 |
 | `CONTENT-throughput` | 期間内の `article_published` イベント数 | PostHog（**本番用のプロジェクト**。ADR-16） | `backend/strapi-system/src/index.ts` が送信するイベントの集計 | 週次 | **実装済み** |
 
@@ -113,6 +127,8 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 | `INDEX-status` | 公開ページのうちインデックス登録済みのものの割合 | Google Search Console（URL 検査） | OpenSEO の `inspect_urls`（1 回 10 URL まで） | 週次 | 未着手 |
 | `SITE-issues` | サイト監査で見つかった問題の件数（重大度別） | OpenSEO のクローラ（自サイト） | OpenSEO の `get_audit_issues`（監査の実行は人間） | 週次 | 未着手 |
 | `RESPONSE-first` | 初回応答までの中央値 | Chatwoot | `chatwoot_get_report_summary` | 週次 | 未配線 |
+| `FORM-failure` | フォーム送信の失敗数 /（成功数 ＋ 失敗数） | PostHog | カスタムイベント（`form_submit_failed` / `form_submitted`。4.4。`error_kind` 別の内訳も取る） | 日次 | 未着手 |
+| `FORM-invalid` | 入力エラーの発生数 / フォームの入力開始数 | PostHog | カスタムイベント（`form_validation_failed` / `form_started`。4.4。`fields` 別の内訳も取る） | 週次 | 未着手 |
 
 - **`GSC-position` と `SERP-position` は同じ「順位」でも定義が違う。** 前者は期間中に実際に表示されたときの平均、後者は計測した瞬間の 1 回の検索結果である。**KPI ツリーの `平均検索順位` の正本は `GSC-position`** とし、`SERP-position` は**まだ表示されていない狙いのキーワード**の進捗を見る補助に限る（GSC は表示されたクエリしか返さないため）。
 - **`LH-seo` と `SITE-issues` と `INDEX-status` は互いの代わりにならない。** `LH-seo` は 1 ページの合成監査、`SITE-issues` はサイト全体の構造監査、`INDEX-status` は Google が実際にどう扱ったかである。
@@ -121,6 +137,37 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 - `CONTENT-throughput` は現状で唯一実際にデータが流れている指標（`article_created` / `article_published` / `article_updated` / `article_deleted` の 4 イベント）。ただし `distinct_id` は固定値 `strapi_cms` で、`$process_person_profile: false` により person を作らないため、**執筆者別の内訳は取れない**。
 - **`CONTENT-throughput` と `ERR-rate` は本番用の PostHog のプロジェクトから数える**（ADR-16）。PostHog のプロジェクトを開発と本番で分けたため、開発環境の Strapi（試験用）の記事イベントと例外は開発用のプロジェクトに入り、KPI に混ざらない。**今流れているデータは開発環境の Strapi のもの**であり、本番の Strapi（`E-04` の正本。ADR-16）を立てるまでは本番の `CONTENT-throughput` の実測値は無い（状態の `実装済み` は「計測の仕組み」の状態である）。
 - **`CONTENT-throughput` と `公開記事数` は、Strapi での公開の時点で数える。訪問者に届く配信の時点ではない。** ADR-17 で、本番の記事は `R2` が管理画面で公開し、その後に監視アプリの定期実行がビルドと計測を起こし、人間が配信する 2 段階になった。`article_published` は公開の操作で出るため、公開したが配信していない記事も数える。`E-13` の `applied_at` は配信の完了で記録する（DA-01 の 6.2）ため、効果の検証の起点とはずれる（6 節）。
+
+### 4.4 CTA とフォームの計測イベント（PostHog）
+
+4.2 の `CTR-cta` と `FORM-abandon`、4.3 の `FORM-failure` と `FORM-invalid` が使うブラウザ側のイベントを、名前・発火条件・プロパティまで固定する。
+
+**命名規則は「対象_過去分詞」の `snake_case`** とする（Strapi のサーバ側イベント `article_created` / `article_published` と同じ形。`I-01`）。**目的（無料相談か無料 DL か）をイベント名に入れない。** 名前に目的を混ぜると、CTA の種類が増えるたびに指標の式が増える。目的はプロパティ（`cta_type` / `form_key`）に入れ、`CTR-cta` を 1 組のイベントで出して内訳をプロパティで切る。
+
+| イベント | 発火条件 | プロパティ | 使う指標 |
+|---|---|---|---|
+| `cta_viewed` | CTA の要素が画面内に 50% 以上入ったとき（1 ページの表示につき、1 つの CTA で 1 回） | `cta_id` `cta_type` `cta_role`（`primary` / `secondary` / `assist`） `page_path` | `CTR-cta` の分母 |
+| `cta_clicked` | CTA のボタン・リンクを押したとき | 上と同じ ＋ `destination` | `CTR-cta` の分子 |
+| `form_started` | フォームのいずれかの入力欄に初めてフォーカスしたとき | `form_key`（`consult` / `source_dl`） `mautic_form_id` `cta_id` `page_path` | `FORM-abandon` `FORM-invalid` の分母 |
+| `form_validation_failed` | 送信ボタンを押して入力エラーが出たとき | 上と同じ ＋ `fields`（エラーのあった項目名の配列。**入力された値は送らない**） | `FORM-invalid` の分子 |
+| `form_submitted` | Mautic から成功の応答が返ったとき（`I-08`） | `form_key` `mautic_form_id` `cta_id` `page_path` | `FORM-abandon` の分子、`FORM-failure` の分母の一部 |
+| `form_submit_failed` | エラー応答・通信断・10 秒の無応答のとき（`I-08` のタイムアウトは DD-01 の 7.2） | 上と同じ ＋ `error_kind`（`timeout` / `network` / `http_4xx` / `http_5xx` / `duplicate`） | `FORM-failure` の分子 |
+| `booking_viewed` | 無料相談の完了画面の予約枠が画面内に 50% 以上入ったとき（1 ページの表示につき 1 回） | `cta_id`（`booking_thanks_embed`） `cta_type`（`booking`） `cta_role`（`primary`） `page_path` | 商談プロセスの段 2 の歩留まり（下記） |
+| `booking_scheduled` | Cal.com の埋め込みから「予約が完了した」通知を受けたとき（`I-25`） | 上と同じ | 同上 |
+
+- **`cta_viewed` / `cta_clicked` の 2 つは 4.2 の `CTR-cta` の行で既に名前が決まっていたもの**で、ここで足したのはプロパティである。**フォームの 4 つは新規**であり、どちらも 2026-09-20 の G2 で承認された（`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 6.2。同 10.3 の F8' がこの表への取り込みを残していた。**2026-10-01 に反映**）。
+- **予約の 2 つ（`booking_*`）も 2026-10-01 に足した**（同文書の 10.3 の F11）。商談プロセスの段 2（BA-04）を測るためのもので、**既存のイベントでは表せない**（予約は自前のフォームの送信でもリンクの遷移でもなく、**第三者の埋め込みの中で完了する**）。`form_submitted` を流用すると Mautic のフォーム送信と Cal.com の予約が同じ名前に混ざり、「CV の正本は Mautic のフォーム送信」（1.2）が曖昧になる。
+- **`booking_clicked` は作らない。** 埋め込みの中のクリックはこちらから観測できないため、`cta_clicked` を無理に出すと「押していないのに出る」「押しても出ない」の両方が起きる。観測できるのは「枠が見えた」と「予約が完了した」の 2 点だけである。
+- **`form_submitted` と `booking_scheduled` の比が、商談プロセスの段 2 の歩留まり**（相談を申し込んだが面談の予約まで進まなかった割合）になる。**指標 ID を与えるかは未決**（6 節。予約の件数を Cal.com 側から取る手段も決まっていない）。
+- **`booking_scheduled` を CV に数えない。** 予約は CV の後に起きる段であり、数えると 1 人を 2 回数える（BA-04 の商談プロセスの「予約を CV の条件にしない」と同じ理由）。`booking_*` のプロパティに**氏名・メールアドレス・予約した日時を入れない**（Cal.com の埋め込みが通知する値のうち、個人に関わるものは受け取っても送らない）。
+- **`cta_type` の値は 2026-10-01 に実態に合わせて改められた**（`consult` / `source_dl` / `chat` / `booking`。`trial` は「使わない」として値を残す）。**正本の DA-01 にも同日に反映済み**（DA-01 の 4 節の注記）。この表のプロパティ名（`cta_type`）は変わらない。**指標 ID も同日に合わせた**（1.3）。
+- **`CV 数` と `CVR` を `form_submitted` で数えない。** CV の正本は Mautic のフォーム送信（1.2）であり、PostHog のイベントは `CTR-cta` とフォームの離脱・失敗の計測に使う。**両者は必ずずれる**（PostHog は同意した訪問者の分しか無く、Mautic は同意と無関係に全件を受ける）。`form_submitted` の件数を CV として報告しない。
+- **ずれの向きは一方向である。** 同意した訪問者は Mautic にも PostHog にも載り、同意していない訪問者は Mautic にだけ載る。したがって `form_submitted` ≦ Mautic のフォーム送信数が常に成り立つ。**逆転したら計測の異常**（二重送信か、イベントの重複発火）として扱う。
+- **どのイベントも Cookie の同意の後にだけ送る**（DD-02 の 3 節。PostHog は同意まで初期化しない）。**同意の前の操作を溜めて後から送らない**（DA-03 の 2.1 が実質的に破れる）。
+- **プロパティにメールアドレス・氏名・会社名・相談内容を入れない**（`distinct_id` に email を入れない規則と同じ扱い。DA-05 の 1.2）。`form_validation_failed` の `fields` は**項目名だけ**で、入力された値を含めない。
+- **`cta_id` は画面をまたいで重複させない**（`cta_id` 単位の集計が混ざる）。同じ文言・同じ見た目でも画面が違えば別の ID にする。`cta_id` の一覧の正本は `01-content-spec.md` の 6.3 で、CTA の定義は `E-06` にあたる。
+- **Umami にはイベントを足さない**（DD-02 の 2.3）。Umami は同意と無関係にページビューだけを数え、CVR の分母（`SESSION-count`）を持つ役に徹する。イベントを両方に入れると、同意の有無で母数の揃わない 2 系統の数字ができる。
+- 状態はいずれも `未着手`（ブラウザ側に PostHog のスクリプトが無く、CTA もフォームも未実装）。
 
 ## 5. データ契約（エージェントが観測データを読むときの約束）
 
@@ -172,7 +219,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 
 ## 6. 未決定事項
 
-- ここで定義した指標 ID（`CVR-total` など）は用語集に登録されていない DA ローカルの識別子。`E-13` の `expectation.metric` から参照する以上、全層で共有すべきかを BA と調整する必要がある（勝手に用語集へ追加しない、という表記ルールに従いここに記録する）。
+- ここで定義した指標 ID（`CVR-total` など）は **DA ローカルの識別子**であり、`E-` / `CAP-` / `R` とは別系統である（`docs/README.md` の「ID の採番と正本」）。`E-13` の `expectation.metric` から参照する以上、全層で共有する名前として扱うべきかを BA と調整する必要がある。
 - CVR の分母を「全セッション」にするか「対象ページ群のセッション」にするか。全体 CVR は前者、ページ別 CVR は後者になるが、CTA 別 CVR をどちらの分母で出すかは BA の KPI ツリーの形（CTA 別の目標値を全体に対して置くのか、ページ群に対して置くのか）が確定していないため決められない。
 - `CVR-assist`（Chatwoot 経由）を上位 KPI に昇格させるかどうか。Web 接客（`CAP-12`）の貢献をリード数に含めるかは事業側の判断であり、DA では決められない。現状は補助指標に留める。
 - **（2026-09-18 に解決）Google Search Console の指標（`GSC-*`）の取得手段。** OpenSEO の OAuth 連携で取り、OpenSEO の MCP で読むと決めた（AA-05 の ADR-06・ADR-09）。残るのは人間の作業（ドメインプロパティの登録、OAuth クライアントの発行、接続）だけである。
@@ -181,4 +228,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 - **`CONTENT-throughput` を公開の時点で数えるか、配信の時点で数えるか**（ADR-17。4.3 の注記）。公開と配信が別の人間の操作に分かれたため、公開したが配信していない記事が `公開記事数` に入る。配信の時点で数えるなら、配信の記録（監視アプリの「承認して配信」の記録か、`E-13` の `applied_at`）を別に数える必要がある。公開の確認の頻度（DA-04 の 5 節）が高ければ差は小さい。判断者 `R2` `R3`。
 - **誤った書き込みの突き合わせの取得範囲**（ADR-17。5.1）。エージェント専用ユーザーの送信を横断して引く手段が `chatwoot-mcp` に無いため、会話を順に読む。直近の期間と最大ページ数を定期実行の定義に固定する必要があるが、値が決まっていない。範囲の外に落ちた送信は突き合わせから漏れる。`chatwoot_list_reporting_events` で送信者別に取れるかも確かめていない。判断者 `R1`。
 - **（2026-09-19 に AA-05 の ADR-18 の追加の決定で解決）データ契約を固定する定期実行の定義の置き場所**（ADR-17 で生じ、ADR-18 の決定の際に AA-05・TA-07 に明記された。5 節の冒頭）。契約の値をいくら決めても、定義をエージェントが書き換えられる場所に置けば契約は約束にとどまる、としていた。**Git で持ち、監視アプリは承認済みの `main` のチェックアウトで読む。変更は PR を通す。** 残るのは、そのチェックアウトをいつ・誰が更新するか（TA-07 の 9 節）である。
+- **（2026-10-01 に解決）指標 ID が `cta_type` の新しい値と対応しない**（`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 10.3 の F7'）。**`CVR-wp` → `CVR-source-dl`、`CVR-demo` → `CVR-consult` に改名し、`CVR-trial` は廃止した**（1.3。対応する CTA がサイトに無く、分子が永久に 0 になるため）。`cta_type` の値そのものは**正本の DA-01 で同日に改めた**（`consult` / `source_dl` / `chat` / `booking`。`trial` は「使わない」として値を残す）。**残件**: `E-13` の `expectation.metric` に旧 ID を書いた提案はまだ 1 件も無い（`E-13` は 0 件）ため移行の作業は無いが、**今後 `CVR-trial` を見かけたらこの決定より前の記述である**。
+- **オンライン面談の予約（`E-16`）の歩留まりを指標として持つか**（4.4。2026-10-01 に `booking_*` を足したことで生じた）。`form_submitted` と `booking_scheduled` の比が商談プロセスの段 2 の歩留まりになるが、**指標 ID も更新頻度も与えていない**。候補の名前は `BOOKING-rate`（既存の `CTR-cta` `FORM-abandon` と同じ「対象-内容」の形）。**正本をどちらにするかも決める**: PostHog のイベント（同意した訪問者に限られる）か、**本番の Cal.com の予約の件数（`E-16`。全件だが取得手段が未確認）**か。**`CVR-*` には入れない**（CV の後ろの段。1.4）。BA-04 の未決定事項「予約を指標として持つか」と同じ論点である。判断者 `R3`。
+- **同意率を測る手段**（2026-10-01 の決定で生じた。DD-02 の 4.4・7 節）。Chatwoot が同意の対象に入ったため、`CVR-assist` の分子が同意した訪問者の会話だけになり、**同意率が下がると `CVR-assist` も下がる**。同意率そのものを持たないと切り分けられないが、同意バナーの操作は計測しないと決めている（同意の前は PostHog が動かない）。同意の記録（サーバ側。DD-02 の 3.3）の件数で代えられるかを決める必要がある。判断者 `R3`。
 - 実験（`E-11`）の有意差判定の基準（有意水準・最小サンプルサイズ）。PostHog の実験機能に任せるか、`R3` が独自に判定するかが未確定。ブラウザ側トラッカーが無く実データで検証できないため、配線後に決める。

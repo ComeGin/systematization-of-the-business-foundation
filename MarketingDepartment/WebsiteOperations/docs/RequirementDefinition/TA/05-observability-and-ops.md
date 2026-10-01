@@ -1,6 +1,6 @@
 # 05. 可観測性と運用
 
-TA（Technology Architecture）層。ID は EA 共通用語集の定義をそのまま使う。
+TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
 
 本ファイルは `CAP-13`（監視・障害対応）の引き渡し分にあたる。README の外注対象「保守・セキュリティ代行（サーバー監視や障害時の緊急対応サポート）」を内製化するための技術面を扱う。

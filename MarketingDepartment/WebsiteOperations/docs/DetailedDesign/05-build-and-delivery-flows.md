@@ -1,6 +1,6 @@
 # DD-05 ビルドと配信のフロー
 
-詳細設計層。ID は EA 共通用語集の定義をそのまま使う。横断規約は [DD-01](01-flow-specification-rules.md) を参照する。
+詳細設計層。ID の採番の正本は層ごとのファイルにあり、索引は [`docs/README.md` の「ID の採番と正本」](../README.md) にある。横断規約は [DD-01](01-flow-specification-rules.md) を参照する。
 
 **`E-05 Page` を生み、測り、届ける 3 本**（`I-09` `I-10` `I-20`）を扱う。
 
