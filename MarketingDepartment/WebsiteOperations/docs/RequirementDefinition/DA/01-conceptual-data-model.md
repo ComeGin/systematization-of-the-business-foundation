@@ -1,6 +1,6 @@
 # DA-01 概念データモデル
 
-**エンティティ ID `E-01`〜`E-16` の採番の正本は本ファイルである**（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。`E-01`〜`E-15` と、本ファイルで追加した **`E-16`**（2026-10-01。4.1）を、関連・主要属性・正本（System of Record）の 3 点で定義する。
+**エンティティ ID `E-01`〜`E-20` の採番の正本は本ファイルである**（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。`E-01`〜`E-15` と、本ファイルで追加した **`E-16`**（2026-10-01。4.1）・**`E-17`〜`E-20`**（2026-10-03。4.2）を、関連・主要属性・正本（System of Record）の 3 点で定義する。
 物理スキーマ（テーブル定義・カラム型）は TA の担当であり、ここでは「どの概念が、どのツールに、どの形で存在するか」だけを決める。
 
 図は 1 図あたりのノード数を抑えるため 3 枚に分割する（`docs/README.md` の「書式の規約」の 1 図 7±2 ノードに従う）。
@@ -177,6 +177,10 @@ erDiagram
 | `E-14` | `ApprovalRecord` | `approver` / `decision` / `decided_at` / `comment` | `E-13` に従属（PR のレビュー承認） | Git / GitHub | 未着手 |
 | `E-15` | `AgentRun` | `agent_name` / `trigger` / `started_at` / `outcome` / **`summary`（要約）/ `target_ids`（対象の ID）**。**ツールの結果は属性に持たない**（ADR-18 の追加の決定） | **監視アプリ（`frontend/next-js`。ローカル）の実行記録**（ADR-18。**ADR-16 の「正本はクラウド」の唯一の例外**）。当初は n8n の実行履歴としていた（下の注記） | 監視アプリのローカルの DB（種類は未決定。TA-07 の 3.6）。**S3 に追記専用で写す**（写しは正本ではない。TA-06 の 4.7） | 未着手 |
 | **`E-16`** | **`Booking`** | `booking_uid` / `starts_at` / `duration` / `status`（確定 / 変更 / キャンセル）/ `invitee_email`（**個人情報**）/ `cta_id` | **本番の Cal.com**（セルフホスト。RDS for PostgreSQL の `calcom` データベース。TA-06 の 3.1・4.1） | **製品の DB** | 未着手（**2026-10-01 に追加**。4.1） |
+| `E-17` | `MiningOptIn`（2026-10-03 に追加） | `user_id` / `contact_ref`（`E-09` への参照）/ `consent_version` / `consented_at` / `revoked_at` / `max_threads` | `points-api` の DB（RDS for PostgreSQL の `points`。本番: AWS） | テーブル（**削除できる**。削除請求に応じるため） | 未着手 |
+| `E-18` | `MiningContribution`（2026-10-03 に追加） | `user_id`（unMineable の worker 名）/ `date` / `hashrate` / `accepted_shares` | `points-api` の日次スナップショット（発生源は unMineable の `/v1/workers`） | テーブル | 未着手 |
+| `E-19` | `PointTransaction`（2026-10-03 に追加） | `tx_id` / `kind`（`grant` / `redeem` / `reversal`）/ `user_id` / `amount` / `basis`（`E-18` の期間、発注書番号、または打ち消す `tx_id`）/ `approved_by` / `idempotency_key` / `correlation_id` / `chain_tx_hash`。**状態は出来事の列（`events[]`）から求める** | `points-api` の DB（**追記だけ**） | テーブル（INSERT だけ。出来事も行として追記） | 未着手 |
+| `E-20` | `MiningPayout`（2026-10-03 に追加） | `payout_uuid`（unMineable）/ `chain_tx_hash` / `amount_pol` / `jpy_at_receipt` / `conversion`（換金の tx hash・約定・円の金額） | **チェーン上の ComeGin のウォレットへの入金**（unMineable の `/v1/payments` と突き合わせる） | チェーン（換金の記録は `points-api` の DB） | 未着手 |
 
 - **正本の「Strapi」「Mautic」「Chatwoot」「Umami」は本番（AWS）のインスタンスを指す**（`R1` の 2026-09-19 の決定。AA-05 の ADR-16）。**正本のデータを持つシステムはすべてクラウドに置く**、が ADR-16 の配置の基準である（例外は `E-15` だけ。ADR-18。下の注記）。オンプレの Strapi・Mautic・Chatwoot・Umami は**開発環境**であり、そのデータは正本でも複製先でもない（開発環境の Strapi は試験用で、記事を開発と本番の間で移さない。TA-07 の 6 節）。`E-01` `E-03` `E-04` の正本は本番の Strapi（RDS for PostgreSQL、メディアは S3）で、エージェントの MCP（`strapi-prod`）での書き込みがそのまま正本の更新になる。**ただしエージェントが書けるのは下書きまでで、`E-04` の `publishedAt` を設定する（公開する）のは `R2` が本番の管理画面で行う**（ADR-17）。公開サイトへの反映はその後の配信で行う（TA-07 の 7 節）。`E-06`（Mautic のフォーム）はエージェントが MCP で本番に書き込む。格納形式の列のパス（`backend/...`・`middleware/...`）は開発環境のものである。
 - **`E-04` の正本の所在の経緯。** ADR-14 で本番の Strapi（AWS）とし、同日の ADR-15 でオンプレの Strapi に戻し（記事は HTML に焼き込まれて配信されるため、本番に Strapi を置く理由が無いとした）、さらに同日の ADR-16 で本番の Strapi に戻した（正本が開発機 1 台にしか無く、開発機の故障がそのまま記事の喪失になるため）。
@@ -226,6 +230,29 @@ erDiagram
 
 - **OpenSEO の中のデータは正本にしない。** 保存済みキーワードは `E-01` の候補の作業場、プロジェクトコンテキストは OpenSEO の作業用の記憶であり、いずれも複製先にも正本にも数えない（AA-05 の ADR-09）。`E-12` として取り込んだ時点の値と `ref`（再取得できる問い合わせ）だけを残す。
 - `E-12` の `source` に `posthog` / `umami` / `mautic` / `chatwoot` を含めるのは、監査結果を「Lighthouse の結果」に限定せず、あらゆる観測の共通の入れ物にするため（`E-13` の根拠参照先を 1 種類の型に統一できる）。
+
+### 4.2 `E-17`〜`E-20` を立てた理由（2026-10-03 の決定）
+
+マネタイズモデル（AA-05 の ADR-20）で、**利用者の同意・貢献量・ポイントの台帳・ComeGin の受け取り**を表す型が要った。既存の型に属性として足さなかった理由は次のとおり。
+
+- **`E-17` を `E-09 Contact` の属性にしない。** 同意には版と撤回の履歴があり、削除請求のときに `E-17` だけを消して、消せない記録（チェーン・S3 の写し）を誰のものか特定できなくする必要がある（DA-05 の 1.6）。実名は `E-09` にだけ置き、`E-17` は `contact_ref` で指す。
+- **`E-18` の正本を unMineable にしない。** unMineable の履歴の保持期間をこちらで決められず、付与の根拠が後から消える。日次で自前のスナップショットを取る（`E-12` が Lighthouse の JSON を手元に貯めるのと同じ考え方）。
+- **`E-19` の正本をチェーンにしない。** チェーンには「なぜ付与したか」「誰が承認したか」を書けない。正本は `points-api` の DB に置き、チェーンの残高は公開の写しとして日次で突き合わせる。
+- **`E-19` を追記だけにする。** Amazon QLDB は 2025-07-31 に提供を終えたため、AWS の推奨構成（PostgreSQL ＋ S3）に沿って 2 段で守る。（1）DB ユーザーに INSERT と SELECT だけを許し、状態の変化も訂正も新しい行として追記する。（2）日次で S3 に写し、Object Lock のコンプライアンスモードで保管期間中は消せず上書きもできないようにする（TA-06 の 4.9）。
+- **`E-20` の正本をチェーン上の入金にする。** unMineable の画面の数字ではなく、実際に ComeGin のウォレットに入った POL を収入とする（税務の根拠を外部の SaaS の表示に置かない）。
+- **発注を表す型（`Order`）は作らない。** SFA が未選定（BA-01）。消化の根拠は発注書番号を外部の参照として `E-19` の `basis` に持つ。
+
+```mermaid
+erDiagram
+    E09_Contact ||--o| E17_MiningOptIn : "contact_ref"
+    E17_MiningOptIn ||--o{ E18_MiningContribution : "user_id = worker 名"
+    E17_MiningOptIn ||--o{ E19_PointTransaction : "user_id"
+    E18_MiningContribution }o--o{ E19_PointTransaction : "basis（付与の根拠の期間）"
+    E20_MiningPayout }o--o{ E19_PointTransaction : "その月の採掘収入（付与量の式）"
+    E19_PointTransaction ||--o{ E19_Event : "events（追記だけ）"
+```
+
+図は To-Be を描いている。状態はすべて `未着手`（4 節の表）。
 
 ## 5. 正本が未定だったエンティティの決定
 
@@ -370,3 +397,4 @@ flowchart LR
 - **（2026-10-01 に反映済み）`E-16 Booking` を他の層に反映する。** 本ファイルで新しく立てた型のため、他のファイルの `E-01`〜`E-15` という書き方が古くなっていた。**DA-04 の System of Record 表**（正本と同期方向の行）と **DA-05 の個人情報の区分・保持期間・削除請求**に反映し、`docs/README.md` の「ID の採番と正本」にも採番の範囲を書いた（**用語集は作らないと決まった**。同日のユーザーの決定）。**残るのは `invitee_email`（実名情報）の保持期間と、Cal.com の予約を削除請求の対象に含めるか**で、どちらも DA-05 の 5 節にある。判断者 `R1`。
 - **`E-16` の保持期間**（4.1）。面談の予約は商談の記録であり、`E-09`（24 か月。DA-05 の 2 節）と揃えるか、面談の実施後に短く切るかを決めていない。**Google Calendar 側の予定の保持は Cal.com の保持と別である**（予定を消しても予約の記録は残る）ため、両方を決める必要がある。判断者 `R1` `R3`。
 - `E-03 ContentPlan` の承認状態を Strapi の draft / publish で表すか、独立した `plan_state` フィールドで表すか。draft / publish は 2 値しかなく「差し戻し」を表現できないため、`plan_state` を別に持つ案が有力だが、二重管理になる懸念がある。Strapi のコンテンツタイプを実装する際に確定させる。
+- **（2026-10-03 に追加）`E-19` の出来事（event）の保存の形。** 同じテーブルに状態の行を追記するか、取引と出来事の 2 テーブルに分けるか。どちらでも「UPDATE・DELETE を許さない」は守れる（DD-08 で決める）。

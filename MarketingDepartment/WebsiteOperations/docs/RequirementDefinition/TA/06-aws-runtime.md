@@ -57,6 +57,7 @@ flowchart LR
 | **管理画面の関門**（自作） | `admin-auth` | Better Auth。ALB に対する OIDC の IdP と、Google Workspace でのログイン（5.2） | 1 | 未作成（置き場所は `backend/admin-auth` を想定） |
 | **Cal.com**（**2026-10-01 に追加**。セルフホスト。ADR-19） | `calcom` | オンライン面談の予約ページと埋め込みの配信（`I-25`）、Google Calendar との連携 | 1 | 未作成（置き場所は `backend/calcom-system` を想定。公式イメージ ＋ compose。開発ポートは 10 節） |
 | **同意の受け口**（**2026-10-01 に追加**。自作） | `consent-api` | Cookie 同意の状態を受け取り、ElastiCache に記録する（4.8、DD-02 の 8 節） | 1 | 未作成（置き場所は `backend/consent-api` を想定。開発ポートは 10 節） |
+| **ポイントの付与**（**2026-10-03 に追加**。自作。ADR-20） | `points-api` | 採掘の貢献量の取り込み、ポイントの付与・消化の指示（thirdweb）、日次の突き合わせと `E-19` の S3 への写し、利用者ポータルと管理画面 | 1 | `backend/points-api`（想定）の開発サーバー（3106） |
 
 - **`mautic-cron` は 1 タスクに固定する。** 2 つ動くとキャンペーンの実行やメールの送信が二重になる。オートスケールの対象にしない。
 - **`n8n` も 1 タスクに固定する。** 2 つ動くとスケジュールのトリガーが二重に発火する（キューモードは使わない）。
@@ -64,8 +65,9 @@ flowchart LR
 - **`mautic-web` を 2 タスク以上にするには、PHP のセッションを共有する必要がある。** Mautic の既定はファイルに保存するセッション（`app/config/config.php` の `session.handler_id` が `null`）であり、タスクをまたげない。当面は 1 タスクで運用し、増やすときにセッションの保存先（ElastiCache か RDS）を決める。
 - **各サービスのタスク数は 1 で決定した**（単一構成。`R1` の 2026-09-18 の決定。4.6）。そのタスクがある AZ が障害を起こすと、そのサービスは別の AZ で起動し直すまで止まる。
 - **`calcom` と `consent-api` を ECS に置くのは、実行基盤を増やさないためである**（2026-10-01 の決定）。`consent-api` では Lambda 関数 URL・API Gateway・CloudFront Function も候補だったが、**デプロイ手順（8 節）と監視（TA-05）が二重になる**ため採らなかった（DD-02 の 8.1）。`admin-auth` という自作のサービスの前例があり、扱いをそろえられる。
-- **`consent-api` は訪問者のリクエストを直接受ける唯一の自作のコードである。** `admin-auth` は管理者だけが触り、他の 6 サービスは上流の製品である。**自作のコードを公開経路に出す初めての箇所**にあたるため、入力の検査（受け取るのは状態と識別子だけ）と WAF のレート制限（5.5）を、他のサービスより厳しく見る。
+- **`consent-api` は訪問者のリクエストを直接受ける唯一の自作のコードである。** `admin-auth` は管理者だけが触り、他の 6 サービスは上流の製品である。**自作のコードを公開経路に出す初めての箇所**にあたるため、入力の検査（受け取るのは状態と識別子だけ）と WAF のレート制限（5.5）を、他のサービスより厳しく見る。 **（2026-10-03 に追加）`points-api` の利用者ポータルもインターネットから直接リクエストを受けるが、相手は訪問者ではなく利用者（基盤を立てた事業者）で、メールのワンタイムリンクでログインした後にだけ使える。**
 - **`consent-api` は RDS を使わない**（記録は ElastiCache。4.8）。DB を持たないサービスにすることで、**訪問者のリクエストが製品の DB に届く経路を作らない**。
+- **（2026-10-03 に追加）`points-api` は採掘しない。** unMineable と thirdweb の API を呼ぶだけで、採掘プールも Monero のノードも AWS に置かない（AWS Service Terms 1.25。AA-05 の ADR-20）。**本システムの完成後に着手し、承認ゲート G-1〜G-3 を通るまで置かない。**
 
 ### 3.2 コンテナイメージ
 
@@ -98,11 +100,12 @@ flowchart LR
 | ストア | 使うシステム | 構成（4.6 で単一構成に決定） | 開発環境での対応 |
 |---|---|---|---|
 | **RDS for MySQL 8.4** | Mautic | Single-AZ、自動バックアップ 7 日（ポイントインタイムリカバリ） | `mysql:8.4`（Docker） |
-| **RDS for PostgreSQL 16** | Chatwoot・Umami・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加） | **1 インスタンスに 6 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`**）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、Umami は `postgres:15-alpine`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
+| **RDS for PostgreSQL 16** | Chatwoot・Umami・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、Umami は `postgres:15-alpine`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
 | **ElastiCache（Valkey）** | Chatwoot（必須）・Mautic（キャッシュ。任意）・**Cookie 同意の状態の記録**（4.8。受け口は未決） | **ノードベース・クラスターモード無効**・1 ノード。転送中の暗号化（TLS）と AUTH を有効にする | `redis:alpine` |
 | **S3** | Chatwoot（添付ファイル。Active Storage）・**Strapi（メディア。`@strapi/provider-upload-aws-s3`）** | バケットはシステムごとに分ける。パブリックアクセスを全ブロック。バージョニング有効 | Chatwoot はローカルのディスク（`ACTIVE_STORAGE_SERVICE=local`）、Strapi は `public/uploads` |
 | **EFS** | Mautic（`media/` と設定ファイル） | `mautic-web` と `mautic-cron` の両方にマウントする | ホストのディレクトリ |
 | **S3（実行記録の写し。ADR-18）** | **監視アプリ（ローカル）が書く。ECS のタスクは使わない** | **`E-15` の写し専用のバケット**を 1 つ作る（`ap-northeast-1`）。パブリックアクセスを全ブロック。バージョニング有効。**追記だけを許し、削除と上書きを許さない**（4.7） | **無い**（写しは本番の実行記録だけ。開発機の監視アプリの記録が正本） |
+| **S3（`E-19` の写し。2026-10-03 に追加）** | `points-api`（タスクロール） | **`E-19` の写し専用のバケット**（4.9）。`E-15` の写しのバケットとは分ける | なし（開発環境では写さない） |
 
 ### 4.2 ElastiCache Serverless は使えない（重要）
 
@@ -112,7 +115,7 @@ flowchart LR
 - **Valkey を選ぶのは暫定である。** Redis OSS 7.1 より安いが、Chatwoot の公式ドキュメントは Redis を前提に書かれている。動作に問題が出たら、同じノードタイプのまま Redis OSS 7.1 に切り替える。
 - **TLS を有効にすると URL が `rediss://` になる。** Chatwoot の `.env.example` には証明書の検証を緩める `REDIS_OPENSSL_VERIFY_MODE` があるが、**本番では使わない**（ElastiCache の証明書は検証できる）。
 
-### 4.3 RDS for PostgreSQL を Chatwoot・Umami・`admin-auth`・Strapi・n8n・Cal.com で共有する
+### 4.3 RDS for PostgreSQL を Chatwoot・Umami・`admin-auth`・Strapi・n8n・Cal.com・`points-api` で共有する
 
 **1 インスタンスにまとめるのは費用のためである**（RDS はインスタンス単位の固定費が大きい）。代わりに次を受け入れる。
 
@@ -207,6 +210,14 @@ Mautic は次のファイルをローカルのディスクに書く。Fargate �
 - **公開経路に認証なしで通すパスが 1 つ増える。** 5.3 の許可リストと 5.5 の WAF のレート制限に加えた（AA-02 の 1.3 の分類にも反映済み）。
 - **Cookie は `consent-api` の応答が書く**（`Domain=.comegin.com`。`HttpOnly` を付けない。DD-02 の 8.2）。`consent.comegin.com` と公開サイト（`comegin.com`）が同じサイトになるため、サイト側の JavaScript が同期で読める。**CORS は公開サイトのオリジンだけを許し、`*` を使わない**（Cookie 付きのリクエストでは使えず、使えたとしても他サイトから同意を書き換えられる）。
 - **`consent-api` が落ちているあいだ、同意の記録だけが欠ける**（訪問者から見た挙動は変わらない。DD-02 の 8.3）。ただし**Cookie を受け口の応答だけで書く形にすると、落ちているあいだは同意そのものが成立しない**ため、サイト側でも Cookie を書く二重化を採るかを実装時に決める（DD-02 の 8.4、11 節）。
+
+### 4.9 ポイントの台帳の写し（`E-19`。2026-10-03 に追加。ADR-20）
+
+- **バケット**: `ap-northeast-1`、パブリックアクセスを全ブロック、バージョニングを有効化、**Object Lock のコンプライアンスモード**を有効化（保管期間中はルートユーザーでも消せず、上書きもできない）。
+- **保管期間**: 帳簿と同じ（税理士の確認〈承認ゲート G-2〉。目安 7 年）。**後から短くできないため、決めてから設定する。**
+- **書くもの**: 前日分の `E-19` の出来事を日次で書き出す。**`E-17`（実名への入口）は写さない**（DA-05 の 1.6）。
+- **書く主体**: `points-api` のタスクロール（書き込みだけ。削除の権限なし）。
+- **ADR-18 の `E-15` の写しとは仕組みが同じで、バケットを分ける。** 保管期間と書く主体が違うため。
 
 ## 5. 経路の分離（ALB と WAF）
 
@@ -385,6 +396,9 @@ sequenceDiagram
 | S3 への権限（Chatwoot の添付ファイル・Strapi のメディア） | **タスクロール**（IAM ロール） | アクセスキーを発行しない |
 | n8n から SNS への発行（社内通知。ADR-08） | **タスクロール** | 同上 |
 | **監視アプリが実行記録の写しを S3 に書く資格情報**（ADR-18 の追加の決定。4.7） | **ローカルの PC の監視アプリのサーバー側の設定**（AWS のタスクロールは使えない。Git で追跡しない） | **写し専用の IAM ユーザー（またはロール）で発行し、写しのバケットへの書き込み（`s3:PutObject`）だけを許す。削除（`s3:DeleteObject` / `s3:DeleteObjectVersion`）・バケットの設定の変更・読み取りの権限を与えない。** **Claude Code の実行環境に渡さない**（監視アプリがエージェントを起動するときに環境変数を引き継がないことを確かめる。TA-04 の 1 節） |
+| **unMineable の API キーと秘密・thirdweb の秘密鍵**（2026-10-03 に追加。ADR-20） | Secrets Manager | タスク定義の `secrets` で `points-api` に渡す。権限の範囲は TA-04 の「収益化の秘匿値と権限」 |
+| **`points-api` が `E-19` の写しを S3 に書く権限**（同上） | **タスクロール** | 書き込みだけで削除なし（4.9） |
+| **`points-api` から SNS への発行**（2026-10-03 に追加） | **タスクロール** | `comegin-ops-alert` への発行だけ |
 
 - **開発環境の値を本番で使い回さない。** `dev/init-env.sh` が生成した値は開発機の中だけで使う。
 - **暗号化の鍵を失うと、既存のデータを復号できなくなる**（`.claude/CLAUDE.md` の Docker スタックの共通方針と同じ）。Secrets Manager の値を消したり作り直したりしない。削除には復旧期間を設定する。
@@ -414,16 +428,17 @@ sequenceDiagram
 |---|---|---|
 | ALB | 時間 ＋ LCU | 1 台に集約する（5.1） |
 | WAF（ALB 用） | WebACL・ルール・リクエスト数 | **CloudFront のフラットレートプランの対象外** |
-| Fargate | vCPU と メモリの時間 | **10 サービス**（3.1。`admin-auth`・`strapi`・`n8n` を含む。ADR-16 で 2 つ、**2026-10-01 の決定で `calcom` と `consent-api` の 2 つ**増えた） |
+| Fargate | vCPU と メモリの時間 | **11 サービス**（3.1。`admin-auth`・`strapi`・`n8n`・`points-api`〈2026-10-03 に追加。採掘はしない〉を含む。ADR-16 で 2 つ、**2026-10-01 の決定で `calcom` と `consent-api` の 2 つ、2026-10-03 に `points-api` の 1 つ**増えた） |
 | RDS | インスタンスの時間 ＋ ストレージ ＋ バックアップ | 2 台（MySQL・PostgreSQL） |
 | ElastiCache | ノードの時間 | 1 ノード |
 | NAT Gateway | 時間 ＋ 処理したデータ量 | 1 つ |
 | EFS・S3 | 保存量 | 小さい |
 | **S3（実行記録の写し。ADR-18）** | 保存量 ＋ リクエスト数 | **極めて小さい**（要約と ID だけ。4.7）。バージョニングで残る古い版と、保持期間（未決定）で保存量が決まる |
 | SES | 送信数 | Mautic の配信量に比例する |
-| Secrets Manager | シークレット数 | 約 15 個（ADR-16 で Strapi と n8n の分が増えた） |
+| Secrets Manager | シークレット数 | 約 18 個（ADR-16 で Strapi と n8n の分が増えた。**2026-10-03 に `points-api` の分の 3 つが増えた**: unMineable の API キーと秘密〈1 つにまとめる〉・thirdweb の秘密鍵・`points-api` の DB ユーザー） |
 | CloudWatch のアラーム・カスタムメトリクス | アラーム数・メトリクス数 | ハートビート（TA-05）と AWS 側の監視 |
 | CloudWatch Logs | 取り込み量と保存量 | タスクのログ |
+| **S3（`E-19` の写し。同上）** | 保存量 ＋ リクエスト数 | 極めて小さい（月に利用者数 × 数件の出来事） |
 
 **これまでの AWS の費用は CloudFront のフラットレート Free（$0/月）と SNS の無料枠だけだった。** ADR-12 によって、事業の規模にかかわらず毎月の固定費が発生するようになる。ADR-16 で Strapi と n8n の分（Fargate のタスク 2 つ・S3 のバケット 1 つ）が増えるが、DB は共有の RDS に相乗りするため RDS は増えない。ADR-18 の追加の決定で実行記録の写しのバケットが 1 つ増えるが、中身が要約と ID だけのため費用はほぼ無視できる。**2026-10-01 の決定で `calcom` と `consent-api` の 2 タスクが増える**（DB は共有の RDS に相乗りし、`consent-api` は DB を持たない）。**Cal.com をセルフホストにしたことで、SaaS の月額の代わりに Fargate の 1 タスク分がかかる**（どちらが安いかは見積もり時に比べる。基準を守ることが選択の理由であり、費用は理由ではない）。見積もりは AWS の料金 API で行い、ADR-12 の「覆すのに必要な根拠」（固定費が規模に見合わない）の判断材料にする。
 
@@ -452,6 +467,8 @@ sequenceDiagram
 
 ## 11. 未決定事項
 
+- **（2026-10-03 に追加）`points-api` から unMineable・thirdweb への外向きの通信。** NAT Gateway（既存）を通す。宛先を絞るか（unMineable の API と thirdweb の API だけ）。
+- **（2026-10-03 に追加）`points-api` の利用者ポータルの公開の形。** ホスト名（5.1）、ALB で認証なしに通すパス（5.3 の許可リスト）、ログインのワンタイムリンクを送る口の WAF のレート制限（5.5。認証なしで SES の送信を起こせるため）を着手時に決める。決めるまでは 5.2 の既定（列挙していないパスは管理者の認証の側に倒す）により利用者はポータルに入れない。
 - **`admin-auth` の実装と置き場所。** 自作のコードになる（`.claude/CLAUDE.md` の自作コードの一覧に加わる）。置き場所は `backend/admin-auth`、開発環境のポートは 3103（TA-01 の 5 節の表で空いている番号）を想定する。**Better Auth の OAuth 2.1 Provider と ALB の組み合わせを実地で確認していない**（トークンエンドポイントのクライアント認証方式が ALB と合うかなど）。判断者 `R1`。
 - **Strapi の本番の構成**（ADR-16）。今の `backend/strapi-system` は SQLite で動いており、`pg` と `@strapi/provider-upload-aws-s3` が依存関係に無い。開発環境も PostgreSQL に揃えるかを決める。**メディアの S3 を非公開のままビルドが画像を取得できるか**（署名付き URL を使うか）を実装時に確かめる。判断者 `R1`。
 - **n8n の Webhook を VPC の中で届ける方法**（5.3）。ECS Service Connect か Cloud Map の内部の名前で、本番の Chatwoot・Mautic から `n8n` に直接届ける想定である。Webhook の URL（`N8N_WEBHOOK_URL`）を内部の名前にするか、ALB の内部向けのリスナーを置くかを実装時に決める。
