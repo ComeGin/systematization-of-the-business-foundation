@@ -1,6 +1,6 @@
 # AA-01 アプリケーションランドスケープ
 
-AA（Application Architecture）層。ロール ID `R1`〜`R4`（正本は BA-03）、Capability ID `CAP-01`〜`CAP-16`（BA-02）、エンティティ ID `E-01`〜`E-16`（DA-01）はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
+AA（Application Architecture）層。ロール ID `R1`〜`R4`（正本は BA-03）、Capability ID `CAP-01`〜`CAP-18`（BA-02）、エンティティ ID `E-01`〜`E-20`（DA-01）はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 
 この層が答えるのは「BA が定義した Capability と、DA が正本を決めたエンティティを、**どのアプリケーションが実際に担うのか**」の 1 問だけ。物理構成（ホスティング先・コンテナの配置・ネットワーク）は TA の担当で、ここでは扱わない。
 
@@ -150,6 +150,51 @@ C4Container
 - 図から意図的に省いたもの: `strapi-mcp`（本番用の登録は `strapi-prod`）と Umami MCP と OpenSEO の MCP と n8n の MCP（本番用の登録は `n8n-prod`。ADR-16）。いずれも Claude Code の環境側に MCP サーバとして設定されており実際に呼べるが、**このリポジトリが管理しているコードではない**（`backend/` に実体が無い）。ランドスケープには載せる（6 節）が、コンテナ図では自作 2 本と区別できなくなるため外した。
 - `Claude Code` を 1 つのコンテナとして描いているのは、個々のエージェントがコンテナではなく**同一実行基盤上の役割**だから（エージェントの内訳は AA-03 の 1 節）。
 
+## 5.5 C4 Lv2 コンテナ図（収益化系。2026-10-03 に追加）
+
+マネタイズモデル（AA-05 の ADR-20）。**本システムの完成後に着手し、承認ゲート G-1〜G-3（BA-05）を通るまで手を付けない。**
+
+```mermaid
+flowchart LR
+    subgraph USR["利用者環境（ComeGin は運用しない・AWS 以外）"]
+        MIN["miner（XMRig）<br/>既定は停止・隔離コンテナ"]
+        PORTAL_U["利用者（ブラウザ）"]
+    end
+    subgraph SAAS["SaaS（ADR-20）"]
+        UNM["unMineable<br/>採掘プール・XMR → POL に変換"]
+        TW["thirdweb<br/>サーバウォレット（Vault）・API・ダッシュボード"]
+    end
+    subgraph CHAINS["外部の台帳"]
+        CHAIN["Polygon PoS<br/>ComeGin のウォレット（POL）<br/>譲渡不可ポイント（ERC-20）"]
+    end
+    subgraph AWS["ComeGin の AWS（採掘しない）"]
+        PAPI["points-api<br/>（ポータル・管理画面）"]
+        N8N["n8n（定期実行）"]
+        S3["S3（Object Lock）<br/>E-19 の日次の写し"]
+        SNS["Amazon SNS"]
+    end
+    EXC["登録済みの暗号資産取引業者（国内）"]
+    R1["R1（管理者）"]
+
+    MIN -- "I-26 Stratum<br/>POL:ComeGinのアドレス.利用者ID" --> UNM
+    UNM -- "日次の払い出し（POL）" --> CHAIN
+    N8N -- "日次・月次" --> PAPI
+    PAPI -- "I-27 worker ごとの貢献量・払い出し履歴" --> UNM
+    PORTAL_U -- "I-29 オプトイン・閲覧" --> PAPI
+    R1 -- "I-30 付与の承認・消化" --> PAPI
+    PAPI -- "I-28 mint / burn" --> TW
+    TW -- "署名・送信" --> CHAIN
+    PAPI -- "日次の写し" --> S3
+    PAPI -. "ずれ・失敗の通知" .-> SNS
+    R1 -. "ComeGin 自身の換金（ダッシュボードで送金）" .-> TW
+    CHAIN -. "POL を入金" .-> EXC
+```
+
+図は To-Be を描いている。状態は 6 節の表で確認する（すべて `未着手`）。お金の流れの全体図（境界 4 つ）は `docs/diagrams/monetization-overview.drawio` にある。
+
+- **エージェントはこの図に現れない。** 付与・消化・付与率の変更・送金はどのエージェントにも与えない（AA-03 の 2.6）。
+- **`miner` は ComeGin の運用対象ではない。** 配布するのは導入時に公式のリリースを**ハッシュを固定して**取得する定義だけで、実行ファイルは配布物に含めない（AWS の S3・CloudFront からも配布しない）。
+
 ## 6. アプリケーション一覧
 
 「担う Capability」は BA-02 の主担当を実現手段の側から割り当てたもので、BA の担当ロールを書き換えるものではない。
@@ -181,6 +226,11 @@ C4Container
 | **Cal.com**（`backend/calcom-system` を想定。**上流の取り込みではなく公式イメージ ＋ compose**。2026-10-01 に追加） | **オンライン面談の予約**（商談プロセスの段 2。BA-04）。訪問者が ComeGin の Google Calendar の空き時間から枠を選ぶ。**無料相談の完了画面に埋め込む**（`I-25`）。**セルフホスト**（ADR-19） | `CAP-12` | **`E-16`**（予約。正本）／`E-09`（email で突合） | 3105（開発） | **AWS**（ECS on Fargate ＋ RDS for PostgreSQL の共有インスタンス。`cal.comegin.com`〈案〉。TA-06 の 3.1） | `未着手`（**ライセンスと公式イメージの確認が先**。TA-06 の 11 節） |
 | **consent-api**（`backend/consent-api` を想定。**自作**。2026-10-01 に追加） | **Cookie 同意の状態を受け取り、ElastiCache に記録する**（DD-02 の 8 節）。**訪問者のリクエストを直接受ける唯一の自作のコード**（`admin-auth` は管理者だけが触る） | `CAP-10` `CAP-15` | —（同意の記録。**対応する E-ID が無い**ため AA-02 のカタログに載せない。DD-02 の 8.5） | 3104（開発） | **AWS**（ECS on Fargate ＋ ElastiCache。`consent.comegin.com`〈案〉。TA-06 の 4.8） | `未着手`（コード未作成） |
 | **Amazon SES** | **顧客向けメールの送信。** Mautic の配信・フォームの自動返信、Chatwoot のメール（ADR-12。社内向けの通知は SNS のまま） | `CAP-11` `CAP-12` | `E-09` `E-10`（宛先と本文） | — | **AWS（`ap-northeast-1`）** | `未着手`（**サンドボックスのまま**。本番アクセスの申請が必要。TA-06 の 6 節） |
+| **miner**（利用者のサーバ。2026-10-03 に追加） | XMRig のコンテナ。既定は停止で、`MINER_ENABLED=true` のときだけ起動する。接続先は `rx.unmineable.com:3333`、`user` は `POL:<ComeGin のアドレス>.<利用者 ID>`。ボリュームを持たず、ネットワークの宛先は unMineable だけ | `CAP-17` | （unMineable の中で `E-18` になる） | — | **利用者環境**（ComeGin は運用しない） | 未着手 |
+| **points-api**（`backend/points-api` を想定。**自作**。2026-10-03 に追加） | 貢献量の取り込み、付与量の計算、付与・消化の指示、日次の突き合わせと S3 への写し。利用者ポータル（オプトイン・残高）と管理画面（承認・消化・付与率・円換算表。ALB の関門の後ろ） | `CAP-17` `CAP-18` | `E-17` `E-18` `E-19` `E-20` | 3106 | AWS（ECS on Fargate。TA-06） | 未着手 |
+| **unMineable**（SaaS。2026-10-03 に追加） | 採掘プール。XMR を POL に変換し、日次で ComeGin のアドレスへ払い出す。API（HMAC 署名）で worker ごとの貢献量と払い出しの履歴を返す | `CAP-17` | `E-18` `E-20`（発生源） | — | SaaS（海外） | 未着手 |
+| **thirdweb**（SaaS。2026-10-03 に追加） | ComeGin のサーバウォレット（鍵は Vault）、ポイントのコントラクトへの mint・burn、RPC、ダッシュボード（`R1` による POL の送金） | `CAP-18` | `E-19`（複製先への書き込み）、`E-20` | — | SaaS（米国） | 未着手 |
+| **Polygon PoS**（外部の台帳。2026-10-03 に追加） | 譲渡不可ポイント（ERC-20。移転の権限〈`TRANSFER_ROLE`〉を ComeGin のサーバウォレットだけに与える）と ComeGin の POL の残高 | `CAP-17` `CAP-18` | `E-19`（複製先）、`E-20`（正本） | — | 公開チェーン | 未着手 |
 
 ### 一覧表の読み方
 
@@ -191,12 +241,12 @@ C4Container
 - **`admin-auth` は ADR-13 で増えた自作のアプリケーション**であり、`.claude/CLAUDE.md` の「自作コードと vendor 取り込みの区別」の表に加える対象になる（コード作成時）。**管理画面への通信は `admin-auth` を通らない**（ログインのときだけ関わる）ため、E-ID を運ぶ連携を持たず、AA-02 の連携点カタログにも載せない。
 - **状態が `実装済み` なのは 6 つだけ**（Strapi・Lighthouse CI・chatwoot-mcp・mautic-mcp・Claude Code・DataForSEO）。このうち事業の価値に直接触れているのは Strapi のみで、他の 5 つは道具か土台にあたる。DataForSEO は OpenSEO からの問い合わせが成立しているだけで、OpenSEO 自体はまだどのエージェントにも繋がっていない（`未配線`）。
 - **ポートが重複している行が 1 組ある**（Chatwoot 本体と mautic-mcp の HTTP がともに 3100）。同時に HTTP で起動しない運用でしのぐか、`PORT` を変えるかを決める必要がある。
-- **配置が外部の行は 5 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**・**DataForSEO**）。**2026-10-01 に増えた Cal.com と `consent-api` はどちらも AWS の中であり、外部の行を増やしていない**（ADR-19。Cal.com をセルフホストにしたのはそのためである）。**ただし Cal.com から Google Calendar へ予定を作る経路で越境が 1 つ増えた**（Google Workspace は既存のベンダーだが、通る個人データの種類が変わった。DA-05 の 1.2.2、TA-01 の 8 節）。**DataForSEO は 2026-09-18 に増えた外部依存**であり、TA-01 の 8 節の基準（自前で持てないデータの取得元に限る）で認めた（ADR-09）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。**Amazon SES と、ADR-12 で AWS に移した Mautic・Chatwoot・Umami、ADR-16 で AWS に移した Strapi・n8n も同じく AWS の中にあり、ベンダーを増やしていない**（いずれも `ap-northeast-1` で越境しない）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
+- **配置が外部の行は 8 つ**（PostHog・Google Search Console・GitHub・**Amazon SNS**・**DataForSEO**、**2026-10-03 に増えた unMineable・thirdweb・Polygon PoS**）。**利用者環境（miner）は SaaS でも外部サービスでもなく ComeGin が運用しない場所のため、この数に入れず別に 1 つ**とする。**2026-10-01 に増えた Cal.com と `consent-api` はどちらも AWS の中であり、外部の行を増やしていない**（ADR-19。Cal.com をセルフホストにしたのはそのためである）。**ただし Cal.com から Google Calendar へ予定を作る経路で越境が 1 つ増えた**（Google Workspace は既存のベンダーだが、通る個人データの種類が変わった。DA-05 の 1.2.2、TA-01 の 8 節）。**DataForSEO は 2026-09-18 に増えた外部依存**であり、TA-01 の 8 節の基準（自前で持てないデータの取得元に限る）で認めた（ADR-09）。このうち **Amazon SNS だけはベンダーを増やしていない**（AWS は `CAP-07` `CAP-08` の配信先として既に使う前提。TA-01 の 8 節）。**Amazon SES と、ADR-12 で AWS に移した Mautic・Chatwoot・Umami、ADR-16 で AWS に移した Strapi・n8n も同じく AWS の中にあり、ベンダーを増やしていない**（いずれも `ap-northeast-1` で越境しない）。DA-05 は PostHog の越境だけを扱っているが、`E-13` `E-14` を Git に置く決定により**統制の記録も GitHub に出る**（DA-05 の未決定事項に既出）。AA としてはこの 2 つ目の越境を設計上の既知事項として引き継ぐ。
 - **`strapi-mcp` と Umami MCP と OpenSEO の MCP は自作ではない。** OpenSEO の MCP には**費用**という別の軸があり、扱いを ADR-10 に分けた。 `.claude/CLAUDE.md` の命名規則（`<プロダクト>-mcp` はこのリポジトリの自作サーバ）とは別系統であり、バージョン・`ACCESS_LEVEL` 相当の権限・`sanitize()` の有無をこのリポジトリが保証できない。AA-03 のエージェント設計では、この 2 つに**書き込みを任せない**方針を採る（7 節と AA-03 の 2 節）。**ADR-16 で、本番の Strapi への書き込みは `strapi-prod` の Admin トークンの権限（削除を与えない）で絞ることになり、ADR-17 で公開・非公開化の権限も外して下書きまでにした**（記事の公開の承認〈`R2`〉を、約束ではなくトークンの権限で守るため）。 ADR-07 の「`ACCESS_LEVEL` 相当の境界が無い」は本番ではトークンの権限で埋まるが、`sanitize()` と `CHARACTER_LIMIT` が及ばない管理外の MCP であることは変わらない。**n8n の MCP（`n8n-prod`）も同じく管理外の MCP として加わった**（ADR-16）。
 
 ## 7. Capability からアプリケーションへの割り当て
 
-BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手段が 1 つも無い Capability を可視化するのが目的**（成熟度の底上げの着手順を決める根拠になる）。
+BA-02 の 18 Capability を、実現手段の側から埋め戻す。**担う手段が 1 つも無い Capability を可視化するのが目的**（成熟度の底上げの着手順を決める根拠になる）。
 
 | Capability | 主たるアプリケーション | 補助 | 状態 |
 |---|---|---|---|
@@ -216,8 +266,10 @@ BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手
 | `CAP-14` 改善提案の生成と承認 | Git / GitHub（`E-13` `E-14`） | Claude Code + **監視アプリ**（エージェントの起動元。手動の指示と定期実行。`I-13` の起票もここから起こす。ADR-14・ADR-17） | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システムの個別アカウント、**`admin-auth`**（本番の管理画面の関門。ADR-13） | `実装済み`（MCP 側のみ。`admin-auth` は `未着手`） |
 | `CAP-16` 戦略知見の獲得 | Claude Code（調査） + **OpenSEO**（競合・SERP・被リンク） | Git（知見の記録先が未定） | `未配線` |
+| `CAP-17` 計算資源の受け入れ（採掘） | miner（利用者環境）・unMineable・points-api | — | 2026-10-03 に追加。未着手 |
+| `CAP-18` ポイントの付与と消化 | points-api・thirdweb・Polygon PoS | — | 2026-10-03 に追加。未着手 |
 
-**`CAP-08` だけが担うアプリケーションを持たない。** 他の 15 はいずれも手段が決まっており（未配線・未着手であっても割り当て先は定まっている）、`CAP-08` のみホスティング先が未選定のまま残っている。これは BA-02 で TA に引き渡した項目であり、AA では決めない。
+**`CAP-08` だけが担うアプリケーションを持たない。** 他の 17 はいずれも手段が決まっており（未配線・未着手であっても割り当て先は定まっている）、`CAP-08` のみホスティング先が未選定のまま残っている。これは BA-02 で TA に引き渡した項目であり、AA では決めない。
 
 ## 8. 未決定事項
 
@@ -229,3 +281,4 @@ BA-02 の 16 Capability を、実現手段の側から埋め戻す。**担う手
 - **`E-13` `E-14` を GitHub に置くことによる 2 つ目の越境。** DA-05 が未決定事項として残しているが、AA としても「統制の記録が外部 SaaS にある」という事実が承認機構の前提になるため、リモートの所在が決まらないと AA-04 のループの安全装置が完全には固まらない。
 - **ランドスケープに SFA が存在しない。** BA-01 が受注数の正本として SFA を未選定のまま残しているため、バリューストリームの最終段を担うアプリケーションが 1 つも無い。AA では追加しない（**受注を表す `E-ID` がまだ無く**、BA-01 が受注を本基盤の対象外に置いているため。DA-01 の 4 節）。
 - **（2026-09-18 に解決）OpenSEO の MCP の接続先。** ホスト版を向いていた Claude Code のユーザースコープの設定を、セルフホスト（`127.0.0.1:3001/mcp`）に付け替えた（ADR-09）。
+- **（2026-10-03 に追加）unMineable がサービスを終えたときの代わり。** 代わりのプールは選定しておかない（YAGNI）。利用者の miner の接続先を変えるには配布物の更新が要るため、起きたら ADR を起票する（DD-07）。

@@ -54,23 +54,23 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | [AA/02-integration-architecture.md](RequirementDefinition/AA/02-integration-architecture.md) | 連携点カタログ、露出経路の 2 分類、**着手順** |
 | [AA/03-agent-architecture.md](RequirementDefinition/AA/03-agent-architecture.md) | **エージェント 12 本の設計と権限** |
 | [AA/04-recursive-improvement-loop.md](RequirementDefinition/AA/04-recursive-improvement-loop.md) | **改善ループの制御仕様、安全装置、暴走条件** |
-| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜19。**ADR-19 面談の予約（Cal.com）をセルフホストし、同意の受け口（`consent-api`）も ALB 配下の ECS に置く・予約が成立したら訪問者を Google Calendar の予定に招待する（氏名・メール・日時が Google LLC に渡る）・SaaS 依存の基準と配置の基準はどちらも変えない**、**ADR-09 OpenSEO の採用と GSC の統合、ADR-10 OpenSEO の MCP と費用の上限、ADR-11 Strapi の画像をビルド時に `dist/` へ取り込む、ADR-12 訪問者が触れるシステムを AWS に置く、ADR-13 管理画面の関門を Better Auth（Google Workspace）で作る、ADR-14 本番はクラウド・オンプレは開発環境と管制、ADR-15 ローカルの Claude Code が MCP で本番の Mautic・Chatwoot・Umami も読み書きする・配信は人間の承認（Strapi をオンプレだけにした部分は ADR-16 で置き換え）、ADR-16 正本のデータを持つシステム〈Astro・Strapi・Mautic・Chatwoot・Umami・n8n〉はすべてクラウド、ローカルには道具だけ・ビルドは本番の Strapi を読む・顧客への送信は許可・本番は `read_write` で確定・PostHog は開発と本番で分ける・設定はそろえ続ける、ADR-17 エージェントの定期実行は監視アプリ（ローカル）から起動し `I-13` の起票もローカルへ（ADR-05 の一部を置き換え）・Chatwoot の社内メモと顧客への送信を分ける・`strapi-prod` は下書きまでで記事の公開は `R2` が管理画面で行う・誤った書き込みはエージェント専用ユーザーの送信の記録で突き合わせる、ADR-18 `E-15 AgentRun` の正本を監視アプリ（ローカル）の実行記録にする（ADR-16 の基準の唯一の例外）・本番の n8n に登録する Strapi の資格情報も下書きまで・記録は要約と ID だけで S3 に追記専用で写す・定期実行の定義は Git で持ち承認済みの `main` を読む**） |
+| [AA/05-application-decisions.md](RequirementDefinition/AA/05-application-decisions.md) | 適用判断の記録（ADR-01〜20。**ADR-19 面談の予約（Cal.com）をセルフホストし、同意の受け口（`consent-api`）も ALB 配下の ECS に置く・予約が成立したら訪問者を Google Calendar の予定に招待する（氏名・メール・日時が Google LLC に渡る）・SaaS 依存の基準と配置の基準はどちらも変えない**、**ADR-09 OpenSEO の採用と GSC の統合、ADR-10 OpenSEO の MCP と費用の上限、ADR-11 Strapi の画像をビルド時に `dist/` へ取り込む、ADR-12 訪問者が触れるシステムを AWS に置く、ADR-13 管理画面の関門を Better Auth（Google Workspace）で作る、ADR-14 本番はクラウド・オンプレは開発環境と管制、ADR-15 ローカルの Claude Code が MCP で本番の Mautic・Chatwoot・Umami も読み書きする・配信は人間の承認（Strapi をオンプレだけにした部分は ADR-16 で置き換え）、ADR-16 正本のデータを持つシステム〈Astro・Strapi・Mautic・Chatwoot・Umami・n8n〉はすべてクラウド、ローカルには道具だけ・ビルドは本番の Strapi を読む・顧客への送信は許可・本番は `read_write` で確定・PostHog は開発と本番で分ける・設定はそろえ続ける、ADR-17 エージェントの定期実行は監視アプリ（ローカル）から起動し `I-13` の起票もローカルへ（ADR-05 の一部を置き換え）・Chatwoot の社内メモと顧客への送信を分ける・`strapi-prod` は下書きまでで記事の公開は `R2` が管理画面で行う・誤った書き込みはエージェント専用ユーザーの送信の記録で突き合わせる、ADR-18 `E-15 AgentRun` の正本を監視アプリ（ローカル）の実行記録にする（ADR-16 の基準の唯一の例外）・本番の n8n に登録する Strapi の資格情報も下書きまで・記録は要約と ID だけで S3 に追記専用で写す・定期実行の定義は Git で持ち承認済みの `main` を読む**、**ADR-20 マネタイズモデル: 利用者の自前サーバでの採掘（XMRig → unMineable〈SaaS〉で POL に変換し ComeGin へ）と譲渡不可ポイントの付与（thirdweb〈SaaS〉）・AWS では採掘しない・本システムの完成後に着手し承認ゲート G-1〜G-3 が前提（2026-10-03）**） |
 
 ### TA — Technology Architecture
 
 | ファイル | 内容 |
 |---|---|
-| [TA/01-deployment-topology.md](RequirementDefinition/TA/01-deployment-topology.md) | 配置境界（**正本のデータを持つ本番〈Astro・Strapi・Mautic・Chatwoot・Umami・n8n〉は AWS、ローカルは道具〈Claude Code・MCP サーバ・監視アプリ・OpenSEO・Lighthouse CI・ビルド〉と全システムの開発環境**。ADR-16）、ポート割当、境界越え通信 |
+| [TA/01-deployment-topology.md](RequirementDefinition/TA/01-deployment-topology.md) | 配置境界（**正本のデータを持つ本番〈Astro・Strapi・Mautic・Chatwoot・Umami・n8n〉は AWS、ローカルは道具〈Claude Code・MCP サーバ・監視アプリ・OpenSEO・Lighthouse CI・ビルド〉と全システムの開発環境**。ADR-16）、ポート割当、境界越え通信、**利用者環境（採掘。2026-10-03）** |
 | [TA/02-aws-product-delivery.md](RequirementDefinition/TA/02-aws-product-delivery.md) | Astro の AWS 構成、Cloudflare 代替、**ビルドはローカルで本番の Strapi を読み、配信は人間の承認**（ADR-15・ADR-16） |
 | [TA/03-triggers-and-cicd.md](RequirementDefinition/TA/03-triggers-and-cicd.md) | トリガー 4 系統、n8n の Git 管理外問題 |
 | [TA/04-security-and-secrets.md](RequirementDefinition/TA/04-security-and-secrets.md) | 秘匿値（本番は Secrets Manager）、**経路分離（本番は ALB。Webhook は VPC の中。ngrok は Astro dev サーバーの共有だけ。ADR-16）**、MCP の権限、**OpenSEO と GSC の OAuth** |
 | [TA/05-observability-and-ops.md](RequirementDefinition/TA/05-observability-and-ops.md) | 監視、バックアップ、構成管理 |
-| [TA/06-aws-runtime.md](RequirementDefinition/TA/06-aws-runtime.md) | **Strapi・Mautic・Chatwoot・Umami・n8n・Cal.com・同意の受け口の本番実行環境**（ECS on Fargate、RDS・ElastiCache・S3・EFS、ALB の経路分離、SES。**Strapi と n8n は ADR-16 で追加。n8n のサンドボックスは置かない。ADR-18 で監視アプリの実行記録〈`E-15`〉の写しの S3〈追記専用〉を追加。2026-10-01 に `calcom`〈Cal.com をセルフホスト〉と `consent-api`〈Cookie 同意の受け口〉を追加**） |
+| [TA/06-aws-runtime.md](RequirementDefinition/TA/06-aws-runtime.md) | **Strapi・Mautic・Chatwoot・Umami・n8n・Cal.com・同意の受け口の本番実行環境**（ECS on Fargate、RDS・ElastiCache・S3・EFS、ALB の経路分離、SES。**Strapi と n8n は ADR-16 で追加。n8n のサンドボックスは置かない。ADR-18 で監視アプリの実行記録〈`E-15`〉の写しの S3〈追記専用〉を追加。2026-10-01 に `calcom`〈Cal.com をセルフホスト〉と `consent-api`〈Cookie 同意の受け口〉を追加**。**`points-api` と `E-19` の写しの S3（Object Lock）。2026-10-03**） |
 | [TA/07-onprem-control-plane.md](RequirementDefinition/TA/07-onprem-control-plane.md) | **オンプレの管制環境**（全システムの開発環境、**監視アプリ（Next.js）**、Claude Code への指示の経路、**MCP の開発用と本番用の登録**、本番への作用の経路、**開発環境と本番をそろえ続ける手順、誤った書き込みの検知、エージェントの定期実行、実行記録（`E-15` の正本）**。ADR-14・ADR-15・ADR-16・ADR-17・ADR-18） |
 
 ### 詳細設計（`DetailedDesign/`）
 
-上の 4 層が「何を作るか」を決めたのに対し、**連携点 `I-01`〜`I-24` とループ 6 段階を実装着手できる粒度まで下ろした**もの。AA-02 のカタログと AA-04 の制御仕様が入口にあたる。
+上の 4 層が「何を作るか」を決めたのに対し、**連携点 `I-01`〜`I-30` とループ 6 段階を実装着手できる粒度まで下ろした**もの。AA-02 のカタログと AA-04 の制御仕様が入口にあたる。
 
 | ファイル | 内容 |
 |---|---|
@@ -81,7 +81,8 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | [DetailedDesign/04-server-to-server-flows.md](DetailedDesign/04-server-to-server-flows.md) | サーバ間通知の 9 本（**DataForSEO への問い合わせとサイト監査を含む**） |
 | [DetailedDesign/05-build-and-delivery-flows.md](DetailedDesign/05-build-and-delivery-flows.md) | ビルドと配信の 3 本 |
 | [DetailedDesign/06-proposal-loop-flows.md](DetailedDesign/06-proposal-loop-flows.md) | 提案と承認、**起票前チェックリスト 14 項目** |
-| [DetailedDesign/07-failure-and-degradation.md](DetailedDesign/07-failure-and-degradation.md) | 異常系、縮退運転、**暴走条件 11 件と検出手段の対応** |
+| [DetailedDesign/07-failure-and-degradation.md](DetailedDesign/07-failure-and-degradation.md) | 異常系、縮退運転、**暴走条件 13 件と検出手段の対応** |
+| [DetailedDesign/08-monetization-flows.md](DetailedDesign/08-monetization-flows.md) | **（2026-10-03 に追加）収益化の 5 本**（`I-26`〜`I-30`）、`E-19` の状態遷移、月次の締め |
 
 **実装状態（`実装済み` / `未配線` / `未着手`）の正本はこの 4 層側にあり、詳細設計層では繰り返さない。** 詳細設計層は「仕様が確定しているか」という別の軸（`仕様確定` / `条件付き` / `前提待ち`）で状態を持つ。
 
@@ -107,10 +108,12 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | `CAP-14` 改善提案の生成と承認 | `R2` | `E-13` `E-14` `E-15` | Git / GitHub ＋ **監視アプリ**（エージェントの定期実行と `I-13` の起票の起動元。ADR-17。**実行記録が `E-15` の正本**。ADR-18） | GitHub ＋ オンプレ（監視アプリ。**`E-15` の正本がローカルにある**。ADR-18） | `未着手` |
 | `CAP-15` ガバナンス・アクセス管理 | `R1` | **未定義**（下記参照） | MCP の `ACCESS_LEVEL` と `MCP_AUTH_TOKEN` | 各システム個別 | `実装済み`（MCP 側のみ） |
 | `CAP-16` 戦略知見の獲得 | `R2` | `E-01` `E-03` `E-12`（`source: market`。知見メモは**未定義**） | Claude Code ＋ **OpenSEO**（競合・SERP） | Git（`docs/knowledge/`）＋ DataForSEO | `未配線` |
+| `CAP-17` 計算資源の受け入れ（採掘）（2026-10-03 に追加） | `R1` | `E-17` `E-18` `E-20` | miner（XMRig。利用者環境）＋ **unMineable**（SaaS）＋ points-api | **利用者環境**（採掘）＋ AWS（points-api。**AWS では採掘しない**）＋ SaaS | `未着手`（**承認ゲート G-1〜G-3 が前提**） |
+| `CAP-18` ポイントの付与と消化（2026-10-03 に追加） | `R1` | `E-19` `E-20` | points-api ＋ **thirdweb**（SaaS）＋ Polygon PoS | AWS（ECS + RDS + **S3 Object Lock**）＋ SaaS ＋ 公開チェーン | `未着手`（同上） |
 
-ロール（`R1` Web マスター / `R2` SEO ディレクター / `R3` データアナリスト / `R4` コンテンツエディター）の定義は [BA/03](RequirementDefinition/BA/03-roles-and-raci.md)、エンティティ（`E-01`〜`E-15` と、2026-10-01 に DA-01 で追加した **`E-16 Booking`**）の定義は [DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) にある。
+ロール（`R1` Web マスター / `R2` SEO ディレクター / `R3` データアナリスト / `R4` コンテンツエディター）の定義は [BA/03](RequirementDefinition/BA/03-roles-and-raci.md)、エンティティ（`E-01`〜`E-15`、2026-10-01 に DA-01 で追加した **`E-16 Booking`**、2026-10-03 に追加した **`E-17`〜`E-20`**（収益化））の定義は [DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) にある。
 
-**`R4` は原則エージェントに委任し、承認責任は `R2` が持つ。** RACI の Accountable は全 16 Capability で人間にあり、エージェントには置かない。
+**`R4` は原則エージェントに委任し、承認責任は `R2` が持つ。** RACI の Accountable は全 18 Capability で人間にあり、エージェントには置かない。
 
 ## 現況（2026-09-17 時点、実地確認済み。OpenSEO の行は 2026-09-18 に追記）
 
@@ -157,10 +160,11 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 | 9 | **Amazon SNS の通知**（`I-21`） | **顧客からの要求に気づけるようになる。** BA-04 のトスアップ条件の「通知」が初めて成立する |
 | **並行** | **OpenSEO の調査**（`I-22` `I-23`） | **キーワードの候補・検索ボリューム・競合が、記事を 1 本も公開していない今から取れる。** どの手順にも依存しない（MCP の付け替えは済んだ。残るのはプロジェクトの作成と月次予算の設定） |
 
-**2026-10-01 の決定で、手順 0 と 4 に続くものが 2 つ増えた**（番号は振らない。着手の可否を決めるのが配線ではなく人間の作業だからである。[AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 4 節）。
+**手順 0 と 4 に続くものが、2026-10-01 に 2 つ、2026-10-03 に 1 つ増えた**（番号は振らない。着手の可否を決めるのが配線ではなく人間の作業だからである。[AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 4 節）。
 
 - **`I-25`（Cal.com の面談の予約）** — **0 と 4 の両方に依存する**（セルフホストのため AWS の実行環境が要り、完了画面に置くためフォームが通っている必要がある）。これが通ると**商談プロセスの段 2 が成立する**（[BA/04](RequirementDefinition/BA/04-business-processes.md)）。
 - **同意の受け口（`consent-api`）** — **0 に依存する。** **手順 5（PostHog トラッカー）の前提が増えた**: 旧版は「PostHog は SaaS のため手順 0 に依存しない」としていたが、**同意をサーバに記録すると決めた以上、受け口が無ければ記録が残らない**。送信そのものは Cookie があれば続くため、「0 に依存しない」は**同意の記録を諦める場合に限って**成り立つ（[DD-02](DetailedDesign/02-public-path-flows.md) の 8.3・8.4）。**あわせて、Chatwoot のウィジェットの設置も同意の実装を待つことになった**（同意の対象に加えたため。同 4.4。この表には現れないが、DD-02 の 6.1 のトラッカーの設置順では 2 番目にあたる）。
+- **（2026-10-03 に追加）収益化（`I-26`〜`I-30`）** — **本システムの完成後**に置く（手順 0〜9 の後）。着手の可否を決めるのは配線ではなく**承認ゲート G-1〜G-3**（弁護士・税理士・AWS の規約。BA-05）。依存は **0**（`points-api` を AWS に置く）と **9**（SNS の通知）。これが通ると**利用者の採掘が受注（発注代金の値引き）につながる**（BA-01 のキャッシュの流れ）。
 
 ### ループを最初に 1 周させる最短経路
 
@@ -176,6 +180,7 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 
 | 項目 | 内容 | 判断者 |
 |---|---|---|
+| **（2026-10-03 に決定）マネタイズモデル（採掘と譲渡不可ポイント）** | **利用者の自前サーバでの採掘（オプトイン）と、譲渡不可ポイントの付与に決めた**（[AA/05](RequirementDefinition/AA/05-application-decisions.md) の ADR-20）。構成は XMRig → **unMineable（SaaS。XMR を POL〈Polygon〉に変換）** → ComeGin の **thirdweb（SaaS）**のサーバウォレット → 国内の取引業者。**AWS では採掘しない**（AWS Service Terms 1.25）。**`E-19` は追記だけ＋S3 Object Lock**（QLDB は提供終了）。**TA-01 の 8 節を「自前で持てない外部の台帳」に広げ、「AWS で用意でき、かつ費用と運用が釣り合う場合は AWS を優先」と具体化した。thirdweb はユーザーの決定による例外**。**本システムの完成後に着手し、承認ゲート G-1（弁護士）・G-2（税理士）・G-3（AWS の規約）が前提**。**残件**: 還元率・有効期限・上限、換金先の取引業者（bitbank・SBI VC トレード。GMO コインは未確認）、トラベルルールでの入金の申告で署名を求められるか、thirdweb の資格情報を mint・burn に絞れるか、保持期間（目安 7 年） | ユーザー、`R1` |
 | **（2026-10-01 に決定）商談プロセス** | **4 段に確定した**: ①Web サイト・資料請求で興味を持つ → ②**ComeGin の Google Calendar の空き時間でオンライン面談の枠を予約してもらう**（Cal.com。無料相談フォームの完了画面に予約枠を埋め込む）→ ③**電子署名**で契約を締結 → ④サービスの提供（[BA/04](RequirementDefinition/BA/04-business-processes.md) の商談プロセス）。**予約を CV の条件にしない**（CV の正本は Mautic のフォーム送信のまま）。**段 3・4 は BA-01 が「受注」として本基盤の対象外に置いた範囲**である。**残件**: **電子署名の製品が未定**（製品が決まるまで連携点を立てない。[AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 5 節）、面談の枠の出し方（1 枠の長さ・直前の予約・カレンダーの公開範囲） | ユーザー、`R3` |
 | **（2026-10-01 に決定）Cal.com をセルフホストする** | **SaaS として使わない。** Cal.com は [TA/01](RequirementDefinition/TA/01-deployment-topology.md) の 8 節の「SaaS に依存してよい 2 種類」のどちらにも当たらず（自前で立てられる）、**8 節の基準を変えずに運用対象を 1 つ増やす側を選んだ**。ECS の `calcom`・RDS の `calcom` データベース・`cal.comegin.com`（案）（[TA/06](RequirementDefinition/TA/06-aws-runtime.md) の 3.1、[AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 3.9、`I-25`）。**予約の正本（`E-16`）は `ap-northeast-1` に留まる**。**ただし同日の追加の決定で、予約の成立時に訪問者を Google Calendar の予定に招待することになり、氏名・メールアドレス・日時が Google LLC（米国）に渡る**（下の行）。**残件**: **ライセンスの確認**（機能によって条件が分かれる。確かめずに動かさない）、公式イメージの有無、訪問者向けと管理者向けのパスの切り分け、予約の濫用の防御 | `R1` |
 | **（2026-10-01 に決定）面談の予定を Google Calendar に入れる** | **予約が成立したとき、訪問者を Google Calendar の予定に招待する**（ユーザーの決定）。**氏名・メールアドレス・面談の日時が Google LLC（米国）に渡る**ため、**「訪問者・顧客の個人データが国外に出る先は PostHog だけ」が成り立たなくなり、PostHog と Google Calendar の 2 つになった**（[DA/05](RequirementDefinition/DA/05-data-governance.md) の 1.2・1.2.2、[TA/01](RequirementDefinition/TA/01-deployment-topology.md) の 8 節）。**境目**: Cal.com 自体（セルフホスト）は越境せず、**予約の成立後に Google Calendar へ予定を作る部分だけ**が越境する。正本（`E-16`）は `ap-northeast-1`、Google に渡るのは複製（予定）である。**削除請求の対象に加えた**（対象は `E-08` `E-09` `E-10` `E-16` と Google の予定の 5 つ。手順は DA-05 の 2 節）。**ベンダーは増えない**（Google Workspace は既存）が、**越境は増えた**。**残件**: **`E-16` と Google の予定の保持期間**（Google Calendar に自動削除の設定が無く、消すには仕組みか手作業が要る）、**予定の削除を誰が行うか**（Cal.com 側だけ消えて Google に残る消し忘れが外から分からない）、面談の記録を商談の記録として残す必要があるか、予約の確認メールの送信経路 | `R1` `R3` |
@@ -184,7 +189,7 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 | **（2026-10-01 に追加）`E-16 Booking`** | 面談の予約を表す型を立てた（正本は**本番の Cal.com**。[DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) の 4.1）。`E-09` の属性にしなかったのは**1 人が複数回予約しうる**ため。**DA-04（System of Record 表）と DA-05（個人情報の区分・保持期間・削除請求）への反映は 2026-10-01 に済んだ**（用語集は作らないと決まったため、採番は上の「ID の採番と正本」に書いた）。**残件**: `invitee_email`（実名情報）の保持期間、**Cal.com の予約を削除請求の対象に含めるか**、予約の歩留まりを指標にするか（候補 `BOOKING-rate`） | `R1` `R3` |
 | **（2026-10-01 に反映）フォームが送る項目と計測イベント** | hidden に `cta_id` / `service_interest` と**同意の 3 項目**（`privacy_consent_at` / `privacy_consent_version` / `email_optin`）を加えた（[DD-02](DetailedDesign/02-public-path-flows.md) の 5.3）。計測イベントは **CTA 2 種・フォーム 4 種・予約 2 種の 8 イベント**を定義した（[DA/02](RequirementDefinition/DA/02-metrics-and-kpi.md) の 4.4）。**CV は `form_submitted` で数えない**（正本は Mautic のフォーム送信）。**残件**: Mautic のカスタムフィールド 3 つの作成（無いまま公開すると、プライバシーポリシーに書いた記録が残らない）、Mautic のフォーム ID（`MAUTIC_FORM_ID_*`） | `R3` |
 | **集計限定を権限で表現できない** | `agent/analytics-reporter` に個票を読ませない制約が `ACCESS_LEVEL` では表せない（`mautic_get_contact` と `mautic_query_stats` がどちらも `read_only` に登録されるため）。DA が「個人情報の保護は `ACCESS_LEVEL` と取得範囲で行う」と決めた以上、**取得範囲でしか守れない箇所が 1 つ残る** | `R1` `R3` |
-| **エンティティの定義漏れ 2 件** | **トレーサビリティ表の検査で発覚。** `CAP-15` の監査ログと `CAP-16` の知見メモに対応する型が `E-01`〜`E-16` に無い。DA-05 は「`E-13` を経由しない変更を監査対象にする」と定めているが、**その監査ログを表す型が存在しない**ため、検出の仕組みを設計できない。**2026-10-01 に 3 件目（面談の予約）が生じたが、こちらは `E-16 Booking` を立てて解消した**（DA-01 の 4.1）。残る 2 件は変わらない | `R1` |
+| **エンティティの定義漏れ 2 件** | **トレーサビリティ表の検査で発覚。** `CAP-15` の監査ログと `CAP-16` の知見メモに対応する型が `E-01`〜`E-20` に無い。DA-05 は「`E-13` を経由しない変更を監査対象にする」と定めているが、**その監査ログを表す型が存在しない**ため、検出の仕組みを設計できない。**2026-10-01 に 3 件目（面談の予約）が生じたが、こちらは `E-16 Booking` を立てて解消した**（DA-01 の 4.1）。残る 2 件は変わらない | `R1` |
 | **`E-15 AgentRun` の正本**（2026-09-19 に ADR-18 で解決） | **4 層すべてで解決できなかった唯一の項目だった。** 大半のエージェントが Claude Code から直接走るため実行履歴が記録されず、「エージェントが自分の実行履歴を書き換える」暴走条件の歯止めが不完全なまま残っていた。ADR-17 でエージェントの起動元が手動・定期とも監視アプリに一本化され、監視アプリの実行記録を正本にする条件が揃った。**ADR-18 で、監視アプリの実行記録を `E-15` の正本にした。** 監視アプリはローカルに置いたまま、記録もローカルに保存する（**ADR-16 の基準「正本のデータを持つものはクラウド」の唯一の例外**。監視アプリをクラウドに置く案は採らない）。記録は監視アプリのサーバー側だけが書き、エージェントには書かせない。1 回の起動（手動・定期）を 1 件とし、相関 ID（ULID）で `E-13`・`E-14`・本番への書き込みと結ぶ。n8n の実行履歴は `E-15` の正本ではない（エージェントの実行が残らない）（[AA/05](RequirementDefinition/AA/05-application-decisions.md) の ADR-18、[TA/07](RequirementDefinition/TA/07-onprem-control-plane.md) の 3.6）。**同日の追加の決定で、記録は要約と ID だけにし、S3 に追記専用で写すことにした。** **残件は下の「監視アプリの実行記録（`E-15`）の範囲・保持・写し」の行** | `R1` |
 | **n8n ワークフローを `E-13` の対象にしてよいか** | 適用先が Git の外にあり取り消せない。ワークフローが承認ゲートの迂回路になりうる以上、対象から外して人間が直接設計する選択肢もある。**ADR-16 で、本番へはエージェントが `n8n-prod` で置き、有効化は人間（`R1`）が行う形にした**（承認なしに動き出すことは無くなったが、有効化した後に戻せないことは変わらない。[AA/04](RequirementDefinition/AA/04-recursive-improvement-loop.md) の 3.3.1） | `R1` |
 | **Umami の compose の扱い** | 上流無改変の取り込み方針とセキュリティ要件が構造的に衝突している。TA は自作 compose への移行（案 C）を推奨。**ADR-12 の後は開発環境だけの課題**（本番の Umami は ECS で動き、この compose を使わない。TA-04 の 3 節） | `R1` |
@@ -222,12 +227,13 @@ BA-01 の KPI ツリーは「現在測定できるのは `公開記事数` の�
 
 | ID の系統 | 採番の正本 | 備考 |
 |---|---|---|
-| `E-01`〜**`E-16`** エンティティ | [DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) の 4 節 | **`E-16 Booking` は 2026-10-01 に DA-01 の 4.1 で追加した**（`E-15` までは既存）。型を立てた理由も同じ節にある |
-| `I-01`〜**`I-25`** 連携点 | [AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 1 節 | `I-14` は廃止（再利用しない）。`I-22`〜`I-24` は 2026-09-18、**`I-25`（Cal.com の面談の予約）は 2026-10-01** に追加。**同意の受け口は E-ID を運ばないため I-ID を振っていない**（AA-02 の 1.3） |
-| `CAP-01`〜`CAP-16` ケイパビリティ | [BA/02](RequirementDefinition/BA/02-capability-map.md) | **ID・名称・主担当ロールの採番の正本。** グルーピングと成熟度も同ファイルで定義する |
+| `E-01`〜**`E-20`** エンティティ | [DA/01](RequirementDefinition/DA/01-conceptual-data-model.md) の 4 節 | **`E-16 Booking` は 2026-10-01 に DA-01 の 4.1 で追加した**（`E-15` までは既存）。型を立てた理由も同じ節にある。**`E-17`〜`E-20`（収益化）は 2026-10-03 に DA-01 の 4.2 で追加した** |
+| `I-01`〜**`I-30`** 連携点 | [AA/02](RequirementDefinition/AA/02-integration-architecture.md) の 1 節 | `I-14` は廃止（再利用しない）。`I-22`〜`I-24` は 2026-09-18、**`I-25`（Cal.com の面談の予約）は 2026-10-01** に追加。**同意の受け口は E-ID を運ばないため I-ID を振っていない**（AA-02 の 1.3）。**`I-26`〜`I-30`（収益化）は 2026-10-03** に追加。`I-26` で種別 `Stratum` を足した |
+| `CAP-01`〜`CAP-18` ケイパビリティ | [BA/02](RequirementDefinition/BA/02-capability-map.md) | **ID・名称・主担当ロールの採番の正本。** グルーピングと成熟度も同ファイルで定義する。**`CAP-17` `CAP-18`（収益化群）は 2026-10-03 に追加** |
 | `R1`〜`R4` ロール | [BA/03](RequirementDefinition/BA/03-roles-and-raci.md) | 同上 |
-| `ADR-01`〜**`ADR-19`** 適用判断 | [AA/05](RequirementDefinition/AA/05-application-decisions.md) | **`ADR-19`（Cal.com のセルフホストと同意の受け口）は 2026-10-01 に起票** |
+| `ADR-01`〜**`ADR-20`** 適用判断 | [AA/05](RequirementDefinition/AA/05-application-decisions.md) | **`ADR-19`（Cal.com のセルフホストと同意の受け口）は 2026-10-01 に起票**。**`ADR-20`（マネタイズモデル）は 2026-10-03 に起票** |
 | 指標 ID（`CVR-total` など） | [DA/02](RequirementDefinition/DA/02-metrics-and-kpi.md) の 4 節 | **DA でのみ使うローカルな識別子**であり、他の系統とは別（DA/02 の 6 節） |
+| 承認ゲート `G-1`〜`G-3`（2026-10-03 に追加） | [AA/05](RequirementDefinition/AA/05-application-decisions.md) の ADR-20 | 収益化の着手の前提。BA-05 の承認ゲートの一覧にも載せる |
 
 - **新しい ID を足すときは、上の正本のファイルに足し、この表の採番の範囲を更新する。** 「勝手に増やさない」という既存の表記ルールは残す。**増やすなら、増やした理由を正本のファイルに書く**（`E-16` の例は DA/01 の 4.1、`ADR-19` は AA/05）。
 - **各層のファイルの冒頭は、この表を指す形に統一した**（2026-10-01）。採番の正本を持つファイルは、その旨を自分の冒頭に書いている（`E-` は DA/01、`I-` は AA/02 の 1 節、`CAP-` は BA/02、`R` は BA/03、`ADR-` は AA/05、指標 ID は DA/02 の 4 節）。
