@@ -126,6 +126,10 @@ services:
       # 唯一インターネットに向けてよいポート。ここではループバックのみにバインドし、
       # 外部公開が必要なときは ngrok などのトンネルをホスト側で張る
       - '127.0.0.1:${N8N_PORT_HOST:-5678}:5678'
+    # ホストの 127.0.0.1 で動く開発環境の Mautic・MailHog に、middleware/host-relay の中継を通して届くようにする
+    # （host.docker.internal は docker0 のアドレスになる。README の「開発環境での宛先」）
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     env_file: .env
     environment:
       # 既定の SQLite ではなく PostgreSQL を使う

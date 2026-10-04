@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  ECS クラスターとロググループ。TA-06 の 3.1。
+  Service Connect は使わない（ADR-21 で n8n・Strapi をオンプレに移し、サービス間の内部名の呼び出しが無くなった）。
+  Chatwoot・Mautic からオンプレの n8n の Webhook は、WireGuard の EC2（wireguard.yaml）経由で届く。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: ロググループの保持日数（暫定。TA-06 の 9 節の見積もり前）。
+
+Resources:
+  # Container Insights を有効にする。ECS のタスク数（RunningTaskCount と DesiredTaskCount）のアラームに必要（alarms.yaml）。
+  # 費用が増える（カスタムメトリクスとログの分。README の費用の節）。
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 'comegin-${EnvName}'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      CapacityProviders:
+        - FARGATE
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+
+  # サービスごとのロググループ。
+  MauticWebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/mautic-web'
+      RetentionInDays: !Ref LogRetentionDays
+
+  MauticCronLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/mautic-cron'
+      RetentionInDays: !Ref LogRetentionDays
+
+  ChatwootWebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/chatwoot-web'
+      RetentionInDays: !Ref LogRetentionDays
+
+  ChatwootWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/chatwoot-worker'
+      RetentionInDays: !Ref LogRetentionDays
+
+  UmamiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/umami'
+      RetentionInDays: !Ref LogRetentionDays
+
+  AdminAuthLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/admin-auth'
+      RetentionInDays: !Ref LogRetentionDays
+
+  CalcomLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/calcom'
+      RetentionInDays: !Ref LogRetentionDays
+
+  ConsentApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/consent-api'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # 運用者が RunTask で起動する 1 回だけのタスク（DB の作成・マイグレーション。ops-tasks.yaml と README）
+  TasksLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/comegin/${EnvName}/tasks'
+      RetentionInDays: !Ref LogRetentionDays
+
+Outputs:
+  ClusterArn:
+    Value: !GetAtt Cluster.Arn
+  ClusterName:
+    Value: !Ref Cluster
+  MauticWebLogGroupName:
+    Value: !Ref MauticWebLogGroup
+  MauticCronLogGroupName:
+    Value: !Ref MauticCronLogGroup
+  ChatwootWebLogGroupName:
+    Value: !Ref ChatwootWebLogGroup
+  ChatwootWorkerLogGroupName:
+    Value: !Ref ChatwootWorkerLogGroup
+  UmamiLogGroupName:
+    Value: !Ref UmamiLogGroup
+  AdminAuthLogGroupName:
+    Value: !Ref AdminAuthLogGroup
+  CalcomLogGroupName:
+    Value: !Ref CalcomLogGroup
+  ConsentApiLogGroupName:
+    Value: !Ref ConsentApiLogGroup
+  TasksLogGroupName:
+    Value: !Ref TasksLogGroup

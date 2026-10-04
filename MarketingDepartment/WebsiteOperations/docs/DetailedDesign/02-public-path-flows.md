@@ -310,7 +310,7 @@ sequenceDiagram
 | `email` | string | **必須** | 利用者の入力 | `E-09` のキー。**小文字化して送る**（冪等キーと `I-19` の突合が大文字小文字で割れないようにするため） |
 | `firstname` / `lastname` / `company` | string | 任意 | 利用者の入力 | `E-09` の属性 |
 | `message` | string | 任意 | 利用者の入力 | 問い合わせ本文 |
-| `mautic_form_id` | number | **必須** | **Astro の環境変数 1 か所**（`MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`）。仕様書・Figma には数値を書かず変数名で書く（2026-10-01 の決定。`01-content-spec.md` の 5.1 の F9） | 受付定義との対応。冪等キーの構成要素。**フォームの呼び名の正本は Mautic の alias**（`consult` / `source-dl`）で、数値 ID は採番されてから環境変数に入れる |
+| `mautic_form_id` | number | **必須** | **Astro の環境変数 1 か所**（`MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`）。仕様書・Figma には数値を書かず変数名で書く（2026-10-01 の決定。`01-content-spec.md` の 5.1 の F9） | 受付定義との対応。冪等キーの構成要素。**フォームの呼び名の正本は Mautic の alias**（`consult` / `source_dl`。2026-10-05 に `source-dl` から改めた。Mautic の alias は英数字と `_` だけにする）で、数値 ID は採番されてから環境変数に入れる |
 | `privacy_consent_at` | string（日付時刻） | **必須** | ブラウザ（送信した時刻。JST） | **「いつ同意したか」の証跡。** 同意のチェックが必須のため、空のまま `E-09` が作られることは無い |
 | `privacy_consent_version` | string | **必須** | ブラウザ（同意した時点のプライバシーポリシーの最終改定日） | **ポリシーを改定したあと、どの版に同意した訪問者かを判別する**（同意の取り直しの範囲を決められるようにする） |
 | `email_optin` | boolean | **必須** | 利用者の入力（無料 DL フォームの任意のチェック。**無料相談フォームでは `false` を入れる**） | ナーチャリングのキャンペーンのセグメント条件（`email_optin = true`）。**Mautic の Do Not Contact とは別に持つ**（配信停止の記録と、受信の希望の記録は別物） |

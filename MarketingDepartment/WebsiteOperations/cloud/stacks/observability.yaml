@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  通知先の SNS トピック（comegin-lead-alert / comegin-ops-alert）と、オンプレのハートビートのアラーム。
+  TA-04 の 1 節、TA-05 の 4 節（項目 16）。
+  購読の登録と確認は人間（R1）が行う。ここでは購読を作らない。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  HeartbeatNamespace:
+    Type: String
+    Default: ComeGin/Onprem
+    Description: 監視アプリ（オンプレ）が生存信号を送る名前空間。IAM の条件（iam.yaml）と一致させる。
+  HeartbeatMetricName:
+    Type: String
+    Default: Heartbeat
+  HeartbeatPeriodSeconds:
+    Type: Number
+    Default: 300
+    Description: 5 分ごとに送る。TA-05 の 4 節の項目 16。
+  HeartbeatEvaluationPeriods:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    Description: 連続して欠けた期間の数。3 期間（15 分）待つのは、1 回の送信の失敗や瞬断で通知しないため。
+  HeartbeatAlarmActionsEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      false にするとアラームは状態だけが変わり、通知しない。
+      開発機を意図的に止めるときは、ここを変えずに DisableAlarmActions を使う（TA-05 の 4 節の手順）。
+
+# トピック名は固定シート（TA-04 の sns:Publish の限定先）に合わせて環境名を付けない。
+# 暗号化（KmsMasterKeyId）は付けない。CloudWatch のアラームは aws/sns マネージドキーのトピックに発行できないため。
+# 通知に個人情報は載せない前提（TA-05 の 4 節）。
+Resources:
+  LeadAlertTopic:
+    Type: AWS::SNS::Topic
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TopicName: comegin-lead-alert
+      DisplayName: comegin-lead-alert
+
+  OpsAlertTopic:
+    Type: AWS::SNS::Topic
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TopicName: comegin-ops-alert
+      DisplayName: comegin-ops-alert
+
+  # 通知先を n8n やエージェントが書き換えられないようにする（TA-04 の 1 節の「要点」）。
+  # この 2 トピックを操作できる主体は、このアカウントの管理者（IAM の許可を持つ者）だけにする。
+  # sns:Unsubscribe の Deny は補助である。メールの購読解除リンクからの解除を実際に止めるのは、
+  # 購読を確認するときに ConfirmSubscription の AuthenticateOnUnsubscribe を true にすること（README の手順）。
+  LeadAlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref LeadAlertTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action:
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - sns:RemovePermission
+              - sns:DeleteTopic
+              - sns:Subscribe
+              - sns:ListSubscriptionsByTopic
+              - sns:Publish
+            Resource: !Ref LeadAlertTopic
+          - Sid: DenyUnsubscribeFromOutsideAccount
+            Effect: Deny
+            Principal: { AWS: '*' }
+            Action: sns:Unsubscribe
+            Resource: !Ref LeadAlertTopic
+            Condition:
+              StringNotEquals:
+                'aws:PrincipalAccount': !Ref AWS::AccountId
+
+  OpsAlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref OpsAlertTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action:
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - sns:RemovePermission
+              - sns:DeleteTopic
+              - sns:Subscribe
+              - sns:ListSubscriptionsByTopic
+              - sns:Publish
+            Resource: !Ref OpsAlertTopic
+          # CloudWatch のアラームから ops に直接発行する（n8n を経由しない。TA-05 の 4 節）。
+          - Sid: AllowCloudWatchAlarms
+            Effect: Allow
+            Principal: { Service: cloudwatch.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref OpsAlertTopic
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref AWS::AccountId
+              ArnLike:
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:*'
+          # RDS のイベント通知（バックアップの失敗など。alarms.yaml の EventSubscription）。この環境の DB インスタンスだけ。
+          - Sid: AllowRdsEvents
+            Effect: Allow
+            Principal: { Service: events.rds.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref OpsAlertTopic
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref AWS::AccountId
+              ArnLike:
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:comegin-${EnvName}-*'
+          - Sid: DenyUnsubscribeFromOutsideAccount
+            Effect: Deny
+            Principal: { AWS: '*' }
+            Action: sns:Unsubscribe
+            Resource: !Ref OpsAlertTopic
+            Condition:
+              StringNotEquals:
+                'aws:PrincipalAccount': !Ref AWS::AccountId
+
+  # オンプレの生存信号（TA-05 の 4 節の項目 16）。
+  # 5 分の期間で合計が 1 未満の状態が 3 期間続いたら発火する。欠損データは違反として扱う（信号が来ないこと自体を異常にする）。
+  # 復旧（ALARM から OK）のときも通知する。判定は n8n や監視アプリの外（CloudWatch）で行う。
+  # 作成直後は信号が無いので ALARM になる。監視アプリを起動して信号を送り始めるまでは通知が出る。
+  OnpremHeartbeatAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-onprem-heartbeat'
+      AlarmDescription: オンプレ（監視アプリ）の生存信号が途絶えた。改善ループが止まっている可能性がある。
+      Namespace: !Ref HeartbeatNamespace
+      MetricName: !Ref HeartbeatMetricName
+      Statistic: Sum
+      Period: !Ref HeartbeatPeriodSeconds
+      EvaluationPeriods: !Ref HeartbeatEvaluationPeriods
+      DatapointsToAlarm: !Ref HeartbeatEvaluationPeriods
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      ActionsEnabled: !Ref HeartbeatAlarmActionsEnabled
+      AlarmActions:
+        - !Ref OpsAlertTopic
+      OKActions:
+        - !Ref OpsAlertTopic
+
+Outputs:
+  LeadAlertTopicArn:
+    Value: !Ref LeadAlertTopic
+  OpsAlertTopicArn:
+    Value: !Ref OpsAlertTopic
+  LeadAlertTopicName:
+    Value: !GetAtt LeadAlertTopic.TopicName
+  OpsAlertTopicName:
+    Value: !GetAtt OpsAlertTopic.TopicName
+  HeartbeatNamespace:
+    Value: !Ref HeartbeatNamespace
+  HeartbeatAlarmName:
+    Value: !Ref OnpremHeartbeatAlarm

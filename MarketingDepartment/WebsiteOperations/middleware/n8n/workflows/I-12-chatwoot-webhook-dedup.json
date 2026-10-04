@@ -1,0 +1,746 @@
+{
+  "name": "I-12 Chatwoot Webhook の受領と重複排除",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatwoot-event",
+        "authentication": "none",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "4137ad5d-6bf7-5d40-94b6-f4eb9061803c",
+      "name": "Chatwoot からの Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "notes": "認証は none。代わりに X-Chatwoot-Signature（'sha256=' + HMAC-SHA256('{タイムスタンプ}.{生の本文}')）を下の Crypto ノードで検証し、一致しない・5 分より古いときは 401 で止める。署名を計算するために Raw Body（binary）を受け取る。",
+      "webhookId": "56fb0ca9-2606-5f16-ad0f-1ab39925103c"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data",
+        "destinationKey": "rawBody"
+      },
+      "id": "7ae92b62-afd7-551b-ac45-30c8ddcb070c",
+      "name": "本文を文字列にする",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        96
+      ],
+      "notes": "Chatwoot は '{X-Chatwoot-Timestamp}.{生の本文}' の HMAC-SHA256 を署名する。生の本文（Webhook ノードの Raw Body）を UTF-8 の文字列に戻す。"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "binaryData": false,
+        "type": "SHA256",
+        "value": "={{ $('Chatwoot からの Webhook').item.json.headers['x-chatwoot-timestamp'] + '.' + $json.rawBody }}",
+        "dataPropertyName": "computedSignature",
+        "encoding": "hex"
+      },
+      "id": "608156ae-0d37-5b4c-8adb-b94e753760e4",
+      "name": "X-Chatwoot-Signature を計算",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ],
+      "notes": "鍵は Crypto 資格情報の Hmac Secret（Chatwoot の Webhook のシークレットと同じ値。Chatwoot の Webhook の編集画面で見られる）。鍵が空だと誰でも署名を作れてしまうので、必ず設定する。",
+      "credentials": {
+        "crypto": {
+          "name": "Chatwoot Webhook 署名鍵（Crypto）"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "binaryData": false,
+        "type": "SHA256",
+        "value": "={{ 'sha256=' + $json.computedSignature }}",
+        "dataPropertyName": "computedDigest",
+        "encoding": "hex"
+      },
+      "id": "1eb926a6-069b-5ccd-b0ab-6ac42295ad0c",
+      "name": "計算した署名を SHA-256 にする",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ],
+      "notes": "定数時間の比較の代わりに、両辺を SHA-256 にしてから比べる。攻撃者が送る値は SHA-256 で撹拌されるので、比較にかかる時間から署名を 1 バイトずつ当てることはできない。"
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "binaryData": false,
+        "type": "SHA256",
+        "value": "={{ $('Chatwoot からの Webhook').item.json.headers['x-chatwoot-signature'] ?? '' }}",
+        "dataPropertyName": "receivedDigest",
+        "encoding": "hex"
+      },
+      "id": "cc0e8a1f-e8fd-5158-be0b-02ae139adb79",
+      "name": "受け取った署名を SHA-256 にする",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        896,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "db529efd-9f80-5119-916d-5371e35ef541",
+              "leftValue": "={{ $('Chatwoot からの Webhook').item.json.headers['x-chatwoot-signature'] ?? '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "d030925e-6703-57ab-b321-e64089908b52",
+              "leftValue": "={{ $json.computedDigest }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "={{ $json.receivedDigest }}"
+            },
+            {
+              "id": "151528db-644d-5b78-8ae6-b794592ebe34",
+              "leftValue": "={{ Math.abs(Math.floor(Date.now() / 1000) - Number($('Chatwoot からの Webhook').item.json.headers['x-chatwoot-timestamp'] ?? 0)) }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              },
+              "rightValue": 300
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "b7bc74b9-61e6-52e7-ba2c-9608ed033065",
+      "name": "署名と時刻が正しいか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        96
+      ],
+      "notes": "署名が無い・不一致・時刻が 5 分より古い（リプレイ）はすべて 401。時刻は署名の対象に含まれる。"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"accepted\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "73c8a439-18fd-50bb-a52f-514abd4c3dbb",
+      "name": "200 を返す",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1344,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\":\"unauthorized\"}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "a2643998-f6a8-5dd3-81b2-89a46cd97e44",
+      "name": "401 を返す（署名が不正）",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1344,
+        192
+      ],
+      "notes": "ここで止まる（以降の処理には進まない）。"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Chatwoot からの Webhook').first().json.body ?? {};\nconst event = body.event;\n\nlet displayId = null;\nlet messageId = '';\nlet contact = null;\nlet kind = '';\n\nif (event === 'conversation_created') {\n  // 会話イベントはトップレベルの id が display_id\n  displayId = body.id;\n  messageId = 'conversation_created';\n  contact = body.meta?.sender ?? null;\n  kind = 'conversation-opened';\n} else if (event === 'message_created') {\n  // 顧客からの公開メッセージだけを対象にする（担当者の返信・社内メモ・システムの活動は除く）\n  const isIncoming = body.message_type === 'incoming' || body.message_type === 0;\n  if (!isIncoming || body.private === true) return [];\n  displayId = body.conversation?.id ?? null;\n  messageId = String(body.id);\n  contact = body.sender ?? body.conversation?.meta?.sender ?? null;\n} else {\n  return [];\n}\n\nif (displayId === null || displayId === undefined) return [];\n\nreturn [\n  {\n    json: {\n      dedupKey: displayId + '|' + messageId,\n      event,\n      displayId,\n      messageId,\n      chatwootContactId: contact?.id ?? null,\n      // I-19 の突合に使う。lower(email) に揃える。メールは冪等キーの表にも通知にも載せない\n      email: String(contact?.email ?? '').trim().toLowerCase(),\n      kind,\n      topic: kind ? 'comegin-lead-alert' : '',\n      company: contact?.additional_attributes?.company_name ?? '',\n      receivedAtSec: Math.floor(Date.now() / 1000),\n    },\n  },\n];"
+      },
+      "id": "5a8e7d47-14bb-57a4-ba1a-cbe4c97d0d2f",
+      "name": "イベントの整理とキー生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "notes": "Chatwoot の会話 ID は display_id（Webhook の conversation.id / 会話イベントのトップレベル id）。冪等キー = display_id + message_id。会話の作成イベントにはメッセージ ID が無いので conversation_created を使う。対象は会話の作成と、顧客からの公開メッセージの受信だけ（それ以外は読み飛ばして 200 を返す）。"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_chatwoot"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedupKey",
+              "condition": "eq",
+              "keyValue": "={{ $json.dedupKey }}"
+            }
+          ]
+        }
+      },
+      "id": "6a529e11-224c-5b4e-bf8d-f75d91a12157",
+      "name": "未処理のイベントだけ通す",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_chatwoot"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "dedupKey": "={{ $json.dedupKey }}",
+            "displayId": "={{ $json.displayId }}",
+            "messageId": "={{ $json.messageId }}"
+          },
+          "schema": [
+            {
+              "id": "dedupKey",
+              "displayName": "dedupKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "displayId",
+              "displayName": "displayId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "messageId",
+              "displayName": "messageId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      },
+      "id": "06336609-4e0f-5a83-8995-852802c82deb",
+      "name": "冪等キーを記録",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "4853880e-3f49-5aa2-86b0-5b1ec8cd37ca",
+              "leftValue": "={{ $('イベントの整理とキー生成').item.json.kind }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "d291934e-adde-54e3-abc4-769c73eb5453",
+      "name": "会話の開始か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2240,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "each",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RQ7X76GAXdPBcszO",
+          "cachedResultName": "I-21 SNS 通知"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "channel": "lead",
+            "kind": "={{ $('イベントの整理とキー生成').item.json.kind }}",
+            "idLabel": "conversation",
+            "id": "={{ String($('イベントの整理とキー生成').item.json.displayId) }}",
+            "company": "={{ $('イベントの整理とキー生成').item.json.company }}",
+            "sourcePath": "",
+            "receivedAtSec": "={{ $('イベントの整理とキー生成').item.json.receivedAtSec }}",
+            "state": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kind",
+              "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "idLabel",
+              "displayName": "idLabel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sourcePath",
+              "displayName": "sourcePath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "receivedAtSec",
+              "displayName": "receivedAtSec",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "6161d264-8d63-5a1b-b86a-b5a563686e0a",
+      "name": "I-21 通知を呼ぶ",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2464,
+        -96
+      ],
+      "notes": "通知の失敗で Webhook の処理を止めない（onError: continueRegularOutput）。失敗は I-21 の実行履歴に残る。",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1be40e16-cba1-5253-aa1a-24070e04399c",
+              "leftValue": "={{ $('イベントの整理とキー生成').item.json.email }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "3a9851e5-249c-5c4b-ab37-55252bde132b",
+      "name": "メールアドレスがあるか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2240,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "each",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lcNLPjWhB4ygVW2h",
+          "cachedResultName": "I-19 Chatwoot と Mautic の email 突合"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chatwootContactId": "={{ $('イベントの整理とキー生成').item.json.chatwootContactId }}",
+            "displayId": "={{ $('イベントの整理とキー生成').item.json.displayId }}",
+            "email": "={{ $('イベントの整理とキー生成').item.json.email }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "chatwootContactId",
+              "displayName": "chatwootContactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "displayId",
+              "displayName": "displayId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "501f43cc-88dd-5dac-9983-bf4784435f9b",
+      "name": "I-19 突合を呼ぶ",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2464,
+        96
+      ],
+      "notes": "突合の失敗で Webhook の処理を止めない（onError: continueRegularOutput）。失敗は I-19 の実行履歴に残る。",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3,
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "id": "d835e8db-347c-5d94-bdc5-71114a8d6b78",
+      "name": "毎日 03:05（保持期限の掃除）",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_chatwoot"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "createdAt",
+              "condition": "lt",
+              "keyValue": "={{ $now.minus({ days: 7 }).toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "78f624b1-985b-5b33-bfee-008b4a3a9e74",
+      "name": "7 日を過ぎた行を削除",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        416
+      ]
+    }
+  ],
+  "connections": {
+    "X-Chatwoot-Signature を計算": {
+      "main": [
+        [
+          {
+            "node": "計算した署名を SHA-256 にする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "計算した署名を SHA-256 にする": {
+      "main": [
+        [
+          {
+            "node": "受け取った署名を SHA-256 にする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "受け取った署名を SHA-256 にする": {
+      "main": [
+        [
+          {
+            "node": "署名と時刻が正しいか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "署名と時刻が正しいか": {
+      "main": [
+        [
+          {
+            "node": "200 を返す",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "401 を返す（署名が不正）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot からの Webhook": {
+      "main": [
+        [
+          {
+            "node": "本文を文字列にする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "本文を文字列にする": {
+      "main": [
+        [
+          {
+            "node": "X-Chatwoot-Signature を計算",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "200 を返す": {
+      "main": [
+        [
+          {
+            "node": "イベントの整理とキー生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "イベントの整理とキー生成": {
+      "main": [
+        [
+          {
+            "node": "未処理のイベントだけ通す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "未処理のイベントだけ通す": {
+      "main": [
+        [
+          {
+            "node": "冪等キーを記録",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "冪等キーを記録": {
+      "main": [
+        [
+          {
+            "node": "会話の開始か",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "メールアドレスがあるか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "毎日 03:05（保持期限の掃除）": {
+      "main": [
+        [
+          {
+            "node": "7 日を過ぎた行を削除",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "会話の開始か": {
+      "main": [
+        [
+          {
+            "node": "I-21 通知を呼ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "メールアドレスがあるか": {
+      "main": [
+        [
+          {
+            "node": "I-19 突合を呼ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Tokyo",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {}
+}

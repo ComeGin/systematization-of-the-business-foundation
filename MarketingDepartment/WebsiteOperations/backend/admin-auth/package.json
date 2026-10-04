@@ -1,0 +1,33 @@
+{
+  "name": "admin-auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Better Auth as an OIDC provider for the ALB authenticate-oidc gate (Google Workspace login, admin allowlist)",
+  "type": "module",
+  "main": "dist/index.js",
+  "packageManager": "pnpm@11.17.0",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node --env-file-if-exists=.env dist/scripts/migrate.js",
+    "alb:register": "node --env-file-if-exists=.env dist/scripts/register-alb-client.js",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "1.7.6",
+    "better-auth": "1.7.6",
+    "pg": "^8.23.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

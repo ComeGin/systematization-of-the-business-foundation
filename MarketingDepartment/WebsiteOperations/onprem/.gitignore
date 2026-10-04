@@ -1,0 +1,4 @@
+# 秘密値を含む環境変数ファイル（.env.example だけを追跡する）
+.env
+.env.*
+!.env.example

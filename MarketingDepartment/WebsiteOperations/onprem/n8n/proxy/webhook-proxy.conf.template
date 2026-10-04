@@ -1,0 +1,74 @@
+# n8n の Webhook の受け口（リバースプロキシ）。ADR-21。
+#
+# クラウドの Mautic・Chatwoot から WireGuard 越しに届く Webhook だけを n8n に通す。
+# 通すのは「POST /webhook/*」だけ。エディター・REST API・MCP・テスト用 Webhook（/webhook-test/）・
+# 待機用 Webhook（/webhook-waiting/）を含め、それ以外は固定の短い本文の 404 を返す（nginx の既定のエラーページを出さず、何があるかを教えない）。
+# このファイルは nginx 公式イメージの templates 機能（起動時に envsubst を通す。置き換える ${変数} は無い）で
+# conf.d/default.conf になる。許可する送信元（$webhook_source_ok）は、05-allowed-sources.sh が起動時に
+# conf.d/00-allowed-sources.conf として作る（default.conf より先に読まれる）。compose.yml を見る。
+
+# 送信元アドレスごとの流量制限。ただし WireGuard の EC2 が VPC からの通信を masquerade するため、
+# 届く Webhook の送信元は常に 10.99.0.1 になり、実質は Mautic と Chatwoot の合計に対する全体の制限になる。
+# 値の根拠は README.md の「Webhook の受け口」を見る。
+limit_req_zone $binary_remote_addr zone=webhook:1m rate=20r/s;
+
+# 受け付ける送信元は $webhook_source_ok（geo）で決まる。定義は 00-allowed-sources.conf（05-allowed-sources.sh が
+# 環境変数 WEBHOOK_ALLOWED_SOURCES から生成する。既定は 10.99.0.1 だけ）。
+# 本番は WireGuard の EC2（10.99.0.1）だけ。EC2 が VPC からの通信を masquerade するので、届く送信元は常にこれになる。
+# Docker のブリッジ（同じマシンの別のコンテナ）や 127.0.0.1 は許さない。ローカルで試すときだけ、環境変数でブリッジを足す（README.md）。
+limit_req_status 429;
+
+server {
+    listen 8080 default_server;
+    server_name _;
+    server_tokens off;
+    # 404 の本文は固定の 1 行（return の本文が空だと nginx が既定のエラーページを返してしまうため、短い文字列を置く）
+    default_type text/plain;
+
+    # Mautic・Chatwoot のイベントは小さい JSON。大きい本文は受けない
+    client_max_body_size 1m;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+
+    # n8n の再作成で IP が変わっても追従する（変数で渡すと起動時ではなく要求ごとに解決される）
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # Webhook の署名検証は本文（Raw Body）を使う。本文・Content-Type・署名ヘッダーは書き換えずにそのまま通す
+    location ^~ /webhook/ {
+        # 送信元が EC2 以外、または POST 以外は 404（403 にしない。許可の有無を教えない）
+        if ($webhook_source_ok = 0) {
+            return 404 'not found';
+        }
+        if ($request_method != POST) {
+            return 404 'not found';
+        }
+        limit_req zone=webhook burst=100 nodelay;
+
+        set $n8n_upstream http://n8n:5678;
+        proxy_pass $n8n_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+
+    # /webhook（末尾のスラッシュ無し）は nginx が /webhook/ へ 301 を返してしまうので、先に 404 にする
+    location = /webhook {
+        return 404 'not found';
+    }
+
+    # コンテナの healthcheck 専用。コンテナの中（127.0.0.1）からだけ 200 を返し、外からは 404
+    location = /_proxy_health {
+        if ($remote_addr != 127.0.0.1) {
+            return 404 'not found';
+        }
+        return 200 '';
+    }
+
+    location / {
+        return 404 'not found';
+    }
+}

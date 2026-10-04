@@ -1,0 +1,837 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  入口。ACM 証明書（ap-northeast-1）、ALB（443 のみ）、リスナールール、ターゲットグループ、WAF（REGIONAL）、Route 53 のエイリアス。
+  TA-06 の 5 節、TA-04 の 7 節。
+  ルールの優先度帯: 訪問者向け 100 番台 / 機械向けの API 200 番台 / auth. が 300 /
+  ホストごとの authenticate-oidc が 1000 番台 / 既定は固定の 404。列挙したパスだけを認証なしで通し、それ以外はすべて管理者の認証を求める（許可リスト方式）。
+  ターゲットグループをここに置くのは、ルールとサービスの循環参照を避けるため。サービスは TargetGroupArn を受け取って付ける。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+    Description: public サブネットの ID（2 つ）
+  AlbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  HostedZoneId:
+    Type: String
+    Description: ACM の DNS 検証とエイリアスに使う Route 53 のホストゾーン
+  SecretNamePrefix:
+    Type: String
+    Description: secrets.yaml の SecretNamePrefix。ALB のクライアントシークレットを名前で読む。
+
+  # ---- ホスト名（TA-06 の 5.1）
+  ChatHost:
+    Type: String
+  MktHost:
+    Type: String
+  StatsHost:
+    Type: String
+  AuthHost:
+    Type: String
+  CalHost:
+    Type: String
+  ConsentHost:
+    Type: String
+
+  # ---- コンテナの待ち受けポート（network.yaml の値と必ず同じにする。親が同じ値を渡す）
+  MauticWebPort:
+    Type: Number
+    Default: 80
+  ChatwootWebPort:
+    Type: Number
+    Default: 3000
+  UmamiPort:
+    Type: Number
+    Default: 3000
+  AdminAuthPort:
+    Type: Number
+    Default: 3103
+  CalcomPort:
+    Type: Number
+    Default: 3000
+  ConsentApiPort:
+    Type: Number
+    Default: 3104
+
+  # ---- ヘルスチェック。ターゲットへ直接届くため、リスナールールの認証を通らない。
+  # TODO(T1-3): 各製品のバージョンで実測して確かめる。
+  MauticHealthCheckPath:
+    Type: String
+    Default: /s/login
+  ChatwootHealthCheckPath:
+    Type: String
+    Default: /
+  UmamiHealthCheckPath:
+    Type: String
+    Default: /api/heartbeat
+  AdminAuthHealthCheckPath:
+    Type: String
+    Default: /healthz
+  CalcomHealthCheckPath:
+    Type: String
+    Default: /api/version
+    Description: TODO(T1-3) Cal.com の公式の健全性確認のパスを確かめる。
+  ConsentApiHealthCheckPath:
+    Type: String
+    Default: /healthz
+
+  # ---- OIDC（admin-auth を IdP にした ALB の authenticate-oidc。TA-06 の 5.2.1）
+  # Better Auth の OAuth 2.1 Provider のパスは edge（担当）の実装に合わせた暫定値。ALB と実地で合うかは未確認。
+  AlbOidcClientId:
+    Type: String
+    Default: alb
+    Description: admin-auth の ALB_CLIENT_ID と同じ値にする。
+  OidcIssuerPath:
+    Type: String
+    Default: /api/auth
+  OidcAuthorizationPath:
+    Type: String
+    Default: /api/auth/oauth2/authorize
+  OidcTokenPath:
+    Type: String
+    Default: /api/auth/oauth2/token
+  OidcUserInfoPath:
+    Type: String
+    Default: /api/auth/oauth2/userinfo
+  OidcSessionTimeoutSeconds:
+    Type: Number
+    Default: 43200
+    Description: ALB のセッション（12 時間）。既定の 7 日は長すぎる（TA-06 の 5.2.1）。
+
+  # ---- ALB
+  AlbIdleTimeoutSeconds:
+    Type: Number
+    Default: 60
+  AlbDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  # ---- WAF（暫定値。5 分あたり・送信元 IP あたりのリクエスト数。実測して決める。TA-06 の 5.5・11 節）
+  WafRateLimitConsent:
+    Type: Number
+    Default: 30
+    MinValue: 10
+    Description: consent-api。正常な利用の上限が明確な唯一の口なので最も厳しくする。
+  WafRateLimitForm:
+    Type: Number
+    Default: 100
+    MinValue: 10
+    Description: Mautic のフォーム受付（/form/submit*）。
+  WafRateLimitBooking:
+    Type: Number
+    Default: 100
+    MinValue: 10
+    Description: Cal.com の予約（cal. ホスト全体）。偽の予約は R3 の時間枠を奪う。
+  WafRateLimitApi:
+    Type: Number
+    Default: 1000
+    MinValue: 10
+    Description: 機械向けの API（5.4 の表）。送信元 IP で絞れないため、防御はこれと製品側の認証だけになる。
+  WafRateLimitVisitor:
+    Type: Number
+    Default: 2000
+    MinValue: 10
+    Description: 上記以外のすべて（訪問者向けのパスの守りはこれだけ）。管理画面の静的ファイルの量に見合うかを実測する。
+  WafRateLimitAuth:
+    Type: Number
+    Default: 300
+    MinValue: 10
+    Description: >-
+      auth.（admin-auth。ログインの途中なので ALB の認証なしで通す）。Better Auth のレート制限は X-Forwarded-For を信頼するため、
+      効き目は WAF に頼る（admin-auth の README）。
+  WafCommonRuleSetAction:
+    Type: String
+    Default: Count
+    AllowedValues: [Count, Block]
+    Description: >-
+      AWSManagedRulesCommonRuleSet の動作。Mautic・Chatwoot の管理画面は HTML を本文に含めて保存するため、
+      XSS 系のルールで誤検知しやすい。最初は Count にして WAF のログ（aws-waf-logs-...）で確かめ、問題が無ければ Block にする。
+
+Conditions:
+  CommonRuleSetBlocks: !Equals [!Ref WafCommonRuleSetAction, Block]
+
+Resources:
+  # ---------------------------------------------------------------- 証明書
+  # ALB に付ける証明書は ALB と同じリージョンのもの（CloudFront 用の us-east-1 とは別。global/template.yaml）。
+  # 名前を増やすと再発行になるため、cal. / consent. は確定してから（TA-06 の 5.1）。
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref ChatHost
+      SubjectAlternativeNames:
+        - !Ref MktHost
+        - !Ref StatsHost
+        - !Ref AuthHost
+        - !Ref CalHost
+        - !Ref ConsentHost
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - { DomainName: !Ref ChatHost, HostedZoneId: !Ref HostedZoneId }
+        - { DomainName: !Ref MktHost, HostedZoneId: !Ref HostedZoneId }
+        - { DomainName: !Ref StatsHost, HostedZoneId: !Ref HostedZoneId }
+        - { DomainName: !Ref AuthHost, HostedZoneId: !Ref HostedZoneId }
+        - { DomainName: !Ref CalHost, HostedZoneId: !Ref HostedZoneId }
+        - { DomainName: !Ref ConsentHost, HostedZoneId: !Ref HostedZoneId }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-alb' }
+
+  # ---------------------------------------------------------------- ALB
+  # TODO: ALB のアクセスログ（S3 のバケットと、ELB のログ配信用のバケットポリシーが要る）。費用と運用が増えるため、いまは付けない。
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub 'comegin-${EnvName}'
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
+      LoadBalancerAttributes:
+        - { Key: idle_timeout.timeout_seconds, Value: !Ref AlbIdleTimeoutSeconds }
+        - { Key: deletion_protection.enabled, Value: !Ref AlbDeletionProtection }
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: 'true' }
+        - { Key: routing.http.desync_mitigation_mode, Value: defensive }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}' }
+
+  # 既定は固定の 404。列挙していないホストと、OIDC を掛けないホスト（consent.）の列挙外のパスはここに落ちる。
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref Certificate
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: '404'
+            ContentType: text/plain
+            MessageBody: Not Found
+
+  # ---------------------------------------------------------------- ターゲットグループ
+  # Fargate（awsvpc）なのでターゲットの種類は ip。タスクの登録解除は 30 秒で打ち切る。
+  MauticWebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref MauticWebPort
+      HealthCheckPath: !Ref MauticHealthCheckPath
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-mautic-web' }
+
+  ChatwootWebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref ChatwootWebPort
+      HealthCheckPath: !Ref ChatwootHealthCheckPath
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-chatwoot-web' }
+
+  UmamiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref UmamiPort
+      HealthCheckPath: !Ref UmamiHealthCheckPath
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-umami' }
+
+  AdminAuthTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref AdminAuthPort
+      HealthCheckPath: !Ref AdminAuthHealthCheckPath
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-admin-auth' }
+
+  CalcomTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref CalcomPort
+      HealthCheckPath: !Ref CalcomHealthCheckPath
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-calcom' }
+
+  ConsentApiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref ConsentApiPort
+      HealthCheckPath: !Ref ConsentApiHealthCheckPath
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-consent-api' }
+
+  # ---------------------------------------------------------------- 優先度帯 100 番台: 訪問者向け（認証も認可もしない。WAF のレート制限だけ）
+  # パスは TA-06 の 5.3 の想定。製品のバージョンに依存するため、DevTools で実測して確定する（TODO(T1-3)）。
+  # ALB の制約: 1 ルールの条件値は 5 つまで（host-header も 1 つに数える）。そのためホスト 1 + パス 4 以内で分割する。
+  # Cal.com の訪問者向けのルールは作らない（ライセンスとパスの切り分けが未確定。TA-06 の 11 節）。cal. は全体が OIDC の内側。
+  VisitorUmamiRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 101
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref StatsHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/script.js, /api/send] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref UmamiTargetGroup }
+
+  VisitorChatwootRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 102
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
+        # /cable は訪問者と運用者の両方が使う（WebSocket）。無認証で通し、製品側の認証に任せる。
+        - { Field: path-pattern, PathPatternConfig: { Values: [/packs/*, '/widget*', /api/v1/widget/*, /cable] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
+
+  VisitorChatwootStorageRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 103
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/rails/active_storage/*] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
+
+  VisitorMauticFormRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 104
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref MktHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: ['/form/submit*', /mtc.js, /mtc/event, /mtracking.gif] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref MauticWebTargetGroup }
+
+  # 配信したメールの開封計測・クリック計測・配信停止・画像。メールの受信者も無認証で到達する。
+  VisitorMauticEmailRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 105
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref MktHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/email/*, /r/*, /media/images/*] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref MauticWebTargetGroup }
+
+  # consent-api は /v1/consent の 1 本だけ（GET・POST・OPTIONS。増やさないことが守りになる。TA-06 の 5.3）。
+  # /healthz は外部に出さない（ターゲットのヘルスチェックはリスナールールを通らない）。
+  VisitorConsentRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 106
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref ConsentHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/v1/consent] } }
+        - { Field: http-request-method, HttpRequestMethodConfig: { Values: [GET, POST, OPTIONS] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref ConsentApiTargetGroup }
+
+  # Strapi（cms.）と n8n（n8n.）は ADR-21 でオンプレに移した。ALB にホストもルールも無い（n8n の Webhook はオンプレの WireGuard のアドレスだけで受ける。wireguard.yaml）。
+  # n8n（オンプレ）から Chatwoot・Mautic の API は、下の機械向けのルール（201・202）経由で届く。
+
+  # ---------------------------------------------------------------- 優先度帯 200 番台: 機械向けの API（ALB の認証なし。製品側のトークンと WAF のレート制限で守る）
+  # ローカルの Claude Code の MCP とビルドはブラウザでログインできないため（TA-06 の 5.4）。
+  MachineChatwootRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 201
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/api/v1/accounts/*, /api/v2/accounts/*] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
+
+  # Mautic の API の Basic 認証（api_enable_basic_auth）は無効のままにする（TA-06 の 5.4）。
+  MachineMauticRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 202
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref MktHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/api/*, /oauth/v2/token] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref MauticWebTargetGroup }
+
+  # Umami は /mcp の 1 本だけ（API キーで認証）。/api/*（/api/auth/login を含む）は管理者の認証の内側に残す。
+  MachineUmamiRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 205
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref StatsHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/mcp] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref UmamiTargetGroup }
+
+  # ---------------------------------------------------------------- 優先度 300: auth.（admin-auth 自身。ログインの途中なので認証なし）
+  AuthHostRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 300
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref AuthHost] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref AdminAuthTargetGroup }
+
+  # ---------------------------------------------------------------- 優先度帯 1000 番台: ホストごとの authenticate-oidc
+  # 上のどれにも当たらなかった、そのホストの残りのパスはすべて管理者の認証を求める（既定側に倒す）。
+  # ALB のクライアントシークレットは secrets.yaml が自動生成し、動的参照で読む（admin-auth にも同じ値が渡る）。
+  # トークンエンドポイントのクライアント認証方式は client_secret_basic を想定。ALB で通らなければ admin-auth 側を post に変える。
+  OidcChatwootRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 1001
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
+      Actions:
+        - Type: authenticate-oidc
+          Order: 1
+          AuthenticateOidcConfig:
+            Issuer: !Sub 'https://${AuthHost}${OidcIssuerPath}'
+            AuthorizationEndpoint: !Sub 'https://${AuthHost}${OidcAuthorizationPath}'
+            TokenEndpoint: !Sub 'https://${AuthHost}${OidcTokenPath}'
+            UserInfoEndpoint: !Sub 'https://${AuthHost}${OidcUserInfoPath}'
+            ClientId: !Ref AlbOidcClientId
+            ClientSecret: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET:SecretString}}'
+            Scope: openid email profile
+            SessionTimeout: !Ref OidcSessionTimeoutSeconds
+            OnUnauthenticatedRequest: authenticate
+        - { Type: forward, Order: 2, TargetGroupArn: !Ref ChatwootWebTargetGroup }
+
+  OidcMauticRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 1002
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref MktHost] } }
+      Actions:
+        - Type: authenticate-oidc
+          Order: 1
+          AuthenticateOidcConfig:
+            Issuer: !Sub 'https://${AuthHost}${OidcIssuerPath}'
+            AuthorizationEndpoint: !Sub 'https://${AuthHost}${OidcAuthorizationPath}'
+            TokenEndpoint: !Sub 'https://${AuthHost}${OidcTokenPath}'
+            UserInfoEndpoint: !Sub 'https://${AuthHost}${OidcUserInfoPath}'
+            ClientId: !Ref AlbOidcClientId
+            ClientSecret: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET:SecretString}}'
+            Scope: openid email profile
+            SessionTimeout: !Ref OidcSessionTimeoutSeconds
+            OnUnauthenticatedRequest: authenticate
+        - { Type: forward, Order: 2, TargetGroupArn: !Ref MauticWebTargetGroup }
+
+  OidcUmamiRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 1003
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref StatsHost] } }
+      Actions:
+        - Type: authenticate-oidc
+          Order: 1
+          AuthenticateOidcConfig:
+            Issuer: !Sub 'https://${AuthHost}${OidcIssuerPath}'
+            AuthorizationEndpoint: !Sub 'https://${AuthHost}${OidcAuthorizationPath}'
+            TokenEndpoint: !Sub 'https://${AuthHost}${OidcTokenPath}'
+            UserInfoEndpoint: !Sub 'https://${AuthHost}${OidcUserInfoPath}'
+            ClientId: !Ref AlbOidcClientId
+            ClientSecret: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET:SecretString}}'
+            Scope: openid email profile
+            SessionTimeout: !Ref OidcSessionTimeoutSeconds
+            OnUnauthenticatedRequest: authenticate
+        - { Type: forward, Order: 2, TargetGroupArn: !Ref UmamiTargetGroup }
+
+  OidcCalcomRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 1006
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref CalHost] } }
+      Actions:
+        - Type: authenticate-oidc
+          Order: 1
+          AuthenticateOidcConfig:
+            Issuer: !Sub 'https://${AuthHost}${OidcIssuerPath}'
+            AuthorizationEndpoint: !Sub 'https://${AuthHost}${OidcAuthorizationPath}'
+            TokenEndpoint: !Sub 'https://${AuthHost}${OidcTokenPath}'
+            UserInfoEndpoint: !Sub 'https://${AuthHost}${OidcUserInfoPath}'
+            ClientId: !Ref AlbOidcClientId
+            ClientSecret: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET:SecretString}}'
+            Scope: openid email profile
+            SessionTimeout: !Ref OidcSessionTimeoutSeconds
+            OnUnauthenticatedRequest: authenticate
+        - { Type: forward, Order: 2, TargetGroupArn: !Ref CalcomTargetGroup }
+
+  # ---------------------------------------------------------------- WAF（REGIONAL。ALB に関連付ける）
+  # 訪問者向けのパスは認証の代わりにレート制限を必ずかける。守りはこれだけ（TA-06 の 5.2・5.5）。
+  # レート制限は 5 分の窓・送信元 IP ごと。ルールの評価は優先度の小さい順で、Block したら以降は評価しない。
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub 'comegin-${EnvName}-alb'
+      Scope: REGIONAL
+      DefaultAction: { Allow: {} }
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        SampledRequestsEnabled: true
+        MetricName: !Sub 'comegin-${EnvName}-alb'
+      Rules:
+        # consent-api は最も厳しい。
+        - Name: rate-limit-consent
+          Priority: 0
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-consent }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitConsent
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch: { SingleHeader: { Name: host } }
+                  SearchString: !Ref ConsentHost
+                  PositionalConstraint: EXACTLY
+                  TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+        # Mautic のフォーム受付。スパムの投稿がそのまま E-09 を汚す。
+        - Name: rate-limit-form
+          Priority: 1
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-form }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitForm
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                AndStatement:
+                  Statements:
+                    - ByteMatchStatement:
+                        FieldToMatch: { SingleHeader: { Name: host } }
+                        SearchString: !Ref MktHost
+                        PositionalConstraint: EXACTLY
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                    - ByteMatchStatement:
+                        FieldToMatch: { UriPath: {} }
+                        SearchString: /form/submit
+                        PositionalConstraint: STARTS_WITH
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+        # Cal.com の予約。偽の予約は実在しない相手のために時間枠を埋める（R3 の時間を直接奪う）。
+        - Name: rate-limit-booking
+          Priority: 2
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-booking }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitBooking
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch: { SingleHeader: { Name: host } }
+                  SearchString: !Ref CalHost
+                  PositionalConstraint: EXACTLY
+                  TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+        # 機械向けの API（TA-06 の 5.4）。送信元 IP で絞れないため、防御は製品側の認証とこのレート制限の 2 つだけ。
+        - Name: rate-limit-api
+          Priority: 3
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-api }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitApi
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                OrStatement:
+                  Statements:
+                    - ByteMatchStatement:
+                        FieldToMatch: { UriPath: {} }
+                        SearchString: /api/v1/accounts/
+                        PositionalConstraint: STARTS_WITH
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                    - ByteMatchStatement:
+                        FieldToMatch: { UriPath: {} }
+                        SearchString: /api/v2/accounts/
+                        PositionalConstraint: STARTS_WITH
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                    - ByteMatchStatement:
+                        FieldToMatch: { UriPath: {} }
+                        SearchString: /mcp
+                        PositionalConstraint: STARTS_WITH
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                    - ByteMatchStatement:
+                        FieldToMatch: { UriPath: {} }
+                        SearchString: /oauth/v2/token
+                        PositionalConstraint: STARTS_WITH
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                    - AndStatement:
+                        Statements:
+                          - ByteMatchStatement:
+                              FieldToMatch: { SingleHeader: { Name: host } }
+                              SearchString: !Ref MktHost
+                              PositionalConstraint: EXACTLY
+                              TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                          - ByteMatchStatement:
+                              FieldToMatch: { UriPath: {} }
+                              SearchString: /api/
+                              PositionalConstraint: STARTS_WITH
+                              TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+        # auth.（admin-auth）。ログインの途中なので ALB の認証なしで通す。ホスト全体にレート制限をかける。
+        - Name: rate-limit-auth
+          Priority: 5
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-auth }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitAuth
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch: { SingleHeader: { Name: host } }
+                  SearchString: !Ref AuthHost
+                  PositionalConstraint: EXACTLY
+                  TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+        # 上記以外のすべて（訪問者向けのパスを含む）。
+        - Name: rate-limit-visitor
+          Priority: 4
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-visitor }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitVisitor
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+        # マネージドルール。Common は管理画面の誤検知が出やすいので、最初は Count（WafCommonRuleSetAction）。
+        - Name: aws-managed-ip-reputation
+          Priority: 10
+          OverrideAction: { None: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: aws-managed-ip-reputation }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesAmazonIpReputationList }
+        - Name: aws-managed-known-bad-inputs
+          Priority: 11
+          OverrideAction: { None: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: aws-managed-known-bad-inputs }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesKnownBadInputsRuleSet }
+        # SizeRestrictions_BODY は Count に上書きする（Chatwoot のアップロードが 8KB 超の本文で誤検知されるため）。
+        - Name: aws-managed-common
+          Priority: 12
+          OverrideAction: !If [CommonRuleSetBlocks, { None: {} }, { Count: {} }]
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: aws-managed-common }
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              RuleActionOverrides:
+                - { Name: SizeRestrictions_BODY, ActionToUse: { Count: {} } }
+
+  WebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref LoadBalancer
+      WebACLArn: !GetAtt WebAcl.Arn
+
+  # WAF のログ（Count のルールの誤検知を確かめるために要る）。ブロックと Count だけを残し、Cookie と Authorization は伏せる。
+  # TODO(未検証): CloudWatch Logs への配信に必要なリソースポリシーは WAF が作る想定。デプロイ主体に
+  #   logs:CreateLogDelivery と logs:PutResourcePolicy などの権限が要る。
+  WafLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub 'aws-waf-logs-comegin-${EnvName}'
+      RetentionInDays: 30
+
+  WafLogging:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      ResourceArn: !GetAtt WebAcl.Arn
+      LogDestinationConfigs:
+        - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${WafLogGroup}'
+      RedactedFields:
+        - { SingleHeader: { Name: authorization } }
+        - { SingleHeader: { Name: cookie } }
+      LoggingFilter:
+        DefaultBehavior: DROP
+        Filters:
+          - Behavior: KEEP
+            Requirement: MEETS_ANY
+            Conditions:
+              - { ActionCondition: { Action: BLOCK } }
+              - { ActionCondition: { Action: COUNT } }
+
+  # ---------------------------------------------------------------- Route 53（ALB へのエイリアス）
+  ChatRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref ChatHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
+
+  MktRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref MktHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
+
+  StatsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref StatsHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
+
+  AuthRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref AuthHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
+
+  CalRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref CalHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
+
+  ConsentRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref ConsentHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
+
+Outputs:
+  AlbArn:
+    Value: !Ref LoadBalancer
+  AlbDnsName:
+    Value: !GetAtt LoadBalancer.DNSName
+  AlbFullName:
+    Description: CloudWatch のメトリクスの LoadBalancer ディメンション
+    Value: !GetAtt LoadBalancer.LoadBalancerFullName
+  ListenerArn:
+    Value: !Ref HttpsListener
+  CertificateArn:
+    Value: !Ref Certificate
+  WebAclArn:
+    Value: !GetAtt WebAcl.Arn
+  # admin-auth が /oauth2/idpresponse を登録するホスト（ALB_PROTECTED_HOSTS。カンマ区切り）。
+  # authenticate-oidc を掛けているホストと一致させる。
+  AlbProtectedHosts:
+    Value: !Join [',', [!Ref ChatHost, !Ref MktHost, !Ref StatsHost, !Ref CalHost]]
+  MauticWebTargetGroupArn:
+    Value: !Ref MauticWebTargetGroup
+  MauticWebTargetGroupFullName:
+    Value: !GetAtt MauticWebTargetGroup.TargetGroupFullName
+  ChatwootWebTargetGroupArn:
+    Value: !Ref ChatwootWebTargetGroup
+  ChatwootWebTargetGroupFullName:
+    Value: !GetAtt ChatwootWebTargetGroup.TargetGroupFullName
+  UmamiTargetGroupArn:
+    Value: !Ref UmamiTargetGroup
+  UmamiTargetGroupFullName:
+    Value: !GetAtt UmamiTargetGroup.TargetGroupFullName
+  AdminAuthTargetGroupArn:
+    Value: !Ref AdminAuthTargetGroup
+  AdminAuthTargetGroupFullName:
+    Value: !GetAtt AdminAuthTargetGroup.TargetGroupFullName
+  CalcomTargetGroupArn:
+    Value: !Ref CalcomTargetGroup
+  CalcomTargetGroupFullName:
+    Value: !GetAtt CalcomTargetGroup.TargetGroupFullName
+  ConsentApiTargetGroupArn:
+    Value: !Ref ConsentApiTargetGroup
+  ConsentApiTargetGroupFullName:
+    Value: !GetAtt ConsentApiTargetGroup.TargetGroupFullName

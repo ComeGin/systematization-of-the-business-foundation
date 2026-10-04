@@ -39,7 +39,7 @@
 
 | 旧 | 新 | 扱い |
 |---|---|---|
-| `CVR-wp` | **`CVR-source-dl`** | 改名。分子は無料 DL フォーム（Mautic の alias `source-dl`）の送信数 |
+| `CVR-wp` | **`CVR-source-dl`** | 改名。分子は無料 DL フォーム（Mautic の alias `source_dl`。2026-10-05 に `source-dl` から改めた）の送信数 |
 | `CVR-demo` | **`CVR-consult`** | 改名。分子は無料相談フォーム（alias `consult`）の送信数 |
 | `CVR-trial` | **廃止** | **対応する CTA がサイトに無く、分子が永久に 0 になる。** 0 の指標を残すと、`E-13` の `expectation.metric` から参照できる見かけの選択肢が増え、「測れるのに測っていない」と「そもそも存在しない」の区別がつかなくなる |
 

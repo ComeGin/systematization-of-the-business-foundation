@@ -1,0 +1,28 @@
+{
+  "name": "consent-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cookie consent recorder (writes append-only records to Valkey)",
+  "type": "module",
+  "main": "dist/index.js",
+  "packageManager": "pnpm@11.17.0",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "ioredis": "^6.0.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,19 @@
+id: daily-observe-seo
+description: "OpenSEO 経由の GSC の実績を E-12（source: gsc）に正規化する（日次の観測 4 本のうちの 1 本）"
+enabled: false
+cron: "0 6 * * *"
+kind: agent
+agent: seo-auditor
+builtin: null
+after: []
+prompt: |
+  次の source だけを処理する: gsc
+
+  取得の範囲（変えない）:
+  - 期間: 今日の 3 日前を endDate、そこから 35 日前を startDate とする（GSC の確定は 2〜3 日遅れる）
+  - dimensions は ["page"]、dataState は "final"、rowLimit は 1000。hasMore が真なら startRow を進めて続きを取る
+  - URL 検査（INDEX-status）は行わない
+
+  lighthouse・serp・site_audit は処理しない（別の定期実行が担う）。
+timeout_sec: 900
+max_turns: 40

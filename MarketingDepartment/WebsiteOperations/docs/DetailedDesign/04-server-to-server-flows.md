@@ -84,6 +84,8 @@ BA-05 は「記事の削除・非公開化」を `承認` 分類（`R2`）とし
 
 **A を推奨する。** ただし**この層ではコードを変更しない**（詳細設計の文書であるため）。実装は `E-13` の対象として起票する。
 
+**（2026-10-04 に実装）案 A は Strapi 5.53 では成り立たなかった。** Strapi 5 の非公開化は、公開版の行を削除する（Document Service の `unpublish` が `entries.delete` を呼ぶ）ため、DB のライフサイクルには `afterUpdate` ではなく `afterDelete` として現れ、**`article_deleted` と誤って送られていた**（穴 1 は「`article_updated` になる」のではなく「`article_deleted` になる」が正しかった）。そこで、**Document Service のミドルウェア（`strapi.documents.use`）で `action === "unpublish"` を捕まえて `article_unpublished` を送り、その最中に出る `afterDelete` は `article_deleted` にしない**形で実装した（`backend/strapi-system/src/index.ts`）。バックエンド構築の計画（ユーザーの承認済み）に含めて直接実装したため、`E-13` は起票していない。PostHog への実際の送信は未確認。
+
 **穴 2 公開済み記事の更新が通常の更新と区別できない。**
 
 公開済みの記事を編集しても、`data` に `publishedAt` が含まれなければ `article_updated` になる。BA-05 は「公開済み記事の更新」を `承認` 分類としているが、これも区別できない。
@@ -163,7 +165,7 @@ BA-05 は「記事の削除・非公開化」を `承認` 分類（`R2`）とし
 | 同期性 | 非同期（n8n は受領して即座に 200 を返す） |
 | タイムアウト | n8n 側の既定に従う |
 | リトライ | **Mautic 側の再送に任せる。** n8n からは再試行しない |
-| 冪等キー | **`contact_id` + webhook の `timestamp`（秒精度）。** 保存先 n8n の Data Table `dedup_mautic`、保持 7 日（DD-01 の 6.2） |
+| 冪等キー | **`contact_id` + イベント種別 + webhook の `timestamp`（秒精度）。** 保存先 n8n の Data Table `dedup_mautic`、保持 7 日（DD-01 の 6.2。**イベント種別は 2026-10-04 に追加**。同じ秒に複数種別のイベントが出るため） |
 | 失敗時の扱い | 重複なら何もせず 200 を返す（上流に再送させない）。処理の失敗は **n8n の実行履歴**に残す（ADR-18 で n8n の実行履歴は `E-15` の正本ではなくなった。1 節。旧版は「`E-15` に残す」） |
 | 観測点 | n8n の実行履歴 ／ `dedup_mautic` の行数 |
 | 完成度 | `条件付き`（n8n のワークフロー作成は `承認` 分類・`R1`） |

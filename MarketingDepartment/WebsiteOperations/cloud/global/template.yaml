@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  us-east-1 の別スタック。Astro の配信（CloudFront）に付ける ACM 証明書と WAF、フラットレートプランの購読。
+  TA-02 の 3・4・8 節。CloudFront に付ける証明書と WAF（CLOUDFRONT スコープ）は us-east-1 にしか作れない。
+  ALB 用の証明書と WAF は ap-northeast-1（stacks/edge.yaml）で、こちらとは別。
+
+  デプロイは 2 段階（cloud/README.md の手順）:
+    1) このスタックを DistributionArn 空のまま作る（証明書と WAF ができる）。出力を本番スタックのパラメータに写す。
+    2) 本番スタックで CloudFront のディストリビューションができたら、その ARN を DistributionArn に入れて更新する
+       （フラットレートプランの購読ができる）。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  SiteHost:
+    Type: String
+    Default: comegin.com
+    Description: >-
+      Astro の公開ホスト名。フラットレートプランは 1 プランにつき 1 つの apex ドメインまで。
+      TODO: apex（comegin.com）か www かは未決定（TA-02 の 9 節）。決まるまで apex のみ。
+  HostedZoneId:
+    Type: String
+    Default: Z0000211V2SV6GQWKMCL
+    Description: SiteHost の Route 53 ホストゾーン。ACM の DNS 検証用レコードをここに作る。
+  WafRateLimitSite:
+    Type: Number
+    Default: 1000
+    MinValue: 10
+    Description: 5 分あたり・送信元 IP あたりのリクエスト数（暫定）。1 ページ 20〜30 リクエストとして約 30〜50 ページビュー。
+  DistributionArn:
+    Type: String
+    Default: ''
+    Description: >-
+      本番スタックの CloudFront ディストリビューションの ARN（cdn.yaml の出力 DistributionArn）。
+      空のうちはフラットレートプランを購読しない。
+  PlanTier:
+    Type: String
+    Default: FREE
+    AllowedValues: [FREE, PRO, BUSINESS, PREMIUM]
+    Description: >-
+      FREE は即時に有効になる。有料のティアは PENDING_APPROVAL になり、ApprovePaidSubscription を呼ぶまで課金されない
+      （CloudFormation は承認しない）。ティアは更新では変えられない。
+      Free プランの WAF のルールは 5 つまで（このテンプレートは 4 つ）。
+  AttachHostedZoneToPlan:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      true にすると Route 53 のホストゾーンもプランに含める（ホストゾーンの月額をプランが負担する。TA-02 の 8 節）。
+      TODO: 制約を確かめてから。
+
+Conditions:
+  HasDistribution: !Not [!Equals [!Ref DistributionArn, '']]
+  AttachZone: !Equals [!Ref AttachHostedZoneToPlan, 'true']
+
+Resources:
+  # CloudFront に関連付けられる証明書は us-east-1 のものだけ（TA-02 の 4 節）。DNS 検証なので、自動更新は無人で回る。
+  SiteCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref SiteHost
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref SiteHost
+          HostedZoneId: !Ref HostedZoneId
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-site' }
+
+  # フラットレートプランでは、WAF の WebACL の関連付けが必須で、他のディストリビューションと共有できない。
+  # 顧客が作るルールグループは使えない（個別のルールとして作る）。AWS のマネージドルールはルール数に数える。
+  # Free プランのルールは 5 つまで。ここでは 4 つ（レート制限 1 + マネージド 3）。
+  # 静的サイトなので Common も Block にする（管理画面や HTML を保存する経路が無い）。
+  SiteWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub 'comegin-${EnvName}-site'
+      Scope: CLOUDFRONT
+      DefaultAction: { Allow: {} }
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        SampledRequestsEnabled: true
+        MetricName: !Sub 'comegin-${EnvName}-site'
+      Rules:
+        - Name: rate-limit-site
+          Priority: 0
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-site }
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimitSite
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+        - Name: aws-managed-ip-reputation
+          Priority: 10
+          OverrideAction: { None: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: aws-managed-ip-reputation }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesAmazonIpReputationList }
+        - Name: aws-managed-known-bad-inputs
+          Priority: 11
+          OverrideAction: { None: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: aws-managed-known-bad-inputs }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesKnownBadInputsRuleSet }
+        - Name: aws-managed-common
+          Priority: 12
+          OverrideAction: { None: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: aws-managed-common }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesCommonRuleSet }
+
+  # CloudFront のフラットレートプランの購読（TA-02 の 8 節。Free は $0/月で、超過課金が無い）。
+  # PricingPlanManager の API のエンドポイントは us-east-1 のため、このスタック（us-east-1）に置く。
+  # ディストリビューションと WebACL の ARN が揃ってから作る（DistributionArn が空のうちは作らない）。
+  # TODO(未検証): この資源タイプを実機で作ったことがない。次の点を最初のデプロイで確かめる。
+  #   - AWS Free Tier のアカウントは対象外（アカウントがまだ Free Tier の期間内だと購読できない）
+  #   - プランの対象にするディストリビューションは OAI・ForwardedValues・Real-time ログを使わないこと（cdn.yaml は満たしている）
+  #   - allowance を超えた後の挙動（TA-02 の 9 節の未決定事項）
+  CloudFrontPlan:
+    Type: AWS::PricingPlanManager::Subscription
+    Condition: HasDistribution
+    # この資源タイプは新しく、SAM CLI 1.154.0 に同梱の cfn-lint のスキーマにまだ無い（どのリージョンでも E3006 になる）。
+    # CloudFormation のリファレンスには載っている（AWS::PricingPlanManager::Subscription）。このリソースだけ無視する。
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E3006
+    Properties:
+      PlanFamily: CloudFront
+      PlanTier: !Ref PlanTier
+      ResourceArns: !If
+        - AttachZone
+        - - !Ref DistributionArn
+          - !GetAtt SiteWebAcl.Arn
+          - !Sub 'arn:${AWS::Partition}:route53:::hostedzone/${HostedZoneId}'
+        - - !Ref DistributionArn
+          - !GetAtt SiteWebAcl.Arn
+
+Outputs:
+  CertificateArn:
+    Description: 本番スタックのパラメータ CloudFrontCertificateArn に写す。
+    Value: !Ref SiteCertificate
+  WebAclArn:
+    Description: 本番スタックのパラメータ CloudFrontWebAclArn に写す。
+    Value: !GetAtt SiteWebAcl.Arn

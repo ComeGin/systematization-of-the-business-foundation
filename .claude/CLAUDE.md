@@ -21,6 +21,9 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 | 自作（MCP サーバ） | `backend/chatwoot-mcp`、`backend/mautic-mcp` | このリポジトリの主要な自作コード |
 | 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n` | 公式イメージを動かすための compose と環境変数のテンプレートだけ |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |
+| 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | 本番は ALB 配下の ECS on Fargate。consent-api は DB を持たず Valkey だけ、admin-auth は Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にする |
+| 自作（管制。2026-10-04 着手） | `backend/control-plane`（ライブラリ）＋ `frontend/next-js`（監視アプリ） | `E-15` の記録（作業ツリーの外の SQLite）・定期実行・Agent SDK でのエージェント起動・`I-13` の起票。**control-plane は next-js が取り込んで 1 プロセスで動かす**。境界の型は `backend/control-plane/src/contract.ts` |
+| 自作（IaC・定義） | `cloud/`（AWS SAM。クラウドに置く製品と例外とデータの置き場。デプロイ手順は `cloud/README.md`）、`onprem/`（ADR-21。オンプレの本番の Strapi・n8n と WireGuard の構成）、`middleware/n8n/workflows/`（ワークフローの JSON）、`ops/`（定期実行の定義と MCP の登録表）、リポジトリ直下の `.claude/agents/`（エージェント定義 12 本） | 定期実行の定義とエージェント定義は、監視アプリが**承認済みの `main` のチェックアウトから**読む（ADR-18）。作業ツリーで書き換えても次の実行には効かない |
 
 命名規則: `<プロダクト>-system` = そのプロダクトの実体を動かす場所、`<プロダクト>-mcp` = その API を MCP ツールとして公開する自作サーバ。
 
@@ -34,15 +37,19 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 | 3001 | OpenSEO（UI と MCP の `/mcp`。上流の compose のまま `127.0.0.1` にバインド。`AUTH_MODE=local_noauth` で無認証のため、トンネルを張らない） |
 | 3100 | Chatwoot 本体（`CHATWOOT_PORT`）／ **mautic-mcp の HTTP 既定値と衝突する**。両方 HTTP で動かすならどちらかの `PORT` を変える |
 | 3102 | chatwoot-mcp（HTTP 時） |
+| 3103 | admin-auth（Better Auth の OIDC Provider。本番は `auth.comegin.com`。設計は `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13・`TA/06-aws-runtime.md` の 5.2） |
 | 3104 | consent-api（Cookie 同意の記録。ALB 配下の ECS on Fargate。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
 | 3105 | Cal.com（面談の予約。**セルフホスト**。公開サイトの完了画面に埋め込む。Google Calendar と連携し、予約が成立すると訪問者を予定に招待する＝氏名・メール・日時が Google LLC（米国）に渡る。設計は同 7 節と `RequirementDefinition/AA/02-integration-architecture.md` の `I-25`） |
 | 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/08-monetization-flows.md`） |
-| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は Umami と衝突するため 3200 を使う。`127.0.0.1` にバインドしトンネルを張らない。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
-| 1337 | Strapi |
+| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は Umami と衝突するため 3200 を使う。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
+| 1337 | Strapi（開発環境） |
+| 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |
 | 5432 | Chatwoot の PostgreSQL |
 | 5433 | n8n の PostgreSQL |
-| 5678 | n8n |
+| 5678 | n8n（開発環境） |
+| 5679 | n8n（**本番。オンプレ**。ADR-21。データは AWS の RDS。`127.0.0.1` だけに開く。構成は `onprem/n8n`） |
+| 5680 | n8n の本番の Webhook の受け口（リバースプロキシ。**WireGuard のアドレスだけ**に開き、`/webhook/*` だけを 5679 に通す。エディター・API はクラウドから届かない） |
 | 8000 / 8025 | Mautic（PHP ビルトインサーバー）/ MailHog |
 
 Chatwoot・n8n のホスト側ポートは `127.0.0.1` にバインドしてある。外部公開は ngrok などホスト側のトンネルで行い、
@@ -108,7 +115,17 @@ docker compose up -d
 # backend/mautic-system（PHP ビルトインサーバー + Docker の MySQL/MailHog）
 dev/serve.sh
 dev/reset.sh --help    # DB を消して再インストールする破壊的スクリプト
+
+# middleware/umami-master（MCP を有効にする上書きを付ける。上流の compose だけで up すると /mcp が 404 に戻る）
+docker compose -f docker-compose.yml -f dev/setup/compose.mcp.yml up -d
+
+# middleware/host-relay（開発環境だけ。コンテナ〈n8n・Chatwoot〉から、ホストの 127.0.0.1 の Mautic・MailHog・n8n に届くようにする中継）
+docker compose up -d
 ```
+
+**開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
+
+**コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678 だけで待ち受け、`127.0.0.1` に転送する。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
 
 ## MCP サーバの共通設計
 

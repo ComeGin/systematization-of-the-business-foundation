@@ -1,0 +1,20 @@
+id: monthly-analysis
+description: "月次の順位・流入・CVR の分析。観測を集約して E-13 の候補を判断する（TA-03 の 3.3）"
+enabled: false
+cron: "0 8 1 * *"
+kind: agent
+agent: proposal-writer
+builtin: null
+after:
+  - daily-observe-seo
+  - daily-observe-analytics
+prompt: |
+  月次の分析として、docs/audits/ の gsc・serp・analytics の E-12 を前月と比べ、順位・流入・CVR に実在する悪化や不足があるかを判断する。
+
+  - 比較に使う E-12 は、fetch.outcome が ok か empty_but_ok のものだけ。measured_at が 14 日を超えたものは根拠にしない
+  - 悪化や不足が観測できなければ、起票しない。SUMMARY の行にその旨を書く
+  - 起票するときは、起票前チェックの 14 項目をすべて、番号の順に検査する。1 つでも通らなければ起票しない
+  - 止めた・起票しなかったときは、SUMMARY の行に、どの検査（番号）で止めたかと対象の ID を書く
+  - 状態は draft のまま。approval・applied_at・verification は起票時の固定値のままにする
+timeout_sec: 900
+max_turns: 40
