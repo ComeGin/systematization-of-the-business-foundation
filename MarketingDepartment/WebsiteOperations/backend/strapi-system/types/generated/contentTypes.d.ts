@@ -576,6 +576,44 @@ export interface ApiCategoryCategory extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiContentPlanContentPlan extends Struct.CollectionTypeSchema {
+  collectionName: 'content_plans';
+  info: {
+    description: 'E-03 \u8A18\u4E8B\u306E\u4F01\u753B\uFF08agent/content-planner \u304C\u8D77\u6848\u3057\u3001R2 \u304C\u627F\u8A8D\u3059\u308B\uFF09';
+    displayName: 'Content Plan';
+    pluralName: 'content-plans';
+    singularName: 'content-plan';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    article: Schema.Attribute.Relation<'oneToOne', 'api::article.article'>;
+    assignee_role: Schema.Attribute.Enumeration<['R2', 'R4']>;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    keyword: Schema.Attribute.Relation<'manyToOne', 'api::keyword.keyword'>;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::content-plan.content-plan'
+    > &
+      Schema.Attribute.Private;
+    outline: Schema.Attribute.Text;
+    plan_state: Schema.Attribute.Enumeration<
+      ['drafted', 'pending_approval', 'approved', 'sent_back']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'drafted'>;
+    publishedAt: Schema.Attribute.DateTime;
+    title_draft: Schema.Attribute.String & Schema.Attribute.Required;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface ApiGlobalGlobal extends Struct.SingleTypeSchema {
   collectionName: 'globals';
   info: {
@@ -602,6 +640,55 @@ export interface ApiGlobalGlobal extends Struct.SingleTypeSchema {
     publishedAt: Schema.Attribute.DateTime;
     siteDescription: Schema.Attribute.Text & Schema.Attribute.Required;
     siteName: Schema.Attribute.String & Schema.Attribute.Required;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface ApiKeywordKeyword extends Struct.CollectionTypeSchema {
+  collectionName: 'keywords';
+  info: {
+    description: 'E-01 \u30AD\u30FC\u30EF\u30FC\u30C9\u5019\u88DC\u3068\u691C\u7D22\u610F\u56F3\uFF08agent/keyword-researcher \u304C\u5019\u88DC\u3092\u4F5C\u308A\u3001R2 \u304C\u63A1\u7528\u3059\u308B\uFF09';
+    displayName: 'Keyword';
+    pluralName: 'keywords';
+    singularName: 'keyword';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    articles: Schema.Attribute.Relation<'manyToMany', 'api::article.article'>;
+    content_plans: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::content-plan.content-plan'
+    >;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    intent_code: Schema.Attribute.Enumeration<
+      ['latent', 'semi_explicit', 'explicit']
+    >;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::keyword.keyword'
+    > &
+      Schema.Attribute.Private;
+    monthly_volume: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    phrase: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique;
+    publishedAt: Schema.Attribute.DateTime;
+    status: Schema.Attribute.Enumeration<['candidate', 'adopted', 'skipped']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'candidate'>;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -1123,7 +1210,9 @@ declare module '@strapi/strapi' {
       'api::article.article': ApiArticleArticle;
       'api::author.author': ApiAuthorAuthor;
       'api::category.category': ApiCategoryCategory;
+      'api::content-plan.content-plan': ApiContentPlanContentPlan;
       'api::global.global': ApiGlobalGlobal;
+      'api::keyword.keyword': ApiKeywordKeyword;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;
       'plugin::i18n.locale': PluginI18NLocale;

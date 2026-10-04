@@ -1,0 +1,60 @@
+# 開発用: admin-auth（Better Auth の OIDC Provider）と PostgreSQL。PostgreSQL はホストに公開しない。
+# 設定は同じディレクトリの環境変数ファイル（dev/init-env.sh が .env.example から作る）かシェルの環境変数から読む。
+x-admin-auth-environment: &admin-auth-environment
+  HOST: 0.0.0.0
+  PORT: "3103"
+  NODE_ENV: development
+  BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3103}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET を設定してください（dev/init-env.sh）}
+  DATABASE_HOST: postgres
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: ${DATABASE_NAME:-admin_auth}
+  DATABASE_USERNAME: ${DATABASE_USERNAME:-admin_auth}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD を設定してください（dev/init-env.sh）}
+  DATABASE_SSL: "false"
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GOOGLE_HOSTED_DOMAIN: ${GOOGLE_HOSTED_DOMAIN:-comegin.com}
+  ADMIN_BOOTSTRAP_EMAILS: ${ADMIN_BOOTSTRAP_EMAILS:-}
+  ALB_CLIENT_ID: ${ALB_CLIENT_ID:-}
+  ALB_CLIENT_SECRET: ${ALB_CLIENT_SECRET:-}
+  ALB_PROTECTED_HOSTS: ${ALB_PROTECTED_HOSTS:-}
+
+services:
+  admin-auth:
+    build: .
+    ports:
+      - "127.0.0.1:3103:3103"
+    environment: *admin-auth-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # スキーマの作成・更新を 1 回だけ行って終了する（本番の「DB の移行タスク」と同じコマンド）
+  migrate:
+    build: .
+    command: ["node", "dist/scripts/migrate.js"]
+    environment: *admin-auth-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-admin_auth}
+      POSTGRES_USER: ${DATABASE_USERNAME:-admin_auth}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD を設定してください（dev/init-env.sh）}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

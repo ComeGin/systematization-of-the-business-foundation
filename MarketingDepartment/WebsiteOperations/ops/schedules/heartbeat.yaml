@@ -1,0 +1,9 @@
+id: heartbeat
+description: "監視アプリの生存を CloudWatch にハートビートとして送る（5 分ごと）。途絶えたら改善ループが止まっている（TA-07 の 8 節）"
+enabled: false
+cron: "*/5 * * * *"
+kind: builtin
+agent: null
+builtin: heartbeat
+after: []
+timeout_sec: 60

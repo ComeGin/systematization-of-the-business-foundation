@@ -1,0 +1,19 @@
+id: daily-observe-analytics
+description: "本番の Umami・Mautic（参照専用）・PostHog の集計値を E-12（source: analytics）に正規化する（日次の観測 4 本のうちの 1 本）"
+enabled: false
+cron: "0 6 * * *"
+kind: agent
+agent: analytics-reporter
+builtin: null
+after: []
+prompt: |
+  本番の登録（umami-prod・mautic-prod-ro・posthog-prod）だけで、次の範囲を取得し、E-12（source: analytics）に正規化する。
+
+  取得の範囲（変えない）:
+  - 期間: 直近 35 日（終端は昨日の終わり、始端はそこから 35 日前。timezone は Asia/Tokyo）
+  - Umami: サイト comegin.com の SESSION-count・VISITOR-count・PAGEVIEW-count・ORGANIC-share・Core Web Vitals の p75。ページ別は上位 100 件（get_website_metrics の limit は 100）
+  - Mautic: フォーム送信の集計だけ。畳み込みは mautic_form_id + lower(email) + 送信日（JST）。個票は読まない
+  - PostHog: 本番用のプロジェクトの article_published の件数（CONTENT-throughput）。参照のツール（execute-sql による件数の集計だけ。個票は読まない）だけ
+  - 応答に truncation_message が付いたら期間を半分に狭めて 1 回だけ取り直す
+timeout_sec: 900
+max_turns: 40

@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  運用者が RunTask で 1 回だけ起動するタスクの定義（ECS サービスは作らない）。TA-06 の 3.3・5.6。
+  - db-init-postgres: PostgreSQL にデータベース 6 つ（chatwoot / umami / admin_auth / strapi / n8n / calcom）と、
+    データベースごとのアプリ用ユーザーを作る。chatwoot には拡張（pgvector など）を入れる。
+  - db-init-mysql: MySQL に mautic のデータベースとアプリ用ユーザーを作る。
+  どちらも冪等（何度実行しても、作成済みのものは作り直さず、アプリ用ユーザーのパスワードだけを Secrets Manager の値に揃える）。
+  Chatwoot の db:chatwoot_prepare と Mautic のマイグレーションは、このスタックでは定義しない。
+  サービスのタスク定義（chatwoot-web・mautic-web）を、RunTask の containerOverrides でコマンドを上書きして使う（README の手順）。
+
+  重要: RDS のマスターの資格情報を読めるのは、このスタックの実行ロールだけにする。どのサービスのタスク定義からも参照しない
+  （TA-06 の 7 節は「マスターパスワードをタスクには渡さない」としているが、アプリ用ユーザーを作るこのタスクだけは例外。
+  運用者が RunTask で起動したときだけ読まれる）。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  SecretNamePrefix:
+    Type: String
+    Description: secrets.yaml の SecretNamePrefix
+  TasksLogGroupName:
+    Type: String
+    Description: cluster.yaml の TasksLogGroupName
+  PostgresEndpoint:
+    Type: String
+    Description: data.yaml の PostgresEndpoint
+  PostgresMasterSecretArn:
+    Type: String
+    Description: data.yaml の PostgresMasterSecretArn（RDS が管理するマスターの資格情報。JSON で username と password を持つ）
+  MysqlEndpoint:
+    Type: String
+    Description: data.yaml の MysqlEndpoint
+  MysqlMasterSecretArn:
+    Type: String
+    Description: data.yaml の MysqlMasterSecretArn
+  PostgresClientImage:
+    Type: String
+    Default: postgres:16.15-alpine
+    Description: >-
+      psql を含むイメージ。Docker Hub の公開イメージを NAT 経由で 1 回取得する（運用者が起動したときだけ）。
+      タグはマイナーまで固定にする（浮いたタグは使わない）。
+  MysqlClientImage:
+    Type: String
+    Default: mysql:8.4.11
+    Description: mysql クライアントを含むイメージ。タグはマイナーまで固定にする。
+  RdsCaSha256:
+    Type: String
+    Default: fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c
+    Description: >-
+      RDS の CA 束（https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem）の SHA-256。タスクは起動時にこの束を取得して照合し、
+      サーバー証明書を検証して DB に接続する。AWS が束を更新するとタスクが失敗する（cloud/images/*/Dockerfile の RDS_CA_SHA256 と同じ値に更新する）。
+  TaskCpu:
+    Type: String
+    Default: '256'
+  TaskMemory:
+    Type: String
+    Default: '512'
+
+Resources:
+  # このロールだけがマスターの資格情報を読める。アプリ用のパスワードは名前で読む（secrets.yaml の <prefix>/<svc>/DB_PASSWORD）。
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'comegin-${EnvName}-ops-tasks-execution'
+      Description: ops-tasks 専用。RDS のマスターの資格情報とアプリ用 DB パスワードを読む。サービスと共用しない。
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref AWS::AccountId
+
+  # インラインポリシーは使わず、管理ポリシーをロールにアタッチする（cfn-guard の IAM_NO_INLINE_POLICY_CHECK）。
+  ExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'comegin-${EnvName}-ops-tasks-execution'
+      Roles:
+        - !Ref ExecutionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WriteLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${TasksLogGroupName}:*'
+          - Sid: ReadMasterCredentials
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource:
+              - !Ref PostgresMasterSecretArn
+              - !Ref MysqlMasterSecretArn
+          - Sid: ReadApplicationDbPasswords
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/*/DB_PASSWORD-*'
+
+  PostgresInitTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'comegin-${EnvName}-db-init-postgres'
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      RuntimePlatform: { CpuArchitecture: X86_64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: psql
+          Image: !Ref PostgresClientImage
+          Essential: true
+          EntryPoint: [sh, -ec]
+          Command:
+            - |
+              # RDS の CA 束を取得して SHA-256 を照合し、サーバー証明書とホスト名を検証して接続する（暗号化だけにしない）。
+              wget -q -O /tmp/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+              echo "$RDS_CA_SHA256  /tmp/rds-global-bundle.pem" | sha256sum -c -
+              export PGSSLMODE=verify-full PGSSLROOTCERT=/tmp/rds-global-bundle.pem
+              # アプリ用ユーザー（データベースと同じ名前）とデータベースを作る。冪等。
+              provision() {
+                db="$1"; role="$2"; pw="$3"
+                psql -v ON_ERROR_STOP=1 -v role="$role" -v pw="$pw" -v db="$db" <<'SQL'
+              SELECT format('CREATE ROLE %I LOGIN', :'role') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role') \gexec
+              SELECT format('ALTER ROLE %I PASSWORD %L', :'role', :'pw') \gexec
+              SELECT format('GRANT %I TO CURRENT_USER', :'role') \gexec
+              SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'role') WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db') \gexec
+              SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'db') \gexec
+              SQL
+              }
+              provision chatwoot chatwoot "$CHATWOOT_DB_PASSWORD"
+              provision umami umami "$UMAMI_DB_PASSWORD"
+              provision strapi strapi "$STRAPI_DB_PASSWORD"
+              provision n8n n8n "$N8N_DB_PASSWORD"
+              provision admin_auth admin_auth "$ADMIN_AUTH_DB_PASSWORD"
+              provision calcom calcom "$CALCOM_DB_PASSWORD"
+              # 拡張。マスター（rds_superuser）でしか入れられないものを先に入れる。pgvector は chatwoot のデータベースだけ（TA-06 の 4.3）。
+              # TODO(T1-3): Chatwoot のスキーマが有効にする拡張を、採用するバージョンの db/schema.rb で確かめる。
+              psql -v ON_ERROR_STOP=1 -d chatwoot <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS vector;
+              CREATE EXTENSION IF NOT EXISTS pg_trgm;
+              CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+              SQL
+              echo "db-init-postgres: done"
+          Environment:
+            - { Name: PGHOST, Value: !Ref PostgresEndpoint }
+            - { Name: PGPORT, Value: '5432' }
+            - { Name: PGDATABASE, Value: postgres }
+            - { Name: RDS_CA_SHA256, Value: !Ref RdsCaSha256 }
+          Secrets:
+            - { Name: PGUSER, ValueFrom: !Sub '${PostgresMasterSecretArn}:username::' }
+            - { Name: PGPASSWORD, ValueFrom: !Sub '${PostgresMasterSecretArn}:password::' }
+            - { Name: CHATWOOT_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/DB_PASSWORD' }
+            - { Name: UMAMI_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/umami/DB_PASSWORD' }
+            - { Name: STRAPI_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/strapi/DB_PASSWORD' }
+            - { Name: N8N_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/n8n/DB_PASSWORD' }
+            - { Name: ADMIN_AUTH_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/admin-auth/DB_PASSWORD' }
+            - { Name: CALCOM_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/calcom/DB_PASSWORD' }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref TasksLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: db-init-postgres
+
+  MysqlInitTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'comegin-${EnvName}-db-init-mysql'
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      RuntimePlatform: { CpuArchitecture: X86_64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: mysql
+          Image: !Ref MysqlClientImage
+          Essential: true
+          EntryPoint: [sh, -ec]
+          Command:
+            - |
+              # RDS の CA 束を取得して SHA-256 を照合し、サーバー証明書とホスト名を検証して接続する（暗号化だけにしない）。
+              curl -fsS -o /tmp/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+              echo "$RDS_CA_SHA256  /tmp/rds-global-bundle.pem" | sha256sum -c -
+              # Mautic のデータベースとアプリ用ユーザーを作る。冪等。パスワードは英数字のみ（secrets.yaml）なので、そのまま SQL に入れられる。
+              # TODO(未検証): MYSQL_PWD は非推奨だが 8.4 でも使える想定。使えなければ --defaults-extra-file に替える。
+              mysql --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tmp/rds-global-bundle.pem -h "$MYSQL_HOST" -u "$MYSQL_USER" <<SQL
+              CREATE DATABASE IF NOT EXISTS mautic CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE USER IF NOT EXISTS 'mautic'@'%' IDENTIFIED BY '${MAUTIC_DB_PASSWORD}';
+              ALTER USER 'mautic'@'%' IDENTIFIED BY '${MAUTIC_DB_PASSWORD}';
+              GRANT ALL PRIVILEGES ON mautic.* TO 'mautic'@'%';
+              SQL
+              echo "db-init-mysql: done"
+          Environment:
+            - { Name: MYSQL_HOST, Value: !Ref MysqlEndpoint }
+            - { Name: RDS_CA_SHA256, Value: !Ref RdsCaSha256 }
+          Secrets:
+            - { Name: MYSQL_USER, ValueFrom: !Sub '${MysqlMasterSecretArn}:username::' }
+            - { Name: MYSQL_PWD, ValueFrom: !Sub '${MysqlMasterSecretArn}:password::' }
+            - { Name: MAUTIC_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/mautic/DB_PASSWORD' }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref TasksLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: db-init-mysql
+
+Outputs:
+  PostgresInitTaskDefinitionArn:
+    Value: !Ref PostgresInitTaskDefinition
+  MysqlInitTaskDefinitionArn:
+    Value: !Ref MysqlInitTaskDefinition
+  ExecutionRoleArn:
+    Value: !GetAtt ExecutionRole.Arn

@@ -9,7 +9,7 @@ import { check, expectError, expectField, expectOk, field, listToolNames, type H
 /** 作成するデータの名前に付ける印。途中で失敗しても、後から人が見分けられるようにする */
 const PREFIX = "mcp-verify";
 
-const WRITE_TOOLS = ["chatwoot_send_message", "chatwoot_create_contact", "chatwoot_update_conversation", "chatwoot_create_record"];
+const WRITE_TOOLS = ["chatwoot_send_message", "chatwoot_add_private_note", "chatwoot_create_contact", "chatwoot_update_conversation", "chatwoot_create_record"];
 const DELETE_TOOLS = ["chatwoot_delete_record", "chatwoot_delete_contact", "chatwoot_delete_message", "chatwoot_merge_contacts"];
 
 export async function readChecks(harness: Harness): Promise<void> {
@@ -214,6 +214,23 @@ export async function writeChecks(harness: Harness): Promise<void> {
   await harness.step("社内メモを追加する", async () => {
     const sent = expectOk(await harness.call("chatwoot_send_message", { conversation_id: conversationId, content: "動作確認: 社内メモ", private: true }), "社内メモ");
     expectField(sent, "message.private", true, "社内メモ");
+  });
+
+  await harness.step("chatwoot_add_private_note は private を受け付けず、作ったメモが private として記録される", async () => {
+    // private を持たない（strictObject）ので、渡すと入力検証で拒否される
+    const rejected = await harness.call("chatwoot_add_private_note", { conversation_id: conversationId, content: "動作確認: 拒否されるはず", private: false });
+    expectError(rejected, /private/i, "chatwoot_add_private_note（private 指定）");
+
+    const note = expectOk(await harness.call("chatwoot_add_private_note", { conversation_id: conversationId, content: "動作確認: 専用ツールの社内メモ" }), "社内メモ専用ツール");
+    expectField(note, "message.private", true, "社内メモ専用ツール");
+
+    // 拒否された呼び出しがメッセージを作っていないこと、作ったメモが履歴上も private であること
+    const messages = expectOk(await harness.call("chatwoot_list_messages", { conversation_id: conversationId }), "chatwoot_list_messages");
+    const items = field(messages, "messages", "chatwoot_list_messages") as { content?: string; private?: boolean }[];
+    check(!items.some((message) => message.content?.includes("拒否されるはず")), "拒否されたはずのメモが作られています");
+    const recorded = items.find((message) => message.content?.includes("専用ツールの社内メモ"));
+    check(recorded !== undefined, "専用ツールで作ったメモが履歴にありません");
+    check(recorded.private === true, "専用ツールで作ったメモが private として記録されていません");
   });
 
   await harness.step("メッセージ履歴に本文と社内メモが並ぶ", async () => {

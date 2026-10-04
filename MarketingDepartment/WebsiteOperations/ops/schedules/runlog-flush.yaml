@@ -1,0 +1,9 @@
+id: runlog-flush
+description: "実行記録（E-15）の写しを S3 に追記する。送れていない分を送り直す（写しは正本ではない）"
+enabled: false
+cron: "*/15 * * * *"
+kind: builtin
+agent: null
+builtin: runlog-flush
+after: []
+timeout_sec: 300

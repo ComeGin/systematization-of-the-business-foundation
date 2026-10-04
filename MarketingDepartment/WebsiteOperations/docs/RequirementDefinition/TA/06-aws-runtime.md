@@ -7,6 +7,12 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 
 **状態: 未着手（`cloud/` ディレクトリは空）。** 本ファイルの内容はすべて To-Be の設計である。**開発環境は今のままローカルの Docker と dev サーバーで動かし、本ファイルの構成は本番にだけ適用する。** **ローカルの Claude Code は MCP で本番の Strapi・Mautic・Chatwoot・Umami・n8n も読み書きする**（ADR-15・ADR-16。本番用の登録は `ACCESS_LEVEL=read_write` まで。Strapi は Admin トークンの権限で絞る。ADR-16 では `read_write` と同等としたが、**ADR-17 で下書きまでに絞った**。5.4）。**エージェントの定期実行はローカルの監視アプリが起動し、本番の n8n はエージェントを起動しない**（ADR-17。本番の n8n に残るのは Webhook の受け口とエージェントを使わない決定論的な定期処理。TA-03 の 3.3）。
 
+> **（2026-10-05）ADR-21 による変更。本ファイルの本文より、この注記を優先する。**
+> - **Strapi と n8n は ECS から外れ、オンプレで動く**（TA-07）。データの置き場（RDS の `strapi` `n8n`、S3 の Strapi のメディア）は AWS に残る。ALB の `cms.`・`n8n.` のホスト名とルール、ACM の対応する名前、Strapi・n8n の ECS 用の Secrets は不要になる。
+> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。
+> - **WireGuard の EC2 を足す**（`t4g.nano` 程度、public サブネット、Elastic IP、送信元／宛先チェック無効）。private サブネットの経路表に「オンプレの WireGuard のアドレス帯 → この EC2」を足し、Mautic・Chatwoot のタスクからオンプレの n8n の Webhook に届くようにする。RDS のセキュリティグループには、WireGuard の EC2 から `strapi` `n8n` のために 5432 を許す。
+> - `cloud/` の SAM はこの注記に合わせて直した（2026-10-05）。
+
 ## 1. 検証の状態
 
 **2026-09-18 に AWS API で実地検証を行った**（読み取りのみ）。

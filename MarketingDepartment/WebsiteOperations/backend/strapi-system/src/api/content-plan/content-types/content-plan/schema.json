@@ -1,0 +1,44 @@
+{
+  "kind": "collectionType",
+  "collectionName": "content_plans",
+  "info": {
+    "singularName": "content-plan",
+    "pluralName": "content-plans",
+    "displayName": "Content Plan",
+    "description": "E-03 記事の企画（agent/content-planner が起案し、R2 が承認する）"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "title_draft": {
+      "type": "string",
+      "required": true
+    },
+    "outline": {
+      "type": "text"
+    },
+    "plan_state": {
+      "type": "enumeration",
+      "enum": ["drafted", "pending_approval", "approved", "sent_back"],
+      "default": "drafted",
+      "required": true
+    },
+    "assignee_role": {
+      "type": "enumeration",
+      "enum": ["R2", "R4"]
+    },
+    "keyword": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::keyword.keyword",
+      "inversedBy": "content_plans"
+    },
+    "article": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::article.article"
+    }
+  }
+}

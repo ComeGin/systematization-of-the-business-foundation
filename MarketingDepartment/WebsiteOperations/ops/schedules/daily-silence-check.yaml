@@ -1,0 +1,9 @@
+id: daily-silence-check
+description: "沈黙の検出。期待した定期実行が走らなかった・成果物が生まれなかったことを実行記録から見つける（DD-01 の 9.2）"
+enabled: false
+cron: "30 8 * * *"
+kind: builtin
+agent: null
+builtin: silence-check
+after: []
+timeout_sec: 300

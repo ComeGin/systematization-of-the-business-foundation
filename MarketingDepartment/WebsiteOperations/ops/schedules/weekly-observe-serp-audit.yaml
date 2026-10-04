@@ -1,0 +1,19 @@
+id: weekly-observe-serp-audit
+description: "OpenSEO のランク追跡とサイト監査の保存済みの結果を E-12（source: serp・site_audit）に正規化する。計測と監査の実行は人間が OpenSEO で行う"
+enabled: false
+cron: "30 6 * * 1"
+kind: agent
+agent: seo-auditor
+builtin: null
+after: []
+prompt: |
+  次の source だけを処理する: serp、site_audit
+
+  取得の範囲（変えない）:
+  - serp: get_rank_tracker で一覧を取り、トラッカーごとに最新の結果を読む（保存済みの結果を読むだけ。ランク追跡の作成・実行はしない）
+  - site_audit: get_audit_status で最新の監査が完了しているときだけ、get_audit_issues（limit は 1000）を読む。完了した監査が無ければ E-12 を作らない
+  - 費用の発生するツールは使わない
+
+  lighthouse・gsc は処理しない。
+timeout_sec: 900
+max_turns: 40

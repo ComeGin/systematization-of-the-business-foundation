@@ -20,6 +20,8 @@
 
 ### 本番と開発環境の分離（ADR-14・ADR-15・ADR-16・ADR-17・ADR-18）
 
+> **（2026-10-05）ADR-21 で、本番の Strapi と n8n はオンプレに移った（データは AWS の RDS・S3）。** 下の「本番（AWS）に置くのは…Strapi…n8n」「Webhook は VPC の中で完結する」「`I-09` は `https://cms.comegin.com` を読む」は ADR-21 の前の記述である。**`I-11` `I-12` は、クラウドの Mautic・Chatwoot から WireGuard の経路でオンプレの n8n に届く**（開発機が止まると欠落する）。**`I-09` はオンプレの本番の Strapi を読む。**
+
 **2026-09-19 に、本番は AWS、オンプレは全システムの開発環境と管制に分けた（ADR-14）。同日の ADR-15 で、ローカルの Claude Code が本番の Mautic・Chatwoot・Umami にも MCP で読み書きすることにし、Strapi はオンプレだけに戻した。さらに同日の ADR-16 で、置き場所の基準を「正本のデータを持つか」に改め、Strapi と n8n も本番として AWS に置いた。同日の ADR-17 で、エージェントの定期実行を監視アプリから起動することにし、本番への書き込みの範囲を絞った。同日の ADR-18 で、`E-15 AgentRun` の正本を監視アプリ（ローカル）の実行記録にし（ADR-16 の基準の唯一の例外）、本番の n8n に登録する Strapi の資格情報も下書きまでにした。同日の ADR-18 の追加の決定で、定期実行の定義を Git に置き（監視アプリは承認済みの `main` のチェックアウトで読む）、`E-15` には要約と ID だけを残し、`E-15` を S3 に追記専用で写すことにした**（AA-05 の ADR-14・ADR-15・ADR-16・ADR-17・ADR-18、TA-06、TA-07）。本番（AWS）に置くのは Astro（S3 + CloudFront）・Strapi・Mautic・Chatwoot・Umami・n8n（本体と runners。サンドボックスは置かない）、ローカルに残すのは Claude Code・自作 MCP（stdio）・監視アプリ（**`E-15` の正本を持つ**）・全システムの開発環境・OpenSEO・Lighthouse CI・Astro のビルドである。この層の読み方に 8 つ効く。
 
 - **エージェントの MCP（`I-03` `I-04` `I-16` `I-17`）は開発環境と本番の 2 系統を登録する**（`chatwoot` / `chatwoot-prod`、`strapi-mcp` / `strapi-prod` など）。本番の登録は `ACCESS_LEVEL=read_write` まで（**ADR-16 で確定**）で、エージェント専用アカウントのトークンを使う。`strapi-prod` は `ACCESS_LEVEL` を持たないため、Admin トークンの権限で同等に絞る（削除の権限を与えない。**ADR-17 で公開・非公開化の権限も外し、下書きまでにした**）。OpenSEO はローカルだけである（[03](03-operation-path-flows.md)）。n8n の MCP（`n8n` / `n8n-prod`）も登録するが、連携点の番号は無い（[03 の 8 節](03-operation-path-flows.md)）。エージェントは監視アプリ（`frontend/next-js`）から起動する（**管理者の指示も定期実行も。ADR-17**）。

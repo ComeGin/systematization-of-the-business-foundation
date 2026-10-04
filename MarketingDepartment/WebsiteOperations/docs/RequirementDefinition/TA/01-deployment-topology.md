@@ -3,6 +3,13 @@
 TA（Technology Architecture）層。ロール ID（正本は BA-03）・Capability ID（BA-02）・エンティティ ID（DA-01）はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
 
+> **（2026-10-05）ADR-21 で配置の基準が変わった。本ファイルの本文より、この注記を優先する。**
+> 基準は「**再帰的自己改善の仕組みはオンプレ、成果物（製品）はクラウド、データの置き場は AWS**」。
+> - **クラウド（AWS）**: 製品の Astro（S3 + CloudFront）・Mautic・Chatwoot・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。データの置き場は RDS・ElastiCache・S3・EFS・SES・SNS。
+> - **オンプレ**: **Strapi（本番）・n8n（本番）**・監視アプリ・Claude Code・MCP サーバ・OpenSEO・Lighthouse CI・ビルド・全システムの開発環境。Strapi・n8n のデータは AWS の RDS（`strapi` `n8n`）と S3（Strapi のメディア）に置く。
+> - **境界越えの通信**: オンプレと VPC を小さな EC2 の **WireGuard** でつなぐ（オンプレから外向きに接続）。オンプレ → RDS（`strapi` `n8n` だけ）、AWS → オンプレ（Mautic・Chatwoot から n8n の Webhook だけ）。S3・SNS はトンネルを通さず API で使う。
+> - 本文中の「本番の Strapi・n8n は AWS」「`cms.comegin.com`・`n8n.comegin.com`」「AWS からローカルへ向かう線は作らない」は、ADR-21 の前の記述である。
+
 ## 1. 配置の原則
 
 **正本のデータを持つシステムはすべてクラウド（AWS）に置き、ローカル（オンプレミス）には道具と全システムの開発環境だけを残す。**（AA-05 の ADR-16。2026-09-19 に `R1` が決定。ADR-14・ADR-15 の配置を置き換えた）

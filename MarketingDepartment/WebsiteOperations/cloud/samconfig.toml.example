@@ -1,0 +1,52 @@
+# samconfig.toml.example
+# 実体の samconfig.toml は秘匿ファイル扱いで、Git で追跡しない。これを複製して値を入れる:
+#   cp samconfig.toml.example samconfig.toml
+# 資格情報（アクセスキーなど）はここに書かない。AWS の認証は環境（SSO・プロファイル）に任せる。
+
+version = 0.1
+
+# ---------------------------------------------------------------- 本番（ap-northeast-1）
+# デプロイ: cd cloud && sam build（自作のコードは無いので省略可）→ sam deploy
+[default.global.parameters]
+stack_name = "comegin-prod"
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+region = "ap-northeast-1"
+# 親が AWS::Serverless::Application で子を呼ぶため、CAPABILITY_AUTO_EXPAND が要る。
+# IAM ロールと IAM ユーザーを固定の名前で作るため CAPABILITY_NAMED_IAM が要る（CAPABILITY_IAM だけでは拒否される）。
+capabilities = "CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+# 子テンプレートのアップロード先の S3 バケットを SAM に管理させる。
+resolve_s3 = true
+# 変更セットを確認してから実行する。
+confirm_changeset = true
+fail_on_empty_changeset = false
+# 必須の値だけを書く。DesiredCount などの既定値は template.yaml を見る。
+# RunLogAdminPrincipalArns: デプロイに使う主体（IAM ユーザー comegin-iam、または CloudFormation のサービスロール）の ARN。
+#   入れないとスタック自身の更新も拒否される（stacks/runlog-archive.yaml）。
+parameter_overrides = [
+  "EnvName=prod",
+  "RunLogAdminPrincipalArns=arn:aws:iam::123456789012:user/REPLACE-ME",
+]
+
+# ---------------------------------------------------------------- us-east-1（CloudFront 用の ACM と WAF）
+# デプロイ: sam deploy --config-env global
+# 出力の CertificateArn と WebAclArn を、本番スタックのパラメータ（CloudFrontCertificateArn / CloudFrontWebAclArn）に写す。
+[global.global.parameters]
+stack_name = "comegin-global-prod"
+
+[global.validate.parameters]
+lint = true
+
+[global.deploy.parameters]
+template_file = "global/template.yaml"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+confirm_changeset = true
+fail_on_empty_changeset = false
+parameter_overrides = [
+  "EnvName=prod",
+]

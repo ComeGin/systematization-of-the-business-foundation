@@ -130,6 +130,53 @@ Examples:
     },
   );
 
+  // 本番のエージェントは chatwoot_send_message ではこちらを使う。private を入力に持たないので、顧客に送る経路が存在しない
+  server.registerTool(
+    "chatwoot_add_private_note",
+    {
+      title: "Add Chatwoot Private Note",
+      description: `Add an internal note to a conversation. The note is visible to agents only and is NEVER sent to the customer.
+
+This tool has no 'private' option: every call creates a private note. To reply to the customer use chatwoot_send_message
+(not available to agents that must not contact customers).
+
+Examples:
+  - Record a triage result in #42 -> conversation_id=42, content="Triage: billing question, suggest team Billing, priority medium"
+  - Leave a draft reply for a human to review -> conversation_id=42, content="Draft reply: ..."`,
+      inputSchema: z.strictObject({
+        conversation_id: ConversationIdSchema,
+        content: z.string().trim().min(1).max(20_000).describe("Note text (Markdown is supported)"),
+      }),
+      outputSchema: z.object({ conversation_id: z.number(), message: z.record(z.string(), z.unknown()) }),
+      annotations: CREATE_ANNOTATIONS,
+    },
+    async ({ conversation_id, content }) => {
+      try {
+        const created = await client.request<ChatwootMessage>("POST", `/conversations/${conversation_id}/messages`, {
+          content,
+          message_type: "outgoing",
+          private: true,
+        });
+        const message = toMessage(created, tz, true);
+        // 想定外に private でなく記録された場合は、成功として返さずに知らせる（顧客に届いた可能性がある）
+        if (created.private !== true) {
+          return errorText(
+            `Error: Chatwoot recorded message ${String(created.id)} in conversation #${conversation_id} as a non-private message. ` +
+              "It may have been delivered to the customer; check the conversation in the Chatwoot UI.",
+          );
+        }
+        return formattedResult(
+          { conversation_id, message },
+          "markdown",
+          () => [`Private note added in conversation #${conversation_id}`, "", ...renderMessage(message)].join("\n"),
+          "",
+        );
+      } catch (error) {
+        return errorResult(error, CONVERSATION_NOT_FOUND);
+      }
+    },
+  );
+
   server.registerTool(
     "chatwoot_update_conversation",
     {
