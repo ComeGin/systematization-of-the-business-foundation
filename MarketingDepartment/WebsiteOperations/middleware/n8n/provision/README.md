@@ -8,7 +8,7 @@
 2. **Data Table**: 5 つの表（`dedup_mautic` `dedup_chatwoot` `ops_settings` `monitor_state` `contact_link`）を作る（あれば足りない列だけを足す）。`ops_settings` に設定の行を入れる。
 3. **Mautic の Webhook**（I-11 用）を作る。Mautic が作った **Secret をそのまま受け取る**。
 4. **Chatwoot の Webhook**（I-12 用）を作る。Chatwoot が作った **シークレットをそのまま受け取る**。
-5. **n8n の資格情報**を作る（あれば値を入れ直す）: 署名鍵 2 つ（3・4 のシークレット）、Mautic の API、開発は MailHog の SMTP／本番は AWS（SNS）。
+5. **n8n の資格情報**を作る（あれば値を入れ直す）: 署名鍵 2 つ（3・4 のシークレット）、Mautic の API、開発は MailHog の SMTP と、使われない AWS のダミー（I-21 の SNS のノードは資格情報が必須で、無いと n8n が公開を拒むため。開発は MailHog に送るので SNS のノードは通らない）／本番は AWS（SNS）と、使われない SMTP のダミー（同じ理由。本番は SNS に送るので MailHog のノードは通らない）。
 6. **ワークフロー**を子 → 親の順に取り込む（あれば更新）。資格情報を割り当て、子の呼び出し先を取り込み先の ID に付け替え、タグを付ける。
 7. **子（I-21・I-19）を公開する**。親（I-11・I-12）は `--publish` を付けたときだけ公開する。I-18 は公開しない。
 
@@ -69,7 +69,7 @@ await provision({ target: "dev", conf: buildConf("dev", values), publish: false,
 | `MAUTIC_CLIENT_ID`・`MAUTIC_CLIENT_SECRET` | 状態か `dev.conf` の同名のキー（無ければ、n8n モジュールが画面での作成を案内して止まる） |
 | `CHATWOOT_API_ACCESS_TOKEN` | 状態の `CHATWOOT_ADMIN_TOKEN`（chatwoot モジュールが作る管理者のトークン） |
 | `CHATWOOT_ACCOUNT_ID` | 状態の `CHATWOOT_ACCOUNT_ID`（chatwoot モジュール） |
-| `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY`・`AWS_REGION`・`SNS_TOPIC_ARN_LEAD`・`SNS_TOPIC_ARN_OPS` | 開発環境では使わない（SNS は本番だけ。開発は MailHog）。`dev.conf` に書いてあれば渡すが、`--target dev` は読まない |
+| `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY`・`AWS_REGION`・`SNS_TOPIC_ARN_LEAD`・`SNS_TOPIC_ARN_OPS` | 開発環境では使わない（SNS は本番だけ。開発は MailHog）。`--target dev` で AWS のキーがあれば `AWS SNS 発行（アクセスキー）` に入れ、無ければダミーで作る（既にあれば触らない）。SNS のトピックの ARN は読まない |
 | `--publish` | `dev.conf` の `N8N_PUBLISH_PARENTS=true`（既定は親を公開しない） |
 
 ## 本番（`--target prod`）

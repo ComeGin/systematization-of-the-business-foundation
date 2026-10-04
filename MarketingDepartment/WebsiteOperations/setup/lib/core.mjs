@@ -135,6 +135,7 @@ export function writeEnvFile(path, values, { template, onlyIfEmpty = true } = {}
     const idx = lines.findIndex((l) => new RegExp(`^\\s*#?\\s*${key}\\s*=`).test(l));
     const current = idx >= 0 && !/^\s*#/.test(lines[idx]) ? parseKeyValue(lines[idx])[key] : undefined;
     if (onlyIfEmpty && current) continue;
+    if (current === String(value)) continue; // 同じ値なら書かない（「書き換えた」と数えない）
     const line = `${key}=${value}`;
     if (idx >= 0) lines[idx] = line;
     else lines.push(line);

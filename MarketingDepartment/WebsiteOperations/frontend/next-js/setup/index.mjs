@@ -1,16 +1,17 @@
-// 監視アプリ（next-js + control-plane）の設定。環境変数ファイル → pnpm install → 最初の管理者の作成。
-// 出典: frontend/next-js/README.md（起動・環境変数・/setup）、dev/init-env.sh（BETTER_AUTH_SECRET の生成。冪等）、
-//       frontend/next-js/lib/auth.ts（メールとパスワード・最小 12 文字・ユーザーが 1 人でもいれば新規登録は拒否）、
-//       app/setup/page.tsx（ユーザー 0 人のときだけ 200、それ以外は /login へ 307）、components/AuthForm.tsx（signUp.email）、
-//       node_modules/better-auth の dist/api/routes/sign-up.mjs・origin-check.mjs（POST /api/auth/sign-up/email と Origin の検査）。
-// 監視アプリの起動（127.0.0.1:3200）は常駐なので、ここでは行わない。管理者の作成だけは起動中の監視アプリの HTTP API を使う。
+// 監視アプリ（next-js + control-plane）の設定。環境変数ファイル → pnpm install → Google ログインの設定の確認。
+// 出典: frontend/next-js/README.md（起動・環境変数）、dev/init-env.sh（BETTER_AUTH_SECRET の生成。冪等）、
+//       frontend/next-js/lib/auth.ts（Google だけ。hd・email_verified・許可リスト CONTROL_ADMIN_EMAILS の 3 段。ADR-23）、
+//       node_modules/better-auth の dist/api/routes/sign-in.mjs（POST /api/auth/sign-in/social が Google の認可 URL を返す）・
+//       dist/api/middlewares/origin-check.mjs（Origin は BETTER_AUTH_URL と同じオリジンでないと 403）。
+// 監視アプリの起動（127.0.0.1:3200）は常駐なので、ここでは行わない。ログインは人がブラウザで Google を通して行う（ユーザーはそのとき作られる）。
+// 要求は常に手元（127.0.0.1:3200）へ送り、Origin だけを BETTER_AUTH_URL（開発では ngrok の URL のこともある）のオリジンにする。
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-export const meta = { id: "next-js", title: "監視アプリ（環境変数・導入・最初の管理者）", targets: ["dev"], after: ["control-plane", "chatwoot-mcp", "mautic-mcp"] };
+export const meta = { id: "next-js", title: "監視アプリ（環境変数・導入・Google ログイン）", targets: ["dev"], after: ["control-plane", "chatwoot-mcp", "mautic-mcp"] };
 
-const MIN_PASSWORD_LENGTH = 12;
-const DEFAULT_URL = "http://127.0.0.1:3200";
+const LOCAL_URL = "http://127.0.0.1:3200";
+const DEFAULT_HOSTED_DOMAIN = "comegin.com";
 const REGISTRY = "MarketingDepartment/WebsiteOperations/ops/mcp-registry.yaml";
 
 // 設定（~/.config/comegin/setup/dev.conf）にあれば環境変数ファイルに書く任意の値。
@@ -20,6 +21,7 @@ const OPTIONAL_KEYS = [
   "GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_BASE_BRANCH", "I13_ISSUE_NUMBER", "I13_REVIEWER",
   "AWS_REGION", "AWS_PROFILE", "RUNLOG_BUCKET", "HEARTBEAT_NAMESPACE",
   "MISWRITE_CHATWOOT_BASE_URL", "MISWRITE_CHATWOOT_ACCOUNT_ID", "MISWRITE_CHATWOOT_API_TOKEN", "MISWRITE_AGENT_USER_ID",
+  "GOOGLE_HOSTED_DOMAIN",
 ];
 // 「1 つでも設定したら全部必須」のグループ（backend/control-plane の .env.example）
 const GROUPS = {
@@ -32,6 +34,19 @@ const dirOf = (ctx) => join(ctx.W, "frontend/next-js");
 const planeDirOf = (ctx) => join(ctx.W, "backend/control-plane");
 const envPathOf = (ctx) => join(dirOf(ctx), ".env");
 
+/** ブラウザで開く URL（= BETTER_AUTH_URL）。末尾の / は落とす。以前の既定（localhost:3000。Umami と衝突）は 3200 とみなす */
+function publicUrlOf(env) {
+  const raw = (env.BETTER_AUTH_URL || LOCAL_URL).replace(/\/+$/, "");
+  return raw === "http://localhost:3000" ? LOCAL_URL : raw;
+}
+
+/** Google の資格情報。監視アプリ専用（CONTROL_GOOGLE_*）を優先し、無ければ admin-auth と共用の GOOGLE_* を使う */
+function googleFromConf(ctx) {
+  const id = ctx.conf.CONTROL_GOOGLE_CLIENT_ID || ctx.conf.GOOGLE_CLIENT_ID;
+  const secret = ctx.conf.CONTROL_GOOGLE_CLIENT_SECRET || ctx.conf.GOOGLE_CLIENT_SECRET;
+  return id && secret ? { GOOGLE_CLIENT_ID: id, GOOGLE_CLIENT_SECRET: secret } : null;
+}
+
 async function ensureTooling(ctx) {
   let v;
   try {
@@ -43,25 +58,46 @@ async function ensureTooling(ctx) {
   if (Number(v.split(".")[0]) < 11) throw new Error(`pnpm ${v} は古い。pnpm 11 以上が要る（供給網対策の設定が pnpm 11 未満では効かない）`);
 }
 
-/** /setup の応答から、監視アプリの状態を読む。open = 管理者がまだいない、closed = 作成済み、down = 起動していない */
-async function probe(ctx, baseUrl) {
+/** 手元の監視アプリが動いているか（/login が 200）。down = 起動していない */
+async function probe(ctx) {
   let res;
   try {
     // 開発サーバーは初回の要求でコンパイルするため、待ちを長めにする
-    res = await ctx.http("監視アプリ", `${baseUrl}/setup`, { raw: true, timeoutMs: 90_000, headers: { Accept: "text/html" } });
+    res = await ctx.http("監視アプリ", `${LOCAL_URL}/login`, { raw: true, timeoutMs: 90_000, headers: { Accept: "text/html" } });
   } catch (e) {
     if (e.status === 0) return "down";
     throw e;
   }
   await res.body?.cancel();
-  if (res.status === 200) return "open";
-  if (res.status >= 300 && res.status < 400) return "closed";
-  throw new Error(`監視アプリの /setup が HTTP ${res.status} を返した。別のサービスが ${baseUrl} に応答している可能性がある（3000 は Umami）。監視アプリなら dev サーバーのログを見る（control-plane の設定不正は画面に出るが、ログイン用 DB を開けないと 500 になる）`);
+  if (res.status === 200 || (res.status >= 300 && res.status < 400)) return "up";
+  throw new Error(`監視アプリの /login が HTTP ${res.status} を返した。dev サーバーのログを見る（control-plane の設定不正は画面に出るが、ログイン用 DB を開けないと 500 になる）`);
 }
 
-async function signIn(ctx, baseUrl, email, password) {
-  // Origin は trustedOrigins（BETTER_AUTH_URL）と同じにする。Better Auth の検査は Origin が違うと 403
-  await ctx.http("監視アプリのログイン確認", `${baseUrl}/api/auth/sign-in/email`, { method: "POST", headers: { Origin: baseUrl }, json: { email, password } });
+/**
+ * 起動中の監視アプリが Google ログインを始められるか。POST /api/auth/sign-in/social が返す Google の認可 URL を読み、
+ * hd（Workspace のドメイン）とリダイレクト URI（<BETTER_AUTH_URL>/api/auth/callback/google）を確かめる。ログインそのものはしない
+ */
+async function verifyGoogle(ctx, publicUrl, domain) {
+  let body;
+  try {
+    body = await ctx.http("監視アプリの Google ログインの確認", `${LOCAL_URL}/api/auth/sign-in/social`, {
+      method: "POST",
+      headers: { Origin: new URL(publicUrl).origin },
+      json: { provider: "google", callbackURL: "/", disableRedirect: true },
+    });
+  } catch (e) {
+    if (e.status === 403) throw new Error(`監視アプリが ${new URL(publicUrl).origin} を信頼していない。起動中の dev サーバーが古い BETTER_AUTH_URL を持っている可能性がある（dev サーバーを起動し直す）`);
+    if (e.status === 404 || e.status === 400) return { ok: false, reason: "起動中の dev サーバーが Google の資格情報を読み込んでいない（環境変数を書いた後に dev サーバーを起動し直していない）" };
+    throw e;
+  }
+  if (typeof body?.url !== "string") return { ok: false, reason: "応答に Google の認可 URL が無い" };
+  const url = new URL(body.url);
+  const redirect = url.searchParams.get("redirect_uri");
+  const expected = `${publicUrl}/api/auth/callback/google`;
+  if (url.hostname !== "accounts.google.com") return { ok: false, reason: `認可 URL が Google ではない（${url.hostname}）` };
+  if (url.searchParams.get("hd") !== domain) return { ok: false, reason: `認可 URL の hd が ${domain} ではない` };
+  if (redirect !== expected) return { ok: false, reason: `リダイレクト URI が ${redirect}（期待: ${expected}。BETTER_AUTH_URL とブラウザで開く URL をそろえ、dev サーバーを起動し直す）` };
+  return { ok: true, redirect };
 }
 
 function validateGroups(values) {
@@ -71,6 +107,16 @@ function validateGroups(values) {
       throw new Error(`${label} の設定が中途半端。1 つでも設定したら全部要る（足りないキー: ${keys.filter((k) => !values[k]).join("・")}）。設定ファイルに足すか、全部消す`);
     }
   }
+}
+
+function googleClientSteps(publicUrl) {
+  return [
+    "Google Cloud Console（comegin.com の Workspace の管理者）で、Google Auth Platform → Branding が未設定なら Get started（Audience は Internal）",
+    "Google Auth Platform → Clients → Create Client。Application type は Web application、Name は comegin-control-dev",
+    `Authorized redirect URIs → Add URI に ${publicUrl}/api/auth/callback/google を入れて Create`,
+    "表示されたクライアント ID とシークレットを ~/.config/comegin/setup/dev.conf に CONTROL_GOOGLE_CLIENT_ID=… と CONTROL_GOOGLE_CLIENT_SECRET=… として書く（chmod 600）。admin-auth と同じクライアントを使うなら、そのクライアントにこのリダイレクト URI を足し、GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET に書いてもよい",
+    "同じコマンドを実行し直す（手順は setup/manual-steps.md の 7.2 にもある）",
+  ];
 }
 
 export async function check(ctx) {
@@ -90,8 +136,8 @@ export async function check(ctx) {
     return { ok: false, notes };
   }
   mark((statSync(envPath).mode & 0o077) === 0, "環境変数ファイルの権限は 600 系", "環境変数ファイルがほかのユーザーにも読める（chmod 600）");
-  const env = ctx.readEnvFile(envPath); // 表示するのはキー名だけ。値は出さない
-  const need = ["BETTER_AUTH_SECRET", "CONTROL_MAIN_CHECKOUT", "CONTROL_WORKTREE"];
+  const env = ctx.readEnvFile(envPath); // 表示するのはキー名と URL だけ。秘密値は出さない
+  const need = ["BETTER_AUTH_SECRET", "CONTROL_MAIN_CHECKOUT", "CONTROL_WORKTREE", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "CONTROL_ADMIN_EMAILS"];
   const missing = need.filter((k) => !env[k]);
   mark(missing.length === 0, `環境変数ファイルに ${need.join("・")} がある`, `環境変数ファイルに無いキー: ${missing.join("・")}`);
   if (!env.ANTHROPIC_API_KEY) notes.push("ANTHROPIC_API_KEY が空（エージェントの起動は skipped になる。画面からの手動の指示も動かない）");
@@ -101,20 +147,17 @@ export async function check(ctx) {
     mark(false, "", e.message);
   }
 
-  // 以前の既定（http://localhost:3000）のままだと Umami（3000）に当たる。apply の dev/init-env.sh が 3200 に直す
-  const urlOk = !env.BETTER_AUTH_URL || env.BETTER_AUTH_URL === DEFAULT_URL;
-  mark(urlOk, "BETTER_AUTH_URL は 3200", "BETTER_AUTH_URL が http://127.0.0.1:3200 でない（apply の dev/init-env.sh が、以前の既定のときだけ直す）");
-  const stale = env.BETTER_AUTH_URL === "http://localhost:3000";
-  const baseUrl = urlOk || stale ? DEFAULT_URL : env.BETTER_AUTH_URL.replace(/\/+$/, "");
-  const state = await probe(ctx, baseUrl).catch((e) => {
+  const publicUrl = publicUrlOf(env);
+  notes.push(`ブラウザで開く URL（BETTER_AUTH_URL）: ${publicUrl}`);
+  const state = await probe(ctx).catch((e) => {
     mark(false, "", e.message);
     return null;
   });
-  if (state === "down") mark(false, "", `監視アプリが起動していない（${baseUrl}）。管理者の有無は未確認（cd ${dir} && pnpm dev）`);
-  else if (state === "open") mark(false, "", "最初の管理者がまだいない");
-  else if (state === "closed") {
-    notes.push("最初の管理者は作成済み（新規登録は閉じている）");
-    if (!ctx.state.has("NEXT_ADMIN_PASSWORD")) notes.push("NEXT_ADMIN_PASSWORD が状態に無い（手で作った管理者なら正常）");
+  if (state === "down") mark(false, "", `監視アプリが起動していない（${LOCAL_URL}）。cd ${dir} && pnpm dev`);
+  else if (state === "up") notes.push(`監視アプリは起動している（${LOCAL_URL}）`);
+  if (state === "up" && env.GOOGLE_CLIENT_ID) {
+    const r = await verifyGoogle(ctx, publicUrl, env.GOOGLE_HOSTED_DOMAIN || DEFAULT_HOSTED_DOMAIN).catch((e) => ({ ok: false, reason: e.message }));
+    mark(r.ok, `Google ログインを始められる（リダイレクト URI ${r.redirect}）`, `Google ログインの確認: ${r.reason}`);
   }
   return { ok, notes };
 }
@@ -136,7 +179,7 @@ export async function apply(ctx) {
   if (!main) {
     throw new Error(
       "CONTROL_MAIN_CHECKOUT が無い。承認済み main の別チェックアウト（絶対パス）が要る。エージェント定義と ops/ はここから読む（ADR-18）。" +
-        "例: git worktree add ~/ComeGin/main-checkout main を人が実行し、~/.config/comegin/setup/dev.conf に CONTROL_MAIN_CHECKOUT=<そのパス> と書いて再実行する",
+        "例: git fetch origin && git worktree add --detach ~/ComeGin/main-checkout origin/main（origin/main に ops/mcp-registry.yaml がまだ無いときは、origin/main の代わりにそれを含むブランチ）を人が実行し、~/.config/comegin/setup/dev.conf に CONTROL_MAIN_CHECKOUT=<そのパス> と書いて再実行する（setup/manual-steps.md の 6 節）",
     );
   }
   if (!main.startsWith("/")) throw new Error("CONTROL_MAIN_CHECKOUT は絶対パスにする");
@@ -158,55 +201,47 @@ export async function apply(ctx) {
   if (Object.values(miswrite).every(Boolean)) {
     for (const [k, v] of Object.entries(miswrite)) values[k] ??= String(v);
   }
+  // ログインを許すメール。環境変数ファイルで空なら管理者のメールアドレス（設定で明示したときは下の override で書き換える）
+  values.CONTROL_ADMIN_EMAILS = ctx.require("ADMIN_EMAIL", "~/.config/comegin/setup/dev.conf に ADMIN_EMAIL=<管理者のメールアドレス> を書く");
   validateGroups({ ...env, ...values });
 
   const changed = ctx.writeEnvFile(envPath, values, { template: join(dir, ".env.example") });
+  // 設定で明示した値は、既にある値より優先して書き換える（ブラウザで開く URL・Google の資格情報・許可リスト）
+  const override = { ...(googleFromConf(ctx) ?? {}) };
+  if (ctx.conf.CONTROL_ADMIN_EMAILS) override.CONTROL_ADMIN_EMAILS = ctx.conf.CONTROL_ADMIN_EMAILS;
+  if (ctx.conf.CONTROL_PUBLIC_URL) override.BETTER_AUTH_URL = ctx.conf.CONTROL_PUBLIC_URL.replace(/\/+$/, "");
+  changed.push(...ctx.writeEnvFile(envPath, override, { onlyIfEmpty: false }));
   ctx.log(`${envPath} を用意した（600。今回書いたキー: ${changed.join("・") || "なし"}）`);
-  if (!ctx.readEnvFile(envPath).ANTHROPIC_API_KEY) ctx.warn("ANTHROPIC_API_KEY が空。エージェントの起動は skipped になる。使うなら設定ファイルに ANTHROPIC_API_KEY を書いて再実行する");
+
+  const written = ctx.readEnvFile(envPath);
+  const publicUrl = publicUrlOf(written);
+  const domain = written.GOOGLE_HOSTED_DOMAIN || DEFAULT_HOSTED_DOMAIN;
+  if (!written.ANTHROPIC_API_KEY) ctx.warn("ANTHROPIC_API_KEY が空。エージェントの起動は skipped になる。使うなら設定ファイルに ANTHROPIC_API_KEY を書いて再実行する");
+  const outside = written.CONTROL_ADMIN_EMAILS.split(",").map((s) => s.trim()).filter((s) => s && !s.toLowerCase().endsWith(`@${domain}`));
+  if (outside.length) ctx.warn(`許可リストに ${domain} 以外のメールがある（${outside.length} 件）。Google の hd の検査で通らない`);
 
   // 2. 依存の導入（control-plane は link: で dist/ を読む）
   ctx.log("pnpm install（lockfile 固定）");
   await ctx.run("pnpm", ["install", "--frozen-lockfile"], { cwd: dir });
 
-  // 3. 最初の管理者。起動中の監視アプリの /api/auth/sign-up/email を呼ぶ（DB を直接書かない）
-  const baseUrl = (ctx.readEnvFile(envPath).BETTER_AUTH_URL || DEFAULT_URL).replace(/\/+$/, "");
-  const email = ctx.require("ADMIN_EMAIL", "~/.config/comegin/setup/dev.conf に ADMIN_EMAIL=<管理者のメールアドレス> を書く");
-  const state = await probe(ctx, baseUrl);
-
-  if (state === "down") {
-    ctx.manual("start-app", `監視アプリを起動する（${baseUrl}）`, [
-      `別のターミナルで起動する: cd ${dir} && pnpm dev（127.0.0.1:3200 にだけ開く。常駐させるのでこのスクリプトは起動しない）`,
-      "初回は画面のコンパイルに時間がかかる。Ready と出たら次へ",
-      "control-plane の設定が不正でもサーバーは起動し、画面に原因（変数名と理由だけ）を出す",
-      "同じコマンドを実行し直す（最初の管理者を作る。環境変数や依存は済んでいるので飛ばされる）",
-    ]);
+  // 3. Google ログイン。資格情報（OAuth クライアント）は人が Google Cloud Console で作る
+  if (!written.GOOGLE_CLIENT_ID || !written.GOOGLE_CLIENT_SECRET) {
+    ctx.manual("google-client", "監視アプリの Google ログイン用の OAuth クライアントを作る", googleClientSteps(publicUrl));
   }
 
-  if (state === "open") {
-    const password = ctx.value("NEXT_ADMIN_PASSWORD") || ctx.randomSecret(24);
-    if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`NEXT_ADMIN_PASSWORD は ${MIN_PASSWORD_LENGTH} 文字以上にする（監視アプリの minPasswordLength）`);
-    // 作る前に状態へ置く。途中で止まっても、作られたパスワードを失わない
-    ctx.state.set("NEXT_ADMIN_PASSWORD", password, { secret: true });
-    await ctx.http("監視アプリの最初の管理者の作成", `${baseUrl}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers: { Origin: baseUrl },
-      json: { name: ctx.conf.NEXT_ADMIN_NAME || "管理者", email, password },
-    });
-    await signIn(ctx, baseUrl, email, password);
-    ctx.log(`最初の管理者（${email}）を作り、ログインできることを確かめた。以後は新規登録が閉じる`);
-    ctx.log("パスワードは状態に置いた。見るとき: node setup/setup.mjs --target dev --show NEXT_ADMIN_PASSWORD");
-  } else if (ctx.state.has("NEXT_ADMIN_PASSWORD")) {
-    try {
-      await signIn(ctx, baseUrl, email, ctx.state.get("NEXT_ADMIN_PASSWORD"));
-      ctx.log("最初の管理者は作成済みで、状態のパスワードでログインできる");
-    } catch (e) {
-      if (e.status === 401) throw new Error(`管理者は作成済みだが、状態の NEXT_ADMIN_PASSWORD と ADMIN_EMAIL（${email}）でログインできない。手でパスワードやメールを変えたなら、状態を合わせる（監視アプリには新規登録の口が無い）`);
-      throw e;
-    }
-  } else {
-    ctx.warn("最初の管理者は作成済みだが、このスクリプトが作ったものではない（NEXT_ADMIN_PASSWORD が状態に無い）。ログインは手で作ったパスワードで行う");
+  const startSteps = (why) => [
+    `${why}: 別のターミナルで cd ${dir} && pnpm dev（127.0.0.1:3200 にだけ開く。常駐させるのでこのスクリプトは起動しない。動いていれば Ctrl+C で止めてから起動し直す）`,
+    "初回は画面のコンパイルに時間がかかる。Ready と出たら次へ",
+    "同じコマンドを実行し直す（環境変数や依存は済んでいるので飛ばされる）",
+  ];
+  if ((await probe(ctx)) === "down") ctx.manual("start-app", `監視アプリを起動する（${LOCAL_URL}）`, startSteps("起動する"));
+  const google = await verifyGoogle(ctx, publicUrl, domain);
+  if (!google.ok) {
+    if (changed.length > 0) ctx.manual("restart-app", "監視アプリを起動し直す（環境変数を書き換えたため）", startSteps(`起動し直す（${google.reason}）`));
+    throw new Error(`監視アプリの Google ログインを始められない: ${google.reason}`);
   }
-
-  if (changed.length > 0) ctx.warn("環境変数を書き換えた。起動中の dev サーバーは再起動しないと反映されない");
-  ctx.log(`ログイン: ${baseUrl}/login（127.0.0.1 だけ）。起動: cd ${dir} && pnpm dev。定期実行は CONTROL_SCHEDULER_ENABLED=false のまま（手動の起動・ハートビート・写しの再送は動く）`);
+  ctx.log(`Google ログインを始められることを確かめた（hd ${domain}、リダイレクト URI ${google.redirect}）`);
+  if (changed.length > 0) ctx.warn("環境変数を書き換えた。起動中の dev サーバーが古い値で動いていないか、ログインで確かめる（おかしければ起動し直す）");
+  ctx.log(`ログイン: ${publicUrl}/login を開き「Google でログイン」。通るのは ${domain} のアカウントで、CONTROL_ADMIN_EMAILS にあるメールだけ（ユーザーは初回のログインで作られる）`);
+  ctx.log("定期実行は CONTROL_SCHEDULER_ENABLED=false のまま（手動の起動・ハートビート・写しの再送は動く）");
 }

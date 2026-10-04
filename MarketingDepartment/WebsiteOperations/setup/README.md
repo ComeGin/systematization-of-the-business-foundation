@@ -49,7 +49,7 @@ node setup/setup.mjs --target dev
 | `chatwoot-mcp` | `backend/chatwoot-mcp/setup/` | `pnpm install`・`pnpm build`・トークンの確認 → `chatwoot-dev.env` | なし |
 | `mautic-mcp` | `backend/mautic-mcp/setup/` | `pnpm install`・`pnpm build`・資格情報の確認 → `mautic-dev.env` | なし（資格情報が無ければ失敗。mautic を先に） |
 | `control-plane` | `backend/control-plane/setup/` | Node と pnpm の版の確認・`pnpm install`・`pnpm build`・E-15 の置き場（700） | なし |
-| `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・`pnpm install`・最初の管理者（ログインまで確認） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／監視アプリの起動（別の端末で `pnpm dev`） |
+| `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・Google の資格情報と許可リスト（`CONTROL_ADMIN_EMAILS`）・`pnpm install`・Google ログインを始められるかの確認（認可 URL の `hd` とリダイレクト URI） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／**Google の OAuth クライアントの作成**／監視アプリの起動・起動し直し（別の端末で `pnpm dev`） |
 | `onprem` | `onprem/setup/`（prod だけ） | 読むだけの確認（wg0・systemd・待ち受け） | 本番の立ち上げ手順の案内（枠だけ） |
 
 ## 画面での操作（このスクリプトでは自動にできないもの）
@@ -75,7 +75,6 @@ node setup/setup.mjs --target dev
 | `UMAMI_ADMIN_PASSWORD`✔・`UMAMI_API_KEY`✔・`UMAMI_WEBSITE_ID` | umami | 管理者のログイン（ユーザー名 `admin`）／MCP／公開サイトの計測タグ |
 | `STRAPI_ADMIN_PASSWORD`✔・`STRAPI_DEV_TOKEN`✔・`STRAPI_BUILD_TOKEN`✔ | strapi | 管理者のログイン／strapi-mcp／Astro のビルド |
 | `N8N_OWNER_PASSWORD`✔・`N8N_API_KEY`✔・`N8N_DEV_TOKEN`✔ | n8n | オーナーのログイン／provision／n8n の MCP |
-| `NEXT_ADMIN_PASSWORD`✔ | next-js | 監視アプリ（http://127.0.0.1:3200/login） |
 
 管理者のメールアドレスはすべて `ADMIN_EMAIL`（Chatwoot のエージェント専用ユーザーだけは `+ai-agent` 付き）。
 

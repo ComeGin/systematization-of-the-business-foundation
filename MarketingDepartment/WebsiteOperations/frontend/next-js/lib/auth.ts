@@ -1,6 +1,10 @@
-// 監視アプリのログイン（Better Auth）。メールとパスワード。
+// 監視アプリのログイン（Better Auth）。Google（Workspace）だけ。メールとパスワードのログインは持たない（ADR-23）。
 // DB は CONTROL_DATA_DIR/auth.sqlite（E-15 の e15.sqlite とは別のファイル）。
-// 最初の管理者を作ったら新規登録を閉じる（ユーザーが 1 人でもいれば、サインアップは拒否される）。
+//
+// 開発では ngrok で外に出す（ADR-23）ため、通す条件を 3 段にしてある（backend/admin-auth/src/auth.ts と同じ考え方）。どれか 1 つが漏れても通らない。
+//  1. Google プロバイダーの hd（ライブラリが ID トークンの hd クレームを検査する。hd が無いトークンは拒否）
+//  2. mapProfileToUser（Google の profile の hd と email_verified を、このアプリが自前で検査する）
+//  3. databaseHooks（メールが Workspace のドメインで、許可リスト CONTROL_ADMIN_EMAILS にあるときだけ、ユーザーとセッションを作る）
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
@@ -8,28 +12,91 @@ import { nextCookies } from "better-auth/next-js";
 import { openAuthDatabase, resolveDataDir } from "control-plane";
 
 const DEFAULT_URL = "http://127.0.0.1:3200";
+const DEFAULT_HOSTED_DOMAIN = "comegin.com";
+const LOGIN_REFUSED_MESSAGE = "このアカウントでは監視アプリにログインできません";
+
+/** 許可リスト（カンマ区切りのメールアドレス。小文字で比べる）。空ならだれも通さない */
+function allowlist(): Set<string> {
+  return new Set(
+    (process.env.CONTROL_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/** Google の資格情報が入っているか。無ければログインの画面に案内を出す（ログインはできない） */
+export function isGoogleConfigured(): boolean {
+  return Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim());
+}
 
 function create() {
   // node:sqlite を直接 import しない（開く処理は control-plane 側）
   const db = openAuthDatabase(resolveDataDir());
   const baseURL = process.env.BETTER_AUTH_URL?.trim() || DEFAULT_URL;
+  const domain = process.env.GOOGLE_HOSTED_DOMAIN?.trim() || DEFAULT_HOSTED_DOMAIN;
+
+  const refuse = (reason: string): never => {
+    // メールアドレスは記録しない（理由の種類だけ）
+    console.error(`[auth] login refused: ${reason}`);
+    throw new APIError("FORBIDDEN", { message: LOGIN_REFUSED_MESSAGE });
+  };
+  const assertAdminEmail = (email: string | null | undefined): void => {
+    if (!email) return refuse("no email");
+    const lower = email.toLowerCase();
+    if (!lower.endsWith(`@${domain}`)) return refuse("email is outside the workspace domain");
+    if (!allowlist().has(lower)) return refuse("email is not on the allowlist");
+  };
+
   const auth = betterAuth({
     database: db,
     baseURL,
-    // 127.0.0.1 と localhost のどちらで開いても、同じオリジンとして扱う
+    // 127.0.0.1 と localhost のどちらで開いても、同じオリジンとして扱う（ngrok の URL のときは置き換えが起きず、その URL だけ）
     trustedOrigins: [baseURL, baseURL.replace("127.0.0.1", "localhost")],
-    emailAndPassword: { enabled: true, minPasswordLength: 12 },
-    // スキーマは ensureAuthSchema() で自分で作る。作る前の起動時検査が「テーブルが無い」と誤報するのを止める
-    advanced: { database: { validateSchema: false } },
+    emailAndPassword: { enabled: false },
+    socialProviders: isGoogleConfigured()
+      ? {
+          google: {
+            clientId: process.env.GOOGLE_CLIENT_ID!.trim(),
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
+            hd: domain,
+            prompt: "select_account" as const,
+            mapProfileToUser: (profile: { hd?: string; email_verified?: boolean }) => {
+              if (profile.hd !== domain) refuse("hd claim does not match");
+              if (profile.email_verified !== true) refuse("email is not verified");
+              return {};
+            },
+          },
+        }
+      : {},
+    // 以前のメールとパスワードのユーザー（同じメール）がいれば、Google のアカウントをそこにつなぐ
+    account: { encryptOAuthTokens: true, accountLinking: { enabled: true, trustedProviders: ["google"] } },
+    // ログインに失敗したときの行き先（?error=… を付けて戻る。Better Auth の既定のエラーページは使わない）
+    onAPIError: { errorURL: "/login" },
+    // ngrok で外に出すので、開発でも回数の制限をかける（Better Auth の既定は本番だけ）
+    rateLimit: { enabled: true, window: 60, max: 100, customRules: { "/sign-in/social": { window: 60, max: 10 } } },
+    advanced: {
+      // スキーマは ensureAuthSchema() で自分で作る。作る前の起動時検査が「テーブルが無い」と誤報するのを止める
+      database: { validateSchema: false },
+      // ngrok の配下では送信元 IP が X-Forwarded-For に入る（回数の制限の単位）
+      ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
+    },
     databaseHooks: {
       user: {
         create: {
           before: async (user) => {
-            const row = db.prepare('SELECT count(*) AS n FROM "user"').get() as { n: number };
-            if (row.n > 0) {
-              throw new APIError("FORBIDDEN", { message: "新規登録は閉じています" });
-            }
+            assertAdminEmail(user.email);
             return { data: user };
+          },
+        },
+      },
+      session: {
+        create: {
+          // 許可リストから外された人は、既存のユーザーでも新しいセッションを作れない。DB のユーザーの行からメールを引く
+          before: async (session) => {
+            const row = db.prepare('SELECT email FROM "user" WHERE id = ?').get(session.userId) as { email?: string } | undefined;
+            assertAdminEmail(row?.email);
+            return { data: session };
           },
         },
       },
@@ -64,11 +131,4 @@ export function ensureAuthSchema(): Promise<void> {
     throw error;
   });
   return globalThis.__comeginAuthSchema;
-}
-
-/** 登録済みのユーザー数。0 のときだけ /setup（最初の管理者の作成）を開く。 */
-export async function countUsers(): Promise<number> {
-  await ensureAuthSchema();
-  const row = instance().db.prepare('SELECT count(*) AS n FROM "user"').get() as { n: number };
-  return row.n;
 }

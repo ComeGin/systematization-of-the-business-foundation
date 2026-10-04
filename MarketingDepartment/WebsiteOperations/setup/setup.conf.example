@@ -6,7 +6,7 @@
 #   cp setup/setup.conf.example ~/.config/comegin/setup/dev.conf && chmod 600 ~/.config/comegin/setup/dev.conf
 
 # ---- 必須 ----
-# 各製品（Chatwoot・Mautic・Umami・Strapi・n8n・監視アプリ）の最初の管理者のメールアドレス
+# 各製品（Chatwoot・Mautic・Umami・Strapi・n8n）の最初の管理者のメールアドレス。監視アプリのログインの許可リストの既定にもなる
 ADMIN_EMAIL=
 
 # ---- 途中で画面の操作をしてから書くもの（スクリプトが止まって案内する） ----
@@ -48,9 +48,14 @@ STRAPI_DEV_TOKEN_SCOPE=
 CONTROL_MAIN_CHECKOUT=
 # エージェントを動かすときだけ要る（任意。空なら監視アプリは起動するがエージェントの実行は失敗として記録される）
 ANTHROPIC_API_KEY=
-# 最初の管理者の表示名（任意。既定は「管理者」）。パスワードは空ならスクリプトが生成して状態に置く（--show NEXT_ADMIN_PASSWORD）
-NEXT_ADMIN_NAME=
-NEXT_ADMIN_PASSWORD=
+# 監視アプリの Google ログイン（必須。ADR-23）。OAuth クライアントの作り方は setup/manual-steps.md の 7.2。
+# 空なら下の GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET（admin-auth と共用。そのクライアントに監視アプリのリダイレクト URI も足す）を使う
+CONTROL_GOOGLE_CLIENT_ID=
+CONTROL_GOOGLE_CLIENT_SECRET=
+# ログインを許すメールアドレス（カンマ区切り。既定は ADMIN_EMAIL）。comegin.com の Google アカウントだけが通る
+CONTROL_ADMIN_EMAILS=
+# ブラウザで開く URL（BETTER_AUTH_URL に書く。任意。空なら環境変数ファイルの今の値。ngrok で開くなら https://comegin-next-js-dev.ngrok.app）
+CONTROL_PUBLIC_URL=
 # E-15（実行記録の SQLite）の置き場（任意。既定 ~/.local/share/comegin-control）
 CONTROL_DATA_DIR=
 

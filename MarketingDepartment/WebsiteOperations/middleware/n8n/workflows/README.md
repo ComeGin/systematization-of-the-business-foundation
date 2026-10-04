@@ -152,7 +152,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 
 - [ ] Data Table 5 つ（`dedup_mautic` `dedup_chatwoot` `ops_settings` `monitor_state` `contact_link`）を作り直し、`ops_settings` に行を入れる（JSON に含まれない）
 - [ ] `I-11` `I-12` の「I-21 通知を呼ぶ」「I-19 突合を呼ぶ」ノードで、呼び先のワークフローを選び直す（ワークフロー ID は n8n ごとに違う）
-- [ ] 資格情報を作って各ノードに割り当てる: `MailHog SMTP（開発）`（SMTP）／`Mautic API（client_credentials）`（OAuth2 API）／`Mautic Webhook 署名鍵（Crypto）`／`Chatwoot Webhook 署名鍵（Crypto）`（署名鍵は **Hmac Secret を必ず入れる**）。本番はさらに `AWS SNS 発行（アクセスキー）`
+- [ ] 資格情報を作って各ノードに割り当てる: `MailHog SMTP（開発）`（SMTP）／`Mautic API（client_credentials）`（OAuth2 API）／`Mautic Webhook 署名鍵（Crypto）`／`Chatwoot Webhook 署名鍵（Crypto）`（署名鍵は **Hmac Secret を必ず入れる**）。`AWS SNS 発行（アクセスキー）`（本番は本物のキー。開発は公開の検査を通すためのダミーでよい。provision が作る）
 - [ ] 署名の curl 確認（下記）を済ませてから、**人間（`R1`）が有効化（publish）する**。エージェントは有効化しない。開発の n8n は ngrok で外に出ているため、確認のための公開は Wave 4 でユーザーが立ち会って行い、済んだら戻す
 
 1. **Data Table を作る**（Data Table は Git の外にあり、JSON に含まれない。DD-04 4.3）。スキーマは上の各節のとおり。`ops_settings`（`key` string／`value` string）には次の行を入れる。

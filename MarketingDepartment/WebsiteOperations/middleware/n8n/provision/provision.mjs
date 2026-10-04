@@ -286,7 +286,33 @@ async function ensureDataTables(api, conf, target) {
   log(`  ops_settings: ${Object.keys(settings).join("・")} を設定した`);
 }
 
-async function ensureCredentials(api, conf, target, secrets) {
+/**
+ * 既にある資格情報の値を入れ直す。n8n 2.39.5 の公開 API は PATCH /credentials/{id} に届かない（405 "PATCH method not allowed"）。
+ * 新しい CredentialsPublicController の GET /credentials/:credentialId（テンプレート /credentials/{credentialId}）が、
+ * 既存の /credentials/{id}（PATCH・DELETE）と衝突して先に一致するため（dist/public-api/v1/controllers/credentials.public.controller.js）。
+ * 405 のときは、画面と同じ内部の API（PATCH /rest/credentials/:id。オーナーの cookie）で入れ直す。cookie が無い（CLI 単体）なら入れ直さずに警告する。
+ */
+async function updateCredential(api, conf, id, c, restSession) {
+  try {
+    await api.call(`資格情報 ${c.name} の更新`, `/credentials/${id}`, { method: "PATCH", json: { data: c.data } });
+    return "値を入れ直した";
+  } catch (e) {
+    if (e.status !== 405) throw e;
+  }
+  if (!restSession) {
+    warn(`${c.name}: 値を入れ直せない（n8n の公開 API が資格情報の更新を受け付けない）。既にある値のまま使う。Webhook を作り直したときは n8n の画面で入れ直す`);
+    return "そのまま（入れ直せない）";
+  }
+  const cookie = await restSession();
+  await http(`n8n 資格情報 ${c.name} の更新（内部 API）`, `${conf.N8N_BASE_URL}/rest/credentials/${id}`, {
+    method: "PATCH",
+    headers: { Cookie: cookie },
+    json: { name: c.name, type: c.type, data: c.data },
+  });
+  return "値を入れ直した（内部 API）";
+}
+
+async function ensureCredentials(api, conf, target, secrets, restSession) {
   step("資格情報");
   const existing = await api.listAll("資格情報の一覧", "/credentials");
   const wanted = [
@@ -305,17 +331,37 @@ async function ensureCredentials(api, conf, target, secrets) {
       },
     },
   ];
-  if (target === "dev") wanted.push({ name: CRED.smtp, type: "smtp", data: { host: conf.SMTP_HOST, port: Number(conf.SMTP_PORT), secure: false, user: "", password: "" } });
-  if (target === "prod") wanted.push({ name: CRED.aws, type: "aws", data: { region: conf.AWS_REGION, accessKeyId: conf.AWS_ACCESS_KEY_ID, secretAccessKey: conf.AWS_SECRET_ACCESS_KEY } });
+  if (target === "dev") {
+    wanted.push({ name: CRED.smtp, type: "smtp", data: { host: conf.SMTP_HOST, port: Number(conf.SMTP_PORT), secure: false, user: "", password: "" } });
+    // I-21 の「SNS に発行」は aws の資格情報が必須で、無いと n8n が公開を拒む（2.39.5: "Missing required credential: aws"）。
+    // 開発は notifyBackend=smtp で SNS のノードを通らないため、使われないダミーを置く。設定に AWS のキーがあれば、それを使う。
+    // 既にある同名の資格情報（人が本物を入れたもの）は、ダミーで上書きしない
+    const real = Boolean(conf.AWS_ACCESS_KEY_ID && conf.AWS_SECRET_ACCESS_KEY);
+    wanted.push({
+      name: CRED.aws,
+      type: "aws",
+      keepExisting: !real,
+      data: real
+        ? { region: conf.AWS_REGION || "ap-northeast-1", accessKeyId: conf.AWS_ACCESS_KEY_ID, secretAccessKey: conf.AWS_SECRET_ACCESS_KEY }
+        : { region: "ap-northeast-1", accessKeyId: "DEV-PLACEHOLDER-NOT-USED", secretAccessKey: "dev-placeholder-not-used" },
+    });
+  }
+  if (target === "prod") {
+    wanted.push({ name: CRED.aws, type: "aws", data: { region: conf.AWS_REGION, accessKeyId: conf.AWS_ACCESS_KEY_ID, secretAccessKey: conf.AWS_SECRET_ACCESS_KEY } });
+    // 上の開発のダミーと対称。I-21 の「MailHog に送る」も smtp の資格情報が必須なので、本番では使われないダミーを置く（notifyBackend=sns なら通らない）
+    wanted.push({ name: CRED.smtp, type: "smtp", keepExisting: true, data: { host: "127.0.0.1", port: 1025, secure: false, user: "", password: "" } });
+  }
 
   const ids = {};
-  for (const c of wanted) {
+  for (const { keepExisting, ...c } of wanted) {
     if (!c.data.hmacSecret && c.type === "crypto") fail(`${c.name} に入れるシークレットが空（Webhook の作成に失敗している）`);
     const found = existing.find((e) => e.name === c.name && e.type === c.type);
-    if (found) {
-      await api.call(`資格情報 ${c.name} の更新`, `/credentials/${found.id}`, { method: "PATCH", json: { data: c.data } });
+    if (found && keepExisting) {
       ids[c.name] = found.id;
-      log(`  ${c.name}: 値を入れ直した`);
+      log(`  ${c.name}: そのまま（開発では使わない）`);
+    } else if (found) {
+      ids[c.name] = found.id;
+      log(`  ${c.name}: ${await updateCredential(api, conf, found.id, c, restSession)}`);
     } else {
       const created = await api.call(`資格情報 ${c.name} の作成`, "/credentials", { method: "POST", json: c });
       ids[c.name] = created.id;
@@ -349,7 +395,7 @@ async function ensureWorkflows(api, credIds, publishParents) {
     const src = JSON.parse(readFileSync(join(WORKFLOWS_DIR, def.file), "utf8"));
     const nodes = src.nodes.map((node) => {
       const n = structuredClone(node);
-      // 資格情報は名前で JSON に入っている。取り込み先の ID を付ける（無いもの〈開発の SNS など〉は外す）
+      // 資格情報は名前で JSON に入っている。取り込み先の ID を付ける（無いものは外す。ただし必須の資格情報を外すと n8n が公開を拒むので、開発の SNS はダミーを作ってある）
       if (n.credentials) {
         for (const [key, ref] of Object.entries(n.credentials)) {
           const id = credIds[ref?.name];
@@ -495,11 +541,12 @@ async function check(conf) {
 
 /**
  * 本体。CLI と setup の n8n モジュールの両方から呼ぶ。
- * @param {{ target: "dev"|"prod", conf: object, publish?: boolean, checkOnly?: boolean, io?: { log: Function, warn: Function } }} opts
+ * @param {{ target: "dev"|"prod", conf: object, publish?: boolean, checkOnly?: boolean, io?: { log: Function, warn: Function }, restSession?: () => Promise<string> }} opts
  *   conf は buildConf の戻り値。io を渡すと出力がそちらに行く（秘密値は元から出さない）。
+ *   restSession はオーナーの cookie（n8n-auth=…）を返す関数。資格情報の更新が公開 API で 405 になったとき（n8n 2.39.5）だけ呼ぶ。
  * @returns {Promise<{ workflows: Array<{ name: string, id: string, action: string, published: boolean }> }>}
  */
-export async function provision({ target, conf, publish = false, checkOnly = false, io: out }) {
+export async function provision({ target, conf, publish = false, checkOnly = false, io: out, restSession }) {
   if (out) io = out;
   if (target === "prod" && publish) warn("本番の親（I-11・I-12）を公開する。本番の公開は R1 の判断で行う（README の「本番」）");
 
@@ -512,7 +559,7 @@ export async function provision({ target, conf, publish = false, checkOnly = fal
   await check(conf);
   await ensureDataTables(api, conf, target);
   const secrets = { mautic: await ensureMauticWebhook(conf), chatwoot: await ensureChatwootWebhook(conf) };
-  const credIds = await ensureCredentials(api, conf, target, secrets);
+  const credIds = await ensureCredentials(api, conf, target, secrets, restSession);
   const workflows = await ensureWorkflows(api, credIds, publish);
 
   log("\n✓ 終わった");

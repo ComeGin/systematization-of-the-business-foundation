@@ -1076,6 +1076,41 @@ ADR-18 の帰結に残した 3 つの論点を、同日に決めた。
 
 保護をかける場合の手段（Traffic Policy の `oauth` アクションで Google にログインさせ、`comegin.com` のメールだけを通す、または `restrict-ips` で IP を絞る）は、ngrok の設定だけで足せる。
 
+## ADR-23 開発環境の監視アプリを ngrok で公開し、ログインを Google（Workspace）だけにする（リスク受容）
+
+**状態: `決定済み`（リスク受容）**（ユーザーの 2026-10-05 の決定。**TA-07 と `.claude/CLAUDE.md` のポート表の「監視アプリは `127.0.0.1` にバインドし、トンネルを張らない」に対する例外**。ADR-22 の対象〈製品の 5 つ〉には監視アプリを入れていなかったので、別の決定にする）
+
+### 文脈
+
+- 監視アプリ（`frontend/next-js` ＋ `backend/control-plane`。3200）が、ngrok の固定ドメイン（`https://comegin-next-js-dev.ngrok.app`）で公開されている。
+- 監視アプリは、**エージェントを起動でき**（エージェントは MCP の登録表のツールを使う。ADR-17）、**Anthropic の API キー**と **`E-15`（実行の記録）** を持つ。ADR-22 の製品の管理画面より、乗っ取られたときの影響が大きい。
+- それまでのログインはメールとパスワードで、ユーザーが 0 人のあいだは `/setup` から**だれでも最初の管理者を作れた**。公開すると、先に作った人が監視アプリを持つことになる。
+
+### 決定
+
+1. **開発環境の監視アプリは ngrok で公開してよい。** 開発サーバーは引き続き `127.0.0.1:3200` にだけバインドし、外からは ngrok のトンネルだけを通る。`BETTER_AUTH_URL` はブラウザで開く URL（ngrok の URL）にし、`next.config.ts` がそのホストを `allowedDevOrigins` に入れる。
+2. **ログインは Google（Workspace）だけにし、メールとパスワードのログインと `/setup` を廃止する。** 通す条件は admin-auth（ADR-13）と同じ 3 段で、どれか 1 つが漏れても通らない。
+   1. Better Auth の Google プロバイダーの `hd`（ライブラリが ID トークンの `hd` クレームを検査する。`hd` が無いトークンは拒否）
+   2. `mapProfileToUser`（Google の profile の `hd` と `email_verified` を、監視アプリが自前で検査する）
+   3. `databaseHooks`（メールが Workspace のドメインで、**許可リスト `CONTROL_ADMIN_EMAILS`**〈環境変数。既定は設定スクリプトの `ADMIN_EMAIL`〉にあるときだけ、ユーザーとセッションを作る。外された人は既存のユーザーでも新しいセッションを作れない）
+3. ログインの回数を制限する（Better Auth の `rateLimit`。`/sign-in/social` は 1 分に 10 回。送信元は ngrok が付ける `X-Forwarded-For`）。
+4. 状態を変える API（手動の起動など）は、これまでどおりセッションと同一オリジン（`Origin` と `Host` の一致）の両方を要る（`lib/session.ts`）。
+
+### 帰結（受け入れたリスク）
+
+- **Google のアカウントが乗っ取られると、監視アプリも乗っ取られる。** 監視アプリ自身は MFA を持たない。**Google Workspace の 2 段階認証を組織で必須にする**（admin-auth と同じ前提。TA-04）。
+- **開発サーバー（`next dev`）がインターネットに面する。** 本番のビルドと違い、エラーの詳細やソースマップを返すことがある。秘密値はコードに置かない（環境変数だけ）ので、漏れるのは実装の中身まで。
+- **ログインの前の画面（`/login`）と Better Auth の公開の口（`/api/auth/*`）はだれでも叩ける。** 回数の制限と、上の 3 段の検査で受ける。
+- 監視アプリはオンプレの管制そのもの（ADR-21）で、開発と本番の区別が無い。**この公開を続けたまま、本番の MCP（`*-prod` の env ファイル）と Anthropic の API キーを入れると、上のリスクが本番の書き込みにつながる**（次の再検討の契機）。
+
+### 再検討の契機
+
+- 本番の MCP の資格情報（`ops/mcp-registry.yaml` の `*-prod`）をこのマシンに置き、監視アプリからエージェントを本番に向けて動かし始めるとき（ngrok を閉じる、または Traffic Policy の `oauth` を二重に掛ける）
+- 定期実行（`CONTROL_SCHEDULER_ENABLED=true`）を有効にするとき
+- ngrok の URL への不審なアクセス、または `[auth] login refused` のログが見つかったとき
+
+保護を二重にする手段（ngrok の Traffic Policy の `oauth` アクションで Google にログインさせ、`comegin.com` のメールだけを通す）は、ngrok の設定だけで足せる（ADR-22 と同じ）。
+
 ## 決定の一覧
 
 | ID | 決定 | 状態 | 覆すのに必要な根拠 |
@@ -1102,6 +1137,7 @@ ADR-18 の帰結に残した 3 つの論点を、同日に決めた。
 | **ADR-20** | **マネタイズモデル: 利用者の自前サーバでの採掘（オプトイン。XMRig → unMineable〈SaaS〉で POL〈Polygon〉に変換し ComeGin へ）と、譲渡不可ポイントの付与（thirdweb〈SaaS〉）。AWS では採掘しない。換金は ComeGin のウォレットを経由して国内の取引業者へ。`E-19` は追記だけ＋S3 Object Lock。TA-01 の 8 節を「外部の台帳」に広げ、thirdweb は例外。本システムの完成後に着手し、承認ゲート G-1〜G-3 が前提** | `決定済み`（2026-10-03） | G-1〜G-3 のいずれかが否定的な結論を出すこと。unMineable または thirdweb がサービスを終えること。AWS が `points-api` の利用を規約違反と判断すること |
 | **ADR-21** | **再帰的自己改善の仕組み（Strapi・n8n・監視アプリ・MCP・ビルド）はオンプレ、成果物（Astro・Mautic・Chatwoot・Umami）はクラウド、データの置き場（RDS・ElastiCache・S3）は AWS。`consent-api`・Cal.com・`admin-auth` はクラウドに置く例外。オンプレと VPC は小さな EC2 の WireGuard でつなぎ、AWS からオンプレへ届くのは n8n の Webhook だけ** | `決定済み`（2026-10-05） | 開発機の停止による Webhook の欠落が許容できなくなること、または WireGuard の EC2 の運用負担が釣り合わなくなること |
 | **ADR-22** | **開発環境の Mautic・Strapi・Astro・n8n・admin-auth を、保護をかけずに ngrok で公開し続ける（TA-04 の例外。本番には ngrok を使わない）** | **`決定済み`（リスク受容。2026-10-05）** | 開発環境に本番の個人データや本番の資格情報を入れる必要が生じたとき、または不審なアクセスが見つかったとき |
+| **ADR-23** | **開発環境の監視アプリを ngrok で公開し、ログインを Google（Workspace）だけにする（`hd`・`email_verified`・許可リスト `CONTROL_ADMIN_EMAILS` の 3 段。メールとパスワードと `/setup` は廃止。TA-07 の例外）** | **`決定済み`（リスク受容。2026-10-05）** | 本番の MCP の資格情報をこのマシンに置いてエージェントを本番に向けるとき、定期実行を有効にするとき、不審なアクセスが見つかったとき |
 
 ## 未決定事項
 

@@ -184,8 +184,9 @@ async function ensureAdmin(ctx) {
     ]);
   }
 
-  const login = await signIn(ctx, email, ctx.state.get("CHATWOOT_ADMIN_PASSWORD"));
-  if (!login) throw new Error(`Chatwoot にログインできない（${email}）。設定の CHATWOOT_ADMIN_PASSWORD が違う可能性がある`);
+  // 設定に書いたパスワード（既存の管理者）か、上で状態に置いたパスワード（作成・作り直し）でログインする。設定が優先
+  const login = await signIn(ctx, email, ctx.value("CHATWOOT_ADMIN_PASSWORD"));
+  if (!login) throw new Error(`Chatwoot にログインできない（${email}）。設定の CHATWOOT_ADMIN_PASSWORD が違う可能性がある（分からなければ、その行を消して CHATWOOT_RESET_ADMIN_PASSWORD=yes）`);
   const accountId = result.account_id ?? login.accountId;
   if (!accountId) throw new Error(`${email} が管理者になっているアカウントが無い。Chatwoot の画面でアカウントを確かめる`);
   ctx.state.set("CHATWOOT_ADMIN_TOKEN", login.token, { secret: true });

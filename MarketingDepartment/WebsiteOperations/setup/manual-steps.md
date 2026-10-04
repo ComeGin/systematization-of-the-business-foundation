@@ -21,9 +21,10 @@
 | `n8n:owner-password`／`n8n:owner-login` | 以前に手で作ったオーナーがいる | パスワードを設定に書く | [3.5](#35-n8n) |
 | `n8n:mcp-token` | n8n の MCP のトークンが作成済み | 控えを写す／作り直しを許す | [4](#4-n8n-の-mcp-のトークン) |
 | `n8n:mcp-managed-by-env` | MCP の設定が環境変数で固定されている | 画面で有効か確かめる | [4](#4-n8n-の-mcp-のトークン) |
-| `strapi:start-dev`／`next-js:start-app` | 開発サーバーが動いていない | 別の端末で起動したままにする | [5](#5-常駐させる開発サーバーの起動) |
+| `strapi:start-dev`／`next-js:start-app`／`next-js:restart-app` | 開発サーバーが動いていない／環境変数を書き換えた | 別の端末で起動（し直し）したままにする | [5](#5-常駐させる開発サーバーの起動) |
 | （next-js の失敗）`CONTROL_MAIN_CHECKOUT が無い` | 承認済みの `main` のチェックアウトが無い | `git worktree` で作る | [6](#6-監視アプリの承認済みの-main-のチェックアウト) |
-| （警告だけ） | Google の資格情報・Anthropic の API キーが無い | 試すときだけ作る | [7](#7-任意の外部サービスの資格情報) |
+| `next-js:google-client` | 監視アプリの Google ログインの OAuth クライアントが無い | **Google Cloud Console で作る**（必須。ADR-23） | [7.2](#72-監視アプリの-google-ログイン必須) |
+| （警告だけ） | admin-auth の Google の資格情報・Anthropic の API キーが無い | 試すときだけ作る | [7](#7-外部サービスの資格情報) |
 | `onprem:onprem-bringup`（`--target prod`） | 本番のオンプレ | AWS のデプロイの後 | [8](#8-本番--target-prod) |
 
 ## 1. 設定ファイルの書き方（全節で共通）
@@ -131,7 +132,7 @@ n8n の MCP（`http://127.0.0.1:5678/mcp-server/http`）のアクセストーク
 | id | 起動 | 準備ができた目安 |
 |---|---|---|
 | `strapi:start-dev` | `cd backend/strapi-system && pnpm dev` | http://127.0.0.1:1337/_health が 204（数十秒） |
-| `next-js:start-app` | `cd frontend/next-js && pnpm dev` | 端末に `Ready`。初回は画面のコンパイルに時間がかかる |
+| `next-js:start-app`／`next-js:restart-app` | `cd frontend/next-js && pnpm dev`（restart は動いているものを Ctrl+C で止めてから） | 端末に `Ready`。初回は画面のコンパイルに時間がかかる。環境変数ファイル（Google の資格情報・`BETTER_AUTH_URL`）は起動したときに読まれる |
 
 スクリプトが環境変数ファイルを書き換えたときは「起動中のサーバーは書き換え前の値で動いている」と警告が出る。その場合は起動し直す。
 
@@ -154,22 +155,46 @@ git -C ~/ComeGin/main-checkout checkout --detach origin/main
 `dev.conf` に `CONTROL_MAIN_CHECKOUT=/home/<ユーザー>/ComeGin/main-checkout`（絶対パス）を書いて再実行する。
 作業ツリーと同じ場所を指すと、スクリプトが警告を出す（分離が働かない）。**コミットしていない変更はこのチェックアウトに入らない**。
 
-## 7. 任意: 外部サービスの資格情報
+## 7. 外部サービスの資格情報
 
-無くても開発環境は動く。試すときだけ作り、`dev.conf` に書いて再実行する。
+7.2（監視アプリの Google ログイン）は必須。7.1・7.3 は無くても開発環境は動くので、試すときだけ作る。どれも `dev.conf` に書いて再実行する。
 
-### 7.1 admin-auth の Google ログイン（`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`）
+Google の OAuth クライアントは、Google Workspace（comegin.com）の管理者が Google Cloud Console で作る。最初の 1 回だけ、**Google Auth Platform** → **Branding** で、未設定なら **Get started**（アプリ名・サポートのメールを入れ、**Audience** は **Internal**＝組織内のアカウントだけ）。
 
-Google Workspace（comegin.com）の管理者が Google Cloud Console で行う。
+**承認済みのリダイレクト URI は、そのアプリの `BETTER_AUTH_URL`（ブラウザで開く URL）＋ `/api/auth/callback/google`。** ngrok で開くアプリは ngrok の URL にする。URL が 1 文字でも違うと、Google が `redirect_uri_mismatch` で止める。
 
-1. **Google Auth Platform** → **Branding** で、未設定なら **Get started**。アプリ名・サポートのメールを入れ、**Audience** は **Internal**（組織内のアカウントだけ）
-2. **Google Auth Platform** → **Clients** → **Create Client**
+### 7.1 admin-auth の Google ログイン（任意。`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`）
+
+1. **Google Auth Platform** → **Clients** → **Create Client**
    - Application type: **Web application**、Name: `comegin-admin-auth-dev`
-   - **Authorized redirect URIs** → **Add URI**: `http://localhost:3103/api/auth/callback/google`（本番は `https://auth.comegin.com/api/auth/callback/google`。別のクライアントにする）
-3. **Create** の後に表示されるクライアント ID とシークレットを `dev.conf` に書く
-4. ログインできるのは許可リストにあるメールだけ。スクリプトは許可リストに `ADMIN_EMAIL` を入れる（`backend/admin-auth/README.md` の 3 段の検査）
+   - **Authorized redirect URIs** → **Add URI**: `<admin-auth の BETTER_AUTH_URL>/api/auth/callback/google`（いまの開発は ngrok で `https://comegin-admin-auth-dev.ngrok.app/api/auth/callback/google`。`localhost` で開くなら `http://localhost:3103/api/auth/callback/google`。本番は `https://auth.comegin.com/api/auth/callback/google` で、別のクライアントにする）
+2. **Create** の後に表示されるクライアント ID とシークレットを `dev.conf` の `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET` に書く
+3. ログインできるのは許可リストにあるメールだけ。スクリプトは許可リストに `ADMIN_EMAIL` を入れる（`backend/admin-auth/README.md` の 3 段の検査）
 
-### 7.2 監視アプリのエージェント（`ANTHROPIC_API_KEY`）
+### 7.2 監視アプリの Google ログイン（必須）
+
+監視アプリのログインは Google だけ（ADR-23。メールとパスワードのログインは無い）。`next-js:google-client` で止まったら、次を行う。
+
+1. **Google Auth Platform** → **Clients** → **Create Client**
+   - Application type: **Web application**、Name: `comegin-control-dev`
+   - **Authorized redirect URIs** → **Add URI**: `<監視アプリの BETTER_AUTH_URL>/api/auth/callback/google`（いまの開発は ngrok で `https://comegin-next-js-dev.ngrok.app/api/auth/callback/google`。止まったときの表示にも、そのときの URL で出る）
+2. **Create** の後に表示されるクライアント ID とシークレットを `dev.conf` に書く
+
+   ```
+   CONTROL_GOOGLE_CLIENT_ID=<クライアント ID>
+   CONTROL_GOOGLE_CLIENT_SECRET=<シークレット>
+   ```
+
+   7.1 と同じクライアントを使ってもよい。その場合は、そのクライアントの Authorized redirect URIs に監視アプリの URI も足し、`CONTROL_GOOGLE_*` は空のままにする（スクリプトが `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET` を使う）
+3. 同じコマンドを実行し直す。スクリプトが監視アプリの環境変数ファイルに書き、`next-js:restart-app` で止まったら監視アプリを起動し直す（環境変数は起動したときに読まれる）。最後にスクリプトが、Google の認可 URL の `hd`（`comegin.com`）とリダイレクト URI を確かめる
+4. ブラウザで `<BETTER_AUTH_URL>/login` を開き、**Google でログイン**。通るのは次の 3 つを満たすアカウントだけ（どれかが欠けると `/login` に戻り、「ログインできませんでした」と出る。理由の種類は `pnpm dev` の端末に `[auth] login refused: …` で出る）
+   - `comegin.com` の Google Workspace のアカウント（ID トークンの `hd`）
+   - メールが確認済み（`email_verified`）
+   - メールが許可リスト `CONTROL_ADMIN_EMAILS` にある（既定は `ADMIN_EMAIL`。増やすときは `dev.conf` に `CONTROL_ADMIN_EMAILS=a@comegin.com,b@comegin.com` と書いて再実行し、監視アプリを起動し直す）
+
+監視アプリには MFA が無い。**Google Workspace の 2 段階認証を組織で必須にする**（ADR-23 の帰結）。
+
+### 7.3 監視アプリのエージェント（任意。`ANTHROPIC_API_KEY`）
 
 Claude Console（https://platform.claude.com）で API キーを作り、`dev.conf` に書く。空のままでも監視アプリは起動するが、エージェントの実行は skipped として記録される。
 
@@ -188,7 +213,7 @@ Claude Console（https://platform.claude.com）で API キーを作り、`dev.co
 | Umami | http://127.0.0.1:3000 | `admin` | `--show UMAMI_ADMIN_PASSWORD` |
 | Strapi | http://127.0.0.1:1337/admin | `ADMIN_EMAIL` | `--show STRAPI_ADMIN_PASSWORD`（スクリプトが作った場合だけ） |
 | n8n | http://127.0.0.1:5678 | `ADMIN_EMAIL` | `--show N8N_OWNER_PASSWORD`（スクリプトが作った場合だけ） |
-| 監視アプリ | http://127.0.0.1:3200/login | `ADMIN_EMAIL` | `--show NEXT_ADMIN_PASSWORD` |
+| 監視アプリ | `<BETTER_AUTH_URL>/login`（いまの開発は https://comegin-next-js-dev.ngrok.app/login） | Google（`CONTROL_ADMIN_EMAILS` のアカウント） | なし（Google でログイン。7.2） |
 | MailHog（開発のメール） | http://127.0.0.1:8025 | なし | なし |
 
 手で作った管理者のパスワードを `dev.conf` に書いた場合は、そちらを使う（状態には入らない）。

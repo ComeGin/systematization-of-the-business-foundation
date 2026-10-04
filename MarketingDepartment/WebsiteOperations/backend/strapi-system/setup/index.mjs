@@ -143,7 +143,10 @@ export async function apply(ctx) {
 
   // 5. トークン（状態に値があって使えるなら、ログインせずに飛ばす）
   const buildOk = await tokenWorks(ctx, "STRAPI_BUILD_TOKEN", (t) => ctx.http("Strapi", `${BASE}/api/articles?pagination[pageSize]=1`, { headers: authHeader(t) }));
-  const mcpOk = await tokenWorks(ctx, "STRAPI_DEV_TOKEN", (t) => mcpToolNames(ctx, t));
+  // 権限の無いトークンでも MCP は 200 で log だけを返すので、記事の一覧のツールが出ることまで見る（権限 0 件のトークンを作り直すため）
+  const mcpOk = await tokenWorks(ctx, "STRAPI_DEV_TOKEN", async (t) => {
+    if (!(await mcpToolNames(ctx, t)).includes("list_article")) throw new Error("権限が足りない");
+  });
   if (!buildOk || !mcpOk) {
     const jwt = await login(ctx, email, password);
     const admin = (path, opts = {}) => ctx.http("Strapi（管理 API）", `${BASE}/admin${path}`, { ...opts, headers: authHeader(jwt) });
@@ -155,14 +158,19 @@ export async function apply(ctx) {
     const scope = scopeOf(ctx);
     let existing = null;
     try {
-      const types = await admin("/content-manager/content-types");
-      existing = new Set((types?.data ?? []).map((t) => t.uid));
+      // content-manager の API は /admin の下ではない（/admin/* は管理画面の HTML を 200 で返すので、JSON として読めず 0 件に見える）
+      const types = await ctx.http("Strapi（コンテンツタイプ）", `${BASE}/content-manager/content-types`, { headers: authHeader(jwt) });
+      const uids = (types?.data ?? []).map((t) => t.uid);
+      if (uids.length === 0) throw new Error("一覧が空");
+      existing = new Set(uids);
       const missing = [...WRITABLE, ...SINGLES].filter((u) => !existing.has(u));
       if (missing.length) ctx.warn(`開発サーバーに無いコンテンツタイプは権限から外す: ${missing.join(", ")}（サーバーを再起動して再実行すれば入る）`);
-    } catch {
+    } catch (e) {
+      ctx.warn(`コンテンツタイプの一覧を取れなかった（${e.message}）。全部の型に権限を付ける`);
       existing = null;
     }
     const permissions = mcpPermissions(scope, existing);
+    if (permissions.length === 0) throw new Error("Strapi: MCP 用トークンに付ける権限が 0 件になった（コンテンツタイプが 1 つも見つからない）。開発サーバーのログを確かめる");
     const key = await ensureToken(ctx, admin, {
       kind: "admin-tokens",
       name: MCP_TOKEN_NAME,

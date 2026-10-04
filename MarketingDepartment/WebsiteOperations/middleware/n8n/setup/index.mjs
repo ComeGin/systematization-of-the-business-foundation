@@ -150,7 +150,10 @@ export async function apply(ctx) {
   };
   for (const k of PASS_THROUGH) if (ctx.conf[k]) values[k] = ctx.conf[k];
   const publish = ctx.conf.N8N_PUBLISH_PARENTS === "true";
-  await provision({ target: "dev", conf: buildConf("dev", values), publish, io: { log: (m) => ctx.log(m.replace(/^\n/, "")), warn: ctx.warn } });
+  // 資格情報の更新が公開 API で 405 になったとき（n8n 2.39.5）だけ、オーナーでログインして内部の API を使う。ログインは 1 回だけ
+  let session;
+  const restSession = async () => (session ??= await openSession(ctx));
+  await provision({ target: "dev", conf: buildConf("dev", values), publish, restSession, io: { log: (m) => ctx.log(m.replace(/^\n/, "")), warn: ctx.warn } });
   if (!publish) ctx.log("親（I-11・I-12）は未公開。確かめるときは dev.conf に N8N_PUBLISH_PARENTS=true を書いて再実行する（終わったら n8n の画面で Unpublish）");
 }
 

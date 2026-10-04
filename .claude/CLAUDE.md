@@ -41,7 +41,7 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 | 3104 | consent-api（Cookie 同意の記録。ALB 配下の ECS on Fargate。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
 | 3105 | Cal.com（面談の予約。**セルフホスト**。公開サイトの完了画面に埋め込む。Google Calendar と連携し、予約が成立すると訪問者を予定に招待する＝氏名・メール・日時が Google LLC（米国）に渡る。設計は同 7 節と `RequirementDefinition/AA/02-integration-architecture.md` の `I-25`） |
 | 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/08-monetization-flows.md`） |
-| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は Umami と衝突するため 3200 を使う。`127.0.0.1` にバインドしトンネルを張らない。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
+| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は Umami と衝突するため 3200 を使う。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
 | 1337 | Strapi（開発環境） |
 | 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |

@@ -24,6 +24,23 @@ async function discovery(ctx) {
   }
 }
 
+/** migrate が DB のパスワード違いで落ちたか（docker compose logs migrate の最後の行を見る。秘密値は出ない） */
+async function passwordMismatch(ctx, dir) {
+  const out = await ctx.run("docker", ["compose", "logs", "--no-color", "--tail", "20", "migrate"], { cwd: dir }).catch(() => "");
+  return /password authentication failed/i.test(out);
+}
+
+/**
+ * DB のユーザーのパスワードを、postgres コンテナの環境変数 POSTGRES_PASSWORD（compose が環境変数ファイルの DATABASE_PASSWORD から渡す）にそろえる。
+ * コンテナの中のソケット接続は trust（公式イメージの pg_hba.conf）なので、今のパスワードは要らない。
+ * パスワードはコンテナの中の環境変数から psql の \getenv（PostgreSQL 15 以降）で読み、標準入力の SQL で渡す（コマンドラインにもログにも出ない）
+ */
+async function syncDbPassword(ctx, dir) {
+  const sql = ["\\getenv u POSTGRES_USER", "\\getenv pw POSTGRES_PASSWORD", "ALTER ROLE :\"u\" PASSWORD :'pw';", ""].join("\n");
+  await ctx.run("docker", ["compose", "exec", "-T", "postgres", "sh", "-c", 'psql -v ON_ERROR_STOP=1 -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], { cwd: dir, input: sql });
+  ctx.log("DB のユーザーのパスワードを環境変数ファイルの値にそろえた（データはそのまま）");
+}
+
 export async function check(ctx) {
   if (ctx.target === "prod") return { ok: false, notes: ["本番は未実装（AWS のデプロイの後に実装する）"] };
   const env = ctx.readEnvFile(join(ctx.W, DIR, ".env"));
@@ -62,7 +79,17 @@ export async function apply(ctx) {
   if (changed.length) ctx.log(`環境変数ファイルに書いた: ${changed.join(", ")}`);
 
   // 3. 起動（postgres → migrate → admin-auth。イメージのビルドも compose が行う）
-  await ctx.run("docker", ["compose", "up", "-d", "--build"], { cwd: dir });
+  try {
+    await ctx.run("docker", ["compose", "up", "-d", "--build"], { cwd: dir });
+  } catch (e) {
+    if (!(await passwordMismatch(ctx, dir))) throw e;
+    // POSTGRES_PASSWORD は DB ボリュームの初期化時にしか反映されない。ボリュームを作った後に環境変数ファイルの
+    // DATABASE_PASSWORD が変わると、migrate が "password authentication failed" で落ちる。データを消さずに、
+    // DB のユーザーのパスワードを環境変数ファイルの値（= 作り直された postgres コンテナの POSTGRES_PASSWORD）にそろえる
+    ctx.warn("DB のパスワードが環境変数ファイルと食い違っている（ボリュームの作成後に DATABASE_PASSWORD が変わった）。DB 側を環境変数ファイルの値にそろえて起動し直す");
+    await syncDbPassword(ctx, dir);
+    await ctx.run("docker", ["compose", "up", "-d", "--build"], { cwd: dir });
+  }
 
   // 4. discovery と JWKS の確認
   if (!(await ctx.waitForHttp(DISCOVERY, { timeoutMs: 180_000 }))) {

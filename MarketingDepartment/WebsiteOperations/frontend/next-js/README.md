@@ -2,8 +2,8 @@
 
 エージェントの定期実行・手動の指示・実行記録（E-15）・誤った書き込みの候補を扱う、オンプレの管理画面。Next.js 16（App Router）に、サーバー側のライブラリ [`backend/control-plane`](../../backend/control-plane/README.md) を取り込み、**1 プロセス**で動かす。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`。
 
-- **`127.0.0.1:3200` にだけバインドする**（`dev` / `start` が `-p 3200 -H 127.0.0.1`）。トンネルを張らない。Next.js の既定の 3000 は Umami と衝突するため 3200 を使う。
-- ログインは Better Auth（メールとパスワード）。最初の管理者を `/setup` で作ると、新規登録は閉じる。
+- **`127.0.0.1:3200` にだけバインドする**（`dev` / `start` が `-p 3200 -H 127.0.0.1`）。開発では ngrok で外から開いてよい（ADR-23。`BETTER_AUTH_URL` をその URL にすると、`next.config.ts` がそのホストを `allowedDevOrigins` に入れる）。Next.js の既定の 3000 は Umami と衝突するため 3200 を使う。
+- **ログインは Google（Workspace）だけ**（Better Auth の Google プロバイダー。ADR-23）。メールとパスワードのログインは持たない。通すのは `hd`（`GOOGLE_HOSTED_DOMAIN`。既定 `comegin.com`）の ID トークンで、`email_verified` が true、かつ許可リスト `CONTROL_ADMIN_EMAILS`（カンマ区切り）にあるメールだけ。ユーザーは初回のログインで作られる。Google の OAuth クライアントの作り方は `setup/manual-steps.md` の 7.2（承認済みのリダイレクト URI は `<BETTER_AUTH_URL>/api/auth/callback/google`）。
 - ブラウザから Claude Code を直接呼ばない。指示はサーバー側（Route Handler）で受け、control-plane が Agent SDK を呼ぶ。ブラウザには経過と結果だけが返る。
 
 ## 起動
@@ -14,7 +14,8 @@
 
 # 2. 環境変数ファイルを用意する（BETTER_AUTH_SECRET を生成する。冪等。値は表示しない）
 dev/init-env.sh
-#    CONTROL_MAIN_CHECKOUT・CONTROL_WORKTREE などは手で設定する（.env.example が正本）
+#    CONTROL_MAIN_CHECKOUT・CONTROL_WORKTREE・GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET・CONTROL_ADMIN_EMAILS などは手で設定する（.env.example が正本）。
+#    設定スクリプト（node setup/setup.mjs --target dev --only next-js）なら、~/.config/comegin/setup/dev.conf の値から書く
 
 # 3. 開発サーバー
 pnpm install
@@ -46,7 +47,7 @@ components/               Cloudscape のコンポーネントを使う Client Co
 ```
 
 - **Route Handler はすべてログイン必須**（未ログインは 401）。状態を変える要求（POST）は `Origin` が自分のホストと同じときだけ受ける（403）。
-- 環境変数は `control-plane` の `loadControlPlaneConfig` が検証する。next-js は直接読まない（`BETTER_AUTH_*` と `CONTROL_DATA_DIR` の解決だけ例外）。
+- 環境変数は `control-plane` の `loadControlPlaneConfig` が検証する。next-js は直接読まない（`BETTER_AUTH_*`・`GOOGLE_*`・`CONTROL_ADMIN_EMAILS` と `CONTROL_DATA_DIR` の解決だけ例外。`lib/auth.ts`）。
 - `next.config.ts` の `serverExternalPackages` に `control-plane` と `@anthropic-ai/claude-agent-sdk` を入れて、バンドルせず Node の `require` に任せる（`node:sqlite`・Agent SDK・AWS SDK を使うため）。`node:sqlite` は control-plane の側で開き、next-js には import しない。
 - `next build` の間は `instrumentation.ts` は何も起動しない（`NEXT_PHASE`）。
 - 開発サーバーを止めると、実行中のエージェントは打ち切られる。落ち方によっては run が `running` のまま残るが、次の起動時に `failure`（「プロセスの停止または再起動で中断された」）に確定する。
@@ -59,7 +60,7 @@ components/               Cloudscape のコンポーネントを使う Client Co
 |---|---|
 | `/` | 手動の起動、実行記録（E-15。実行中は自動で読み直す）、定期実行のジョブ、誤った書き込みの候補 |
 | `/runs/[runId]` | 実行 1 件（要約・対象の ID・失敗分類・費用・S3 の写し） |
-| `/login` `/setup` | ログイン / 最初の管理者の作成（ユーザーが 0 人のときだけ） |
+| `/login` | Google でのログイン（失敗すると `?error=` 付きで戻り、理由の種類はサーバーのログ `[auth] login refused: …` に残る） |
 
 ## 依存と pnpm の方針
 
