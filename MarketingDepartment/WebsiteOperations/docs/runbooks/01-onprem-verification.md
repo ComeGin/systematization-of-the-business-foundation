@@ -4,6 +4,8 @@
 
 パスは `MarketingDepartment/WebsiteOperations/` からの相対で書く。
 
+> **近道（2026-10-05）: フェーズ A の環境の用意（各製品の起動・管理者・トークン・MCP の env ファイル・n8n の取り込み）は、[`setup/`](../../setup/README.md) の `node setup/setup.mjs --target dev` が 1 本で行う。** 止まったら案内に従い、同じコマンドを実行し直す。以下の A1〜A7 は、スクリプトが何をしているかを知りたいとき、スクリプトが失敗したとき、動作の確認（curl・監視アプリからの起動）を行うときに読む。
+
 ## 0. 進め方
 
 ### フェーズの分け方
@@ -38,6 +40,7 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 - [ ] Mautic・Chatwoot・n8n の開発用の環境変数ファイルが無ければ、各 `dev/init-env.sh` を実行する
 
 **Claude の作業**
+- 開発環境の中継（`middleware/host-relay`。コンテナの n8n・Chatwoot から、ホストの `127.0.0.1` の Mautic・MailHog・n8n に届くようにする）を起動する（2026-10-05 に起動済み）
 - Chatwoot（`docker compose run --rm rails bundle exec rails db:chatwoot_prepare` → `docker compose up -d`）・n8n（`middleware/n8n`）・Mautic（`backend/mautic-system/dev/serve.sh`）・Strapi（`backend/strapi-system` で `pnpm dev`）を起動し、ヘルスを確かめる
 
 **合格**: Chatwoot `127.0.0.1:3100`・n8n `127.0.0.1:5678`・Mautic `127.0.0.1:8000`・Strapi `127.0.0.1:1337` が応答する。MailHog `127.0.0.1:8025` が開く。
@@ -77,13 +80,13 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 
 ### A5. n8n（開発環境）のワークフロー
 
-手順の正本は `middleware/n8n/workflows/README.md` の「開発の n8n で動かす前の準備」。
+手順の正本は `middleware/n8n/workflows/README.md` の「開発の n8n で動かす前の準備」。**下の「あなたの作業」の大半は、`middleware/n8n/provision` のスクリプト（`node provision.mjs --target dev`）で自動にできる**（手順は `middleware/n8n/provision/README.md`）。スクリプトを使う場合、あなたの作業は「n8n の管理者と API キーの作成」「Mautic の API 資格情報と Chatwoot の管理者のトークンを設定ファイルに書く」「実行する」だけになる。以下は手で行う場合の手順。
 
-**あなたの作業**
+**あなたの作業（手で行う場合）**
 - [ ] Data Table を 5 つ作り（`dedup_mautic` `dedup_chatwoot` `ops_settings` `monitor_state` `contact_link`）、`ops_settings` に行を入れる（`notifyBackend=mailhog`、`mauticBaseUrl=http://host.docker.internal:8000`）
 - [ ] JSON 5 本を取り込み、`I-11`・`I-12` の「I-21 通知を呼ぶ」「I-19 突合を呼ぶ」ノードで呼び先を選び直す
 - [ ] 資格情報を 4 つ作る: `MailHog SMTP（開発）`、`Mautic API（client_credentials）`、`Mautic Webhook 署名鍵（Crypto）`、`Chatwoot Webhook 署名鍵（Crypto）`（署名鍵は Hmac Secret を必ず入れる）
-- [ ] Mautic と Chatwoot の管理画面で、Webhook の送信先を `<開発の n8n>/webhook/mautic-event`・`/webhook/chatwoot-event` にし、シークレットに上の署名鍵と同じ値を入れる
+- [ ] Mautic と Chatwoot の管理画面で、Webhook の送信先を Mautic は `http://127.0.0.1:5678/webhook/mautic-event`、Chatwoot は `http://host.docker.internal:5678/webhook/chatwoot-event` にし、シークレットに上の署名鍵と同じ値を入れる（手順の詳細は `middleware/n8n/workflows/GUIDE.md`）
 - [ ] `I-11`・`I-12` を**短時間だけ公開（publish）**する（確認が終わったら戻す）
 
 **Claude の作業**

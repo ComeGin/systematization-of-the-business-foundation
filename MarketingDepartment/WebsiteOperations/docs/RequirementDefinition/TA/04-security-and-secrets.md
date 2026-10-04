@@ -9,6 +9,7 @@ TA（Technology Architecture）層。ID はそれぞれの正本の定義をそ�
 > - **AWS とオンプレをつなぐ線が 1 本できた**（小さな EC2 の WireGuard）。AWS からオンプレへ届くのは、クラウドの Mautic・Chatwoot からオンプレの n8n の Webhook のポートだけ。WireGuard の許可する宛先とセキュリティグループの両方で絞る。n8n の Webhook の署名の検証（`I-11` `I-12`）が必須になる。
 > - **オンプレに長期の資格情報が増える**: Strapi のメディアのバケットだけを扱う IAM ユーザー、SNS の 2 トピックへの発行だけを行う IAM ユーザー、RDS の `strapi` `n8n` のデータベースのユーザー、WireGuard の鍵。どれもオンプレの秘匿ファイルにだけ置き、Claude Code の環境変数には引き継がない。
 > - 本番の Strapi・n8n の管理画面は ALB の関門の内側ではなく、オンプレの `127.0.0.1` だけに開く（`cms.`・`n8n.` のホスト名は使わない）。
+> - **（2026-10-05）ADR-22: 開発環境の Mautic・Strapi・Astro・n8n・admin-auth は、保護をかけずに ngrok で公開を続ける**（7 節の「ngrok は Astro dev サーバーの共有だけ」の例外。リスク受容）。本番の経路には ngrok を使わない（ADR-21 の WireGuard）。**開発環境に本番の個人データと本番の資格情報を入れない。**
 
 ## 1. 秘匿値の管理方針
 

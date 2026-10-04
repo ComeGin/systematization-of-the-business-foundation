@@ -203,7 +203,7 @@ Figma 側の実数（2026-10-01 に `design-system` が実測して確定）。
 | 著作権の譲渡（C11） | 支払い後 |
 | ソースコードの配布（F3'） | **非公開リポジトリ。メールで配布**。自作部分は MIT、上流の OSS は同梱せず取得手順を添える |
 | 同意の記録（F5） | Mautic のカスタムフィールド 3 つ（同意日時・ポリシー版・メール受信の可否） |
-| Mautic のフォーム ID（F9） | alias（`consult` / `source-dl`）を正本とし、数値は環境変数 `MAUTIC_FORM_ID_*` の 1 か所だけに置く |
+| Mautic のフォーム ID（F9） | alias（`consult` / `source_dl`。2026-10-05 に `source-dl` から改めた。Mautic の alias は英数字と `_` だけにする）を正本とし、数値は環境変数 `MAUTIC_FORM_ID_*` の 1 か所だけに置く |
 | `cta_type`（F7） | `consult` / `source_dl` / `chat` / `booking`。`trial` は「使わない」として残す |
 | Cookie 同意の保存（K1） | Cookie（判定用）＋ サーバ（証跡）。**受け口は ALB 配下の ECS on Fargate に小さな API を置く** |
 | 撤回時の扱い（K2） | 以後の取得を止めるだけ。既送信分の削除は別の請求として窓口で受ける |

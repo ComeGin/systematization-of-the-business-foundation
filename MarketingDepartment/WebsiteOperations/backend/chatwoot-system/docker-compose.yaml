@@ -10,6 +10,10 @@ x-chatwoot-base: &base
   env_file: .env ## Change this file for customized env variables
   volumes:
     - storage_data:/app/storage
+  # Webhook（sidekiq が送る）を、ホストの 127.0.0.1 で動く開発環境の n8n に、middleware/host-relay の中継を通して届ける
+  # （Chatwoot の Webhook の URL は http://host.docker.internal:5678/webhook/chatwoot-event）
+  extra_hosts:
+    - 'host.docker.internal:host-gateway'
 
 services:
   rails:

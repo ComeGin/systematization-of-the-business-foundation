@@ -1,0 +1,69 @@
+# setup/setup.mjs の設定（雛形）。実体は ~/.config/comegin/setup/<dev|prod>.conf に写して書く（chmod 600）。
+# 秘密値はこの雛形に書かない。スクリプトが作る値（管理者のパスワード・トークンなど）は状態ファイル
+# （~/.config/comegin/setup/<target>.state.json）に入るので、ここには書かなくてよい。
+#
+#   mkdir -p ~/.config/comegin/setup && chmod 700 ~/.config/comegin/setup
+#   cp setup/setup.conf.example ~/.config/comegin/setup/dev.conf && chmod 600 ~/.config/comegin/setup/dev.conf
+
+# ---- 必須 ----
+# 各製品（Chatwoot・Mautic・Umami・Strapi・n8n・監視アプリ）の最初の管理者のメールアドレス
+ADMIN_EMAIL=
+
+# ---- 途中で画面の操作をしてから書くもの（スクリプトが止まって案内する） ----
+# Mautic の API 資格情報（OAuth 2、client_credentials）。n8n の provision と mautic-mcp が使う
+MAUTIC_CLIENT_ID=
+MAUTIC_CLIENT_SECRET=
+
+# ---- 既に管理者がいる製品（手で作った管理者のパスワード。スクリプトが止まって案内したときだけ書く） ----
+# スクリプトが作った管理者なら不要（状態ファイルに入っている）。メールが ADMIN_EMAIL と違うときは *_EMAIL も書く
+CHATWOOT_ADMIN_PASSWORD=
+# 知らない場合は yes にすると、Chatwoot の管理者のパスワードを生成した値に変える（開発環境だけ）
+CHATWOOT_RESET_ADMIN_PASSWORD=
+MAUTIC_ADMIN_PASSWORD=
+UMAMI_ADMIN_PASSWORD=
+STRAPI_ADMIN_EMAIL=
+STRAPI_ADMIN_PASSWORD=
+N8N_OWNER_EMAIL=
+N8N_OWNER_PASSWORD=
+
+# ---- n8n の MCP のトークン（スクリプトが止まって案内したときだけ） ----
+# n8n は作成済みの MCP のトークンを再表示しない。手元にある値を写すか、true にして作り直す（今の MCP の接続は切れる）
+N8N_DEV_TOKEN=
+N8N_MCP_ROTATE=
+# true にすると、親のワークフロー（I-11・I-12）も公開する（既定は子だけ公開）
+N8N_PUBLISH_PARENTS=
+
+# ---- 任意の上書き ----
+# 開発の公開サイトの URL（Chatwoot の受信箱・Umami の Web サイトに登録する。既定 http://localhost:4321）
+PUBLIC_SITE_URL=
+CHATWOOT_ACCOUNT_NAME=
+CHATWOOT_ADMIN_NAME=
+# エージェント専用ユーザーのメールアドレス（既定は ADMIN_EMAIL の + 付き）
+CHATWOOT_AGENT_EMAIL=
+# Strapi の MCP 用トークンの権限。draft（既定。下書きまで＝本番と同じ）か full（公開・削除も）
+STRAPI_DEV_TOKEN_SCOPE=
+
+# ---- 監視アプリ（frontend/next-js） ----
+# 承認済みの main のチェックアウトの絶対パス（ADR-18。定期実行の定義とエージェント定義はここから読む）。作業ツリーとは別に clone しておく
+CONTROL_MAIN_CHECKOUT=
+# エージェントを動かすときだけ要る（任意。空なら監視アプリは起動するがエージェントの実行は失敗として記録される）
+ANTHROPIC_API_KEY=
+# 最初の管理者の表示名（任意。既定は「管理者」）。パスワードは空ならスクリプトが生成して状態に置く（--show NEXT_ADMIN_PASSWORD）
+NEXT_ADMIN_NAME=
+NEXT_ADMIN_PASSWORD=
+# E-15（実行記録の SQLite）の置き場（任意。既定 ~/.local/share/comegin-control）
+CONTROL_DATA_DIR=
+
+# ---- 接続先の上書き（任意。空なら開発環境の既定値: Chatwoot http://127.0.0.1:3100、Mautic http://127.0.0.1:8000） ----
+CHATWOOT_BASE_URL=
+MAUTIC_BASE_URL=
+
+# ---- admin-auth（任意。空でも開発環境は起動する。Google ログインを試すときだけ） ----
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# ---- 本番だけ（--target prod。AWS のデプロイの後。いまは枠だけ） ----
+# IAM ユーザー comegin-prod-onprem-n8n-sns のアクセスキー（cloud/README.md の 4.5 で発行）
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=

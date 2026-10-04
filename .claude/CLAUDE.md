@@ -115,7 +115,17 @@ docker compose up -d
 # backend/mautic-system（PHP ビルトインサーバー + Docker の MySQL/MailHog）
 dev/serve.sh
 dev/reset.sh --help    # DB を消して再インストールする破壊的スクリプト
+
+# middleware/umami-master（MCP を有効にする上書きを付ける。上流の compose だけで up すると /mcp が 404 に戻る）
+docker compose -f docker-compose.yml -f dev/setup/compose.mcp.yml up -d
+
+# middleware/host-relay（開発環境だけ。コンテナ〈n8n・Chatwoot〉から、ホストの 127.0.0.1 の Mautic・MailHog・n8n に届くようにする中継）
+docker compose up -d
 ```
+
+**開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
+
+**コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678 だけで待ち受け、`127.0.0.1` に転送する。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
 
 ## MCP サーバの共通設計
 

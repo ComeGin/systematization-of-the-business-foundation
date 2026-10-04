@@ -1,5 +1,7 @@
 # n8n ワークフロー（Git 管理）
 
+> **n8n を初めて触る人は、先に [GUIDE.md](GUIDE.md)（はじめての人向けの手順書）を読む。** この README は設計の背景と仕様の正本。
+
 `middleware/n8n` の n8n に置くワークフローの JSON。設計の出典は `docs/DetailedDesign/04-server-to-server-flows.md`（4〜8 節）と `01-flow-specification-rules.md`（5〜7 節）。
 
 **この JSON は「開発の n8n で組んで動作確認したものの書き出し」である。** 本番の n8n への取り込み・資格情報の割り当て・**有効化（publish）は人間（`R1`）が行う**。エージェントからは有効化に到達させない（`n8n-prod` の MCP は作成・更新まで。DD-04 6.2）。
@@ -132,7 +134,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 - **配信先の切り替え**: Data Table `ops_settings` の `notifyBackend`。`sns` のときだけ SNS に発行し、未設定・それ以外は MailHog に送る（開発の既定）。**本番の n8n で `sns` にするのは人間の作業。**
 - **必要な資格情報**:
   - 本番: `AWS SNS 発行（アクセスキー）`（種類は **AWS**。IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーとシークレットアクセスキー、リージョン `ap-northeast-1` を入れる。「システム資格情報」「AssumeRole」は使わない）。キーは人が発行して、本番の n8n の画面から入力する（RDS に暗号化されて保存される。`onprem/n8n/.env` には置かない）。
-  - 開発: `MailHog SMTP（開発）`（種類は **SMTP**。ホストの MailHog〈1025〉。n8n のコンテナから届く名前にする）。
+  - 開発: `MailHog SMTP（開発）`（種類は **SMTP**。Mautic の MailHog の SMTP。Host は `host.docker.internal`、Port は `1025`。`middleware/host-relay` の中継を通して届く）。
 - **本番の AWS 認証（ADR-21）**: 本番の n8n はオンプレで動くので、ECS のタスクロールは使えない。**IAM ユーザーのアクセスキーで認証する。**
   - IAM ユーザー `comegin-<env>-onprem-n8n-sns` の権限は **2 つのトピック（`comegin-lead-alert` / `comegin-ops-alert`）への `sns:Publish` だけ**。キーは CloudFormation の出力に出ない。人が IAM のコンソールで発行する。
   - 前回の AssumeRole 用のロール（`comegin-<env>-n8n-sns-publisher`）と、`N8N_AWS_SYSTEM_CREDENTIALS_ACCESS_ENABLED` は要らない（n8n の環境変数にも置かない）。
@@ -161,11 +163,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
    | `mauticBaseUrl` | 開発 `http://host.docker.internal:8000` ／ 本番 `https://mkt.comegin.com` |
    | `snsTopicArnLead` / `snsTopicArnOps` | 本番だけ。SAM の出力の ARN |
 
-2. **JSON を取り込む**。取り込み後、次を人が設定する（資格情報の値は JSON に含まれない）。
+2. **JSON を取り込む**（画面の操作は [GUIDE.md の 7 節](GUIDE.md)）。取り込み後、次を人が設定する（資格情報の値は JSON に含まれない。画面の操作は GUIDE.md の 8 節）。
    - `I-11` `I-12` の「I-21 通知を呼ぶ」「I-19 突合を呼ぶ」ノードのワークフローの選択（**ワークフロー ID は n8n ごとに違う**。JSON に書いてあるのは書き出し元の開発の n8n の ID）。
    - `I-11` の `Mautic Webhook 署名鍵（Crypto）`、`I-12` の `Chatwoot Webhook 署名鍵（Crypto）`（どちらも **Hmac Secret を必ず入れる**）。`I-19` の `Mautic API（client_credentials）`、`I-21` の `MailHog SMTP（開発）` / `AWS SNS 発行（アクセスキー）`。
    - 各ワークフローの設定（`I-11` `I-12` `I-19` は成功した実行のデータを保存しない。メールアドレスが実行履歴に残るのを避けるため。`I-21` は 10 秒のタイムアウト）。タグは `I-21` に `subworkflow` `notification`、`I-19` に `subworkflow` `matching`、`I-18` に `blocked`。
-3. Mautic・Chatwoot の Webhook の送信先を `<n8n>/webhook/mautic-event` / `<n8n>/webhook/chatwoot-event` に向ける。**本番の送信先（ADR-21。人が各製品の管理画面で設定する）:**
+3. Mautic・Chatwoot の Webhook の送信先を `<n8n>/webhook/mautic-event` / `<n8n>/webhook/chatwoot-event` に向ける（各製品の管理画面での操作は [GUIDE.md の 9.3](GUIDE.md)）。**開発環境では** Mautic（ホストで動く）は `http://127.0.0.1:5678/webhook/mautic-event`、Chatwoot（コンテナで動く）は `http://host.docker.internal:5678/webhook/chatwoot-event`（`middleware/host-relay` の中継を通す。開発の n8n から Mautic・MailHog に届くのも同じ中継による）。**本番の送信先（ADR-21。人が各製品の管理画面で設定する）:**
    - Mautic: `http://10.99.0.2:5680/webhook/mautic-event`
    - Chatwoot: `http://10.99.0.2:5680/webhook/chatwoot-event`
 

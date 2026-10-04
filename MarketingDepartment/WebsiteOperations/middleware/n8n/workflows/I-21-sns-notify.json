@@ -232,7 +232,7 @@
     },
     {
       "parameters": {
-        "authentication": "assumeRole",
+        "authentication": "iam",
         "operation": "publish",
         "topic": {
           "__rl": true,
@@ -250,13 +250,13 @@
         1568,
         100
       ],
-      "notes": "本番は n8n のタスクロールで sns:Publish（アクセスキーを使わない）。認証は AssumeRole の「システム資格情報を使う」。トピック ARN は ops_settings の snsTopicArnLead / snsTopicArnOps。",
+      "notes": "本番の n8n はオンプレ（ADR-21）。認証は AWS (IAM) で、IAM ユーザー comegin-<env>-onprem-n8n-sns のアクセスキー（2 つのトピックへの sns:Publish だけ）を資格情報に入れる。トピック ARN は ops_settings の snsTopicArnLead / snsTopicArnOps。",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 3000,
       "credentials": {
-        "awsAssumeRole": {
-          "name": "AWS SNS 発行（AssumeRole）"
+        "aws": {
+          "name": "AWS SNS 発行（アクセスキー）"
         }
       }
     },
