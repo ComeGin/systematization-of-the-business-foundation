@@ -1,0 +1,17 @@
+{
+  "name": "n8n-workflows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "n8n のワークフロー定義（workflows/*.json）の単体テスト用。Code ノードの JavaScript を取り出して検証する",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "vitest": "5.0.1"
+  }
+}

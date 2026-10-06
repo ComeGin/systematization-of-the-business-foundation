@@ -38,6 +38,9 @@
     "src/admin/",
     // Do not include test files
     "**/*.test.*",
+    // 単体テスト（Vitest が自前で変換して ESM として実行する）。helpers/ は *.test.* に当たらないため丸ごと外す
+    "tests/",
+    "vitest.config.ts",
     // Do not include plugins in the server compilation
     "src/plugins/**"
   ]

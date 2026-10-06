@@ -17,9 +17,11 @@ export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): string {
   return raw ? expandHome(raw) : join(homedir(), ".local/share/comegin-control");
 }
 
-const optionalPath = z.preprocess(emptyToUndefined, z.string().optional()).transform((value) =>
-  value === undefined ? undefined : expandHome(value),
-);
+// 相対パスは cwd 次第で作業ツリーの中を指しうる（E-15 は作業ツリーの外に置く約束）ため、任意のものも絶対パスに限る
+const optionalPath = z
+  .preprocess(emptyToUndefined, z.string().optional())
+  .transform((value) => (value === undefined ? undefined : expandHome(value)))
+  .refine((value) => value === undefined || isAbsolute(value), "絶対パスにしてください");
 const requiredPath = z
   .preprocess(emptyToUndefined, z.string().min(1, "必須です").transform(expandHome))
   .refine((value) => isAbsolute(value), "絶対パスにしてください");

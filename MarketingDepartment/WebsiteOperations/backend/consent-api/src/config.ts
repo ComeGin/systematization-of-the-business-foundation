@@ -13,8 +13,8 @@ const EnvSchema = z.object({
   VALKEY_KEY_PREFIX: z.string().min(1).max(64).default("consent:"),
   // CORS で許すオリジン。パスが付いていてもオリジンだけに正規化する
   SITE_URL: z
-    .url()
-    .refine((value) => /^https?:$/.test(new URL(value).protocol), "http または https の URL にしてください")
+    // スキームは url() の protocol で検査する（refine は url() の失敗後も動き、中の new URL() が例外を投げるため使わない）
+    .url({ protocol: /^https?$/, error: "http または https の URL にしてください" })
     .transform((value) => new URL(value).origin),
   // 空なら Domain 属性を付けない
   COOKIE_DOMAIN: z
