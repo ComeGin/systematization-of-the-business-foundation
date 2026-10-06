@@ -64,7 +64,12 @@ export class Scheduler {
             logLine("ERROR", "scheduler", `${id}: 起動に失敗: ${error instanceof Error ? error.message : "不明"}`),
         },
         () => {
-          void this.engine.start({ trigger: "schedule", job });
+          // Promise を捨てると reject が croner の catch に届かず、unhandled rejection でプロセスが落ちる
+          this.engine
+            .start({ trigger: "schedule", job })
+            .catch((error: unknown) =>
+              logLine("ERROR", "scheduler", `${id}: 起動に失敗: ${error instanceof Error ? error.message : "不明"}`),
+            );
         },
       );
       this.crons.set(id, { signature: JSON.stringify(job), cron });

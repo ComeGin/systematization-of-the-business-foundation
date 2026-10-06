@@ -1,0 +1,82 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createFakePlane } from "../helpers/control-plane";
+
+const mocks = vi.hoisted(() => ({
+  createControlPlane: vi.fn(),
+}));
+
+vi.mock("control-plane", () => ({ createControlPlane: mocks.createControlPlane }));
+
+import { getControlPlaneState, startControlPlane } from "@/lib/control-plane";
+
+function namedError(name: string, message: string): Error {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  globalThis.__comeginControlPlane = undefined;
+});
+
+describe("getControlPlaneState", () => {
+  it("初期化に成功したら plane を持ち、プロセスで 1 つだけ作る（globalThis に置く）", () => {
+    const plane = createFakePlane();
+    mocks.createControlPlane.mockReturnValue(plane);
+    const first = getControlPlaneState();
+    const second = getControlPlaneState();
+    expect(first).toEqual({ plane, error: null });
+    expect(second).toBe(first);
+    expect(globalThis.__comeginControlPlane).toBe(first);
+    expect(mocks.createControlPlane).toHaveBeenCalledTimes(1);
+  });
+
+  it("ConfigError（name で判定）はメッセージ（変数名と理由だけ）をそのまま画面用に持つ", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.createControlPlane.mockImplementation(() => {
+      throw namedError("ConfigError", "CONTROL_MAIN_CHECKOUT: 絶対パスでない");
+    });
+    expect(getControlPlaneState()).toEqual({ plane: null, error: "CONTROL_MAIN_CHECKOUT: 絶対パスでない" });
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("ConfigError 以外の失敗は詳細を画面用に持たず、stderr にだけ出す", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.createControlPlane.mockImplementation(() => {
+      throw new Error("EACCES: /home/someone/.local/share/comegin-control");
+    });
+    const state = getControlPlaneState();
+    expect(state.plane).toBeNull();
+    expect(state.error).not.toContain("EACCES");
+    expect(state.error).toContain("stderr");
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(String(consoleError.mock.calls[0]?.[0])).toContain("EACCES");
+  });
+
+  it("失敗した状態も覚えておき、要求のたびに作り直さない", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.createControlPlane.mockImplementation(() => {
+      throw namedError("ConfigError", "X: 不正");
+    });
+    getControlPlaneState();
+    getControlPlaneState();
+    expect(mocks.createControlPlane).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("startControlPlane", () => {
+  it("初期化に成功していれば start() を呼ぶ", async () => {
+    const plane = createFakePlane();
+    mocks.createControlPlane.mockReturnValue(plane);
+    await startControlPlane();
+    expect(plane.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("初期化に失敗していても例外を投げない（サーバーは起動し、画面に原因を出す）", async () => {
+    mocks.createControlPlane.mockImplementation(() => {
+      throw namedError("ConfigError", "X: 不正");
+    });
+    await expect(startControlPlane()).resolves.toBeUndefined();
+  });
+});

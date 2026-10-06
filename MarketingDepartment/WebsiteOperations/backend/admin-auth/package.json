@@ -11,6 +11,8 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "node --env-file-if-exists=.env dist/scripts/migrate.js",
     "alb:register": "node --env-file-if-exists=.env dist/scripts/register-alb-client.js",
     "clean": "rm -rf dist"
@@ -28,6 +30,7 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "5.0.1"
   }
 }

@@ -8,8 +8,8 @@ const BaseSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(3103),
   // 本番は https://auth.comegin.com、開発は http://localhost:3103。パスが付いていてもオリジンだけに正規化する
   BETTER_AUTH_URL: z
-    .url()
-    .refine((value) => /^https?:$/.test(new URL(value).protocol), "http または https の URL にしてください")
+    // スキームは url() の protocol で検査する（refine は url() の失敗後も動き、中の new URL() が例外を投げるため使わない）
+    .url({ protocol: /^https?$/, error: "http または https の URL にしてください" })
     .transform((value) => new URL(value).origin),
   // セッションと OAuth トークンの署名・暗号化に使う。変えると既存のセッションと暗号化済みの値が使えなくなる
   BETTER_AUTH_SECRET: z.string().min(32, "32 文字以上にしてください"),

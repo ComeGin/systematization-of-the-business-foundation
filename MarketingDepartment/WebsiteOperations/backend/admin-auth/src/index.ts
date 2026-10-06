@@ -66,7 +66,9 @@ const server = http.createServer((req, res) => {
     );
   });
 
-  const url = new URL(req.url ?? "/", "http://localhost");
+  // 解釈できないリクエストターゲット（例 `//[`）で new URL() が投げると、未捕捉の例外でプロセスが落ちるため null で受ける
+  const url = URL.parse(req.url ?? "/", "http://localhost");
+  if (!url) return sendText(res, 400, "bad request");
   const { pathname } = url;
   const isRead = req.method === "GET" || req.method === "HEAD";
 

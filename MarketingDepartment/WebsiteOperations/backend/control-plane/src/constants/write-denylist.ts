@@ -10,6 +10,9 @@ export const WRITE_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "Multi
 /** 作業ツリーの直下からのパスの接頭辞（ディレクトリ）。定義・制御の領域 */
 export const WRITE_DENY_PREFIXES: readonly string[] = [
   ".git",
+  // GitHub Actions（push で CI が実行する）と husky（コミット時に実行する）
+  ".github",
+  ".husky",
   ".claude",
   `${WEBSITE_OPERATIONS_DIR}/ops`,
   `${WEBSITE_OPERATIONS_DIR}/cloud`,
@@ -29,6 +32,8 @@ export const WRITE_DENY_BASENAMES: ReadonlySet<string> = new Set([
   ".yarnrc.yml",
   ".pnpmfile.cjs",
   "Dockerfile",
+  // direnv がディレクトリに入ったときに実行する
+  ".envrc",
 ]);
 
 /** 実行される設定ファイル・スクリプト・compose（ファイル名のパターン） */

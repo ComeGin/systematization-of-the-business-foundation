@@ -11,6 +11,8 @@
     "start:stdio": "TRANSPORT=stdio node --env-file-if-exists=.env dist/index.js",
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "seed:test": "node --env-file=.env scripts/seed-test-contacts.mts",
     "clean": "rm -rf dist"
   },
@@ -28,6 +30,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^24.0.0",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "5.0.1"
   }
 }

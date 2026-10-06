@@ -83,7 +83,9 @@ async function attemptOnce<T>(options: FetchJsonOptions): Promise<Attempt<T>> {
     };
   }
 
-  const retryAfter = Number(response.headers.get("retry-after"));
+  // ヘッダーが無い・空のときに Number(null) = 0（即座に再試行）と読まないよう、値があるときだけ数値にする
+  const retryAfterHeader = response.headers.get("retry-after")?.trim();
+  const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : Number.NaN;
   const retryAfterSec = Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : undefined;
 
   let data: unknown = null;
