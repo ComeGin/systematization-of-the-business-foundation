@@ -29,8 +29,6 @@ Parameters:
     Type: String
   MktHost:
     Type: String
-  StatsHost:
-    Type: String
   AuthHost:
     Type: String
   ConsentHost:
@@ -41,9 +39,6 @@ Parameters:
     Type: Number
     Default: 80
   ChatwootWebPort:
-    Type: Number
-    Default: 3000
-  UmamiPort:
     Type: Number
     Default: 3000
   AdminAuthPort:
@@ -61,9 +56,6 @@ Parameters:
   ChatwootHealthCheckPath:
     Type: String
     Default: /
-  UmamiHealthCheckPath:
-    Type: String
-    Default: /api/heartbeat
   AdminAuthHealthCheckPath:
     Type: String
     Default: /healthz
@@ -145,21 +137,19 @@ Conditions:
 Resources:
   # ---------------------------------------------------------------- 証明書
   # ALB に付ける証明書は ALB と同じリージョンのもの（CloudFront 用の us-east-1 とは別。global/template.yaml）。
-  # 名前を増やすと再発行になるため、consent. は確定してから（TA-06 の 5.1）。
+  # 名前を増やすと再発行になるため、consent. は確定してから（TA-06 の 5.1）。名前を減らしても再発行になる（ADR-25 で stats. を外した）。
   Certificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
       DomainName: !Ref ChatHost
       SubjectAlternativeNames:
         - !Ref MktHost
-        - !Ref StatsHost
         - !Ref AuthHost
         - !Ref ConsentHost
       ValidationMethod: DNS
       DomainValidationOptions:
         - { DomainName: !Ref ChatHost, HostedZoneId: !Ref HostedZoneId }
         - { DomainName: !Ref MktHost, HostedZoneId: !Ref HostedZoneId }
-        - { DomainName: !Ref StatsHost, HostedZoneId: !Ref HostedZoneId }
         - { DomainName: !Ref AuthHost, HostedZoneId: !Ref HostedZoneId }
         - { DomainName: !Ref ConsentHost, HostedZoneId: !Ref HostedZoneId }
       Tags:
@@ -240,24 +230,6 @@ Resources:
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-chatwoot-web' }
 
-  UmamiTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VpcId
-      TargetType: ip
-      Protocol: HTTP
-      Port: !Ref UmamiPort
-      HealthCheckPath: !Ref UmamiHealthCheckPath
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 10
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      Matcher: { HttpCode: '200-399' }
-      TargetGroupAttributes:
-        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
-      Tags:
-        - { Key: Name, Value: !Sub 'comegin-${EnvName}-umami' }
-
   AdminAuthTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -297,17 +269,6 @@ Resources:
   # ---------------------------------------------------------------- 優先度帯 100 番台: 訪問者向け（認証も認可もしない。WAF のレート制限だけ）
   # パスは TA-06 の 5.3 の想定。製品のバージョンに依存するため、DevTools で実測して確定する（TODO(T1-3)）。
   # ALB の制約: 1 ルールの条件値は 5 つまで（host-header も 1 つに数える）。そのためホスト 1 + パス 4 以内で分割する。
-  VisitorUmamiRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref HttpsListener
-      Priority: 101
-      Conditions:
-        - { Field: host-header, HostHeaderConfig: { Values: [!Ref StatsHost] } }
-        - { Field: path-pattern, PathPatternConfig: { Values: [/script.js, /api/send] } }
-      Actions:
-        - { Type: forward, TargetGroupArn: !Ref UmamiTargetGroup }
-
   VisitorChatwootRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -396,18 +357,6 @@ Resources:
       Actions:
         - { Type: forward, TargetGroupArn: !Ref MauticWebTargetGroup }
 
-  # Umami は /mcp の 1 本だけ（API キーで認証）。/api/*（/api/auth/login を含む）は管理者の認証の内側に残す。
-  MachineUmamiRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref HttpsListener
-      Priority: 205
-      Conditions:
-        - { Field: host-header, HostHeaderConfig: { Values: [!Ref StatsHost] } }
-        - { Field: path-pattern, PathPatternConfig: { Values: [/mcp] } }
-      Actions:
-        - { Type: forward, TargetGroupArn: !Ref UmamiTargetGroup }
-
   # ---------------------------------------------------------------- 優先度 300: auth.（admin-auth 自身。ログインの途中なので認証なし）
   AuthHostRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
@@ -466,28 +415,6 @@ Resources:
             SessionTimeout: !Ref OidcSessionTimeoutSeconds
             OnUnauthenticatedRequest: authenticate
         - { Type: forward, Order: 2, TargetGroupArn: !Ref MauticWebTargetGroup }
-
-  OidcUmamiRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref HttpsListener
-      Priority: 1003
-      Conditions:
-        - { Field: host-header, HostHeaderConfig: { Values: [!Ref StatsHost] } }
-      Actions:
-        - Type: authenticate-oidc
-          Order: 1
-          AuthenticateOidcConfig:
-            Issuer: !Sub 'https://${AuthHost}${OidcIssuerPath}'
-            AuthorizationEndpoint: !Sub 'https://${AuthHost}${OidcAuthorizationPath}'
-            TokenEndpoint: !Sub 'https://${AuthHost}${OidcTokenPath}'
-            UserInfoEndpoint: !Sub 'https://${AuthHost}${OidcUserInfoPath}'
-            ClientId: !Ref AlbOidcClientId
-            ClientSecret: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET:SecretString}}'
-            Scope: openid email profile
-            SessionTimeout: !Ref OidcSessionTimeoutSeconds
-            OnUnauthenticatedRequest: authenticate
-        - { Type: forward, Order: 2, TargetGroupArn: !Ref UmamiTargetGroup }
 
   # ---------------------------------------------------------------- WAF（REGIONAL。ALB に関連付ける）
   # 訪問者向けのパスは認証の代わりにレート制限を必ずかける。守りはこれだけ（TA-06 の 5.2・5.5）。
@@ -563,11 +490,6 @@ Resources:
                     - ByteMatchStatement:
                         FieldToMatch: { UriPath: {} }
                         SearchString: /api/v2/accounts/
-                        PositionalConstraint: STARTS_WITH
-                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
-                    - ByteMatchStatement:
-                        FieldToMatch: { UriPath: {} }
-                        SearchString: /mcp
                         PositionalConstraint: STARTS_WITH
                         TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
                     - ByteMatchStatement:
@@ -688,14 +610,6 @@ Resources:
       Type: A
       AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
 
-  StatsRecord:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Ref StatsHost
-      Type: A
-      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
-
   AuthRecord:
     Type: AWS::Route53::RecordSet
     Properties:
@@ -729,7 +643,7 @@ Outputs:
   # admin-auth が /oauth2/idpresponse を登録するホスト（ALB_PROTECTED_HOSTS。カンマ区切り）。
   # authenticate-oidc を掛けているホストと一致させる。
   AlbProtectedHosts:
-    Value: !Join [',', [!Ref ChatHost, !Ref MktHost, !Ref StatsHost]]
+    Value: !Join [',', [!Ref ChatHost, !Ref MktHost]]
   MauticWebTargetGroupArn:
     Value: !Ref MauticWebTargetGroup
   MauticWebTargetGroupFullName:
@@ -738,10 +652,6 @@ Outputs:
     Value: !Ref ChatwootWebTargetGroup
   ChatwootWebTargetGroupFullName:
     Value: !GetAtt ChatwootWebTargetGroup.TargetGroupFullName
-  UmamiTargetGroupArn:
-    Value: !Ref UmamiTargetGroup
-  UmamiTargetGroupFullName:
-    Value: !GetAtt UmamiTargetGroup.TargetGroupFullName
   AdminAuthTargetGroupArn:
     Value: !Ref AdminAuthTargetGroup
   AdminAuthTargetGroupFullName:

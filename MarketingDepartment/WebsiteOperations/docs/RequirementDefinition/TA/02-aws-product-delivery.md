@@ -5,10 +5,10 @@ TA（Technology Architecture）層。ID はそれぞれの正本の定義をそ�
 
 **状態: 未着手（`cloud/` ディレクトリは空）。** 本ファイルの内容はすべて To-Be の設計であり、AWS 上に存在するリソースはホストゾーンを除いて 1 つも無い（2026-09-17 に実 API で確認。1 節を参照）。
 
-**本ファイルは Astro の配信だけを扱う。** ADR-12（AA-05）で AWS に置くことになった Mautic・Chatwoot・Umami と、ADR-16 で加わった Strapi・n8n の本番実行環境は TA-06 に、オンプレの開発環境と監視アプリは TA-07 に書く。**Astro のビルドはオンプレ（ローカル）で行い、本番の Strapi（`cms.comegin.com` の Content API）を読む。配信は人間が承認して実行する**（ADR-15・ADR-16。6 節）。ADR-15 ではビルドがオンプレの Strapi を読んでいたが、ADR-16 で記事の正本を本番の Strapi に置いたため読み先が変わった。
+**本ファイルは Astro の配信だけを扱う。** ADR-12（AA-05）で AWS に置くことになった Mautic・Chatwoot・Umami（**ADR-25 で廃止**）と、ADR-16 で加わった Strapi・n8n の本番実行環境は TA-06 に、オンプレの開発環境と監視アプリは TA-07 に書く。**Astro のビルドはオンプレ（ローカル）で行い、本番の Strapi（`cms.comegin.com` の Content API）を読む。配信は人間が承認して実行する**（ADR-15・ADR-16。6 節）。ADR-15 ではビルドがオンプレの Strapi を読んでいたが、ADR-16 で記事の正本を本番の Strapi に置いたため読み先が変わった。
 
 > **（2026-10-06）ADR-21 の反映。本ファイルの本文より、この注記を優先する。**
-> - **Strapi と n8n の本番は ECS に置かない。オンプレで動く**（`onprem/strapi`・`onprem/n8n`。データは AWS の RDS・S3）。上の「`cms.comegin.com` の Content API」「Strapi・n8n の本番実行環境は TA-06」「本番の Strapi は S3 への権限をタスクロールで持つ」は ADR-16 の記述である。**TA-06 が扱う AWS の実行環境は Mautic・Chatwoot・Umami と `consent-api`・Cal.com・`admin-auth`**（**ADR-24: Cal.com は SaaS に変わり、ここから外れた**）（と、Strapi・n8n のデータの置き場）。
+> - **Strapi と n8n の本番は ECS に置かない。オンプレで動く**（`onprem/strapi`・`onprem/n8n`。データは AWS の RDS・S3）。上の「`cms.comegin.com` の Content API」「Strapi・n8n の本番実行環境は TA-06」「本番の Strapi は S3 への権限をタスクロールで持つ」は ADR-16 の記述である。**TA-06 が扱う AWS の実行環境は Mautic・Chatwoot・Umami と `consent-api`・Cal.com・`admin-auth`**（**ADR-24: Cal.com は SaaS に変わり、ここから外れた**）（**2026-10-06 ADR-25〈AA-05〉: Umami を廃止し、ここから外れた。後継の GA4 は SaaS で AWS に何も置かない**）（と、Strapi・n8n のデータの置き場）。
 > - **Astro のビルドは本番の Strapi をオンプレの `127.0.0.1:1338` で読む**（読み取り専用の API トークン。ALB・WAF・回線を通らない）。ビルドと Strapi が同じオンプレにあるため、6 節の「Strapi に届かない（回線・ALB・トークンの失効を含む）」のうち、**回線・ALB・WAF のレート制限は原因から外れる**（Strapi の停止とトークンの失効は残る）。
 > - **Strapi のメディアの S3 は、タスクロールではなく IAM ユーザー `comegin-<env>-onprem-strapi-media`（そのバケットだけ）のアクセスキーで使う。** ローカルのビルドに S3 の資格情報を持たせない点は変わらない。
 > - **配信（S3 + CloudFront。この文書の主題）は ADR-21 の影響を受けない**（クラウドの製品のまま。配信は人間が承認して実行する）。
@@ -71,6 +71,8 @@ flowchart LR
 ### 経路 4 の決定が AWS 側に与える影響（ADR-12 で書き直し）
 
 **旧版の前提は「TA-01 の経路 4（訪問者のブラウザから観測系・接客系への到達）はオンプレの ngrok の常設トンネルで解決する」だった。** 2026-09-18 の ADR-12（AA-05）で、Umami・Chatwoot・Mautic は AWS（ECS on Fargate の前段に ALB）に移ることになり、この前提は崩れた。本番の実行環境は TA-06 が扱う。
+
+> **（2026-10-06）ADR-25〈AA-05〉で Umami を廃止し、アクセス解析は GA4（SaaS）にした。** 下の「`/umami/*` のようなパス」「トラッカー…は ALB のサブドメイン（`stats.`…）」は ADR-12 の記述である。**`stats.comegin.com` は無くなり、GA4 のタグは `www.googletagmanager.com` から読み込み、計測は `*.google-analytics.com` に送る**（同意の後だけ。TA-01 の経路 24、DD-02 の `I-05`）。CloudFront をトラッキングの中継に使わない判断は GA4 にもそのまま当てはまる。**別ホストへの接続が増える点は変わらない**（`comegin.com` の配下ではなく Google のホストになるため、Cookie はファーストパーティ〈`_ga` は `comegin.com` に置かれる〉だが接続先は第三者になる）。Lighthouse の再計測はタグの設置後に行う（Lighthouse CI は同意の前の状態を測るため、タグは読み込まれない。同意の後の影響は PostHog の実測の Core Web Vitals で見る）。
 
 - **上の構成要素表は変わらない。** この表は Astro の配信専用であり、ALB・ECS・RDS・ElastiCache・EFS・SES などは TA-06 の構成要素として別に管理する。**CloudFront のフラットレートプランの対象はこの表の要素だけ**で、TA-06 の ALB に付ける WAF はプランの外（従量課金）になる（TA-06 の 5.5・9 節）。
 - **CloudFront をトラッキングの中継に使わない判断は維持する。** オリジンを増やして `/umami/*` のようなパスを ALB へ転送する案（リバースプロキシとしての利用）は採らない。採ると CloudFront が製品の配信と ALB への中継という 2 つの役割を持ち、**キャッシュ方針を役割ごとに分ける必要が生じる**（トラッキングのリクエストはキャッシュしてはならず、静的ファイルはキャッシュしなければならない）。加えてフラットレートプランは 1 ディストリビューションが対象であり、ビヘイビアの数にも上限がある（8 節）。設定の複雑さに見合う利点が無い。
@@ -220,7 +222,7 @@ Premium の上には使用量を増やした段（$1,450 / $2,250 / $3,500 / $6,
 - WAF ログの S3 / Amazon Data Firehose への配信
 - ドメインの更新料（`comegin.com` は 2027-09-16 まで取得済み）
 
-**上の見積り（$0/月）は Astro の配信だけの費用である。**（2026-10-06 の注記: ADR-21 で Strapi・n8n は ECS から外れ、オンプレに移った。固定費の増減は TA-06 の 9 節と `cloud/README.md`。）ADR-12 で Mautic・Chatwoot・Umami を、ADR-16 で Strapi・n8n を AWS に置くことになり、ALB・Fargate・RDS・ElastiCache・NAT Gateway・ALB 用の WAF などの固定費が別に発生する。見積りは TA-06 の 9 節で扱う（未実施）。
+**上の見積り（$0/月）は Astro の配信だけの費用である。**（2026-10-06 の注記: ADR-21 で Strapi・n8n は ECS から外れ、オンプレに移った。固定費の増減は TA-06 の 9 節と `cloud/README.md`。）ADR-12 で Mautic・Chatwoot・Umami（**ADR-25 で廃止**）を、ADR-16 で Strapi・n8n を AWS に置くことになり、ALB・Fargate・RDS・ElastiCache・NAT Gateway・ALB 用の WAF などの固定費が別に発生する。見積りは TA-06 の 9 節で扱う（未実施）。
 
 ## 9. 未決定事項
 

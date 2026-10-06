@@ -12,7 +12,7 @@
 # 初回の準備:
 #   ./dev/init-env.sh      # .env を作り、パスワード・キーを生成する
 #   docker compose up -d
-# ブラウザからは http://localhost:${N8N_PORT_HOST:-5678}（3000=Umami / 3100=Chatwoot と衝突しない）
+# ブラウザからは http://localhost:${N8N_PORT_HOST:-5678}（3000=空き〈以前は Umami。ADR-25 で廃止〉/ 3100=Chatwoot と衝突しない）
 
 volumes:
   n8n-data:

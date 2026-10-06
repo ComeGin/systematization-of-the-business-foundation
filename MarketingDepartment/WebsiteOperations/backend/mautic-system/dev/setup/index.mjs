@@ -165,7 +165,8 @@ const text = (alias, label, extra = {}) => ({ type: "text", alias, label, isRequ
 const hidden = (alias, label, extra = {}) => ({ type: "hidden", alias, label, ...extra });
 const button = { type: "button", alias: "submit", label: "送信", properties: { type: "submit" } };
 
-// 同意の 3 項目と、DA-03 の hidden field（distinct_id・umami_session_id）、CTA の識別（page_url・cta_id）
+// 同意の 3 項目と、DA-03 の hidden field（distinct_id）、CTA の識別（page_url・cta_id）。
+// umami_session_id は ADR-25 で廃止（Umami をやめ、代わりの識別子は足さない）。作成済みのフォームには項目が残るが、送られなくなるだけで害は無い
 const CONSENT_FIELDS = [
   hidden("privacy_consent_at", "同意日時", mapped("privacy_consent_at")),
   hidden("privacy_consent_version", "同意した版", mapped("privacy_consent_version")),
@@ -175,7 +176,6 @@ const TRACKING_FIELDS = [
   hidden("page_url", "CTA を押したページ"),
   hidden("cta_id", "CTA の ID"),
   hidden("distinct_id", "PostHog の distinct_id"),
-  hidden("umami_session_id", "Umami のセッション ID"),
 ];
 
 // フォームの名前と alias は設計の正本（consult / source_dl）に合わせる。alias は Mautic のフォームの結果の表の名前に入るため、英数字と _ だけにする

@@ -15,6 +15,8 @@ TA（Technology Architecture）層。ID はそれぞれの正本の定義をそ�
 
 > **（2026-10-06）ADR-24: Cal.com は SaaS（cal.com）になった。** **Cal.com の鍵（セッションの秘密鍵・連携の暗号化の鍵）と、Cal.com 用の Google の OAuth クライアントシークレットを、ComeGin の Secrets Manager に置く必要はなくなった**（SaaS の側が持つ。TA-06 の 7 節の該当行は ADR-19 の記述）。**代わりに、Cal.com のアカウント（管理者のログイン・MFA・Google Calendar の接続・Webhook を使う場合の署名鍵）を人間（`R1` `R3`）が管理する**（認証情報は ComeGin の環境変数ファイルに置かない。無料プランでの管理者の数と MFA の可否は未確認）。**Cal.com は管理画面の関門（`admin-auth`）の保護対象から外れる**（管理画面は SaaS 側のログイン）。**公開サイトの CSP を設ける場合は、完了画面だけ Cal.com の配信元を許可する**（DD-02 の 7 節。許可するドメインは実測で確定する）。
 
+> **（2026-10-06）ADR-25〈AA-05〉: Umami を廃止し、アクセス解析は GA4（SaaS）にした。** **Umami の秘密値（`APP_SECRET`・DB のパスワード・エージェント用の API キー）は、本番・開発とも置き場ごと無くなった**（Secrets Manager の `umami` の値・RDS の `umami` のユーザー・`~/.config/comegin/mcp/umami-dev.env`。開発機に残る `~/.config/comegin/setup/dev.state.json` の `UMAMI_*` と `umami-dev.env` はユーザーが片付ける）。**GA4 の測定 ID（`G-…`。`PUBLIC_GA4_MEASUREMENT_ID`・setup の `GA4_MEASUREMENT_ID`）とプロパティ ID（数字。`GA4_PROPERTY_ID`）は秘密値ではない**（測定 ID は公開サイトの HTML に出る）。**新しい秘密値は OpenSEO の GA4 の OAuth トークン**で、GSC と同じ OAuth クライアント・同じ置き場（OpenSEO の DB。8 節）になる。**公開サイトの CSP を設ける場合は GA4 のホストを許可する**（7 節の末尾）。
+
 ### 生成の仕組み（As-Is）
 
 一部の Docker スタックには `dev/init-env.sh` が置かれており、これが環境変数ファイルを用意する。**5 スタックのうち 2 つにしか無い。**
@@ -24,10 +26,10 @@ TA（Technology Architecture）層。ID はそれぞれの正本の定義をそ�
 | n8n | `middleware/n8n/dev/init-env.sh` | `実装済み` |
 | Chatwoot | `backend/chatwoot-system/dev/init-env.sh` | `実装済み` |
 | Mautic | **無し**（`backend/mautic-system/docker/compose.yaml` が `${MYSQL_ROOT_PASSWORD:?...}` の形で必須化し、値は人間が手で置く） | `部分的` |
-| Umami | **無し**（値が compose に直書きされており、置き場そのものが無い） | `未着手`（3 節） |
+| Umami | **無し**（値が compose に直書きされており、置き場そのものが無い）。2026-10-06 に `middleware/umami/dev/init-env.sh` を足した（3 節）が、**同日の ADR-25 で Umami ごと廃止した** | **廃止**（ADR-25） |
 | **OpenSEO** | **無し**（上流の手順どおり `.env.example` を複製して環境変数ファイルを作り、値を人間が置く。上流の compose が `env_file` でこのファイルを必須にし、起動時の preflight が値の欠落を検査する） | `部分的`（8 節） |
 
-Mautic と Umami に生成の仕組みが無いことの意味は同じではない。Mautic は compose が `${MYSQL_ROOT_PASSWORD:?...}` の形で値の欠落を起動時に失敗させるため、**未設定のまま動いてしまうことは起きない**（値の生成を人間がやるだけ）。Umami は値が直書きされているため、**プレースホルダのまま正常に起動する**。危険なのは後者である（3 節）。
+Mautic と Umami に生成の仕組みが無いことの意味は同じではない。Mautic は compose が `${MYSQL_ROOT_PASSWORD:?...}` の形で値の欠落を起動時に失敗させるため、**未設定のまま動いてしまうことは起きない**（値の生成を人間がやるだけ）。Umami は値が直書きされているため、**プレースホルダのまま正常に起動する**。危険なのは後者である（3 節）。（以上の Umami の記述は旧版。**ADR-25 で Umami を廃止した**）
 
 スクリプトが守っている性質は 3 つある。
 
@@ -87,23 +89,24 @@ ADR-08 により、n8n から Amazon SNS へ通知を発行する（TA-01 の経
 
 ### AWS 上の秘密値（ADR-12・ADR-15・ADR-16）
 
-AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Fargate）に置くことになった。ADR-14 で加えた Strapi は ADR-15 で取り消し（Strapi はオンプレだけ）、**ADR-16 で Strapi と n8n の本番を AWS に置いた**。**本番の秘密値は環境変数ファイルではなく AWS Secrets Manager に置き、タスク定義の `secrets` で注入する。** 詳細は TA-06 の 7 節。
+AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Fargate）に置くことになった（**Umami は 2026-10-06 の ADR-25 で廃止。下の表から Umami の値を外した**）。ADR-14 で加えた Strapi は ADR-15 で取り消し（Strapi はオンプレだけ）、**ADR-16 で Strapi と n8n の本番を AWS に置いた**。**本番の秘密値は環境変数ファイルではなく AWS Secrets Manager に置き、タスク定義の `secrets` で注入する。** 詳細は TA-06 の 7 節。
 
 | 秘密値 | 本番の置き場 | 開発環境の置き場 |
 |---|---|---|
 | RDS のマスターパスワード | Secrets Manager（**RDS に管理させる**。タスクには渡さず、アプリ用のユーザーを別に作る） | —（Docker の `POSTGRES_PASSWORD` / `MYSQL_ROOT_PASSWORD`） |
 | アプリ用の DB パスワード・ElastiCache の AUTH トークン（**Strapi と n8n の DB ユーザーを含む**。ADR-16） | Secrets Manager | 各スタックの環境変数ファイル（Strapi は SQLite のためパスワードが無い） |
 | **SES の SMTP 認証情報**（Mautic 用と Chatwoot 用で別々に発行） | Secrets Manager | —（MailHog。認証なし） |
-| 2 節の暗号化の鍵（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`）、Umami の `APP_SECRET`、Mautic のアプリケーション鍵、**Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、n8n の `N8N_ENCRYPTION_KEY`・`N8N_RUNNERS_AUTH_TOKEN`**（ADR-16） | Secrets Manager | 各スタックの環境変数ファイル（Umami は compose に直書き。3 節） |
+| 2 節の暗号化の鍵（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`）、Mautic のアプリケーション鍵、**Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、n8n の `N8N_ENCRYPTION_KEY`・`N8N_RUNNERS_AUTH_TOKEN`**（ADR-16）（**Umami の `APP_SECRET` は ADR-25 で削除**） | Secrets Manager | 各スタックの環境変数ファイル |
 | **本番の n8n に保存する資格情報**（本番の Chatwoot・Mautic・Strapi のトークンなど。ADR-16。**Strapi の資格情報は必要になるまで登録せず、登録するときも公開・非公開化・削除の権限を与えない〈下書きまで〉**。ADR-18） | **本番の n8n の DB**（RDS の `n8n` データベース。`N8N_ENCRYPTION_KEY` で暗号化）。**人間が本番のエディターで登録する** | 開発環境の n8n の DB（`db-data`）。**開発環境の資格情報を本番に持ち込まない** |
 | **（2026-10-06。ADR-21）n8n が持つ Chatwoot のトークン（週次の棚卸し用。`CHATWOOT_N8N_API_TOKEN`）** | **本番の n8n の DB（RDS の `n8n`）。資格情報 `Chatwoot API（api_access_token）`（種類は Header Auth。ヘッダー名 `api_access_token`）**。オンプレの n8n から ALB の公開ホスト名の API を呼ぶ。**棚卸し専用に別で発行する**（要るのは会話の一覧の読み取りだけで、エージェント用ユーザーの権限で足りる。管理者のトークンを n8n に常駐させない）。**空のときは provision が管理者のトークン（`CHATWOOT_API_ACCESS_TOKEN`）で代用し、本番では警告を出す**（provision の仕様。モックの n8n で確認済み。実機の通し実行は Wave 4） | 開発環境の n8n の DB。値は provision の設定（`~/.config/comegin/n8n-provision/`）から入る |
 | **（2026-10-06）ワークフローの書き出しの API キー（`CONTROL_N8N_EXPORT_API_KEY`）と URL（`CONTROL_N8N_EXPORT_URL`）** | **監視アプリのサーバー側の環境変数**（`frontend/next-js` の環境変数ファイル。Claude Code の実行環境に渡さない。Git で追跡しない）。本番の n8n の画面で発行する。**スコープ（`workflow:list`・`workflow:read`）を絞れるのは Enterprise だけで、コミュニティ版では全権限になる。有効化の前に、版と、その資格情報を監視アプリに置くことの是非を判断する**（TA-03 の 6 節） | — |
 | **本番の Strapi の PostHog のプロジェクトトークン** | Secrets Manager（**本番用のプロジェクト**。ADR-16 で開発と本番のプロジェクトを分けた） | `backend/strapi-system` の環境変数ファイル（開発用のプロジェクト） |
 | **`admin-auth`（管理画面の関門。Better Auth）の秘密値**: `BETTER_AUTH_SECRET`、Google の OAuth クライアントシークレット、ALB 用のクライアントシークレット | Secrets Manager（ALB 用のクライアントシークレットは ALB のリスナールールにも設定する。ALB と `admin-auth` の両方が知る必要があるため） | 開発用の環境変数ファイル（`backend/admin-auth` を想定。未作成） |
-| **本番の MCP 用のトークン**（Chatwoot のエージェント専用ユーザーの `api_access_token`、Mautic のエージェント専用の API クライアント、Umami のエージェント専用ユーザーの API キー、**Strapi の Admin トークン（下書きまで。ADR-17）、n8n の MCP のアクセストークン**）と、**ビルド用の Strapi の読み取り専用の API トークン**（ADR-16） | **ローカルの PC の `.env.production` と Claude Code の MCP の設定**（AWS には置かない。Git で追跡しない。ADR-15・ADR-16。TA-07 の 3.3） | 今の環境変数ファイル（開発環境のトークン） |
+| **本番の MCP 用のトークン**（Chatwoot のエージェント専用ユーザーの `api_access_token`、Mautic のエージェント専用の API クライアント、**Strapi の Admin トークン（下書きまで。ADR-17）、n8n の MCP のアクセストークン**）と、**ビルド用の Strapi の読み取り専用の API トークン**（ADR-16）（**Umami のエージェント専用ユーザーの API キーは ADR-25 で削除**） | **ローカルの PC の `.env.production` と Claude Code の MCP の設定**（AWS には置かない。Git で追跡しない。ADR-15・ADR-16。TA-07 の 3.3） | 今の環境変数ファイル（開発環境のトークン） |
 | **GitHub の資格情報**（改善提案の起票〈`I-13`〉。ADR-17） | **ローカルの PC**（本番の n8n に置かない。TA-01 の経路 18）。**PR の作成だけを許し、マージを許さない**。発行するアカウントと置き場（監視アプリのサーバー側か Claude Code の実行環境か）は未決定（9 節） | — |
 | **監視アプリが本番を読むための資格情報**（公開の確認のための Strapi の読み取り専用のトークン〈ADR-17〉、CloudWatch のアラームの状態を読む IAM〈TA-05 の 8 節〉、ハートビートの送り手を移す場合のハートビート専用の IAM ユーザー〈1 節の上〉） | **監視アプリのサーバー側の環境変数**（案。Claude Code の実行環境に渡さない。Git で追跡しない） | — |
 | **監視アプリが実行記録（`E-15`）の写しを S3 に書く資格情報**（ADR-18 の追加の決定。TA-06 の 4.7・7 節） | **監視アプリのサーバー側の環境変数だけ**（Claude Code の実行環境に渡さない。Git で追跡しない）。**写しのバケットへの書き込み（`s3:PutObject`）だけを許し、削除（`s3:DeleteObject` / `s3:DeleteObjectVersion`）・上書きを止める設定の変更・バケットポリシーの変更の権限を与えない** | —（開発環境の記録は写さない） |
+| **（2026-10-06 に追加。ADR-25）OpenSEO の GA4 の OAuth トークン**（スコープ `analytics.readonly`。本番のプロパティだけを読む） | **オンプレの OpenSEO の DB**（Better Auth の account テーブルに `BETTER_AUTH_SECRET` で暗号化。GSC のトークンと同じ置き場。8 節。AWS には置かない）。**OAuth クライアントは GSC と共用**（`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`。同意は別に取る。出典 `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`） | —（開発環境に GA4 のプロパティは無い。OpenSEO は 1 つで、本番のプロパティだけに接続する） |
 | S3 への権限（Chatwoot の添付ファイル・**Strapi のメディア**。ADR-16） | **タスクロール**（IAM ロール。アクセスキーを発行しない）。Chatwoot がタスクロールで動かない場合は、対象バケットにだけ権限を持つ専用の IAM ユーザー（TA-06 の 7 節・11 節） | —（ローカルのディスク。Strapi は `public/uploads`） |
 
 - **開発環境の値を本番で使い回さない。** `dev/init-env.sh` が生成した値は開発機の中だけで使う。
@@ -160,6 +163,8 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 この区別は BA-05 の離任時チェックリスト（「共有していた認証情報をすべてローテーションしている」）を実行するときに効いてくる。**ローテーションしてよい値・してはいけない値・してもボリュームを作り直さないと効かない値**の 3 種があり、一律に扱うと壊す。
 
 ## 3. 課題: Umami のセキュリティ
+
+> **（2026-10-06）ADR-25〈AA-05〉で Umami を廃止し、この節の判断（案 C を含む）は効力を失った。** 開発環境の `middleware/umami`・上流の取り込み `middleware/umami-master`・本番の `cloud/images/umami`・`cloud/stacks/services/umami.yaml` は削除した。**開発環境の Docker のボリューム（`umami_db-data`・`umami_umami-db-data`・`umami-master_umami-db-data`）はユーザーが消す。** 以下は旧版の記述として残す（上流のサンプルの compose を運用に使うと既定の秘密値と公開範囲がそのまま本番の性質になる、という教訓は OpenSEO〈8 節〉にも当てはまる）。
 
 > **（2026-10-06）課題 1〜4 は、開発環境について `middleware/umami` で対処済みである。** 案 C（下の「上流を無改変に保つ方針とセキュリティ要件の衝突」）を採り、**自作の compose `middleware/umami/compose.yml`（compose のプロジェクト名 `umami`）を開発環境の Umami の実体にした**。上流の `middleware/umami-master/docker-compose.yml` は使わない（上流の取り込みは無改変のまま）。対処の内容は下の「対処方針」の表の状態の列。**本番の Umami は ECS で動き、この compose を使わない**（`cloud/images/umami`。ホスト名は `stats.comegin.com` のまま）。次の表の「現状」は、対処前（上流のサンプルそのもの）の記述である。
 > - **イメージの版は本番と同じ `ghcr.io/umami-software/umami:3.4.0` に固定**した（`cloud/images/umami/Dockerfile` の `UPSTREAM_TAG` と同じ。`latest` を使わない）。DB は `postgres:15-alpine` で、ホストに公開しない。`MCP_ENABLED=1` を compose に入れたため、MCP を有効にする上書きの compose（旧 `umami-master/dev/setup/compose.mcp.yml`）は要らなくなり、`umami-master/dev/` は削除した。
@@ -236,7 +241,7 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 
 - **`runners` に渡すのは `N8N_RUNNERS_AUTH_TOKEN` とタイムゾーンだけにする**（本番はタスク定義の `secrets` でサイドカーに注入する。TA-06 の 7 節）。`N8N_ENCRYPTION_KEY` と DB のパスワードは本体のコンテナにだけ渡す。**同じタスクのサイドカーでもコンテナごとに渡す値を分けられる**ため、「同じタスクだから同じ値」にしない。
 - **本番のワークフローがサンドボックスを必要とした時点で、n8n を EC2 起動タイプの ECS に移す**（ADR-16）。そのときは、この節の分離（`sandbox-api` / `sandbox-runner-1` に暗号化キーや DB パスワードを渡さない）を本番にもそのまま持ち込む。
-- **本番の n8n のタスクは、共有の RDS for PostgreSQL に届く**（`n8n` データベースを使うため。TA-06 の 4.3）。ワークフローの Code ノードから、同じインスタンスの他のデータベース（`chatwoot` / `umami` / `strapi` / `admin_auth`）に接続を試みることはネットワーク上はできる。**守りはデータベースごとのユーザーの分離だけ**であり、n8n のユーザーに他のデータベースへの権限を与えない。
+- **本番の n8n のタスクは、共有の RDS for PostgreSQL に届く**（`n8n` データベースを使うため。TA-06 の 4.3）。ワークフローの Code ノードから、同じインスタンスの他のデータベース（`chatwoot` / `strapi` / `admin_auth`。**`umami` は ADR-25 で削除**）に接続を試みることはネットワーク上はできる。**守りはデータベースごとのユーザーの分離だけ**であり、n8n のユーザーに他のデータベースへの権限を与えない。
 
 関連する運用上の制約。
 
@@ -270,7 +275,8 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 |---|---|---|
 | Chatwoot | `api_access_token` ヘッダー | **トークンはユーザーに紐づく。** 権限も操作履歴もそのユーザーのものになる。したがって MCP 用の専用エージェントユーザーを作り、その権限を絞ることが、そのまま MCP の権限設計になる |
 | Mautic | OAuth2 client_credentials | トークンをプロセス内でキャッシュし、期限 60 秒前に更新。401 では 1 回だけ再取得する。API クライアントの権限は紐づくユーザーに依存する |
-| Umami（Umami MCP。管理外） | **API キー**（Bearer。Umami v3.4.0 以上の設定画面で発行） | **キーはユーザーに紐づく。** 閲覧専用のユーザーを作ってそのユーザーで発行することが、そのまま MCP の権限設計になる。キーは Umami の設定画面で失効できる。キーは MCP の実行環境の設定に置き、リポジトリには置かない（本番は `umami-prod` の登録。TA-06 の 5.4） |
+| ~~Umami（Umami MCP。管理外）~~ **2026-10-06 ADR-25 で廃止**（`umami`・`umami-prod` の登録を外した） | （旧）API キー（Bearer） | 旧版: キーはユーザーに紐づき、閲覧専用のユーザーで発行することが MCP の権限設計だった |
+| **GA4（OpenSEO の MCP 経由。管理外。2026-10-06 に追加。ADR-25）** | **OpenSEO が持つ Google の OAuth トークン**（スコープ `analytics.readonly`。8 節）。OpenSEO の MCP 自体は無認証（`local_noauth`。`127.0.0.1` に閉じることが守り） | **GA4 への書き込みの経路は無い**（スコープが参照のみ）。エージェントが使える GA4 のツールは **analytics-reporter の許可リストの 5 本**（`get_google_analytics_traffic_acquisition`・`page_performance`・`organic_landing_pages`・`organic_overview`・`measurement_health`）だけで、他のエージェントには持たせない（AA-03 の 2.4）。**ただし OpenSEO の MCP は 1 つの登録（`openseo`）で費用の出るツールも公開するため、守りはエージェント定義の許可リスト（使えるが使わせない）になる**（ADR-10 と同じ） |
 | **Strapi（Strapi の組み込みの MCP。管理外。ADR-16）** | **Admin トークン**（Strapi の管理画面で発行） | **MCP のツールはトークンに与えた権限の範囲に絞られる**（AA-05 の ADR-16）。本番のトークンには削除の権限を与えない（`read_write` 相当）。これが `strapi-prod` にとっての `ACCESS_LEVEL` の代わりになる（ADR-07 の「`strapi-mcp` には `ACCESS_LEVEL` 相当の境界が無い」は、本番ではトークンの権限で埋まる）。ADR-16 の反映では公開（publish）の権限を与えるかを未決定にしていた。**ADR-17 で、公開・非公開化・削除の権限を与えず、下書きまで（作成・読み取り・更新）に絞ると決めた**（公開は `R2` が管理画面で行う。ADR-03 の「許可されないものは登録しない」と同じ考え方で、承認を仕組みで守る）。**Strapi 5 の Admin トークンで公開だけを外せるかは未確認**（9 節） |
 | **ビルド（Strapi の Content API。ADR-16）** | **API トークン（読み取り専用）** | MCP ではなく、ローカルの `astro build` が使う。書き込みの権限を持たないため、漏れても読めるのは Content API に公開した範囲だけ（下書きを含めるかは Strapi 側の設定による） |
 | **n8n（n8n のインスタンスの MCP。管理外。ADR-16。暫定）** | **n8n の MCP のアクセストークン** | **トークンでツールの範囲を絞れるかを確認していない。** `n8n-prod` を「ワークフローの作成と更新まで。有効化と実行は許さない」（TA-07 の 3.3）に絞る手段が、エージェント定義のツールの許可リストしか無い場合、**ADR-03 の「登録しない」より弱い守り（使えるが使わせない）になる**（9 節） |
@@ -284,7 +290,7 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 | `自律`（読み取り） | `read_only` | 観測・分析・提案生成を行うエージェントは `read_only` で起動する |
 | `自律`（作成系。下書き・社内メモ・コンタクト作成） | `read_write` | 作成してよい対象に限って `read_write` を与える |
 | `承認`（公開・送信・削除） | `read_write` または `full` ＋ **人間の承認** | `ACCESS_LEVEL` を上げることは承認の代わりにならない。ツールが登録されていることと、使ってよいことは別である |
-| `禁止`（権限の変更・秘密値の閲覧） | どの `ACCESS_LEVEL` でも到達しない | MCP に該当するツールが存在しない。AA はこの前提に依存してよい（**ただしリポジトリ管理外の MCP は例外**。`strapi-mcp` / `strapi-prod` / Umami MCP は AA-05 の ADR-07、OpenSEO は ADR-10、**`n8n-prod` は ADR-16**。とくに n8n の MCP はワークフローを作れるため、**ワークフローを介して n8n に保存した全資格情報を使う操作に到達しうる**。有効化を人間に残すことがこの経路の守りになる） |
+| `禁止`（権限の変更・秘密値の閲覧） | どの `ACCESS_LEVEL` でも到達しない | MCP に該当するツールが存在しない。AA はこの前提に依存してよい（**ただしリポジトリ管理外の MCP は例外**。`strapi-mcp` / `strapi-prod` / Umami MCP〈**ADR-25 で廃止**〉は AA-05 の ADR-07、OpenSEO は ADR-10〈**ADR-25 で GA4 の読み取りも OpenSEO の MCP になった**〉、**`n8n-prod` は ADR-16**。とくに n8n の MCP はワークフローを作れるため、**ワークフローを介して n8n に保存した全資格情報を使う操作に到達しうる**。有効化を人間に残すことがこの経路の守りになる） |
 
 - **本番用の登録は `read_write` を上限にする**（ADR-15 で暫定、ADR-16 で確定）。上の表の `full` は開発環境だけで使う。本番のレコード削除・統合は、人間が本番の管理画面で行う。`strapi-prod` は Admin トークンの権限で、`n8n-prod` はツールの許可リストで同じ範囲に絞る。
 - **`read_write` には Chatwoot の顧客へのメッセージ送信が含まれ、ADR-16 で本番でも許すと決めた**（`chatwoot-prod` から送信系のツールを外さない）。送信の分類は BA-05 のとおり `承認`（`R3`）であり、`ACCESS_LEVEL` を上げることが承認の代わりにならないのは上の表のとおり。ADR-16 の反映では「誤った送信は Chatwoot の監査ログ（Enterprise の `audit_logs`。Community 版ではエージェント専用ユーザーの `sender`）と `E-13` の突き合わせで見つける」としていた。**ADR-17 で監査ログには頼らず、エージェント専用ユーザーの送信の記録（`sender`）と `E-13` を、監視アプリの定期実行で突き合わせることにした**（TA-07 の 6.2）。**拾えるのは送信だけで、会話の属性（担当者・ラベル・状態）の変更は拾えない。**
@@ -309,7 +315,8 @@ BA-05 は導入契機を「担当者の数が 2 名を超えた時点」とし�
 |---|---|---|---|
 | Strapi | 管理画面の SSO は**上位エディションの機能**。Community 版では使えない | Users & Permissions プラグインの OAuth プロバイダはサイト訪問者向けの認証であり、**管理画面のログインには効かない**。混同すると「対応している」と誤判断する | `未着手` |
 | Mautic | SAML の設定項目がコアに存在する | 対応の有無・必要バージョンを未確認 | `未着手` |
-| Umami | **対応しない。** ユーザー名 ＋ パスワードのみ | 二要素認証の仕組みはあるが、3 節の課題 3（鍵がプレースホルダ）のため現状では保護として機能しない | `未着手` |
+| Umami | **対応しない。** ユーザー名 ＋ パスワードのみ | 二要素認証の仕組みはあるが、3 節の課題 3（鍵がプレースホルダ）のため現状では保護として機能しない | **廃止**（2026-10-06 ADR-25） |
+| **GA4**（2026-10-06 に追加。ADR-25） | **Google アカウントでログインする**（Google Workspace の `comegin.com` のアカウントでプロパティの権限を付与する） | Workspace の 2 段階認証がそのまま効く。**プロパティの権限（管理者・編集者・閲覧者）の付与と削除を BA-05 の担当者変更チェックリストに含める** | `未着手` |
 | PostHog | クラウド版は SSO を提供するが**上位プランの機能** | 費用が発生する | `未着手` |
 | Chatwoot | SAML SSO は**上位エディションの機能** | Community 版では使えない | `未着手` |
 | n8n | SAML / LDAP は**上位エディションの機能** | Community 版では使えない | `未着手` |
@@ -321,13 +328,13 @@ BA-05 は導入契機を「担当者の数が 2 名を超えた時点」とし�
 ### この表から導かれる結論
 
 **全システムを 1 つの IdP に寄せることはできない。**
-BA-05 は「Umami と n8n の Community 版は SSO 対応が限定的」と書いているが、実際にはそれより範囲が広く、**Strapi・Chatwoot・n8n が上位エディション、Umami が非対応、PostHog と GitHub が有料プラン**という状況にある。対象 6 システムのうち、追加費用なしで SSO に寄せられるものはおそらく 1 つも無い。
+BA-05 は「Umami と n8n の Community 版は SSO 対応が限定的」と書いているが、実際にはそれより範囲が広く、**Strapi・Chatwoot・n8n が上位エディション、Umami が非対応、PostHog と GitHub が有料プラン**という状況にある（**2026-10-06 ADR-25: Umami は廃止し、後継の GA4 は Google Workspace のアカウントでログインする**）。対象 6 システムのうち、追加費用なしで SSO に寄せられるものはおそらく 1 つも無い。
 
 **だから代替策を採る。** SSO は将来の目標として残し、当面のガバナンスは次の 3 点で成立させる（決定事項）。
 
 | # | 代替策 | 実現手段 | 状態 |
 |---|---|---|---|
-| 1 | **アクセス経路を絞る** | **本番の Strapi・Mautic・Chatwoot・Umami・n8n の管理画面は、ALB の OIDC 認証（IdP は自作の `admin-auth`〈Better Auth〉、ログインは Google Workspace）。機械向けの API は製品側の認証 ＋ WAF のレート制限。訪問者向けのパスは認証・認可をせず WAF のレート制限だけ**（TA-06 の 5.2・5.2.1）。**ローカルに残るもの（OpenSEO・監視アプリ・全システムの開発環境）はループバックバインド**のまま（7 節）。Strapi と n8n は ADR-15 まではループバックの側にあったが、ADR-16 で本番を AWS に置き ALB の側に移った | `未着手` |
+| 1 | **アクセス経路を絞る** | **本番の Strapi・Mautic・Chatwoot・n8n の管理画面（Umami は ADR-25 で廃止）は、ALB の OIDC 認証（IdP は自作の `admin-auth`〈Better Auth〉、ログインは Google Workspace）。機械向けの API は製品側の認証 ＋ WAF のレート制限。訪問者向けのパスは認証・認可をせず WAF のレート制限だけ**（TA-06 の 5.2・5.2.1）。**ローカルに残るもの（OpenSEO・監視アプリ・全システムの開発環境）はループバックバインド**のまま（7 節）。Strapi と n8n は ADR-15 まではループバックの側にあったが、ADR-16 で本番を AWS に置き ALB の側に移った | `未着手` |
 | 2 | **パスワード管理** | パスワードマネージャによる認証情報の集約 ＋ 各システムの二要素認証 | `未着手` |
 | 3 | **担当者変更手順の文書化** | BA-05 の参加時・離任時チェックリスト | `実装済み`（BA-05 に記述済み） |
 | 将来 | 対象システムを絞って SSO を導入する。全部を寄せられない以上、**「寄せられるもの」ではなく「寄せる価値が高いもの」から選ぶ** | — | `未着手`（契機は BA-05 のとおり担当者が 2 名を超えた時点） |
@@ -340,22 +347,22 @@ BA-05 は「Umami と n8n の Community 版は SSO 対応が限定的」と書�
 
 したがって代替策 1 の実現手段は、**ループバックバインドから ngrok 側の認証（OAuth / Basic 認証 / IP 制限など）へ移る**。移行にあたっての約束を 3 つ置く。
 
-- **認証は ngrok の手前でかける。** 各製品のログイン画面を第 1 関門にしない（製品ごとに強度がばらつき、Umami のように二要素認証が実質機能しない製品もあるため。3 節の課題 3）。
+- **認証は ngrok の手前でかける。** 各製品のログイン画面を第 1 関門にしない（製品ごとに強度がばらつき、Umami〈ADR-25 で廃止〉のように二要素認証が実質機能しない製品もあるため。3 節の課題 3）。
 - **管理画面のトンネルを、認証を設定する前に開かない。** 開けた瞬間から探索の対象になる。順序として「認証の設定 → トンネルの公開」を守る。
 - **無認証で開く経路（訪問者向け）と要認証の経路（運用者向け）を混在させない。** 7 節で分離する。
 
 #### 代替策 1 の実現手段が再び変わった（ADR-12）
 
-**2026-09-18 の ADR-12 で、管理画面を ngrok で露出する前提そのものが無くなった。** 本番の Mautic・Chatwoot・Umami は AWS に移り、管理画面は ALB の後ろに置かれる。オンプレに残る n8n・Strapi・OpenSEO には運用者向けのトンネルを張らない（TA-01 の 7 節。ngrok に残るのは n8n の Webhook と Astro dev サーバーだけ）。
+**2026-09-18 の ADR-12 で、管理画面を ngrok で露出する前提そのものが無くなった。** 本番の Mautic・Chatwoot・Umami（ADR-25 で廃止）は AWS に移り、管理画面は ALB の後ろに置かれる。オンプレに残る n8n・Strapi・OpenSEO には運用者向けのトンネルを張らない（TA-01 の 7 節。ngrok に残るのは n8n の Webhook と Astro dev サーバーだけ）。
 
-**2026-09-19 の ADR-16 で、Strapi と n8n の本番も AWS に移った。** 本番の Strapi の `/admin` と n8n のエディターは、Mautic・Chatwoot・Umami と同じく ALB の関門の内側に置く。**管理画面がインターネットに面する数は 3 つから 5 つに増えた**（AA-05 の ADR-16 の欠点として受け入れた）。ローカルに残るのは OpenSEO・監視アプリ・全システムの開発環境だけで、ngrok に残るのは Astro dev サーバーだけである（TA-01 の 7 節）。
+**2026-09-19 の ADR-16 で、Strapi と n8n の本番も AWS に移った。** 本番の Strapi の `/admin` と n8n のエディターは、Mautic・Chatwoot・Umami と同じく ALB の関門の内側に置く。**管理画面がインターネットに面する数は 3 つから 5 つに増えた**（AA-05 の ADR-16 の欠点として受け入れた）。（**2026-10-06: ADR-21 で Strapi・n8n はオンプレの `127.0.0.1` に、ADR-25 で Umami は廃止になり、ALB の関門の内側の管理画面は Mautic・Chatwoot の 2 つ〈と `admin-auth`〉になった**）ローカルに残るのは OpenSEO・監視アプリ・全システムの開発環境だけで、ngrok に残るのは Astro dev サーバーだけである（TA-01 の 7 節）。
 
 | 対象 | 関門 | 根拠 |
 |---|---|---|
-| Mautic・Chatwoot・Umami・**Strapi（`/admin`）・n8n（エディター）**の管理画面（本番。**オンプレの PC のブラウザから開く**。ADR-14。Strapi と n8n は ADR-16） | **ALB の `authenticate-oidc`。IdP は自作の `admin-auth`（Better Auth の OAuth 2.1 Provider ＋ JWT プラグイン。`auth.comegin.com`）**（`R1` の 2026-09-18 の決定。AA-05 の ADR-13）。`admin-auth` は Google Workspace の OIDC でログインさせ（OAuth クライアントは「内部」）、**ID トークンの `hd` クレームが `comegin.com` であることをサーバー側で検査し、管理者の許可リストに載っている email だけを通す。** MFA は **Google Workspace の 2 段階認証を組織で必須にする**。ALB のセッションは 12 時間（43,200 秒） | TA-06 の 5.2.1。**製品の SSO ではなく、製品の手前にかける関門である**（本節の「SSO を導入しない」判断とは別の層）。各製品のログインはこれまでどおり各製品のアカウントで行う。Workspace のアカウントと許可リストの追加・削除は BA-05 の担当者変更チェックリストに含める |
-| 同上の API（ローカルの Claude Code の MCP〈本番用の登録〉とビルドから。ADR-15・ADR-16。**監視アプリの定期実行が公開を確かめる読み取りも含む**。ADR-17。**n8n からの API は ADR-16 で VPC の中に移り、ALB を通らない**） | **ALB では認証をかけない。** 製品側の認証（Chatwoot の `api_access_token`、Mautic の OAuth2 client_credentials、Strapi の Admin トークンと読み取り専用の API トークン、n8n の MCP のアクセストークン）＋ **WAF のレート制限**。通すのは Chatwoot の `/api/v1/accounts/*`・`/api/v2/accounts/*`、Mautic の `/api/*`・`/oauth/v2/token`、**Umami の `/mcp`**（API キー。ADR-15）、**Strapi の `/mcp` と `/api/*`（Content API）、n8n の `/mcp-server/http`**（ADR-16）だけ | ブラウザでのログインができないため。オンプレの送信元 IP は固定ではなく、IP での許可は採らない（`R1` の 2026-09-18 の判断）。**Mautic の API の Basic 認証（`api_enable_basic_auth`）は無効のまま**にする（有効にすると、パスワードでログインする口が管理者の認証の外に出る） |
+| Mautic・Chatwoot・**Strapi（`/admin`）・n8n（エディター）**の管理画面（**Umami は ADR-25 で廃止**）（本番。**オンプレの PC のブラウザから開く**。ADR-14。Strapi と n8n は ADR-16） | **ALB の `authenticate-oidc`。IdP は自作の `admin-auth`（Better Auth の OAuth 2.1 Provider ＋ JWT プラグイン。`auth.comegin.com`）**（`R1` の 2026-09-18 の決定。AA-05 の ADR-13）。`admin-auth` は Google Workspace の OIDC でログインさせ（OAuth クライアントは「内部」）、**ID トークンの `hd` クレームが `comegin.com` であることをサーバー側で検査し、管理者の許可リストに載っている email だけを通す。** MFA は **Google Workspace の 2 段階認証を組織で必須にする**。ALB のセッションは 12 時間（43,200 秒） | TA-06 の 5.2.1。**製品の SSO ではなく、製品の手前にかける関門である**（本節の「SSO を導入しない」判断とは別の層）。各製品のログインはこれまでどおり各製品のアカウントで行う。Workspace のアカウントと許可リストの追加・削除は BA-05 の担当者変更チェックリストに含める |
+| 同上の API（ローカルの Claude Code の MCP〈本番用の登録〉とビルドから。ADR-15・ADR-16。**監視アプリの定期実行が公開を確かめる読み取りも含む**。ADR-17。**n8n からの API は ADR-16 で VPC の中に移り、ALB を通らない**） | **ALB では認証をかけない。** 製品側の認証（Chatwoot の `api_access_token`、Mautic の OAuth2 client_credentials、Strapi の Admin トークンと読み取り専用の API トークン、n8n の MCP のアクセストークン）＋ **WAF のレート制限**。通すのは Chatwoot の `/api/v1/accounts/*`・`/api/v2/accounts/*`、Mautic の `/api/*`・`/oauth/v2/token`、（Umami の `/mcp` は ADR-25 で廃止）**Strapi の `/mcp` と `/api/*`（Content API）、n8n の `/mcp-server/http`**（ADR-16）だけ | ブラウザでのログインができないため。オンプレの送信元 IP は固定ではなく、IP での許可は採らない（`R1` の 2026-09-18 の判断）。**Mautic の API の Basic 認証（`api_enable_basic_auth`）は無効のまま**にする（有効にすると、パスワードでログインする口が管理者の認証の外に出る） |
 | OpenSEO と、全システムの開発環境（**Strapi・n8n の開発環境を含む**）の管理画面（オンプレ） | **ループバックバインド**（開発機の OS ログインが第 1 関門） | 初版の形に戻る。トンネルを張らない限り、開発機に入れる人だけが到達できる。ADR-15 までは n8n・Strapi の本番もここにあったが、ADR-16 で AWS に移った |
-| **監視アプリ（Next.js。オンプレ。3200）** | **ループバックバインド ＋ Better Auth のログイン**（TA-07 の 3.4） | **エージェントを動かせる入口**であり、到達できる人は開発環境と本番の Strapi・Mautic・Chatwoot・Umami・n8n に対して MCP の書き込み権限の範囲で何でもできる（ADR-15・ADR-16）。**ADR-17 でエージェントの定期実行の起動元にもなった**（スケジュールの定義を書き換えられる人は、定期実行の取得の範囲と作用を変えられる）。トンネルを張らない（OpenSEO と同じ扱い） |
+| **監視アプリ（Next.js。オンプレ。3200）** | **ループバックバインド ＋ Better Auth のログイン**（TA-07 の 3.4） | **エージェントを動かせる入口**であり、到達できる人は開発環境と本番の Strapi・Mautic・Chatwoot・n8n に対して MCP の書き込み権限の範囲で何でもできる（ADR-15・ADR-16。Umami は ADR-25 で廃止。GA4 は OpenSEO 経由の読み取りだけ）。**ADR-17 でエージェントの定期実行の起動元にもなった**（スケジュールの定義を書き換えられる人は、定期実行の取得の範囲と作用を変えられる）。トンネルを張らない（OpenSEO と同じ扱い） |
 | Astro dev サーバー（オンプレ） | ngrok（現状は `allowedHosts` の Host 照合のみ） | TA-01 の経路 6。9 節の未決定事項 |
 
 **訪問者向けの経路（ウィジェット・フォーム・トラッカー・メールの計測。TA-06 の 5.3）は、認証も認可もしない。WAF のレート制限だけをかける**（`R1` の 2026-09-18 の決定）。訪問者にログインを求めることはできないため、1 つの送信元から短時間に大量のリクエストが来ることだけを防ぐ。
@@ -367,31 +374,33 @@ BA-05 は「Umami と n8n の Community 版は SSO 対応が限定的」と書�
 その他の約束。
 
 - **「SSO が入らないから権限管理をしない」という帰結にはしない。** BA-05 の担当者変更チェックリストは SSO の有無に関わらず実行できる形で書かれている（最小権限の付与、離任時の無効化とトークン失効）。SSO は権限管理の手段の 1 つであって、前提ではない。**代替策 3 がそのまま機能する。**
-- **開発環境では、代替策 1 は Umami の課題 1 を直すまで成立しない。** 開発機の Umami は `0.0.0.0` にバインドされており、同一ネットワークから到達できる。本番の Umami は private サブネットにあり、この問題は起きない（3 節）。
+- **（2026-10-06 に解消。ADR-25 で Umami を廃止）開発環境では、代替策 1 は Umami の課題 1 を直すまで成立しない。** 開発機の Umami は `0.0.0.0` にバインドされており、同一ネットワークから到達できる。本番の Umami は private サブネットにあり、この問題は起きない（3 節）。
 - **エージェントの権限は代替策の外側に置く。** BA-05 のとおり、エージェントが使うのは MCP の `ACCESS_LEVEL` と上流 API のトークンであり、人間のセッションとは経路が別である。この分離は維持する（エージェントの権限を人間のセッションに乗せると、人間のログイン状態がエージェントの実行可否を左右し、権限の境界が追えなくなる）。SSO を将来導入しても、この分離は変えない。
 
 ## 7. 経路の分離（本番は ALB、オンプレに残る経路は ngrok）
 
-**旧版の前提は「TA-01 の決定により、オンプレ側は ngrok の常設トンネルで露出する」だった。** 2026-09-18 の ADR-12 で、訪問者向けの経路（Umami・Chatwoot・Mautic）と、その管理画面は AWS の ALB に移った。**本番では、下の分離設計を ngrok ではなく ALB のリスナールールと WAF で実現する**（TA-06 の 5 節）。ADR-12 の後に ngrok に残ったのは n8n の Webhook 受け口（TA-01 の経路 5）と Astro dev サーバー（経路 6）だった。**ADR-16 で n8n が AWS に移り、Webhook は VPC の中で届くようになったため、ngrok に残るのは Astro dev サーバーだけである。**
+**旧版の前提は「TA-01 の決定により、オンプレ側は ngrok の常設トンネルで露出する」だった。** 2026-09-18 の ADR-12 で、訪問者向けの経路（Umami・Chatwoot・Mautic）と、その管理画面は AWS の ALB に移った（**Umami は 2026-10-06 の ADR-25 で廃止。後継の GA4 はブラウザから Google に直接届き、ALB を通らない**）。**本番では、下の分離設計を ngrok ではなく ALB のリスナールールと WAF で実現する**（TA-06 の 5 節）。ADR-12 の後に ngrok に残ったのは n8n の Webhook 受け口（TA-01 の経路 5）と Astro dev サーバー（経路 6）だった。**ADR-16 で n8n が AWS に移り、Webhook は VPC の中で届くようになったため、ngrok に残るのは Astro dev サーバーだけである。**
 
 **要件が正反対の 2 種類の経路を同じ入口で扱うという構造は、ALB でも変わらない。**
 
 | 種別 | 到達してよい主体 | 認証 | 認証を誤ると何が起きるか |
 |---|---|---|---|
 | 訪問者向け | 公開サイトの全訪問者 | **無し**（認可もしない。本番は WAF のレート制限だけ） | 認証をかけると訪問者が到達できず、`CAP-10`（行動観測）と `CAP-12`（Web 接客）が成立しない |
-| 運用者向け | `R1`〜`R4` のみ | **必須** | 認証が無いと管理画面が誰でも開ける。Umami は `APP_SECRET` がプレースホルダのため（3 節の課題 2）、到達できた時点で偽造が成立しうる |
+| 運用者向け | `R1`〜`R4` のみ | **必須** | 認証が無いと管理画面が誰でも開ける。（旧版: Umami は `APP_SECRET` がプレースホルダのため、到達できた時点で偽造が成立しえた。ADR-25 で廃止） |
 
 **この 2 つを同じ規則で扱わない。** 混ぜると、無認証にすれば管理画面が開き、認証をかければトラッカーが止まるという二択になる。旧版ではトンネルを分けることで、本番では ALB のリスナールールをパス単位で分けることで解く。**ALB にはもう 1 種類、ローカルからの API 呼び出し（Claude Code の MCP とビルド。ADR-15・ADR-16）が入ってくる**（ブラウザでのログインができないため、API のパスだけを ALB の認証なしで通し、製品側の認証と WAF のレート制限で守る。TA-06 の 5.2）。ADR-15 までは n8n（オンプレ）からの API 呼び出しもここに含んでいたが、ADR-16 で n8n は AWS に移り、VPC の中から呼ぶ。
 
 ### エンドポイントの分離設計
 
+> **（2026-10-06）ADR-25〈AA-05〉で Umami を廃止したため、エンドポイント 1〜3 は無くなった**（番号は欠番にして残す。後続の番号を他の文書が参照しているため）。後継の GA4 は ALB を通らない（TA-01 の経路 24）。
+
 | # | エンドポイント（パス） | 到達してよい主体 | 認証 | 本番での実現手段 | 根拠 |
 |---|---|---|---|---|---|
-| 1 | Umami のトラッカー配信（`/script.js` 相当） | 全訪問者 | 無し | **ALB**（許可リスト ＋ WAF のレート制限。TA-06 の 5.3） | 公開サイトの各ページから読み込まれる。認証をかけると計測が始まらない |
-| 2 | Umami のイベント受信（`/api/send` 相当） | 全訪問者 | 無し | **ALB**（同上） | 上と同じ。`E-07` `Session` の入口 |
-| 3 | **Umami の管理画面（上記以外のすべて）** | 運用者のみ | **必須** | **ALB の OIDC 認証（`admin-auth`）**。**API（`/api/*`。パスワードでログインする `/api/auth/login` を含む）は管理者の認証の内側に残る。** 機械向けに ALB の認証なしで通すのは **`/mcp` だけ**（Umami v3.4.0 以上。閲覧専用ユーザーの API キーで認証し、WAF のレート制限をかける。TA-06 の 5.4） | **Umami は同一オリジンでトラッカーと管理画面を配信するため、ホスト単位では分離できない。パス単位の制御が必須**（後述） |
+| 1 | （欠番。旧: Umami のトラッカー配信。**ADR-25 で廃止**） | — | — | — | — |
+| 2 | （欠番。旧: Umami のイベント受信〈`E-07` `Session` の入口〉。**ADR-25 で廃止**） | — | — | — | — |
+| 3 | （欠番。旧: Umami の管理画面と `/mcp`。**ADR-25 で廃止**） | — | — | — | — |
 | 4 | Chatwoot のウィジェット配信と WebSocket | 全訪問者 | 無し | **ALB**（許可リスト ＋ WAF のレート制限。`/cable` は運用者と共用） | `E-10` `Conversation` の入口 |
-| 5 | **Chatwoot の管理画面（`/app` 配下）** | 運用者のみ（API はオンプレのサーバーも） | **必須** | **ALB の OIDC 認証（`admin-auth`）**。API（`/api/v1/accounts/*`・`/api/v2/accounts/*`）は ALB の認証なしで通し、`api_access_token` ＋ WAF のレート制限で守る。パスワードでのログイン（`/auth/*`）は管理者の認証の後ろ | Umami と同じくパス単位の制御が要る |
+| 5 | **Chatwoot の管理画面（`/app` 配下）** | 運用者のみ（API はオンプレのサーバーも） | **必須** | **ALB の OIDC 認証（`admin-auth`）**。API（`/api/v1/accounts/*`・`/api/v2/accounts/*`）は ALB の認証なしで通し、`api_access_token` ＋ WAF のレート制限で守る。パスワードでのログイン（`/auth/*`）は管理者の認証の後ろ | パス単位の制御が要る（旧版は「Umami と同じく」。Umami は ADR-25 で廃止） |
 | 6 | Mautic のフォーム受付・トラッキング（`/form/*`、トラッキングピクセル）。**本番では配信メールの開封・クリック計測も含む** | 全訪問者・メールの受信者 | 無し | **ALB**（許可リスト。フォーム受付に WAF のレート制限） | BA-04 のトスアップは「フォームの送信完了」を CV の判定に使う。ここが閉じていると `CAP-11` が成立しない |
 | 7 | **Mautic の管理画面（`/s/*`）と API（`/api/*`・`/oauth/*`）** | 運用者のみ（API はオンプレのサーバーも） | **必須** | **ALB の OIDC 認証（`admin-auth`）**。API（`/api/*`）とトークン取得（`/oauth/v2/token`）は ALB の認証なしで通し、OAuth2 client_credentials ＋ WAF のレート制限で守る。API の Basic 認証は無効のまま | Mautic は管理画面のパスが `/s/` 配下に固まっているため、分離しやすい（`backend/mautic-system/dev/serve.sh` が案内する URL も `/s/login`） |
 | 8 | **n8n の UI（エディター。開発環境は `5678`）** | 運用者のみ | **必須** | **本番: ALB の OIDC 認証（`admin-auth`）**（ADR-16。`n8n.comegin.com` は案）。開発環境: トンネルを張らない（ループバック）。ADR-15 までは本番もオンプレのループバックだった | ワークフローの編集は BA-05 で `承認` 分類。UI に到達できることは、承認ゲートを書き換える手段に到達できることを意味する。**ADR-16 の後、本番の n8n は全システムの資格情報を持つため、この関門が破れたときの被害が最も大きい** |
@@ -406,11 +415,11 @@ BA-05 は「Umami と n8n の Community 版は SSO 対応が限定的」と書�
 
 ### 分離できない製品がある（正直に記す）
 
-**Umami と Chatwoot は、トラッカー／ウィジェットと管理画面を同一オリジンで配信する。** したがってホスト（サブドメイン）を分けるだけでは分離できず、**パス単位の制御が必須**になる。本番ではこの制御を ALB のリスナールールで行う（TA-06 の 5.2・5.3）。Chatwoot の `/cable`（WebSocket）はウィジェットと管理画面が共用するため、無認証で通して製品側の認証に任せる。
+**Chatwoot は、ウィジェットと管理画面を同一オリジンで配信する**（旧版は「Umami と Chatwoot は、トラッカー／ウィジェットと…」。Umami は ADR-25 で廃止）。したがってホスト（サブドメイン）を分けるだけでは分離できず、**パス単位の制御が必須**になる。本番ではこの制御を ALB のリスナールールで行う（TA-06 の 5.2・5.3）。Chatwoot の `/cable`（WebSocket）はウィジェットと管理画面が共用するため、無認証で通して製品側の認証に任せる。
 
 これは次の 2 点で設計上の負担になる。
 
-- **パスの一覧が製品のバージョンに依存する。** Umami のトラッカーのパスやイベント受信のエンドポイントは、製品の更新で変わりうる。変わったことに気づく手段は「計測が止まる」か「管理画面が開いてしまう」のどちらかであり、**後者は気づきにくい**（許可リスト方式にして、列挙したパス以外は認証必須にすれば、失敗は必ず前者の側に倒れる）。
+- **パスの一覧が製品のバージョンに依存する。** Chatwoot のウィジェットのパス（旧版では Umami のトラッカーのパスやイベント受信のエンドポイントも。ADR-25 で廃止）は、製品の更新で変わりうる。変わったことに気づく手段は「計測が止まる」か「管理画面が開いてしまう」のどちらかであり、**後者は気づきにくい**（許可リスト方式にして、列挙したパス以外は認証必須にすれば、失敗は必ず前者の側に倒れる）。
 - **許可リストは列挙で作る。** 「管理画面のパスを塞ぐ」ではなく「トラッカーのパスだけを無認証で通し、それ以外はすべて認証必須」とする（拒否リスト方式だと、列挙し漏れたパスが無認証で開く。許可リスト方式なら、列挙し漏れたパスは認証必須になって単に不便なだけで済む）。
 
 Mautic・n8n・Strapi は管理画面のパスがまとまっている（`/s/`、UI 全体、`/admin`）ため、分離は比較的容易である。
@@ -418,6 +427,21 @@ Mautic・n8n・Strapi は管理画面のパスがまとまっている（`/s/`�
 ### 到達しない経路は開けない
 
 **外部から到達する必要が無い経路はトンネルを張らない**（本番では ALB に出さない）。ADR-15 まではエンドポイント 11（Strapi のコンテンツ API）がその例だった（ADR-14 で機械向けに開ける形にしたが、ADR-15 で Strapi がオンプレだけに戻り、開けなかった）。**ADR-16 でビルドがローカルから本番の Strapi を読むことになり、エンドポイント 11 は外から到達する必要がある経路に変わった。** 代わりに、**エンドポイント 9（n8n の Webhook 受け口）が「開けない」例になる**。送信元の Chatwoot・Mautic・Strapi が同じ VPC にいるため、ALB に出す理由が無い。「将来使うかもしれない」という理由で開けない（開いた経路は 1 本ずつ守る対象になり、守る対象が増えるほど守りが薄くなる）。
+
+### 公開サイトの CSP（2026-10-06 に追加。ADR-25）
+
+**公開サイト（`comegin.com`）に CSP を設ける場合、GA4 のために次のホストを許可する。** 広告の機能を使わない GA4 の値で、Google の CSP ガイド（https://developers.google.com/tag-platform/security/guides/csp の「Google Analytics」の、広告の機能を使わない場合の表）で確かめた。**`stats.comegin.com`（旧 Umami）は外す。**
+
+| ディレクティブ | 許可するホスト（GA4 の分） |
+|---|---|
+| `script-src`（`script-src-elem`） | `https://www.googletagmanager.com` |
+| `img-src` | `https://www.googletagmanager.com` `https://*.google-analytics.com` |
+| `connect-src` | `https://www.googletagmanager.com` `https://*.google-analytics.com` `https://*.google.com` |
+
+- **上の表の値で確定した**（2026-10-06。Google のガイドの「広告の機能を使わない GA4」の値。**`*.analytics.google.com` と `*.googletagmanager.com` のワイルドカードは使わない**）。実装の後は Tag Assistant の CSP の検査（同じガイドの「Troubleshoot with Tag Assistant」）で、ブロックされた配信元が無いことを確かめる。
+- **`cloud/` に CSP は無い。** CloudFront に付けている AWS 管理の応答ヘッダーポリシー（`Managed-SecurityHeadersPolicy`）は CSP を含まない（`cloud/stacks/cdn.yaml` のコメント、https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html）。**CSP は公開サイトの実装のときに足す**（付け方は CloudFront の応答ヘッダーポリシーか Astro かを実装のときに選ぶ。`cloud/README.md` の 5 節）。
+- **gtag.js を初期化するインラインスクリプトは nonce かハッシュで許す**（同じガイド。`'unsafe-inline'` は使わない）。静的配信では nonce を毎回作れないため、ハッシュになる見込み（DD-02 の 2.5）。
+- Cal.com の埋め込み（ADR-24）・PostHog・Chatwoot の許可は各設計に従う（1 節の冒頭の注記）。
 
 同じ理由で、PostgreSQL / MySQL / Redis・n8n の `sandbox-api` / `sandbox-runner-1` / `runners` / `searxng`・MCP サーバの HTTP ポート・**OpenSEO（`3001`）**は、いずれもトンネルを張らない。**本番の RDS・ElastiCache・EFS も同じ扱いで、private サブネットに置き、Fargate のタスクのセキュリティグループからだけ受ける**（TA-06 の 5.6）。本番の n8n の `runners` は同じタスクのサイドカーで、外に出さない（本番にサンドボックスは無い。4 節）。運用者が DB に入る必要があるときは踏み台を置かず、ECS Exec か Session Manager のポートフォワードを使う。
 
@@ -430,12 +454,12 @@ AA-05 の ADR-09 で採用したセルフホストの OpenSEO（`middleware/open
 | キー | 用途 | 置き場 | 変更したときに起きること |
 |---|---|---|---|
 | `DATAFORSEO_API_KEY` | DataForSEO の資格情報（メールと API パスワードの Base64） | `middleware/open-seo-main` の環境変数ファイル（追跡対象外） | ローテーションしてよい。**支出の上限は資格情報ではなく前払い残高で縛る**（AA-05 の ADR-10） |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | GSC の OAuth クライアント | 同上 | 変えると GSC の再接続が要る |
-| `BETTER_AUTH_SECRET` | 保存した OAuth トークンの暗号化 | 同上 | **2 節の表のとおり。変えると GSC の再接続が要る** |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | GSC の OAuth クライアント（**2026-10-06 ADR-25: GA4 も同じクライアントを使う**） | 同上 | 変えると GSC と GA4 の再接続が要る |
+| `BETTER_AUTH_SECRET` | 保存した OAuth トークン（GSC・GA4）の暗号化 | 同上 | **2 節の表のとおり。変えると GSC と GA4 の再接続が要る** |
 | `OPENROUTER_API_KEY` | SAM（アプリ内エージェント） | **置かない**（ADR-09） | — |
 
 - **環境変数ファイルは Git の追跡対象外である**（2026-09-18 に、ファイルが存在するのに `git status` が clean であることで確認。値は読んでいない）。どの `.gitignore` で除外されているかは確認していない。
-- **`init-env.sh` を足さない。** `middleware/open-seo-main` は上流の取り込みであり、Umami と同じく**スクリプトを足すと上流無改変の前提が崩れる**（3 節）。`BETTER_AUTH_SECRET` は `openssl rand -base64 32` で人間が生成する（上流の手順どおり）。
+- **`init-env.sh` を足さない。** `middleware/open-seo-main` は上流の取り込みであり、Umami（ADR-25 で廃止）と同じく**スクリプトを足すと上流無改変の前提が崩れる**（3 節）。`BETTER_AUTH_SECRET` は `openssl rand -base64 32` で人間が生成する（上流の手順どおり）。
 - **`OPENSEO_TELEMETRY_DISABLED` は置かない**（匿名テレメトリの送信を許可する。`R1` の 2026-09-18 の判断。ADR-09・TA-01 の経路 14）。
 
 ### 8.2 到達範囲
@@ -460,25 +484,38 @@ AA-05 の ADR-09 で採用したセルフホストの OpenSEO（`middleware/open
 - **接続した Google アカウントが離任すると取得が止まる**（BA-05 の離任時チェックリスト）。
 - **「内部」は組織内の利用者に限る設定である。** 接続できるのは `comegin.com` の Workspace アカウントだけであり、**そのアカウントが Search Console のプロパティにアクセスできる必要がある**（ドメインプロパティを登録したアカウント、または権限を付与されたアカウント）。
 
+### 8.4 GA4 の OAuth（2026-10-06 に追加。ADR-25）
+
+出典は `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md` と、スコープの定義 `middleware/open-seo-main/src/shared/ga4.ts`。
+
+- **OAuth クライアントは GSC と共用する**（8.1 の `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`。同意画面は 8.3 の「内部」のまま）。**同意は GSC とは別に取る**（GA4 の接続で改めて許可する）。
+- **スコープは `analytics.readonly`（参照のみ）である。** OpenSEO から GA4 の設定やデータを変える経路は無い。
+- **Google Cloud で Google Analytics Admin API と Data API を有効にする**（Admin API はプロパティの一覧、Data API はレポートの取得に使う）。
+- **リダイレクト URI に `http://localhost:3001/api/ga4/oauth/callback` を足す**（GSC の `/api/gsc/oauth/callback` は残す）。運用者のブラウザがローカルの OpenSEO に戻るだけで、トンネルを必要としない。
+- **接続は画面の Connect with Google で行い、本番のプロパティだけを選ぶ**（GA4 のプロパティは本番の 1 つだけ。開発環境のプロパティは作らない）。トークンは OpenSEO の DB（Better Auth の account テーブル）に `BETTER_AUTH_SECRET` で暗号化して置く。**GA4 の接続を外しても GSC の接続は外れない。**
+- **接続した Google アカウントがプロパティの権限を失う・離任すると取得が止まる**（BA-05 の離任時チェックリスト。GSC と同じ）。setup の設定キーは `OPENSEO_GA4_CONNECTED=yes`（接続済み）／`OPENSEO_SKIP_GA4=yes`（接続しない）。
+
 ## 9. 未決定事項
-- **（2026-10-06 に解決）Umami の対処を A / B / C のどの案で行うか。** **C で行った**（`middleware/umami`。3 節）。以下は旧版の記述。
+- **（2026-10-06 に追加。ADR-25）GA4 の BigQuery エクスポートを使うか。** 使うと訪問者単位の生データが Google Cloud（BigQuery）に置かれ、新しい資格情報（サービスアカウント）と保管先が増える。**今は使わない。** 判断者 `R1`。
+- **（2026-10-06。ADR-25 で廃止）** 下の Umami に関する項目（A / B / C の案・Umami の API と MCP の接続先・本番の計測値を `umami-prod` で読む経路）は、Umami の廃止で対象が無くなった。旧版の記述として残す。
+- **（2026-10-06 に解決）Umami の対処を A / B / C のどの案で行うか。** **C で行った**（`middleware/umami`。3 節）。以下は旧版の記述。（**同日の ADR-25 で Umami ごと廃止**）
 - **（2026-10-06 に追加）OpenSEO のイメージが `latest` のまま・匿名のテレメトリが有効のまま。** OpenSEO の compose は上流の既定（`ghcr.io/every-app/open-seo:latest`）で、固定していない（`OPEN_SEO_IMAGE` で固定できる）。匿名のテレメトリを送る（`OPENSEO_TELEMETRY_DISABLED=1` か `DO_NOT_TRACK=1` で止まる）。**版を固定するか・テレメトリを止めるかはユーザーの判断**で、`setup` の `apply` には入れていない。OpenSEO は無認証（`local_noauth`）で `127.0.0.1` に閉じていることが唯一の防御のため（8.2）、`latest` の更新で挙動が変わることの影響を判断する。判断者 `R1`。
 - **（2026-10-06 に追加）n8n の Public API のキーの権限。** 書き出し（TA-03 の 6 節）のキーはコミュニティ版では全権限になる（1 節の表）。有効化の前に判断する。判断者 `R1`。
 - **（2026-10-06 に追加）n8n の IAM ユーザーのアクセスキーの更新の手順と間隔**（1 節の ADR-21 の表。DD-04 の 8.7）。キーが失効・誤りのとき、通知は出ず、ハートビートは途絶える（後者は検知できる）。判断者 `R1`。
-- **Umami の対処を A / B / C のどの案で行うかが未決定。** 3 節では C（他のスタックと同じ形にする）を推奨したが、上流の取り込み方針そのものに関わる判断のため `R1` の決定を待つ。B を採る場合は Compose の `!override` タグが実際に `ports` の連結を回避できるかの検証が先に要る。
+- **（ADR-25 で廃止）Umami の対処を A / B / C のどの案で行うかが未決定。** 3 節では C（他のスタックと同じ形にする）を推奨したが、上流の取り込み方針そのものに関わる判断のため `R1` の決定を待つ。B を採る場合は Compose の `!override` タグが実際に `ports` の連結を回避できるかの検証が先に要る。
 - **（2026-09-18 に解決）本番の管理画面の関門の方式。** **自作の `admin-auth`（Better Auth）を IdP にした ALB の OIDC 認証で、ログインは Google Workspace**に決めた（`R1`。AA-05 の ADR-13。同日の当初案は ADR-13 の選択肢の表を参照）。旧版の「ngrok の認証方式」はこの項目に置き換わっていた。6 節。
 - **Better Auth の OAuth 2.1 Provider と ALB の `authenticate-oidc` の組み合わせを実地で確認していない**（トークンエンドポイントのクライアント認証方式が ALB と合うか、UserInfo の応答を ALB が受け付けるかなど）。TA-06 の 11 節。判断者 `R1`。
 - **`admin-auth` の許可リストから削除しても、ALB の既存のセッションがすぐに切れるかを確認していない。** 最長で ALB のセッションの期限（12 時間）まで残りうる。離任時は各製品のアカウントの無効化を先に済ませる（BA-05）。
 - **（2026-09-18 に解決）オンプレの送信元 IP が固定かどうか。** 固定ではない。**IP による許可はやめ**、MCP サーバと n8n からの API は製品側の認証と WAF のレート制限で守る（`R1`）。6 節・7 節。ADR-16 で n8n は AWS に移り、ALB を通る機械向けの API はローカルの MCP とビルドだけになった。
-- **（2026-09-18 に解決）Umami の API と Umami MCP の接続先。** 計測データは自前の Umami に置き、Umami Cloud は使わない（`R1`）。Umami v3.4.0 から自前の Umami にも API キーと `/mcp` があるため、ALB で開けるのは `/mcp` だけにし、`/api/auth/login` は管理者の認証の内側に残る（7 節のエンドポイント 3）。旧版の「自前の Umami には API キーが無い」は撤回する。**残件**: 取り込み済みの `middleware/umami-master`（3.3.1。API キーも `/mcp` も無い）を 3.4.0 以上に取り込み直すか（判断者 `R1`）。
+- **（2026-09-18 に解決。ADR-25 で廃止）Umami の API と Umami MCP の接続先。** 計測データは自前の Umami に置き、Umami Cloud は使わない（`R1`）。Umami v3.4.0 から自前の Umami にも API キーと `/mcp` があるため、ALB で開けるのは `/mcp` だけにし、`/api/auth/login` は管理者の認証の内側に残る（7 節のエンドポイント 3）。旧版の「自前の Umami には API キーが無い」は撤回する。**残件**: 取り込み済みの `middleware/umami-master`（3.3.1。API キーも `/mcp` も無い）を 3.4.0 以上に取り込み直すか（判断者 `R1`）。
 - **Astro dev サーバーの共有（ngrok）の認証方式が未決定。** ADR-12 の後、運用者向けに ngrok を使うのはこの経路だけになった（7 節のエンドポイント 12）。**本セッションでは ngrok の提供する認証機能を実地に確認していない。**
-- **エンドポイントの許可リストの具体的なパスが未確定。** 7 節の表は役割と方針を定めたもので、Umami と Chatwoot のトラッカー／ウィジェットの実際のパスは製品のバージョンに合わせて確認する必要がある。TA-06 の 5.3 に想定を置いたが、実装時に各製品の実際のリクエストを観測して確定する。
+- **エンドポイントの許可リストの具体的なパスが未確定。** 7 節の表は役割と方針を定めたもので、Chatwoot のウィジェット（Umami のトラッカーは ADR-25 で廃止）の実際のパスは製品のバージョンに合わせて確認する必要がある。TA-06 の 5.3 に想定を置いたが、実装時に各製品の実際のリクエストを観測して確定する。
 - **Chatwoot の S3 をタスクロールで使えるかが未確認**（1 節・TA-06 の 11 節）。使えない場合、アクセスキーを持つ専用の IAM ユーザーが増える。
 - **各製品の SSO 対応を実地に確認していない。** 6 節の表は既知の情報に基づく整理であり、使用中のバージョンでの検証を行っていない。特に Mautic の SAML 対応は「設定項目が存在する」以上のことを確認していない。
 - **GitHub のブランチ保護設定の実態が未確認。** BA-05 の未決定事項と同じ。参照系の git コマンドでは設定を読めないため、`main` への直接 push が技術的に防がれているかが分からない。防がれていない場合、BA-05 の `承認` 分類「`main` へのマージ」と TA-03 の 4 節が手順上の約束にとどまる。
 - **Mautic の設定ファイルに含まれる秘密値を確認していない。** Mautic は本体の設定ファイルにアプリケーション鍵を持つが、本セッションでは内容を確認していない（秘密値を読まない方針のため）。TA-05 のバックアップ対象の一覧に載せるべきかどうかが未確定。
 - **監視アプリのログインの方式**（TA-07 の 3.4・9 節）。本番の関門（Google Workspace）に合わせるか、オンプレ専用にするか。判断者 `R1`。
-- **（2026-09-19 に ADR-15 で解決）本番の計測値を読む経路**は `umami-prod`（本番の `/mcp`）で読む。**Strapi のコンテンツを本番へ移す手段**は、Strapi を本番に置かないため不要になった。**ADR-16 で本番の Strapi を置いた後も、記事は本番にだけ書くため不要のまま**（TA-07 の 6 節）。
+- **（2026-09-19 に ADR-15 で解決）本番の計測値を読む経路**は `umami-prod`（本番の `/mcp`）で読む（**2026-10-06 ADR-25: GA4 を OpenSEO の MCP〈`openseo`〉で読む形に変わった**）。**Strapi のコンテンツを本番へ移す手段**は、Strapi を本番に置かないため不要になった。**ADR-16 で本番の Strapi を置いた後も、記事は本番にだけ書くため不要のまま**（TA-07 の 6 節）。
 - **（2026-09-19 に ADR-16 で解決）本番の Chatwoot で、エージェントに顧客へのメッセージ送信を許すか。** **許す**（`chatwoot-prod` から送信系のツールを外さない）。`read_write` には送信が含まれ、`ACCESS_LEVEL` では送信だけを外せないことは変わらない。送信の分類は BA-05 のとおり `承認`（`R3`）で、誤った送信は Chatwoot の監査ログと `E-13` の突き合わせで見つける（5 節。TA-07 の 6.2）。**ADR-17 で、突き合わせは監査ログに頼らずエージェント専用ユーザーの送信の記録（`sender`）で行い、社内メモと顧客への送信をツールか登録で分けることにした**（5 節）。
 - **（2026-09-19 に ADR-17 で解決）`strapi-prod` の Admin トークンに公開（publish）の権限を与えるか。** ADR-16 の反映では「与えると、エージェントが `R2` の承認なしに本番の Strapi の記事を公開状態にできる（公開ページへの反映は配信の承認で止まる）。TA-03 の 7 節と一体で決める」として未決定にしていた。**与えない。公開・非公開化・削除の権限を外し、下書きまでに絞る**（5 節）。公開は `R2` が本番の Strapi の管理画面で行う。
 - **Strapi 5 の Admin トークンで「公開だけを外す」権限の設定ができるか**（5 節。ADR-17）。管理画面の権限の粒度を実装時に確かめる。できない場合は、エージェントが公開できてしまう状態で運用するか、自作の MCP に切り替えるかを決め直す（AA-05 の ADR-07。TA-07 の 9 節と同じ項目）。判断者 `R1`。
@@ -486,7 +523,7 @@ AA-05 の ADR-09 で採用したセルフホストの OpenSEO（`middleware/open
 - **監視アプリが本番を読むための資格情報の置き場**（1 節。ADR-17）。公開の確認のための Strapi の読み取り専用のトークン（ビルド用のトークンを使い回すか、確認用に別に発行するか）、CloudWatch のアラームの状態を読む IAM（TA-05 の 8 節）、ハートビートの送り手を移す場合の IAM ユーザーを、**監視アプリのサーバー側に置き、Claude Code の実行環境に渡さない**形にできるか。Claude Agent SDK が起動する Claude Code に、監視アプリのプロセスの環境変数が引き継がれないことを実装時に確かめる。判断者 `R1`。
 - **GitHub の資格情報**（1 節。ADR-17。TA-01 の経路 18）。`I-13` をローカルから行うため、GitHub に PR を作れる資格情報がローカルの PC に置かれる。**エージェント専用のアカウント（または GitHub App）で、対象のリポジトリの PR の作成だけを許し、マージとブランチ保護の変更を許さない**形にできるか。人間の管理者の `gh` の認証を使うと、エージェントが PR をマージできる（`E-14` の承認を迂回できる）ため使わない（**本ファイルの判断**）。9 節の「GitHub のブランチ保護設定の実態が未確認」と一体で決める。判断者 `R1`。
 - **（2026-09-19 に ADR-16 で解決）本番の `ACCESS_LEVEL` の上限。** **`read_write` で確定**（暫定を外した）。`strapi-prod` は Admin トークンの権限で同等に絞る（1 節・5 節）。
-- **本番の MCP 用のトークン（`.env.production`）の交換と失効の手順が未定。** エージェント専用アカウントのトークンをいつ交換するか、開発機を失ったときに何をどの順で止めるか（Chatwoot のトークン・Mautic の API クライアント・Umami の API キー、**ADR-16 で加わった Strapi の Admin トークン・n8n の MCP のアクセストークン・ビルド用の Strapi の読み取り専用の API トークン**、**ADR-17 で加わった GitHub の資格情報と、監視アプリが本番を読むための資格情報**、**ADR-18 の追加の決定で加わった実行記録の写しを書く資格情報**）を BA-05 の離任時チェックリストと同じ形で書く。判断者 `R1`。
+- **本番の MCP 用のトークン（`.env.production`）の交換と失効の手順が未定。** エージェント専用アカウントのトークンをいつ交換するか、開発機を失ったときに何をどの順で止めるか（Chatwoot のトークン・Mautic の API クライアント・Umami の API キー〈ADR-25 で廃止〉、**ADR-25 で加わった OpenSEO の GA4 の OAuth の接続の取り消し**、**ADR-16 で加わった Strapi の Admin トークン・n8n の MCP のアクセストークン・ビルド用の Strapi の読み取り専用の API トークン**、**ADR-17 で加わった GitHub の資格情報と、監視アプリが本番を読むための資格情報**、**ADR-18 の追加の決定で加わった実行記録の写しを書く資格情報**）を BA-05 の離任時チェックリストと同じ形で書く。判断者 `R1`。
 - **本番の n8n の資格情報の扱い**（ADR-16）。本番の n8n は全システムの資格情報（Chatwoot・Mautic・Strapi のトークン、GitHub のトークンを置くならそれも）を RDS の `n8n` データベースに `N8N_ENCRYPTION_KEY` で暗号化して持つ。**Strapi の資格情報の権限は ADR-18 で決まった**（必要になるまで登録しない。登録するときは下書きまで。1 節）。次の 3 点を決めていない。判断者 `R1`。
   - **誰が登録し、どの権限のアカウントで発行するか。** MCP と同じくエージェント専用のアカウントにするか、n8n 専用のアカウントを分けるか（ADR-16 の反映では「分けると Chatwoot の監査ログで n8n の操作とエージェントの操作を区別できる」としていた。**ADR-17 で監査ログに頼らず送信の記録〈`sender`〉で突き合わせることにしたため、分ける理由は「n8n が送ったメッセージをエージェントの送信と区別し、突き合わせの誤検知にしない」ことになる**。TA-07 の 6.2）。
   - **`N8N_ENCRYPTION_KEY` の控え。** Secrets Manager の値を失うと全資格情報を登録し直すことになる（2 節）。RDS のスナップショットと同じアカウントに置くことの扱いは TA-05 の 8 節と同じ論点である。

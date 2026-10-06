@@ -36,7 +36,7 @@ ops/
 | id | 種類 | 実行 | 内容 |
 |---|---|---|---|
 | `daily-observe-seo` | agent | 毎日 06:00 | `seo-auditor`。GSC の実績（`source: gsc`） |
-| `daily-observe-analytics` | agent | 毎日 06:00 | `analytics-reporter`。Umami・Mautic（参照専用）・PostHog の集計 |
+| `daily-observe-analytics` | agent | 毎日 06:00 | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
 | `daily-observe-conversations` | agent | 毎日 06:00 | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
 | `daily-observe-ops` | agent | 毎日 06:00 | `ops-watcher`。直近 24 時間の例外 |
 | `daily-propose` | agent | 毎日 07:00 | `proposal-writer`。**観測 4 本を `after` で待つ**。起票前チェック 14 項目を通したものだけ起票 |
@@ -81,9 +81,8 @@ TA-03 の 3.3 の「週次 AB テスト」と「週次 問い合わせの棚卸�
 | `mautic` / `mautic-prod` | 自作 stdio（`backend/mautic-mcp/dist/index.js`） | `read_write`（`env_vars` で固定。`TRANSPORT: stdio` も `env_vars`）。`lead-ops` だけが使う |
 | `mautic-prod-ro` | 同上 | `read_only`（`env_vars` で固定）。`analytics-reporter` だけが使う。**参照専用ロールの別の API 認証情報**を使う |
 | `strapi-mcp` / `strapi-prod` | Strapi 組み込み（HTTP `/mcp`）。開発は `127.0.0.1:1337`、本番は**オンプレの本番の Strapi**（`127.0.0.1:1338`。ADR-21、`onprem/strapi`） | 本番は Admin トークンで**下書きまで**（公開・非公開化・削除の権限を与えない） |
-| `umami` / `umami-prod` | Umami 組み込み（HTTP `/mcp`） | 閲覧のみ |
 | `n8n` / `n8n-prod` | n8n 組み込み（HTTP `/mcp-server/http`）。開発は `127.0.0.1:5678`、本番は**オンプレの本番の n8n のエディターの口**（`127.0.0.1:5679`。ADR-21、`onprem/n8n`） | 本番は作成と更新まで。どのエージェントにも割り当てていない |
-| `openseo` | ローカル HTTP | `ACCESS_LEVEL` が無い。許可リストはエージェント定義の `tools` |
+| `openseo` | ローカル HTTP | `ACCESS_LEVEL` が無い。許可リストはエージェント定義の `tools`。GA4 も読む（`analytics-reporter` だけ。`get_google_analytics_*` のうち 5 本。OpenSEO に接続するのは本番の GA4 プロパティだけ。ADR-25） |
 | `posthog-prod` | HTTP（`https://mcp.posthog.com/mcp?readonly=true`） | 読み取り専用。`analytics-reporter` と `ops-watcher` だけが使う。個別ツールの許可リスト（`execute-sql`、`query-error-tracking-*`）。個人 API キーも本番用のプロジェクトの読み取りだけで発行する |
 
 - **stdio の登録には `env_vars`（秘密でない定数。`TRANSPORT` と `*_ACCESS_LEVEL`）を書く。** node の `--env-file-if-exists` は既にある環境変数を上書きしないので、env ファイルに別の値が書かれていても登録表の値が勝つ（`ACCESS_LEVEL` を env ファイルで広げられない）。キー名に secret・token・password・api_key などを含む値は登録表に書けない（control-plane が拒否する）
@@ -100,7 +99,6 @@ env ファイルの実体は `~/.config/comegin/mcp/` に置く。エージェ�
 | `chatwoot-dev.env` / `chatwoot-prod.env` | `CHATWOOT_BASE_URL` `CHATWOOT_ACCOUNT_ID` `CHATWOOT_API_ACCESS_TOKEN`（`CHATWOOT_ACCESS_LEVEL` と `TRANSPORT` は登録表の `env_vars`）。トークンは `conversation-triage` 専用のエージェントユーザーのもの |
 | `mautic-dev.env` / `mautic-prod.env` / `mautic-prod-ro.env` | `MAUTIC_BASE_URL` `MAUTIC_CLIENT_ID` `MAUTIC_CLIENT_SECRET`（`MAUTIC_ACCESS_LEVEL` と `TRANSPORT=stdio` は登録表の `env_vars`）。`mautic-prod-ro` は参照専用ロールの認証情報 |
 | `strapi-dev.env` / `strapi-prod.env` | `STRAPI_DEV_TOKEN` / `STRAPI_PROD_TOKEN`（Admin トークン。`strapi-prod` はオンプレの本番の Strapi〈`onprem/strapi`〉の管理画面で発行する） |
-| `umami-dev.env` / `umami-prod.env` | `UMAMI_DEV_API_KEY` / `UMAMI_PROD_API_KEY` |
 | `n8n-dev.env` / `n8n-prod.env` | `N8N_DEV_TOKEN` / `N8N_PROD_TOKEN`（`n8n-prod` はオンプレの本番の n8n〈`onprem/n8n`〉の設定画面で発行する） |
 | `posthog-prod.env` | `POSTHOG_PROD_API_KEY`（「MCP Server」プリセットで、本番用のプロジェクトの読み取りだけに絞る）と `POSTHOG_PROD_PROJECT_ID`（`x-posthog-project-id` で本番用のプロジェクトに固定する） |
 
@@ -108,7 +106,8 @@ env ファイルの実体は `~/.config/comegin/mcp/` に置く。エージェ�
 
 - **`strapi-prod` の `keyword` / `content-plan` のツール名**（`create_keyword`、`list_content-plan` など）は、Strapi の MCP の命名規則（singularName）からの推定。開発環境の `strapi-mcp` の `tools/list` で確かめる（L3-1）。`.claude/agents/` の該当 3 本の frontmatter にも同じ TODO のコメントがある
 - **`posthog-prod` のツール名**（`execute-sql`、`query-error-tracking-issues-list`、`query-error-tracking-issue`）は PostHog の公式の説明から。接続して `tools/list` で確かめる
-- Umami（`/mcp`）と n8n（`/mcp-server/http`）の URL とヘッダーは、設計書とソースの読みで書いた。実際の接続は未確認
+- n8n（`/mcp-server/http`）の URL とヘッダーは、設計書とソースの読みで書いた。実際の接続は未確認（Umami の登録は ADR-25 で廃止した）
+- OpenSEO の GA4 のツール（`get_google_analytics_*`）は上流のソース（`middleware/open-seo-main/src/server/mcp/tools/google-analytics-tools.ts`）の読みで書いた。本番のプロパティを接続した後に `tools/list` と実際の応答で確かめる
 
 ## 新しい定期実行を足すとき
 

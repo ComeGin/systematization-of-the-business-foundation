@@ -54,12 +54,6 @@ Resources:
       LogGroupName: !Sub '/comegin/${EnvName}/chatwoot-worker'
       RetentionInDays: !Ref LogRetentionDays
 
-  UmamiLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/comegin/${EnvName}/umami'
-      RetentionInDays: !Ref LogRetentionDays
-
   AdminAuthLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -92,8 +86,6 @@ Outputs:
     Value: !Ref ChatwootWebLogGroup
   ChatwootWorkerLogGroupName:
     Value: !Ref ChatwootWorkerLogGroup
-  UmamiLogGroupName:
-    Value: !Ref UmamiLogGroup
   AdminAuthLogGroupName:
     Value: !Ref AdminAuthLogGroup
   ConsentApiLogGroupName:

@@ -105,6 +105,10 @@ Resources:
           # マネージドポリシー（Free プランで使える「既定のルール」）。
           #   CachePolicy 658327ea-... = Managed-CachingOptimized（オリジンの Cache-Control を尊重する）
           #   ResponseHeadersPolicy 67f7725c-... = Managed-SecurityHeadersPolicy
+          #     このマネージドポリシーは Content-Security-Policy を付けない（Referrer-Policy・HSTS・X-Content-Type-Options・X-Frame-Options・X-XSS-Protection だけ。
+          #     出典 https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html）。
+          #     CSP をここで付けるなら、GA4（ADR-25）のホストを Google の CSP ガイドの「Google Analytics without any Ads features」の表に合わせて入れる
+          #     （出典 https://developers.google.com/tag-platform/security/guides/csp）。
           # キャッシュの長さは配信時に S3 のオブジェクトの Cache-Control で決める（README の手順）:
           #   _astro/ 配下のハッシュ付き資産 = public, max-age=31536000, immutable
           #   HTML = public, max-age=0, must-revalidate

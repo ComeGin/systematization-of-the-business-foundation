@@ -12,11 +12,11 @@ Metadata:
       - Label: { default: 全体 }
         Parameters: [EnvName, DomainName, HostedZoneId]
       - Label: { default: ホスト名（ALB の振り分け。TA-06 の 5.1） }
-        Parameters: [ChatHost, MktHost, StatsHost, AuthHost, ConsentHost]
+        Parameters: [ChatHost, MktHost, AuthHost, ConsentHost]
       - Label: { default: Astro の配信（CloudFront。global/template.yaml の出力を写す） }
         Parameters: [SiteHost, CloudFrontCertificateArn, CloudFrontWebAclArn]
       - Label: { default: コンテナの待ち受けポート }
-        Parameters: [MauticWebPort, ChatwootWebPort, UmamiPort, AdminAuthPort, ConsentApiPort]
+        Parameters: [MauticWebPort, ChatwootWebPort, AdminAuthPort, ConsentApiPort]
       - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
         Parameters: [AlbOidcClientId]
       - Label: { default: データストア（暫定値） }
@@ -26,9 +26,9 @@ Metadata:
       - Label: { default: WAF（暫定値） }
         Parameters: [WafRateLimitConsent, WafRateLimitForm, WafRateLimitApi, WafRateLimitVisitor, WafRateLimitAuth, WafCommonRuleSetAction]
       - Label: { default: サービスのイメージのタグ（製品ごと。latest は使えない） }
-        Parameters: [MauticImageTag, ChatwootImageTag, UmamiImageTag, AdminAuthImageTag, ConsentApiImageTag]
+        Parameters: [MauticImageTag, ChatwootImageTag, AdminAuthImageTag, ConsentApiImageTag]
       - Label: { default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値） }
-        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, UmamiDesiredCount, UmamiCpu, UmamiMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory, ConsentApiDesiredCount, ConsentApiCpu, ConsentApiMemory]
+        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory, ConsentApiDesiredCount, ConsentApiCpu, ConsentApiMemory]
       - Label: { default: サービスの設定 }
         Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
       - Label: { default: 通知と監視 }
@@ -57,10 +57,7 @@ Parameters:
     Type: String
     Default: mkt.comegin.com
     Description: mautic-web（確定）
-  StatsHost:
-    Type: String
-    Default: stats.comegin.com
-    Description: umami（確定）
+  # stats.（以前のアクセス解析）は ADR-25 で外した。アクセス解析は GA4（SaaS）で、クラウドに置くものが無い。
   AuthHost:
     Type: String
     Default: auth.comegin.com
@@ -86,9 +83,6 @@ Parameters:
     Type: Number
     Default: 80
   ChatwootWebPort:
-    Type: Number
-    Default: 3000
-  UmamiPort:
     Type: Number
     Default: 3000
   AdminAuthPort:
@@ -162,11 +156,6 @@ Parameters:
     AllowedPattern: '^(?!latest$).+$'
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
-  UmamiImageTag:
-    Type: String
-    AllowedPattern: '^(?!latest$).+$'
-    ConstraintDescription: latest は使えない。バージョンのタグで固定する。
-    Default: 3.4.0-1
   AdminAuthImageTag:
     Type: String
     AllowedPattern: '^(?!latest$).+$'
@@ -219,17 +208,6 @@ Parameters:
     Default: '512'
     AllowedValues: ['256', '512', '1024', '2048', '4096']
   ChatwootWorkerMemory:
-    Type: String
-    Default: '1024'
-  UmamiDesiredCount:
-    Type: Number
-    Default: 0
-    MinValue: 0
-  UmamiCpu:
-    Type: String
-    Default: '512'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
-  UmamiMemory:
     Type: String
     Default: '1024'
   AdminAuthDesiredCount:
@@ -345,7 +323,6 @@ Resources:
         VpcCidr: !Ref VpcCidr
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
-        UmamiPort: !Ref UmamiPort
         AdminAuthPort: !Ref AdminAuthPort
         ConsentApiPort: !Ref ConsentApiPort
         WireguardPort: !Ref WireguardPort
@@ -418,12 +395,10 @@ Resources:
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
         ChatHost: !Ref ChatHost
         MktHost: !Ref MktHost
-        StatsHost: !Ref StatsHost
         AuthHost: !Ref AuthHost
         ConsentHost: !Ref ConsentHost
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
-        UmamiPort: !Ref UmamiPort
         AdminAuthPort: !Ref AdminAuthPort
         ConsentApiPort: !Ref ConsentApiPort
         AlbOidcClientId: !Ref AlbOidcClientId
@@ -611,26 +586,6 @@ Resources:
         AttachmentBucketArn: !GetAtt DataStack.Outputs.ChatwootBucketArn
         MailerSenderEmail: !Ref ChatwootMailerSenderEmail
 
-  UmamiService:
-    Type: AWS::Serverless::Application
-    Properties:
-      Location: stacks/services/umami.yaml
-      Parameters:
-        EnvName: !Ref EnvName
-        ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
-        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
-        SecurityGroupId: !GetAtt NetworkStack.Outputs.UmamiSecurityGroupId
-        LogGroupName: !GetAtt ClusterStack.Outputs.UmamiLogGroupName
-        SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
-        ImageRepositoryUri: !GetAtt EcrStack.Outputs.UmamiRepositoryUri
-        ImageTag: !Ref UmamiImageTag
-        DesiredCount: !Ref UmamiDesiredCount
-        Cpu: !Ref UmamiCpu
-        Memory: !Ref UmamiMemory
-        ContainerPort: !Ref UmamiPort
-        TargetGroupArn: !GetAtt EdgeStack.Outputs.UmamiTargetGroupArn
-        PostgresEndpoint: !GetAtt DataStack.Outputs.PostgresEndpoint
-
   AdminAuthService:
     Type: AWS::Serverless::Application
     Properties:
@@ -692,7 +647,6 @@ Resources:
         AlbFullName: !GetAtt EdgeStack.Outputs.AlbFullName
         MauticWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.MauticWebTargetGroupFullName
         ChatwootWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.ChatwootWebTargetGroupFullName
-        UmamiTargetGroupFullName: !GetAtt EdgeStack.Outputs.UmamiTargetGroupFullName
         AdminAuthTargetGroupFullName: !GetAtt EdgeStack.Outputs.AdminAuthTargetGroupFullName
         ConsentApiTargetGroupFullName: !GetAtt EdgeStack.Outputs.ConsentApiTargetGroupFullName
         MysqlInstanceIdentifier: !GetAtt DataStack.Outputs.MysqlInstanceIdentifier

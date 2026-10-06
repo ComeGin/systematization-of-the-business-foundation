@@ -5,8 +5,10 @@
 実機で初めて分かることは「5. TODO 一覧」と各テンプレートの `TODO(未検証)` に残した。
 
 **ADR-21（2026-10-05）で、Strapi と n8n をクラウドから外した。** 再帰的自己改善の仕組み（Strapi・n8n・監視アプリ・MCP・ビルド）はオンプレ、
-成果物（Astro・Mautic・Chatwoot・Umami と、例外の `consent-api`・`admin-auth`）はクラウド、データの置き場（RDS・ElastiCache・S3・EFS）は AWS に置く。
+成果物（Astro・Mautic・Chatwoot と、例外の `consent-api`・`admin-auth`）はクラウド、データの置き場（RDS・ElastiCache・S3・EFS）は AWS に置く。
 オンプレと VPC は、小さな EC2 の WireGuard（`stacks/wireguard.yaml`）でつなぐ。構成は 1.1。
+
+**ADR-25（2026-10-06）で、Umami をクラウドから外した。** アクセス解析の正本は GA4（SaaS。Google LLC）にし、クラウドに置くものは無い（`stats.` のホストも無い）。外したものは 6 節。
 
 収益化（`points-api`・`I-26`〜`I-30`・`E-19` の S3 Object Lock）は作っていない（本システムの完成後。ポート 3106 とフォルダ名を予約しているだけ）。
 
@@ -20,11 +22,11 @@ cloud/
   stacks/
     network.yaml             VPC、2AZ の public / private、NAT 1 台、S3 ゲートウェイエンドポイント、セキュリティグループ（すべて。WireGuard の EC2 の SG を含む）
     wireguard.yaml           オンプレとの WireGuard の終端（EC2 t4g.nano 1 台、Elastic IP、private サブネットの経路、SSM のパラメータ）
-    ecr.yaml                 ECR（自作 2 本〈admin-auth・consent-api〉と、Mautic・Chatwoot・Umami の 5 本）
+    ecr.yaml                 ECR（自作 2 本〈admin-auth・consent-api〉と、Mautic・Chatwoot の 4 本）
     observability.yaml       SNS（comegin-lead-alert / comegin-ops-alert）、ハートビートのアラーム 2 つ（オンプレの監視アプリ、オンプレの n8n のスケジュール実行）
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
-    secrets.yaml             Secrets Manager（20 個）
+    secrets.yaml             Secrets Manager（18 個）
     data.yaml                RDS（MySQL 8.4・PostgreSQL 16）、Valkey、EFS、S3
     cluster.yaml             ECS クラスター、ロググループ（Service Connect は使わない）
     edge.yaml                ACM、ALB、リスナールール、WAF、Route 53
@@ -32,8 +34,8 @@ cloud/
     ses.yaml                 SES のドメイン ID と DKIM
     ops-tasks.yaml           運用者が RunTask で起動する DB 作成のタスク
     alarms.yaml              CloudWatch アラームと RDS のイベント通知
-    services/<svc>.yaml      ECS のサービス 7 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker・umami・admin-auth・consent-api）
-  images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot・umami。4.7）
+    services/<svc>.yaml      ECS のサービス 6 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker・admin-auth・consent-api）
+  images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）
 ```
 
 ### 1.1 オンプレとの接続（ADR-21）
@@ -86,12 +88,13 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 
 ## 3. 費用
 
-見積もりは未実施（TA-06 の 9 節）。固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（7 サービス。タスクは各 1）、RDS（2 台）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
+見積もりは未実施（TA-06 の 9 節）。固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（6 サービス。タスクは各 1）、RDS（2 台）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
 **EC2 t4g.nano（WireGuard。1 台）と Elastic IP（public IPv4 の課金）と EBS 8 GB（gp3）**、
-Secrets Manager（20 個 + ビルド時に作る 3 個 = 23 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 28 個、ログ、メトリクス）。
+Secrets Manager（18 個 + RDS が管理するマスターの 2 個 = 20 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 26 個、ログ、メトリクス）。
 
 **ADR-21 による増減（概算。単価は見積もりで確かめる）**: Fargate のサービスが 2 つ減る（Strapi と n8n が各 1 vCPU・2 GB。東京の公表単価からの概算で、1 つあたり月 $45 前後。n8n は runners のサイドカー分も減る）。
 EC2 t4g.nano（月 $4 前後）、Elastic IP（public IPv4 は 1 つ月 $3.65）、EBS 8 GB（月 $1 未満）が増える。Secrets Manager が 9 個減る（月 $3.6 前後）。アラームは 4 つ減って 2 つ増える（さらに n8n のハートビートのアラームが 1 つ増える）。
+**ADR-25 による増減**: Fargate のサービスが 1 つ減る（Umami。0.5 vCPU・1 GB）。Secret が 3 個減る（`umami/DB_PASSWORD`・`APP_SECRET`・`DATABASE_URL`）。アラームが 2 つ減る。ECR が 1 本、ALB のリスナールールが 3 つ、ターゲットグループが 1 つ、Route 53 のレコードが 1 つ減る。
 オンプレから RDS への通信は WireGuard の EC2 を通り、NAT Gateway は通らない。RDS の応答と Webhook（AWS からインターネットへ出る分）は、インターネットへのデータ転送料の対象（Strapi の記事とワークフローの規模なら小さい見込みだが、見積もりに入れる）。
 
 **このリポジトリの設計で増える費用（見積もりに入れること）**
@@ -255,7 +258,7 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 
 ### 4.6 Secrets の値を入れる（プレースホルダ 5 個）
 
-`secrets.yaml` の Secret のうち 15 個は自動生成（英数字のみ）。次の 5 個は値なしで作られるので、人間が入れる。**値を入れる前にそのサービスの DesiredCount を上げない**（ECS がタスクの起動に失敗する）。
+`secrets.yaml` の Secret のうち 13 個は自動生成（英数字のみ）。次の 5 個は値なしで作られるので、人間が入れる。**値を入れる前にそのサービスの DesiredCount を上げない**（ECS がタスクの起動に失敗する）。
 生成された値を変えない（暗号化の鍵・ソルトを変えると既存のデータを復号できなくなる）。**Secrets Manager の値を消したり作り直したりしない。**
 Strapi と n8n の鍵類（`APP_KEYS`・`ENCRYPTION_KEY`・`N8N_ENCRYPTION_KEY`・PostHog のトークンなど）は、オンプレで動かす（ADR-21）ので、Secrets Manager に置かない。オンプレの秘匿ファイルにだけ置く。
 
@@ -295,31 +298,29 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
   AWS が束を更新すると、**ビルドも ops-tasks のタスクも失敗する（意図した動作。改ざんの検知と、CA の更新を人が確かめるため）。** 更新の手順:
   1. `curl -fsS https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o /tmp/b.pem` で取得し、中身（証明書の数、発行者）を確かめる。
   2. `sha256sum /tmp/b.pem` の値を、`cloud/images/*/Dockerfile` の `RDS_CA_SHA256` と、親のパラメータ `RdsCaSha256`（ops-tasks）に反映する。
-  3. 3 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。
+  3. 2 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。
 - ElastiCache（`rediss://`）は、Amazon の公開 CA で署名されており、Node（consent-api）と Ruby（Chatwoot）の既定の信頼ストアで検証される。検証を無効にする設定は入れていない。
 - 自作の admin-auth は、Dockerfile が同じ CA を `NODE_EXTRA_CA_CERTS` で持つ。
 
 | 接続元 | 検証のしかた（テンプレートの設定） | 検証の状況 |
 |---|---|---|
 | Chatwoot（Rails・libpq） | `PGSSLMODE=verify-full`、`PGSSLROOTCERT=/etc/rds/global-bundle.pem` | libpq は、自作の CA のローカルの PostgreSQL で確認済み（正しいとき接続、CA が無いときとホスト名が違うときは失敗）。Chatwoot の Rails 本体では未 |
-| Umami（Node の pg と Prisma の Rust エンジン） | `DATABASE_URL` を `sslmode=verify-full&sslaccept=strict`、`NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`（システムの CA 束に RDS の CA を足した束） | **Umami 3.4.0 のイメージで確認済み**（ローカルの TLS つき PostgreSQL）。pg 8.22 と Prisma のエンジンの両方が、CA が無いとき・ホスト名が違うときに失敗し、正しいとき接続する。実機の RDS では未 |
 | Mautic（Doctrine・PDO と起動時の `mysqladmin ping`） | `config.php` に `PDO::MYSQL_ATTR_SSL_CA` と `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT` を足し（ビルド時のパッチ。2 か所に入ったことと `php -l` を確かめ、確かめられなければビルドが失敗する）、mariadb-admin の設定（`/etc/mysql/conf.d/rds-ssl.cnf`）に `ssl-ca` と `ssl-verify-server-cert`。RDS の MySQL は `require_secure_transport=1`（`data.yaml`） | **派生イメージのビルドを確認済み。PHP 8.3 の PDO と `mysqladmin` は、自作の CA のローカルの TLS つき MySQL で確認済み**（正しいとき接続、CA が違うときとホスト名が違うときは失敗）。Mautic 本体の起動は未 |
 | admin-auth | `DATABASE_SSL=true`（CA は Dockerfile の `NODE_EXTRA_CA_CERTS`） | edge が実装済み。実機では未 |
 | オンプレの Strapi・n8n（WireGuard 経由） | `onprem/` の設定（Strapi は `DATABASE_SSL=true`、n8n は `DB_POSTGRESDB_SSL_CA_FILE` と `REJECT_UNAUTHORIZED=true`）。接続先は RDS のエンドポイント名（ホスト名の検証が通る） | 未（実機で、トンネルを張ってから確かめる） |
 | ops-tasks の DB 作成タスク | 起動時に CA を取得して SHA-256 を照合し、`PGSSLMODE=verify-full`（MySQL は `--ssl-mode=VERIFY_IDENTITY`） | CA の取得と照合は、各イメージで確認済み |
 
 **重要（Prisma）**: Prisma の Rust のエンジン（起動時の `prisma migrate deploy`）は、`sslmode` が `require` でも `verify-full` でも証明書を検証しない（上のローカルの実験で、CA が無くても繋がった）。
-検証するのは `sslaccept=strict` を付けたときだけ。Umami の URL に `sslaccept=strict` を付けているのはこのため。外すと、暗号化だけで検証しない設定に戻る。
+検証するのは `sslaccept=strict` を付けたときだけ。外すと、暗号化だけで検証しない設定に戻る。いま Prisma を使うサービスは無い（以前の Umami で確かめた。ADR-25 で外した）。Prisma の製品を足すときは URL に `sslaccept=strict` を付ける。
 なお、Node の pg は sslmode の `require` を `verify-full` の別名として扱うが、pg v9 では libpq 互換（検証しない）に変わる予定なので、`verify-full` と明示している。
 
-#### 派生イメージ（3 本。上流のタグを固定してビルドする）
+#### 派生イメージ（2 本。上流のタグを固定してビルドする）
 
 タグは `<上流のタグ>-<ビルドの連番>`（再ビルドするときは連番を上げる。ECR のタグは上書きできない）。
 
 | 製品 | Dockerfile | `UPSTREAM_TAG` | ECR のリポジトリ | パラメータの例 |
 |---|---|---|---|---|
 | Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
-| Umami | `cloud/images/umami` | `3.4.0`（**3.4.0 以上**。ghcr.io のタグは `v` なし） | `comegin/<env>/umami` | `UmamiImageTag=3.4.0-1` |
 | Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-1` |
 
 ```bash
@@ -344,7 +345,7 @@ docker push $ECR/comegin/prod/consent-api:$TAG
 
 ### 4.8 データベースとアプリ用ユーザーを作る（1 回だけ）
 
-PostgreSQL に `chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` のデータベースとユーザー（同じ名前）を、MySQL に `mautic` を作る。パスワードは Secrets Manager のアプリ用の値に揃える。
+PostgreSQL に `chatwoot` / `admin_auth` / `strapi` / `n8n` のデータベースとユーザー（同じ名前）を、MySQL に `mautic` を作る。パスワードは Secrets Manager のアプリ用の値に揃える。
 `strapi` と `n8n` は、オンプレの Strapi・n8n が WireGuard 経由で使う（ADR-21）。作り方は同じで、使うのはオンプレ側だけ。
 冪等なので、何度実行してもよい（パスワードを Secret の値に揃え直す）。chatwoot のデータベースには拡張（`vector`・`pg_trgm`・`pg_stat_statements`）も入れる。
 
@@ -408,9 +409,8 @@ aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].co
 | サービス | 手順 |
 |---|---|
 | **Chatwoot** | 上の `db:chatwoot_prepare`（entrypoint は `docker/entrypoints/rails.sh` のまま、`command` だけ上書き）。**初回とイメージを更新するたびに、サービスを起動する前に実行する。** |
-| **admin-auth** | ① 移行 `["node","dist/scripts/migrate.js"]` ② ALB を信頼済みクライアントとして登録 `["node","dist/scripts/register-alb-client.js"]`（**`pnpm alb:register` ではない。イメージの中に pnpm は無い**）。どちらも冪等で、終了コードは成功 0・失敗 1。タスク定義は `comegin-prod-admin-auth`、コンテナ名 `admin-auth`、セキュリティグループは `AdminAuthSecurityGroupId`。環境変数はサービスと同じもの（`DATABASE_*`・`BETTER_AUTH_*`・`GOOGLE_*`・`ALB_*`）で、`ALB_CLIENT_SECRET` は ALB のリスナールールと同じ Secret から渡る。**`ALB_PROTECTED_HOSTS` には `authenticate-oidc` をかける 3 つのホスト（`ChatHost`・`MktHost`・`StatsHost`）がすべて入る**（ADR-21 で `cms.`・`n8n.` を、ADR-24 で `cal.` を外した）（親が edge の出力から渡す）。足りないホストでは、ALB のリダイレクトが拒否されてログインできない。**移行と登録のあとで `AdminAuthDesiredCount` を上げる**（許可リストの表が無い、または DB に届かないとき、プロセスは終了して ECS が再起動を繰り返す）。 |
+| **admin-auth** | ① 移行 `["node","dist/scripts/migrate.js"]` ② ALB を信頼済みクライアントとして登録 `["node","dist/scripts/register-alb-client.js"]`（**`pnpm alb:register` ではない。イメージの中に pnpm は無い**）。どちらも冪等で、終了コードは成功 0・失敗 1。タスク定義は `comegin-prod-admin-auth`、コンテナ名 `admin-auth`、セキュリティグループは `AdminAuthSecurityGroupId`。環境変数はサービスと同じもの（`DATABASE_*`・`BETTER_AUTH_*`・`GOOGLE_*`・`ALB_*`）で、`ALB_CLIENT_SECRET` は ALB のリスナールールと同じ Secret から渡る。**`ALB_PROTECTED_HOSTS` には `authenticate-oidc` をかける 2 つのホスト（`ChatHost`・`MktHost`）がすべて入る**（ADR-21 で `cms.`・`n8n.` を、ADR-24 で `cal.` を、ADR-25 で `stats.` を外した）（親が edge の出力から渡す）。足りないホストでは、ALB のリダイレクトが拒否されてログインできない。**移行と登録のあとで `AdminAuthDesiredCount` を上げる**（許可リストの表が無い、または DB に届かないとき、プロセスは終了して ECS が再起動を繰り返す）。 |
 | **Mautic** | **RunTask は要らない。** 公式の entrypoint が、インストール済み（`config/local.php` に `db_driver` と `site_url` がある）なら、web ロールの起動のたびに `doctrine:migrations:migrate` を実行する。未インストールのあいだは何もせず、cron は**インストールが終わるまで待つ**。初回は、`mautic-web` を起動し、ログインした管理者がブラウザで `https://<MktHost>/installer` を開いてインストールする（`/installer` は OIDC の内側）。`local.php` は EFS の `config` に保存され、再起動で消えない。CLI でするなら ECS Exec（`su -s /bin/sh www-data -c 'cd /var/www/html && php ./bin/console mautic:install https://<MktHost> --admin_email=<…> --admin_password=<…>'`。未検証）。管理者のパスワードは Secrets Manager に置かず、インストール時に人間が決める。**TODO(未検証)**: Mautic の設定名（`MAUTIC_SITE_URL`、`MAUTIC_TRUSTED_PROXIES`）。 |
-| **Umami** | RunTask は要らない。イメージの起動処理（`scripts/check-db.js`）が、起動のたびに `prisma migrate deploy` を実行する（タスクは 1 つなので並行しない）。 |
 | **Strapi・n8n（オンプレ）** | オンプレで動かす（ADR-21）。起動時に自分で RDS の `strapi`・`n8n` データベースを移行する。WireGuard が張れていて、4.8 のパスワードを渡してから起動する。 |
 
 **移行が失敗したら、サービスのイメージを更新しない**（古いイメージのまま動かし続ける）。
@@ -441,10 +441,9 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 | 順 | サービス | 条件・注意 |
 |---|---|---|
 | 1 | `AdminAuthDesiredCount=1` | イメージ、`GoogleClientId`、`GOOGLE_CLIENT_SECRET`、DB 作成、migrate、`register-alb-client` を済ませてから。**これが無いと、管理画面に誰も入れない** |
-| 2 | `UmamiDesiredCount=1` | |
-| 3 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
-| 4 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
-| 5 | `ConsentApiDesiredCount=1` | 公開サイトの同意の受け口。WAF のレート制限が最も厳しい |
+| 2 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
+| 3 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
+| 4 | `ConsentApiDesiredCount=1` | 公開サイトの同意の受け口。WAF のレート制限が最も厳しい |
 
 `mautic-web` と `mautic-cron` の DesiredCount は 0 か 1 しか受け付けない（テンプレートが拒否する）。
 WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1）。オンプレの Strapi・n8n の起動は、ここの対象外（`onprem/` の README）。
@@ -452,7 +451,7 @@ WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1�
 ### 4.12 イメージの更新
 
 1. 新しいイメージを ECR に置く（4.7）。
-2. **DB のスキーマが変わる製品（Chatwoot・Mautic・admin-auth・Umami）**: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
+2. **DB のスキーマが変わる製品（Chatwoot・Mautic・admin-auth）**: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
 3. **スキーマが変わらない更新**: タグを変えてデプロイするだけ（ローリング更新。サーキットブレーカーが、新しいタスクの起動が失敗し続けたときに直前に戻す）。
 4. Strapi と n8n の更新は、オンプレで行う（ADR-21。`onprem/` の README）。このスタックの対象外。
 5. **4.13 の確認をデプロイごとに行う。** 製品を更新すると訪問者向けのパスが変わりうる。許可リスト方式なので、変わると機能が止まる側に倒れる（管理画面が開く側には倒れない）。
@@ -461,27 +460,25 @@ WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1�
 
 ```bash
 # 訪問者向け: 認証なしで 200（パスは edge.yaml の許可リスト）
-curl -s -o /dev/null -w '%{http_code}\n' https://<StatsHost>/script.js                  # 200（Umami のトラッカー）
 curl -s -o /dev/null -w '%{http_code}\n' https://<ChatHost>/widget                      # 200 か製品の応答（Chatwoot のウィジェット）
 curl -s -o /dev/null -w '%{http_code}\n' https://<ConsentHost>/v1/consent               # 200（同意の状態の取得）
 
 # 機械向けの API: トークン無しでは製品側が拒否する（401）
 curl -s -o /dev/null -w '%{http_code}\n' https://<ChatHost>/api/v1/accounts/1/conversations
 curl -s -o /dev/null -w '%{http_code}\n' https://<MktHost>/api/contacts
-curl -s -o /dev/null -w '%{http_code}\n' https://<StatsHost>/mcp
 
 # 管理画面: 302 で auth. に飛ぶ（200 が返ったら認証が外れている。最優先で直す）
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://<ChatHost>/app/
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://<MktHost>/s/login
-curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://<StatsHost>/
 
 # 許可リストの外は閉じている
 curl -s -o /dev/null -w '%{http_code}\n' https://<ConsentHost>/healthz                  # 404（/healthz は外に出さない）
 curl -s -o /dev/null -w '%{http_code}\n' https://<ConsentHost>/                         # 404
 
-# cms.・n8n. はもう無い（ADR-21）。DNS にレコードが無いこと（名前が引けない）を確かめる
+# cms.・n8n.（ADR-21）と stats.（ADR-25）はもう無い。DNS にレコードが無いこと（名前が引けない）を確かめる
 dig +short cms.comegin.com
 dig +short n8n.comegin.com
+dig +short stats.comegin.com
 ```
 
 **Strapi のメディア（オンプレの Strapi から）**: 管理画面で画像を 1 枚アップロードし、署名付き URL（有効 1 時間）で取得できること。S3 のバケットが非公開のままであること（バケットのパブリックアクセスのブロックが全部オンであること）。アップロードは IAM ユーザー `onprem-strapi-media` のキーで行われる（CloudTrail で確かめられる）。
@@ -495,7 +492,7 @@ dig +short n8n.comegin.com
 | `comegin-<env>-onprem-heartbeat` | `ComeGin/Onprem`・`Heartbeat` | 監視アプリ（`ControlPlanePolicy` のキー） | 監視アプリ（改善ループ）の停止、オンプレの全滅 |
 | `comegin-<env>-onprem-n8n-schedule-heartbeat` | `ComeGin/OnpremN8n`・`ScheduleHeartbeat` | オンプレの n8n（`onprem-n8n-sns` のキー。4.10） | n8n のスケジュール実行の停止（問い合わせの棚卸しなど） |
 
-ブラウザで: 管理画面（`chat.`・`mkt.`・`stats.`）の URL を開くと Google のログインに転送され、許可リストに載っているアカウントだけが入れること、ALB のセッションが 12 時間であること。
+ブラウザで: 管理画面（`chat.`・`mkt.`）の URL を開くと Google のログインに転送され、許可リストに載っているアカウントだけが入れること、ALB のセッションが 12 時間であること。
 `/oauth2/idpresponse` の登録が足りないと、ログインのあとで ALB がエラーを返す（`ALB_PROTECTED_HOSTS` とリスナールールのホストを一致させる）。
 
 ### 4.14 Astro の配信
@@ -512,6 +509,8 @@ aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*'
 ```
 
 - **`SITE_URL` 未設定のビルドは意図的に停止する**（canonical と sitemap に localhost が焼き込まれるのを防ぐため）。
+- **GA4（ADR-25）の測定 ID は、本番のビルドの環境変数 `PUBLIC_GA4_MEASUREMENT_ID`（`G-` で始まる。秘密値ではない）で渡す。** 未設定ならタグを出さない。開発のビルドには設定しない。ビルドはオンプレなので、このスタックには測定 ID のパラメータを持たない（以前の Umami の環境変数もこのスタックには無かった）。
+- **CSP はこのスタックで付けていない**（`Managed-SecurityHeadersPolicy` は CSP を含まない。`cdn.yaml` の注記）。付けるなら GA4 のホストを Google の CSP ガイド（https://developers.google.com/tag-platform/security/guides/csp）に合わせる。5 節。
 - CloudFront のキャッシュポリシーはマネージド（Free プランで使える既定のルール）で、オリジンの `Cache-Control` を尊重する。上の同期の `--cache-control` が、長さを決める。
 - ディレクトリ形式（`/about/` → `about/index.html`）は CloudFront Function が補う。404 ページ（`/404.html`）は `frontend/verdant-virgo` にまだ無い（5 節）。
 
@@ -559,17 +558,16 @@ ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・
 
 | 領域 | TODO | どこに書いたか |
 |---|---|---|
-| **訪問者向けパス** | TA-06 の 5.3 の想定値で入れてある。各製品のバージョンで DevTools により実測して確定する（Chatwoot は `/packs/*` 以外のアセットのパスがあるか、Mautic は `/form/generate.js` などの埋め込み用のパス、Umami の `TRACKER_SCRIPT_NAME`）。ヘルスチェックのパスも実測 | `edge.yaml` |
+| **訪問者向けパス** | TA-06 の 5.3 の想定値で入れてある。各製品のバージョンで DevTools により実測して確定する（Chatwoot は `/packs/*` 以外のアセットのパスがあるか、Mautic は `/form/generate.js` などの埋め込み用のパス）。ヘルスチェックのパスも実測 | `edge.yaml` |
 | **SES** | 本番アクセスの申請、apex の SPF と DMARC を Google Workspace と統合、バウンスと苦情を Mautic に返す経路 | 4.9、`ses.yaml` |
 | **E-15 の写し** | 頻度と形式、保持期間とライフサイクル（決まるまで設定しない）、Object Lock（保持期間が決まってから）。`If-None-Match` を必須にするバケットポリシーの Deny は実機未検証（書き込みは単発の `PutObject` で、マルチパートを使わないこと） | `runlog-archive.yaml` |
 | **SNS の購読** | `AuthenticateOnUnsubscribe` を付けた確認（4.4）。購読状態（`Confirmed` の数）の監視は未作成（SNS 以外の手段が要る。TA-05 の項目 8） | 4.4 |
-| **外形監視** | 訪問者向けパスが認証なしで 200 を返すこと、管理画面が 302 を返すこと（200 は認証が外れた異常）、`cms.`・`n8n.` の名前が引けないことの定期確認は未作成（TA-05 の項目 6・7。CloudWatch Synthetics か Route 53 のヘルスチェックの案）。4.13 を手で行う | — |
+| **外形監視** | 訪問者向けパスが認証なしで 200 を返すこと、管理画面が 302 を返すこと（200 は認証が外れた異常）、`cms.`・`n8n.`・`stats.` の名前が引けないことの定期確認は未作成（TA-05 の項目 6・7。CloudWatch Synthetics か Route 53 のヘルスチェックの案）。4.13 を手で行う | — |
 | **WireGuard（ADR-21）** | ①**実機で一度も動かしていない**。AL2023 のカーネルに `wireguard` のモジュールがあるか、`wireguard-tools` が core のリポジトリにあるか（無ければ user-data が失敗し、`/var/log/wireguard-setup.log` に残る）。②nftables のルール（forward の既定 drop、両方向の masquerade）と、WireGuard の応答が SG の egress の許可なしで通るか（SG はステートフルなので通る想定。オンプレの `PersistentKeepalive` が通信を保つ）。③`ec2:recover`（`WireguardSystemRecoverAlarm`）が t4g で使えるか。④**トンネルそのもの（`latest handshake` の途絶）の監視は未作成**（EC2 の中から `PutMetricData` する案。IAM と名前空間を足す必要がある）。EC2 の死活（ステータスチェック）だけを見ている。⑤Webhook の再送の有無（Mautic・Chatwoot がオンプレの停止中に取りこぼした分を後から送るか）は、DD-07 の縮退運転で確かめる。⑥OS の更新は手動（4.2.1）。自動更新は入れていない。⑦AMI の変更で EC2 を置き換えると、ENI が「使用中」で失敗する見込み（未検証。4.2.1）。⑧`WireguardIngressCidr` は `0.0.0.0/0`（オンプレの IP が固定でないため）。固定の IP が使えるなら絞る | `wireguard.yaml`、`network.yaml`、4.2.1 |
 | **n8n のハートビート** | 実機で確かめる: ①n8n の HTTP Request ノードが、AWS の資格情報（アクセスキー）で `PutMetricData`（CloudWatch の Query API）に署名でき、`ComeGin/OnpremN8n` で通ること（名前空間の綴りの違いは `AccessDenied`）。②n8n を 15 分止めるとアラームが ALARM になり、再開で OK に戻り、どちらも ops に通知が届くこと。③5 分の送信間隔と 5 分の期間の境目で、1 期間のデータが 0 になる揺れがあっても、3 期間連続でなければ発火しないこと。④`heartbeatEnabled` が `false` の環境（開発）では、ALARM のままになること（意図どおり） | `observability.yaml`、`iam.yaml`、4.10 |
 | **オンプレの IAM ユーザー** | アクセスキーの発行（4.5）。S3 の署名付き URL（Strapi の S3 プロバイダー）が、IAM ユーザーのキーで動くこと。ローテーションの運用（キーは 1 ユーザー 2 つまで）。Strapi のアップロードの ACL（`BucketOwnerEnforced` のバケットなので、ACL を付けない設定が要る。`strapi-system` 側） | `iam.yaml`、4.5 |
 | **Mautic** | ①`MAUTIC_SITE_URL` と `MAUTIC_TRUSTED_PROXIES` の設定名と形式（公式の「local.php の設定は `MAUTIC_<大文字の名前>`」に基づく想定）。**`trusted_proxies` が無いと ALB 越しのアクセスを HTTP と判定して壊れる恐れ**。②メールの設定名（SMTP は管理画面で設定する）。③非同期のキューを使うなら `mautic_worker` のサービスを足す。④`mautic-web` を 2 タスク以上にするには、セッションの保存先（Valkey か RDS）を決める。⑤派生イメージの `config.php` のパッチは、上流の版を上げるとパターンが合わなくなりうる（そのときはビルドが失敗する。黙って検証なしにはならない）。⑥Mautic 本体の起動と、`/installer` でのインストール | `services/mautic-*.yaml`、`images/mautic/Dockerfile` |
 | **Chatwoot** | S3 をタスクロールで使えるか（`AWS_ACCESS_KEY_ID` を空のまま SDK の既定の探索に倒れるか。倒れなければ専用の IAM ユーザーのキーを Secret に）。有効にする拡張を採用バージョンの `db/schema.rb` で確かめる。Rails 本体で `PGSSLMODE=verify-full` が効くか | `services/chatwoot-*.yaml`、`ops-tasks.yaml` |
-| **Umami の TLS** | 実機の RDS で検証つきで繋がること（実行時と、起動時の `prisma migrate deploy` の両方） | `services/umami.yaml` |
 | **RDS への TLS** | すべてのサービスが検証つきで接続する形にした（4.7 の表）。**実機の RDS で、各製品が検証つきで繋がること**（とくにオンプレの Strapi と n8n・Chatwoot の Rails・Mautic 本体）。繋がらない製品があっても、`PostgresForceSsl` を 0 にしたり検証を外したりする前に、製品側の設定を探す | `data.yaml`、4.7 |
 | **エンジンのバージョン** | RDS は `8.4` と `16` のプレフィックス指定（最新のマイナーを確かめて固定）。Valkey は `8.0`（CloudFormation と ElastiCache が受け付けるかを実機で確かめる。無ければ 7.2。開発は `valkey/valkey:8-alpine`）。Chatwoot の Sidekiq に問題が出たら、同じノードタイプのまま Redis OSS 7.1 に切り替える | `data.yaml` |
 | **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は既定の `client_secret_basic`（ALB が post を使う場合は、登録スクリプトの引数で登録し直す）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
@@ -578,20 +576,22 @@ ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・
 | **ネットワーク** | タスクのセキュリティグループの外向きは tcp の全ポートを `0.0.0.0/0` に開けている（ECR・Secrets Manager・SES が呼ぶ外部 API）。宛先で絞るのは未着手 | `network.yaml` |
 | **データの保全** | EFS の復元手順の確認（日次の自動バックアップ）。RDS の Enhanced Monitoring・Performance Insights は付けていない。Multi-AZ は止まった時間の実績を見て順に冗長化する（TA-06 の 4.6） | `data.yaml` |
 | **見積もり** | 費用の見積もり（TA-06 の 9 節）。アラームの数、Container Insights、WAF のログ、WireGuard の EC2 と Elastic IP、インターネットへのデータ転送（RDS の応答・Webhook）を含める。3 節の増減の概算は未確認の単価に基づく | 3 節 |
+| **CSP（ADR-25）** | 公開サイトの `Content-Security-Policy` をどこで付けるか（CloudFront のカスタムの応答ヘッダーポリシーか、Astro 側か）。CloudFront で付けるなら、フラットレートプランの Free で独自の応答ヘッダーポリシーが使えるかを確かめる。GA4 の許可は Google の CSP ガイドの表に合わせる | `cdn.yaml` |
 | **未着手の設計** | 収益化（`points-api`・3106・`E-19` の S3 Object Lock）。オンプレの **Strapi** のハートビートのアラーム（監視アプリと n8n のスケジュール実行のハートビートはある）。`consent-api` の TTL とバックアップ（TA-06 の 11 節） | — |
 
 ## 6. 設計書との差分と判断メモ
 
-- **Secret が 20 個**: 設計書の「約 18 個」より多い。理由は 3 節。ADR-21 で Strapi と n8n の鍵類を外した（`DB_PASSWORD` の 2 個だけ残す）。ADR-24 で Cal.com の 4 個を外した。
-- **ECR は 5 本**: 自作 2 本（admin-auth・consent-api）と、Mautic、Chatwoot、Umami。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。
+- **Secret が 18 個**（`secrets.yaml`。ほかに RDS が管理するマスターの 2 個）。ADR-21 で Strapi と n8n の鍵類を外した（`DB_PASSWORD` の 2 個だけ残す）。ADR-24 で Cal.com の 4 個を、ADR-25 で Umami の 2 個（と `services/umami.yaml` が作っていた `DATABASE_URL` の 1 個）を外した。
+- **ECR は 4 本**: 自作 2 本（admin-auth・consent-api）と、Mautic、Chatwoot。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。
 - **`cdn.yaml`・`ses.yaml`・`ops-tasks.yaml`・`alarms.yaml`**: 固定シートの一覧にないが必要なので足した（OAC 専用の Astro バケットとデプロイ用 IAM の対象、SES のドメイン ID、DB 作成のタスク、アラーム）。
-- **イメージのタグは製品ごと**（5 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
+- **イメージのタグは製品ごと**（4 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
 - **RDS のマスターの資格情報**: TA-06 の 7 節は「タスクには渡さない」とするが、アプリ用ユーザーを作る 1 回だけのタスクには要る。`ops-tasks.yaml` の専用の実行ロールだけが読める。
 - **DB の TLS は、検証をしない形を作らない**: 暗号化だけにして逃がすことはしない。Prisma の Rust のエンジンが `sslmode` だけでは検証しない点は、実験で確かめて `sslaccept=strict` を付けた（4.7）。Mautic は上流が CA を渡す設定項目を持たないため、ビルド時にパッチを当て、当たったことを確かめられなければビルドを失敗させる。
 - **Mautic の config は EFS で覆う（既定で有効）**: 公式イメージの `config/` には `.gitkeep` しか無く、覆っても既定のファイルは隠れない。`local.php` は entrypoint が無ければ作る。init コンテナは不要（イメージの中身を確かめた上での判断。4.10）。
 - **n8n のハートビート**（TA-05 の 4 節の項目 3）: 監視アプリの名前空間（`ComeGin/Onprem`）とは別の `ComeGin/OnpremN8n` にした（n8n がオンプレの生存を偽れないように。TA-04 の 1 節）。期間（5 分）・期間数（3）・通知のスイッチ（`HeartbeatAlarmActionsEnabled`）は既存のハートビートと共有した（n8n も 5 分ごとに送るため）。そのため、開発機を止めるときは 2 つのアラームを一緒に無効にする（4.15）。送信の権限は、新しい IAM ユーザーを作らず、既存の `onprem-n8n-sns` の管理ポリシーに `PutMetricData`（`Resource: '*'`、条件 `cloudwatch:namespace`）の文を足した（ユーザーとポリシーの名前を変えないので、作り直しにならない）。`Resource: '*'` は、このアクションがリソースレベルの権限に対応しないための意図した例外。**ポリシーの `Description` を直した**が、`Description` は更新で置き換えになり、名前が固定のため**デプロイ後に変えると更新が失敗する**（未デプロイのうちに直した）。
 - **n8n の SNS**: オンプレの n8n は、IAM ユーザー `onprem-n8n-sns` のアクセスキーで 2 トピックに発行する（前回のロール `sns-publisher` と、Assume Role・Use System Credentials は廃止。ADR-21）。キーは CloudFormation で作らず、人が発行する（4.5）。
 - **Cal.com のセルフホストを外した**（ADR-24。ユーザーの決定による例外。TA-01 の 8 節の SaaS の基準は変えない）: Cal.com は SaaS（cal.com の無料プラン）にして、公開サイトに埋め込む。**デプロイ前に外した**（まだ一度もデプロイしていないので、Retain のリソースや Secret は AWS に残っていない）。**ADR-24 で SaaS に。cal.com への外向きの通信は訪問者のブラウザからだけで、AWS からは無い**（クラウド側から cal.com を呼ばない）。外したもの: `services/calcom.yaml`・`images/calcom/`、ECR の `calcom` リポジトリ、Secret 4 個（`calcom/DB_PASSWORD`・`NEXTAUTH_SECRET`・`CALENDSO_ENCRYPTION_KEY`・`GOOGLE_API_CREDENTIALS`）、RDS の `calcom` データベース（ops-tasks の作成も）、ALB の `cal.` のルール（OIDC）とターゲットグループ、ACM の SAN、Route 53 の `cal.`、WAF の `rate-limit-booking`（パラメータ `WafRateLimitBooking`）、SG（`CalcomSecurityGroup` と ALB・RDS からの許可）、ロググループ、アラーム 2 つ（実行中のタスク数・unhealthy）、`ALB_PROTECTED_HOSTS` の `cal.`、親の `CalcomService` とパラメータ（`CalHost`・`CalcomPort`・`CalcomImageTag`・`CalcomDesiredCount`・`CalcomCpu`・`CalcomMemory`）。ホスト名 `cal.comegin.com` は使わない（DNS にレコードを作らない）。デプロイ用の設定ファイルのパラメータの上書きに `Calcom*`・`CalHost`・`WafRateLimitBooking` を書いていたら、デプロイ前に消す（未知のパラメータは更新を失敗させる）。
+- **Umami を外した**（ADR-25。ユーザーの決定による例外。TA-01 の 8 節の SaaS の基準は変えない）: アクセス解析の正本を GA4（SaaS）にした。**デプロイ前に外した**（まだ一度もデプロイしていないので、Retain の ECR と Secret は AWS に残っていない。前の版をデプロイ済みの環境では、`comegin/<env>/umami` の ECR と `comegin/<env>/umami/*` の Secret を手で消す。RDS の `umami` データベースも手で消す）。外したもの: `services/umami.yaml`（タスク定義・サービス・実行ロールとタスクロール・`umami/DATABASE_URL` の Secret）・`images/umami/`、ECR の `umami` リポジトリ、Secret 2 個（`umami/DB_PASSWORD`・`APP_SECRET`）、RDS の `umami` データベース（ops-tasks の作成も）、ALB の `stats.` のルール 3 つ（訪問者向け `/script.js`・`/api/send`、機械向け `/mcp`、OIDC）とターゲットグループ、ACM の SAN、Route 53 の `stats.`、WAF の `rate-limit-api` の `/mcp` の条件（`/mcp` を受けるサービスが無くなった）、SG（`UmamiSecurityGroup` と ALB・RDS からの許可。ALB の egress も）、ロググループ、アラーム 2 つ（実行中のタスク数・unhealthy）、`ALB_PROTECTED_HOSTS` の `stats.`、親の `UmamiService` とパラメータ（`StatsHost`・`UmamiPort`・`UmamiImageTag`・`UmamiDesiredCount`・`UmamiCpu`・`UmamiMemory`）。デプロイ用の設定ファイルのパラメータの上書きにこれらを書いていたら、デプロイ前に消す（未知のパラメータは更新を失敗させる）。**ACM の証明書は SAN が減るので置き換わる**（新しい証明書を DNS 検証してから差し替える）。**PostgreSQL の SG の `GroupDescription` を直したので、この SG も置き換わる**（未デプロイのうちに直した。デプロイ後に変えると RDS の SG の付け替えになる）。
 - **Strapi・n8n を外した**（ADR-21）: `services/strapi.yaml`・`services/n8n.yaml`・`images/n8n/`、ALB の `cms.`・`n8n.` のルールとターゲットグループ、ACM の名前、Route 53 のレコード、WAF の `cms.` の API の分、ECR の 3 本、Strapi と n8n の鍵類の Secret（9 個）、アラーム 4 つ、ログのグループを外した。**ECR のリポジトリと Secret は `DeletionPolicy: Retain` なので、テンプレートから外しても AWS に残る**（ロググループは消える）。 まだ一度もデプロイしていないので実害は無いが、前の版をデプロイ済みの環境では、不要な ECR のリポジトリと Secret を手で消す。RDS の `strapi`・`n8n` データベースと、S3 の Strapi のメディアのバケットは、データの置き場として残した（ops-tasks の DB 作成もそのまま）。
 - **Service Connect を廃止した**: n8n への Webhook と n8n からの API の呼び出しにしか使っていなかった。cluster の名前空間、4 つのサービスの設定とパラメータ、n8n 関連の SG のルールを外した。n8n（オンプレ）から Chatwoot・Mautic の API は ALB の機械向けのルール経由になる（1.1）。
 - **WireGuard の SG は `network.yaml` に置いた**: SG は子スタック間の循環参照を避けるため network.yaml にまとめる流儀に合わせた。`wireguard.yaml` には `WireguardSecurityGroupId` を渡す。経路（`AWS::EC2::Route`）は `wireguard.yaml` が持ち、`network.yaml` の `PrivateRouteTableId` を親が渡す。
@@ -603,7 +603,7 @@ ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・
 - **パラメータ名**: `OnpremWireguardCidr` は WireGuard のアドレス帯（`10.99.0.0/24`）。UDP の受信元は別名の `WireguardIngressCidr`（既定 `0.0.0.0/0`）。`OnpremWebhookPort`（5680）、`WireguardServerAddress`（10.99.0.1）、`WireguardInstanceType`、`WireguardAmiSsmId`・`WireguardFixedAmiId`（AMI の固定）を足した。
 - **`CAPABILITY_NAMED_IAM`**: 既存のテンプレートが IAM ロールに固定の名前を付けていたのに、`samconfig.toml.example` は `CAPABILITY_IAM` だけだった（デプロイで拒否される）。IAM ユーザーも固定の名前なので、例を直した。
 - **SNS の購読解除**: トピックポリシーだけでは止まらず、`AuthenticateOnUnsubscribe` が要る（4.4）。TA-04・TA-05 には、リードが訂正を追記済み。
-- **PostgreSQL のデータベースは 5 つ**（`points` と、ADR-24 で外した `calcom` を除く。もとは 6 つで、TA-05 は 5 つ、TA-06 は 7 つと食い違っていた）。
+- **PostgreSQL のデータベースは 4 つ**（`chatwoot`・`admin_auth`・`strapi`・`n8n`。`points` と、ADR-24 で外した `calcom`、ADR-25 で外した `umami` を除く。もとは 6 つで、TA-05 は 5 つ、TA-06 は 7 つと食い違っていた）。
 - **mautic-web はローリング更新**、mautic-cron は止めてから起動する（二重実行の防止。更新中は短く止まる）。
 - **WAF**: `auth.` ホストにもレート制限をかけた（Better Auth のレート制限は `X-Forwarded-For` を信頼するため、効き目は WAF に頼る）。
 - **cfn-guard の指摘のうち意図した例外**: ALB の 443 を `0.0.0.0/0` に開ける、タスクの外向き、`Resource: '*'` しか書けないアクション（`ecr:GetAuthorizationToken`・`ssmmessages`・`PutMetricData`）、E-15 の写しの Object Lock・アクセスログ・レプリケーション、RDS の Multi-AZ とマスターユーザー名、S3 のアクセスログとレプリケーション。理由は各テンプレートのコメントにある。

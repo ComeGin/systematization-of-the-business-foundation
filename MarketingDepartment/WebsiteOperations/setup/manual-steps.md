@@ -16,9 +16,11 @@
 | `mautic:api-credentials`／`n8n:mautic-api-credentials` | Mautic の API 資格情報が設定に無い | **Mautic の画面で資格情報を作る**（必ず 1 回は要る） | [2](#2-mautic-の-api-資格情報必須) |
 | `chatwoot:admin-password` | 以前に手で作った管理者がいる | パスワードを設定に書く／作り直しを許す | [3.1](#31-chatwoot) |
 | （mautic の失敗） | Mautic の管理者のパスワードが分からない | 画面の「Forgot your password?」 | [3.2](#32-mautic) |
-| `umami:admin-password` | 管理者のパスワードが初期値から変わっている | パスワードを設定に書く | [3.3](#33-umami) |
 | `openseo:dataforseo-key` | OpenSEO の health で DataForSEO が ok でない | DataForSEO の Base64 の認証情報を設定に書く | [7.4](#74-openseodataforseo-と-search-console) |
 | `openseo:google-oauth-client`／`openseo:gsc-connect` | Search Console 用の OAuth クライアントが無い／接続を申告していない | Google Cloud Console でクライアントを作る／OpenSEO の画面で接続する（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
+| `openseo:ga4-connect` | GA4 の接続を申告していない | 2 つの API の有効化・リダイレクト URI の追加・OpenSEO の画面で本番の GA4 プロパティに接続（使わないなら `OPENSEO_SKIP_GA4=yes`） | [7.5](#75-ga4adr-25) |
+| `ga4:property` | GA4 のプロパティ ID・測定 ID が設定に無い | 本番の GA4 プロパティを作って設定し、2 つの値を設定に書く | [7.5](#75-ga4adr-25) |
+| （ga4 の失敗）`PUBLIC_GA4_MEASUREMENT_ID` がある | 開発の Astro の環境変数ファイルに測定 ID が書かれている | その行を消して `--from ga4` で再実行（開発ではタグを出さない） | [7.5](#75-ga4adr-25) |
 | `strapi:admin-password`／`strapi:admin-login` | 以前に手で作った管理者がいる | パスワードを設定に書く | [3.4](#34-strapi) |
 | `n8n:owner-password`／`n8n:owner-login` | 以前に手で作ったオーナーがいる | パスワードを設定に書く | [3.5](#35-n8n) |
 | `n8n:mcp-token` | n8n の MCP のトークンが作成済み | 控えを写す／作り直しを許す | [4](#4-n8n-の-mcp-のトークン) |
@@ -92,7 +94,11 @@ n8n（Webhook の作成・I-19 の検索）と mautic-mcp が使う OAuth 2 の�
 1. http://127.0.0.1:8000/s/login の **Forgot your password?** を開き、ユーザー名かメールを入れて **Reset password**
 2. 開発環境のメールは MailHog に届く。http://127.0.0.1:8025 で「Mautic password reset」を開き、リンクから新しいパスワードを決める
 
-### 3.3 Umami
+### 3.3 Umami（ADR-25 で廃止）
+
+2026-10-06 に Umami をやめた（ADR-25。アクセス解析の正本は GA4）。setup は Umami を扱わない。開発環境に残っている Docker のボリューム（`umami_db-data`・`umami_umami-db-data`・`umami-master_umami-db-data`）と、`~/.config/comegin/setup/dev.state.json` の `UMAMI_*`・`~/.config/comegin/mcp/umami-dev.env` は、要らなければ自分で消す（スクリプトは消さない）。
+
+<details><summary>旧版（2026-10-06 まで）</summary>
 
 | 状況 | すること |
 |---|---|
@@ -100,6 +106,8 @@ n8n（Webhook の作成・I-19 の検索）と mautic-mcp が使う OAuth 2 の�
 | 知らない | Umami には API・CLI でパスワードを再設定する手段が無い。開発環境の Umami のデータを作り直してよければ、自分で `cd middleware/umami && docker compose down -v` を実行してから再実行する（2026-10-06 から開発環境の Umami は `middleware/umami` の自作の compose で動く。DB のボリュームは `umami_db-data`）（スクリプトはデータを消さない。初期の管理者 `admin` / `umami` に戻り、スクリプトがパスワードを変える） |
 
 2 要素認証を設定している管理者は、API でログインできないので止まる（解除してから再実行）。
+
+</details>
 
 ### 3.4 Strapi
 
@@ -212,9 +220,22 @@ OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・
 
 **接続しても「No properties available」と出るとき**は、接続した Google アカウントに Search Console の確認済みのプロパティが無い（OpenSEO の不具合ではない）。設計（ADR-09）どおり**ドメインプロパティ `sc-domain:comegin.com`** を登録する: Search Console で「プロパティを追加 → ドメイン」に `comegin.com` → 表示された TXT レコード（`google-site-verification=…`）を Route 53 のホストゾーン `comegin.com` に追加 → 確認 → OpenSEO で接続し直す。公開サイトが無くても登録できる。
 
-**Google Analytics（GA4）は接続しない**（ADR-09・DA-02 の 2 節。アクセス解析は Umami と PostHog）。OpenSEO の画面に GA4 の接続ボタンがあるが押さない（押すと `/api/ga4/oauth/callback` が未登録のため `redirect_uri_mismatch` になる）。
+~~Google Analytics（GA4）は接続しない~~ → **ADR-25（2026-10-06）で GA4 を接続する**（アクセス解析の正本を GA4 にした。手順は 7.5）。
 
 Search Console を使わないと決めたなら `OPENSEO_SKIP_GSC=yes` を書く。詳しい手順はモジュール（`middleware/open-seo-main/dev/setup/index.mjs`）の案内にも出る。
+
+### 7.5 GA4（ADR-25）
+
+アクセス解析（流入・ページ・参照元）の正本は GA4（ADR-25）。エージェント（`analytics-reporter`）は OpenSEO の MCP（`get_google_analytics_*`）で読む。**プロパティは本番の 1 つだけ**で、開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない）。構成の正本は `middleware/ga4/README.md`。
+
+| 表示の id | すること |
+|---|---|
+| `ga4:property` | Google アナリティクスで本番のプロパティを作る（タイムゾーン `Asia/Tokyo`・通貨 `JPY`・データ保持 14 か月・Google シグナル オフ・ユーザー提供データの収集 オフ・広告のリンクなし。詳しくは `middleware/ga4/README.md`）→ Web ストリーム（`https://comegin.com`）を作る → プロパティ ID（数字）を `GA4_PROPERTY_ID=`、測定 ID（`G-` で始まる）を `GA4_MEASUREMENT_ID=` に書く |
+| `openseo:ga4-connect` | Google Cloud Console で（Search Console と同じ OAuth クライアントのプロジェクトで）「Google Analytics Admin API」と「Google Analytics Data API」を有効にする → OAuth クライアントのリダイレクト URI に `http://localhost:3001/api/ga4/oauth/callback` を足す（GSC の URI は残す）→ `http://localhost:3001` のプロジェクトの設定（Analytics）で「Connect with Google」→ 読み取り専用の権限に同意し、**本番のプロパティ**を選ぶ → `OPENSEO_GA4_CONNECTED=yes` を書く。GA4 を使わないなら `OPENSEO_SKIP_GA4=yes` |
+
+開発の Astro（`frontend/verdant-virgo`）の環境変数ファイルに `PUBLIC_GA4_MEASUREMENT_ID` があると、`ga4` は**失敗として止まる**（画面の操作ではなく設定の誤りのため）。その行を消して `--from ga4` で再実行する（本番のビルドだけが測定 ID を持つ）。
+
+OAuth の同意画面が「テスト中」のままだと、更新トークンの期限が短く、接続が切れることがある（出典 `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`）。切れたら画面で接続し直す。
 
 ## 8. 本番（`--target prod`）
 
@@ -228,7 +249,6 @@ Search Console を使わないと決めたなら `OPENSEO_SKIP_GSC=yes` を書�
 |---|---|---|---|
 | Chatwoot | http://127.0.0.1:3100 | `ADMIN_EMAIL` | `--show CHATWOOT_ADMIN_PASSWORD` |
 | Mautic | http://127.0.0.1:8000/s/login | `admin` | `--show MAUTIC_ADMIN_PASSWORD`（スクリプトがインストールした場合だけ） |
-| Umami | http://127.0.0.1:3000 | `admin` | `--show UMAMI_ADMIN_PASSWORD` |
 | Strapi | http://127.0.0.1:1337/admin | `ADMIN_EMAIL` | `--show STRAPI_ADMIN_PASSWORD`（スクリプトが作った場合だけ） |
 | n8n | http://127.0.0.1:5678 | `ADMIN_EMAIL` | `--show N8N_OWNER_PASSWORD`（スクリプトが作った場合だけ） |
 | 監視アプリ | `<BETTER_AUTH_URL>/login`（いまの開発は https://comegin-next-js-dev.ngrok.app/login） | Google（`CONTROL_ADMIN_EMAILS` のアカウント） | なし（Google でログイン。7.2） |

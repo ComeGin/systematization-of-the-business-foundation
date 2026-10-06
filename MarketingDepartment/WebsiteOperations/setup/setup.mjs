@@ -19,7 +19,7 @@ const MODULES = [
   "middleware/host-relay/setup/index.mjs",
   "backend/chatwoot-system/setup/index.mjs",
   "backend/mautic-system/dev/setup/index.mjs",
-  "middleware/umami/setup/index.mjs",
+  "middleware/ga4/setup/index.mjs",
   "middleware/open-seo-main/dev/setup/index.mjs",
   "backend/strapi-system/setup/index.mjs",
   "middleware/n8n/setup/index.mjs",

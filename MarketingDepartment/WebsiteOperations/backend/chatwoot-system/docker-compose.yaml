@@ -2,7 +2,7 @@
 # 値は同じディレクトリの .env から読む（初回は dev/init-env.sh でパスワード・キーを生成する）
 # rails のエントリポイントはマイグレーションを実行しない。初回とイメージ更新後は起動前に次を実行する:
 #   docker compose run --rm rails bundle exec rails db:chatwoot_prepare
-# ブラウザからは http://localhost:${CHATWOOT_PORT:-3100} で開く（3000 は Umami が使用）
+# ブラウザからは http://localhost:${CHATWOOT_PORT:-3100} で開く（3000 は空き。以前は Umami〈ADR-25 で廃止〉）
 
 # rails / sidekiq で共有する設定（x- で始まるキーはサービスとして起動しない）
 x-chatwoot-base: &base

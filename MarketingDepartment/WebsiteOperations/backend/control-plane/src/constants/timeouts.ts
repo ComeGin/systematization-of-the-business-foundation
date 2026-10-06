@@ -3,7 +3,6 @@ export const TIMEOUT_SEC = {
   chatwootMcp: 12, // Rack::Timeout の 15 秒より内側
   mauticMcp: 30,
   strapiMcp: 20,
-  umamiMcp: 20,
   posthogFlush: 5,
   formSubmit: 10,
   i13Github: 30,

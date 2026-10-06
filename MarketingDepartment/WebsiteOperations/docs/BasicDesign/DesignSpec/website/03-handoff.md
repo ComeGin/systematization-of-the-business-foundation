@@ -184,7 +184,7 @@ Figma 側の実数（2026-10-01 に `design-system` が実測して確定）。
 - イベントは `cta_viewed` / `cta_clicked`、フォームは `form_started` / `form_validation_failed` / `form_submitted` / `form_submit_failed`、**予約は `booking_viewed` / `booking_scheduled`**（CV には数えない）
 - **指標は 2 種**（`CVR-consult` / `CVR-source-dl`）。`CVR-trial` は廃止
 - **同じ `cta_id` を 2 画面で使わない**
-- PostHog **と Chatwoot** は Cookie の同意後にだけ読み込む。**予約枠（Cal.com）は同意の対象外**（基準は `01-content-spec.md` §8.2.1「訪問者が何もしなくても動くか」）
+- PostHog **と Chatwoot** は Cookie の同意後にだけ読み込む（**2026-10-06 の ADR-25 で Google アナリティクス〈GA4〉も加わり 3 つになった。Umami は廃止**。`01-content-spec.md` の 8.2・10.4 の K6）。**予約枠（Cal.com）は同意の対象外**（基準は `01-content-spec.md` §8.2.1「訪問者が何もしなくても動くか」）
 - CV は Mautic のフォーム送信で数える
 - フォームは Astro で描く自前フォーム。hidden で `cta_id` / `page_url` / `service_interest` を渡す。**Mautic のフォーム ID は環境変数 `MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL` の 1 か所にだけ置く**（仕様書の正本は alias）
 

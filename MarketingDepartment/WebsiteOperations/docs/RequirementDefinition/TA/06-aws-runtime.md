@@ -1,19 +1,23 @@
-# 06. 本番システムの AWS 実行環境（Strapi / Mautic / Chatwoot / Umami / n8n）
+# 06. 本番システムの AWS 実行環境（Strapi / Mautic / Chatwoot / n8n）
+
+<!-- 2026-10-06 ADR-25: 表題から Umami を外した（旧: Strapi / Mautic / Chatwoot / Umami / n8n） -->
 
 TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
 ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
 
-AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS に置き、ローカルには道具だけを残す**と決めた（ADR-12 は訪問者のブラウザが直接触れるシステムを AWS に置いた。Strapi は ADR-14 で加え、ADR-15 で外し、ADR-16 で再び加えた。n8n は ADR-16 で加えた）。**例外は `E-15 AgentRun`（エージェントの実行記録）だけで、正本を監視アプリ（ローカル）に置く**（ADR-18。TA-07 の 3.6）。**ただし実行記録の写しは AWS の S3 に追記専用で置く**（ADR-18 の追加の決定。写しは正本ではなく、開発機を失ったときの復旧に使う。4.7）。Astro の配信は TA-02 が扱い、本ファイルは残りの 5 つ（Strapi・Mautic・Chatwoot・Umami・n8n）の本番の実行環境を扱う。オンプレの開発環境と監視アプリは TA-07 が扱う。
+AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS に置き、ローカルには道具だけを残す**と決めた（ADR-12 は訪問者のブラウザが直接触れるシステムを AWS に置いた。Strapi は ADR-14 で加え、ADR-15 で外し、ADR-16 で再び加えた。n8n は ADR-16 で加えた）。**例外は `E-15 AgentRun`（エージェントの実行記録）だけで、正本を監視アプリ（ローカル）に置く**（ADR-18。TA-07 の 3.6）。**ただし実行記録の写しは AWS の S3 に追記専用で置く**（ADR-18 の追加の決定。写しは正本ではなく、開発機を失ったときの復旧に使う。4.7）。Astro の配信は TA-02 が扱い、本ファイルは残りの 5 つ（Strapi・Mautic・Chatwoot・Umami・n8n）の本番の実行環境を扱う（**ADR-25 で Umami を外した。ADR-21 で Strapi・n8n の実行はオンプレに移った**）。オンプレの開発環境と監視アプリは TA-07 が扱う。
 
-**状態: 未着手（`cloud/` ディレクトリは空）。** 本ファイルの内容はすべて To-Be の設計である。**開発環境は今のままローカルの Docker と dev サーバーで動かし、本ファイルの構成は本番にだけ適用する。** **ローカルの Claude Code は MCP で本番の Strapi・Mautic・Chatwoot・Umami・n8n も読み書きする**（ADR-15・ADR-16。本番用の登録は `ACCESS_LEVEL=read_write` まで。Strapi は Admin トークンの権限で絞る。ADR-16 では `read_write` と同等としたが、**ADR-17 で下書きまでに絞った**。5.4）。**エージェントの定期実行はローカルの監視アプリが起動し、本番の n8n はエージェントを起動しない**（ADR-17。本番の n8n に残るのは Webhook の受け口とエージェントを使わない決定論的な定期処理。TA-03 の 3.3）。
+**状態: 未着手（`cloud/` ディレクトリは空）。** 本ファイルの内容はすべて To-Be の設計である。**開発環境は今のままローカルの Docker と dev サーバーで動かし、本ファイルの構成は本番にだけ適用する。** **ローカルの Claude Code は MCP で本番の Strapi・Mautic・Chatwoot・Umami・n8n も読み書きする**（ADR-15・ADR-16。**Umami は ADR-25 で廃止**。本番用の登録は `ACCESS_LEVEL=read_write` まで。Strapi は Admin トークンの権限で絞る。ADR-16 では `read_write` と同等としたが、**ADR-17 で下書きまでに絞った**。5.4）。**エージェントの定期実行はローカルの監視アプリが起動し、本番の n8n はエージェントを起動しない**（ADR-17。本番の n8n に残るのは Webhook の受け口とエージェントを使わない決定論的な定期処理。TA-03 の 3.3）。
 
 > **（2026-10-05）ADR-21 による変更。本ファイルの本文より、この注記を優先する。**
 > - **Strapi と n8n は ECS から外れ、オンプレで動く**（TA-07）。データの置き場（RDS の `strapi` `n8n`、S3 の Strapi のメディア）は AWS に残る。ALB の `cms.`・`n8n.` のホスト名とルール、ACM の対応する名前、Strapi・n8n の ECS 用の Secrets は不要になる。
-> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。
+> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。（**ADR-24 で Cal.com が、ADR-25 で Umami が外れた。下の注記**）
 > - **WireGuard の EC2 を足す**（`t4g.nano` 程度、public サブネット、Elastic IP、送信元／宛先チェック無効）。private サブネットの経路表に「オンプレの WireGuard のアドレス帯 → この EC2」を足し、Mautic・Chatwoot のタスクからオンプレの n8n の Webhook に届くようにする。RDS のセキュリティグループには、WireGuard の EC2 から `strapi` `n8n` のために 5432 を許す。
 > - `cloud/` の SAM はこの注記に合わせて直した（2026-10-05）。
 >
 > **（2026-10-06）ADR-24: Cal.com も ECS から外れた**（SaaS の cal.com を使う。ユーザーの決定による例外）。**ECS の `calcom` サービス・RDS の `calcom` データベース・ALB の `cal.comegin.com` のルールと許可リスト・ACM の `cal.comegin.com`・WAF の Cal.com 向けのレート制限・Secrets Manager の Cal.com の鍵・開発ポート 3105 は作らない。** ECS に残るのは Mautic・Chatwoot・Umami と `consent-api`・`admin-auth`。**本文の Cal.com の記述（3.1・3.2・3.3・4.1・4.3・5.1・5.3・5.4・5.5・7・9・10・11）は ADR-19 の記述で、この注記を優先する。**
+>
+> **（2026-10-06）ADR-25〈AA-05〉: Umami を廃止し、ECS から外した。** アクセス解析の正本は GA4（SaaS。Google LLC）で、**AWS に何も置かない**（タグはブラウザから Google に直接届く。TA-01 の経路 24）。**ECS の `umami` サービス・RDS の `umami` データベースとユーザー・ALB の `stats.comegin.com` のルールと許可リスト（5.3 の `/script.js`・`/api/send`）と機械向けの `/mcp`（5.4）・ACM の `stats.comegin.com`・ECR の Umami のイメージ（`cloud/images/umami`）・Secrets Manager の Umami の値（`APP_SECRET` ほか）・Umami のアラーム・`cloud/stacks/services/umami.yaml` を外した。** 本番の MCP の登録 `umami-prod` も無くなった（GA4 はオンプレの OpenSEO の MCP で読む。TA-07 の 3.3）。**ECS に残るのは Mautic・Chatwoot と `consent-api`・`admin-auth`**（`points-api` は本システムの完成後）。**本文の Umami の記述（2・3.1・3.2・3.3・4.1・4.3・5.1・5.3・5.4・7・9・10・11 と決定の表）は ADR-12〜ADR-21 の記述で、この注記を優先する。**
 
 ## 1. 検証の状態
 
@@ -22,7 +26,7 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 | 検証項目 | 結果 |
 |---|---|
 | RDS for MySQL | `ap-northeast-1` で **8.4 系（8.4.7〜8.4.9）** が使える。開発環境の MySQL 8.4（`backend/mautic-system/docker/compose.yaml`）と同じ系列 |
-| RDS for PostgreSQL | `ap-northeast-1` で **16 系（〜16.15）と 17 系（〜17.9）** が使える。開発環境の Chatwoot は `pgvector/pgvector:pg16`、Umami は `postgres:15-alpine` |
+| RDS for PostgreSQL | `ap-northeast-1` で **16 系（〜16.15）と 17 系（〜17.9）** が使える。開発環境の Chatwoot は `pgvector/pgvector:pg16`、Umami は `postgres:15-alpine`（Umami は ADR-25 で廃止） |
 | ElastiCache | **Valkey 7.2〜9.1** と **Redis OSS 4.0〜7.1** が使える |
 | VPC | **デフォルト VPC（`172.31.0.0/16`）のみ。** 本設計の VPC は新規に作る |
 | ECS | **クラスター 0 件** |
@@ -30,7 +34,7 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 
 ## 2. 図 1 全体構成（To-Be）
 
-> **（2026-10-06）ADR-21: 下の図の ECS の Strapi・n8n はオンプレに移った。図は ADR-16 の構成で、冒頭の ADR-21 の注記を優先する**（ECS に残るのは Mautic・Chatwoot・Umami と `consent-api`・Cal.com・`admin-auth`。Strapi・n8n のデータの置き場の RDS・S3 は AWS に残り、WireGuard の EC2 が RDS への経路になる）。
+> **（2026-10-06）ADR-21: 下の図の ECS の Strapi・n8n はオンプレに移った。図は ADR-16 の構成で、冒頭の ADR-21 の注記を優先する**（ECS に残るのは Mautic・Chatwoot・Umami と `consent-api`・Cal.com・`admin-auth`〈**ADR-24 で Cal.com、ADR-25 で Umami が外れた。図の Umami と calcom も同じ**〉。Strapi・n8n のデータの置き場の RDS・S3 は AWS に残り、WireGuard の EC2 が RDS への経路になる）。
 
 ```mermaid
 flowchart LR
@@ -38,7 +42,7 @@ flowchart LR
     OPR["運用者"] -->|"Better Auth 経由で<br/>Google Workspace"| ALB
     ONP["ローカルの Claude Code<br/>MCP とビルド<br/>監視アプリ"] -->|"API と MCP<br/>製品のトークン"| ALB
     ONP -->|"実行記録の写し<br/>監視アプリだけ 追記だけ"| RUNS3["S3<br/>実行記録の写し"]
-    ALB --> ECS["ECS on Fargate<br/>Strapi Mautic Chatwoot Umami n8n<br/>admin-auth calcom consent-api"]
+    ALB --> ECS["ECS on Fargate<br/>Strapi Mautic Chatwoot n8n<br/>admin-auth calcom consent-api"]
     ECS --> DB["RDS<br/>MySQL と PostgreSQL"]
     ECS --> KV["ElastiCache<br/>Valkey"]
     ECS --> FS["S3 と EFS"]
@@ -63,7 +67,7 @@ flowchart LR
 | | `mautic-cron` | セグメント更新・キャンペーン実行・メールのキュー処理などの定期実行 | **1 に固定** | 手動実行 |
 | **Chatwoot** | `chatwoot-web` | Rails（管理画面・API・ウィジェット・ActionCable） | 1 | `rails` サービス（`backend/chatwoot-system/docker-compose.yaml`） |
 | | `chatwoot-worker` | Sidekiq | 1 | `sidekiq` サービス |
-| **Umami** | `umami` | トラッカー配信・イベント受信・管理画面・API | 1 | `umami` サービス（`middleware/umami-master/docker-compose.yml`） |
+| **Umami**（**2026-10-06 ADR-25 で廃止。サービスを作らない**） | （旧 `umami`） | （旧: トラッカー配信・イベント受信・管理画面・API） | 0 | — |
 | **Strapi** | `strapi` | 管理画面・Content API（ビルドが読む）・組み込みの MCP（`/mcp`） | 1 | `strapi develop`（`backend/strapi-system`） |
 | **n8n** | `n8n` | 本体（エディター・Webhook の受付・実行）と runners（同じタスクのサイドカー） | **1 に固定** | `n8n` と `task-runners`（`middleware/n8n/compose.yml`）。**サンドボックス（`sandbox-api` / `sandbox-runner-1`）は本番に置かない** |
 | **管理画面の関門**（自作） | `admin-auth` | Better Auth。ALB に対する OIDC の IdP と、Google Workspace でのログイン（5.2） | 1 | 未作成（置き場所は `backend/admin-auth` を想定） |
@@ -88,7 +92,7 @@ flowchart LR
 | システム | イメージ | 規則 |
 |---|---|---|
 | Chatwoot | 公式の `chatwoot/chatwoot` | **`latest` を使わず、バージョンのタグで固定する。** 開発環境の compose は `latest` のままであり、本番と開発でバージョンがずれうる |
-| Umami | 公式の `ghcr.io/umami-software/umami` | 同上。**v3.4.0 以上に固定する**（API キーと `/mcp` が要る。5.4）。開発環境の compose は `latest`、取り込んだソースは **3.4.0**（2026-09-18 に取り込み直した） |
+| Umami（**ADR-25 で廃止。ECR に置かない**） | 公式の `ghcr.io/umami-software/umami` | 同上。**v3.4.0 以上に固定する**（API キーと `/mcp` が要る。5.4）。開発環境の compose は `latest`、取り込んだソースは **3.4.0**（2026-09-18 に取り込み直した） |
 | Mautic | 公式イメージが 7.x を提供していればそれを使う。**無ければ `backend/mautic-system`（7.2.0）からビルドする** | 取り込んだソースと本番のバージョンを一致させる。**公式イメージの有無は本セッションで確認していない**（11 節） |
 | Strapi | **`backend/strapi-system` からビルドする**（Strapi 5.53.0） | コンテンツタイプの定義はコードにあるため、**スキーマの変更はイメージの更新で本番に反映する**（ADR-16 の「そろえ続ける」） |
 | n8n | 公式の `n8nio/n8n` と `n8nio/runners` | **2 つのバージョンを必ず一致させる**（`N8N_VERSION`。`.claude/CLAUDE.md` の Docker スタックの共通方針と同じ） |
@@ -105,7 +109,7 @@ flowchart LR
 
 - **移行を Web のタスクの起動処理に入れない。** タスクが複数起動すると移行が並行して走る。
 - 移行が失敗したら、サービスのイメージを更新しない（古いイメージのまま動かし続ける）。
-- Mautic（`doctrine:migrations:migrate`）と Umami も同じ扱いにする。Umami のイメージが起動時に自動で移行するかは、実装時に確認する（11 節）。
+- Mautic（`doctrine:migrations:migrate`）も同じ扱いにする。（旧版: Umami も同じ扱いにし、Umami のイメージが起動時に自動で移行するかを実装時に確認する。**ADR-25 で廃止**）
 - **Strapi と n8n は起動時に自分で DB を移行する。** どちらもタスクを 1 に固定するため（3.1）、移行が並行して走ることはない。
 - **Cal.com も起動時に自分で DB を移行する**（Prisma の移行。2026-10-01 に追加）。タスクを 1 に固定するため並行して走らないが、**起動時の移行は実装時に実際の挙動を確かめる**（イメージが移行を含むか、別のコマンドが要るかで手順が変わる。11 節）。`consent-api` は DB を持たないため移行が無い。
 
@@ -116,7 +120,7 @@ flowchart LR
 | ストア | 使うシステム | 構成（4.6 で単一構成に決定） | 開発環境での対応 |
 |---|---|---|---|
 | **RDS for MySQL 8.4** | Mautic | Single-AZ、自動バックアップ 7 日（ポイントインタイムリカバリ） | `mysql:8.4`（Docker） |
-| **RDS for PostgreSQL 16** | Chatwoot・Umami・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、Umami は `postgres:15-alpine`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
+| **RDS for PostgreSQL 16** | Chatwoot・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加）（**2026-10-06 ADR-25: Umami を外した**） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）（**ADR-24 で `calcom`、ADR-25 で `umami` を作らないことにし、5 つになった**）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
 | **ElastiCache（Valkey）** | Chatwoot（必須）・Mautic（キャッシュ。任意）・**Cookie 同意の状態の記録**（4.8。受け口は未決） | **ノードベース・クラスターモード無効**・1 ノード。転送中の暗号化（TLS）と AUTH を有効にする | `redis:alpine` |
 | **S3** | Chatwoot（添付ファイル。Active Storage）・**Strapi（メディア。`@strapi/provider-upload-aws-s3`）** | バケットはシステムごとに分ける。パブリックアクセスを全ブロック。バージョニング有効 | Chatwoot はローカルのディスク（`ACTIVE_STORAGE_SERVICE=local`）、Strapi は `public/uploads` |
 | **EFS** | Mautic（`media/` と設定ファイル） | `mautic-web` と `mautic-cron` の両方にマウントする | ホストのディレクトリ |
@@ -132,6 +136,8 @@ flowchart LR
 - **TLS を有効にすると URL が `rediss://` になる。** Chatwoot の `.env.example` には証明書の検証を緩める `REDIS_OPENSSL_VERIFY_MODE` があるが、**本番では使わない**（ElastiCache の証明書は検証できる）。
 
 ### 4.3 RDS for PostgreSQL を Chatwoot・Umami・`admin-auth`・Strapi・n8n・Cal.com・`points-api` で共有する
+
+> **（2026-10-06）ADR-25 で Umami を、ADR-24 で Cal.com を外した。** 表題と下の例（「Umami のイベント受信が急増すると…」「Chatwoot のユーザーは `umami` データベースに接続できない」）は旧版の記述。負荷の相乗りの懸念で最も大きかった訪問者のイベント受信は、GA4 に移って RDS に来なくなった。
 
 **1 インスタンスにまとめるのは費用のためである**（RDS はインスタンス単位の固定費が大きい）。代わりに次を受け入れる。
 
@@ -247,7 +253,7 @@ Mautic は次のファイルをローカルのディスクに書く。Fargate �
 |---|---|---|
 | `chat.comegin.com` | `chatwoot-web` | `PUBLIC_CHATWOOT_BASE` |
 | `mkt.comegin.com` | `mautic-web` | `PUBLIC_MAUTIC_BASE` |
-| `stats.comegin.com` | `umami` | `PUBLIC_UMAMI_BASE` |
+| `stats.comegin.com`（**2026-10-06 ADR-25 で廃止。ALB のルール・ACM の名前から外した**） | （旧 `umami`） | （旧 `PUBLIC_UMAMI_BASE`。後継は `PUBLIC_GA4_MEASUREMENT_ID`〈ALB を通らない〉） |
 | `auth.comegin.com` | `admin-auth`（管理画面の関門。5.2.1） | —（公開ページには出さない） |
 | `cms.comegin.com` | `strapi`（ADR-16） | —（公開ページには出さない。ビルドだけが読む） |
 | `n8n.comegin.com`（**案**） | `n8n`（ADR-16） | —（公開ページには出さない） |
@@ -255,7 +261,7 @@ Mautic は次のファイルをローカルのディスクに書く。Fargate �
 | **`consent.comegin.com`（案）** | **`consent-api`**（同日に追加） | **`PUBLIC_CONSENT_BASE`** |
 
 - **証明書は `ap-northeast-1` の ACM で発行する。** CloudFront（`us-east-1` 必須。TA-02）とは逆で、ALB に付ける証明書は ALB と同じリージョンのものでなければならない。
-- **`chat.` / `mkt.` / `stats.` / `auth.` は `R1` が 2026-09-18 に確定した。** `cms.` は ADR-14 で加え、ADR-15 で取り消し、ADR-16 で戻した。`n8n.` は ADR-16 で加えた案で、確定していない（11 節）。Umami のホスト名とスクリプト名（`TRACKER_SCRIPT_NAME`）が広告ブロッカーに遮断されるかは、設置後に実測する（遮断されていればスクリプト名を変える）。
+- **`chat.` / `mkt.` / `stats.` / `auth.` は `R1` が 2026-09-18 に確定した。** `cms.` は ADR-14 で加え、ADR-15 で取り消し、ADR-16 で戻した。`n8n.` は ADR-16 で加えた案で、確定していない（11 節）。（**`stats.` は ADR-25 で廃止。次の文は旧版**）Umami のホスト名とスクリプト名（`TRACKER_SCRIPT_NAME`）が広告ブロッカーに遮断されるかは、設置後に実測する（遮断されていればスクリプト名を変える）。
 - **`cal.` と `consent.` は 2026-10-01 に加えた案である**（確定していない。11 節）。**ACM の証明書に含める名前が 2 つ増える**ため、証明書の発行（DNS の検証）をやり直す前に決める。`consent.` を同一サイトのサブドメインにするのは、**同意の Cookie を公開サイトの JavaScript が読めるようにするため**である（別のドメインにすると 3.3 の役割分担が成り立たない。DD-02 の 8.2）。
 - **`comegin.com` のサブドメインにすることで、Cookie が同一サイトの扱いになる。** ngrok のドメインは公開サイトとは別のサイトであり、ブラウザのサードパーティ Cookie の制限を受ける（Chatwoot のウィジェットの会話の継続や Mautic のトラッキング Cookie が影響を受ける）。サブドメインに移すと、公開サイト（`comegin.com`）と同じサイトになる。
 - **ホスト名は ngrok の固定ドメインと違い、再起動で変わらない。** `SITE_URL`・`PUBLIC_*_BASE`・`MCP_ALLOWED_HOSTS` を揃える作業（DD-02 の 1.1）は 1 回で済む。
@@ -324,14 +330,14 @@ sequenceDiagram
 
 | システム | パス（想定） | 用途 |
 |---|---|---|
-| Umami | `/script.js`（`TRACKER_SCRIPT_NAME` で変えた場合はその名前）、`/api/send` | トラッカーの配信とイベント受信（`I-05`） |
+| （欠番。旧: Umami の `/script.js`・`/api/send`〈`I-05`〉。**2026-10-06 ADR-25 で廃止。`I-05` は GA4 に変わり ALB を通らない**） | — | — |
 | Chatwoot | `/packs/*`、`/widget*`、`/api/v1/widget/*`、`/cable`、`/rails/active_storage/*` | ウィジェットの配信・会話 API・WebSocket・添付ファイル（`I-07`） |
 | Mautic | `/form/submit*`、`/mtc.js`、`/mtc/event`、`/mtracking.gif` | フォーム受付とトラッキング（`I-08`） |
 | Mautic | `/email/*`、`/r/*`、`/media/images/*` | **配信したメール**の開封計測・クリック計測・配信停止・画像。**訪問者だけでなく、メールの受信者も無認証で到達する** |
 | **Cal.com**（2026-10-01 に追加） | **予約ページ（公開する予約の種類のパス）と埋め込みのスクリプト・その静的ファイル・予約の確定に使う API**（パスは**実装時に実測して確定する**） | オンライン面談の予約（`I-25`）。**Cal.com の管理画面（設定・連携・予約の一覧）は許可リストに載せず、管理者の認証の内側に残す**（下記） |
 | **`consent-api`**（同日に追加） | **同意の記録（書き込み）と、同意の状態の取得の 2 本だけ** | Cookie 同意の受け口（4.8、DD-02 の 8 節）。**自作のため、パスは実装で決める（増やさない）** |
 
-- **Cal.com は訪問者向けと管理者向けが同一オリジンにある**（Umami・Chatwoot と同じ構造）。**訪問者に要るのは予約ページと埋め込みだけ**で、設定・連携・予約の一覧は運用経路（5.2 の管理者の認証）に残す。**パスの切り分けを実装時に DevTools で確かめる**（切り分けを誤ると、予約の管理画面が無認証で開くか、予約そのものができなくなる。11 節）。
+- **Cal.com は訪問者向けと管理者向けが同一オリジンにある**（Chatwoot と同じ構造。旧版は「Umami・Chatwoot と同じ」。Umami は ADR-25 で廃止）。**訪問者に要るのは予約ページと埋め込みだけ**で、設定・連携・予約の一覧は運用経路（5.2 の管理者の認証）に残す。**パスの切り分けを実装時に DevTools で確かめる**（切り分けを誤ると、予約の管理画面が無認証で開くか、予約そのものができなくなる。11 節）。
 - **`consent-api` のパスを 2 本に限る。** 自作であるため、**公開経路に出すパスをこちらで決められる**（製品と違い、バージョンで増えない）。増やさないことが守りになる。
 - **Strapi と n8n には訪問者向けのパスが無い。** 公開ページは Strapi に実行時のリクエストを出さない（ADR-11）。n8n の Webhook（`/webhook/*`）は本番の Chatwoot・Mautic から VPC の中で受け、ALB には出さない（11 節）。外部のサービスから Webhook を受ける必要が出たときに、そのパスだけを許可リストに加える。
 - **`/cable` は訪問者と運用者の両方が使う。** Chatwoot のウィジェットと管理画面は同じ WebSocket のエンドポイントを使うため、無認証で通し、製品側の認証に任せる。
@@ -341,7 +347,7 @@ sequenceDiagram
 
 > **（2026-10-06）ADR-21: ここに載る Strapi の `/mcp`・`/api/*` と n8n の `/mcp-server/http` は ALB で開けなくなった**（`strapi-prod`・`n8n-prod` の接続先と、ビルドが読む Content API は、オンプレの `127.0.0.1:1338`・`127.0.0.1:5679`）。**代わりに、オンプレの n8n が Chatwoot・Mautic の API を呼ぶ処理（`I-19`・棚卸しなど）がこの節の Chatwoot・Mautic のパスを通る**（トンネルを通れるのは RDS の 5432 だけ。認証は製品側のトークンと WAF のレート制限）。
 
-**ローカルの Claude Code の MCP とビルドはブラウザでのログインができない**ため、API のパスは管理者の認証の外に置く。**ADR-15・ADR-16 で、MCP は本番の Strapi・Mautic・Chatwoot・Umami・n8n を読み書きする**（自作の MCP サーバは本番用に別登録し、製品の組み込みの MCP には本番用の登録を足す。TA-07 の 3.3）。n8n は AWS に移ったため、n8n から Chatwoot・Mautic への呼び出しは VPC の中で行い、この表の経路を使わない。代わりに次の 2 つで守る。
+**ローカルの Claude Code の MCP とビルドはブラウザでのログインができない**ため、API のパスは管理者の認証の外に置く。**ADR-15・ADR-16 で、MCP は本番の Strapi・Mautic・Chatwoot・Umami・n8n を読み書きする**（**Umami と `umami-prod` は ADR-25 で廃止**。自作の MCP サーバは本番用に別登録し、製品の組み込みの MCP には本番用の登録を足す。TA-07 の 3.3）。n8n は AWS に移ったため、n8n から Chatwoot・Mautic への呼び出しは VPC の中で行い、この表の経路を使わない。代わりに次の 2 つで守る。
 
 | システム | パス（想定） | 製品側の認証 | 開けるか |
 |---|---|---|---|
@@ -350,13 +356,13 @@ sequenceDiagram
 | Strapi | `/mcp` | **Admin トークン**（Strapi の管理画面で発行。**MCP のツールはトークンに与えた権限の範囲に絞られる**。本番のトークンは**下書きまで**に絞り、公開・非公開化・削除の権限を与えない。ADR-17） | **開ける**（`strapi-prod`。ADR-16） |
 | Strapi | `/api/*`（Content API） | **API トークン（読み取り専用）** | **開ける**（ローカルのビルド。DD-05 の `I-09`。**監視アプリの定期実行の公開の確認も読む**。ADR-17。案。使うトークンは TA-04 の 9 節） |
 | n8n | `/mcp-server/http` | n8n の MCP のアクセストークン | **開ける**（`n8n-prod`。ワークフローを本番へ移す経路。暫定。TA-07 の 3.3） |
-| Umami | **`/mcp` だけ**（Umami 自身の MCP エンドポイント。`MCP_ENABLED=1` で有効にする） | **API キー**（Umami の設定画面で発行。Bearer で送る） | **開ける**（`umami-prod` のリモート接続） |
+| Umami（**2026-10-06 ADR-25 で廃止**） | （旧: `/mcp` だけ） | （旧: API キー） | **開けない**（`umami-prod` の登録を外した。GA4 はオンプレの OpenSEO が Google の API を直接読み、ALB を通らない） |
 
 - **パスの一覧は実装時に MCP サーバの `resources.ts` と照合して確定する**（5.3 と同じく、製品のバージョンに依存する）。
 - **本番の登録の `ACCESS_LEVEL` は `read_write` を上限にする**（削除・統合を含む `full` は開発環境だけ。ADR-15 で暫定、ADR-16 で確定）。**`strapi-prod` には `ACCESS_LEVEL` が無いため、Admin トークンの権限で絞る**（ADR-17 で `read_write` よりさらに狭い「下書きまで」にした。公開は人間が管理画面で行う）。 Strapi の `/admin` と n8n のエディターは優先度 4（管理者の認証の内側）に残る。本番のトークンは人間の管理者のものを使わず、エージェント専用のアカウントで発行する（操作履歴がそのアカウントに残る）。トークンは本番用の環境変数ファイル（`.env.production`。Git で追跡しない）に置く。
 - **`chatwoot-prod` では社内メモと顧客への送信を分ける**（ADR-17）。`chatwoot_send_message` は両方を兼ね、`private` の既定値が `false`（顧客に送信）であるため、社内メモ専用のツールを足すか社内メモ用の登録を分けて、社内メモだけを使うエージェントに送信のツールを見せない（TA-07 の 3.3。どちらにするかは TA-07 の 9 節）。**ALB のパスは変わらない**（どちらも `/api/v1/accounts/*` を呼ぶ）。登録で分ける場合は、社内メモ用のエージェント専用ユーザーを別に作るか（トークンが増える）も合わせて決める。
 - **パスワードで入れる API を管理者の認証の外に出さない。** Mautic の API の Basic 認証（`api_enable_basic_auth`）は既定の無効のままにする。有効にすると、`/api/*` がパスワード総当たりの入口になる。Chatwoot のパスワードログイン（`/auth/sign_in`）は優先度 4（管理者の認証の内側）に残る。
-- **Umami の機械向けのパスは `/mcp` の 1 本だけ**を開け、`/api/*` は開けない（ローカルで `@umami/mcp` を動かして本番の `/api` を呼ぶ方式は採らない。ADR-15）。計測データの置き場所は自前の Umami のまま（Umami Cloud は使わない）。**Umami は v3.4.0（2026-09-17 公開）から、自前で動かす場合にも API キーと MCP のエンドポイント（`/mcp`）を持つ。**
+- （**以下の Umami の 4 項目は旧版の記述。ADR-25 で廃止**）**Umami の機械向けのパスは `/mcp` の 1 本だけ**を開け、`/api/*` は開けない（ローカルで `@umami/mcp` を動かして本番の `/api` を呼ぶ方式は採らない。ADR-15）。計測データの置き場所は自前の Umami のまま（Umami Cloud は使わない）。**Umami は v3.4.0（2026-09-17 公開）から、自前で動かす場合にも API キーと MCP のエンドポイント（`/mcp`）を持つ。**
   - **パスワードでログインする口（`/api/auth/login`）は管理者の認証の内側に残る。** API キーは Umami の設定画面で発行し、失効もそこで行える。
   - **API キーは閲覧専用のユーザーで発行する。** Umami の MCP のツールは読み取り専用で、キーの持ち主の権限の範囲でしか見えない。
   - **本番の Umami は v3.4.0 以上に固定する。** 取り込み済みのソース（`middleware/umami-master`）は **2026-09-18 に上流の v3.4.0 へ取り込み直した**（それまでの 3.3.1 には API キーも `/mcp` も無かった）。開発環境でも API キーと `/mcp` を試せる。
@@ -410,10 +416,10 @@ sequenceDiagram
 |---|---|---|
 | RDS のマスターパスワード | Secrets Manager（**RDS に管理させる**） | タスクには渡さない。アプリ用のユーザーを別に作る |
 | アプリ用の DB パスワード・ElastiCache の AUTH トークン・SES の SMTP 認証情報 | Secrets Manager | タスク定義の `secrets` で環境変数として注入する |
-| **暗号化の鍵**（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`、Umami の `APP_SECRET`、Mautic の `secret_key`、`admin-auth` の `BETTER_AUTH_SECRET`、Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、**n8n の `N8N_ENCRYPTION_KEY`**・`N8N_RUNNERS_AUTH_TOKEN`） | Secrets Manager | 同上。**`N8N_ENCRYPTION_KEY` を変えると、n8n に保存した資格情報を復号できなくなる** |
+| **暗号化の鍵**（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`、Mautic の `secret_key`、（Umami の `APP_SECRET` は ADR-25 で削除）`admin-auth` の `BETTER_AUTH_SECRET`、Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、**n8n の `N8N_ENCRYPTION_KEY`**・`N8N_RUNNERS_AUTH_TOKEN`） | Secrets Manager | 同上。**`N8N_ENCRYPTION_KEY` を変えると、n8n に保存した資格情報を復号できなくなる** |
 | **n8n に保存する資格情報**（本番の Chatwoot・Mautic のトークンなど） | n8n の DB（`N8N_ENCRYPTION_KEY` で暗号化） | 人間が本番の n8n のエディターで登録する。**開発環境の資格情報を本番に持ち込まない**。**Strapi の資格情報は必要になるまで登録せず、登録するときも公開・非公開化・削除の権限を与えない（下書きまで。ADR-18）** |
 | Strapi の本番の PostHog のプロジェクトトークン | Secrets Manager | **本番用のプロジェクトのトークン**（開発と本番でプロジェクトを分ける。ADR-16） |
-| **本番の MCP 用のトークン**（Chatwoot の `api_access_token`・Mautic の API クライアント・Umami の API キー・Strapi の Admin トークン・n8n の MCP のアクセストークン）と、**ビルド用の Strapi の読み取り専用の API トークン** | **ローカルの PC の本番用の設定**（`.env.production` と Claude Code の MCP の設定。AWS には置かない。Git で追跡しない） | 本番の各管理画面でエージェント専用のアカウントに発行する。`ACCESS_LEVEL` は `read_write` まで（5.4。ADR-15・ADR-16）。Strapi の Admin トークンは下書きまで（ADR-17） |
+| **本番の MCP 用のトークン**（Chatwoot の `api_access_token`・Mautic の API クライアント・Strapi の Admin トークン（Umami の API キーは ADR-25 で削除）・n8n の MCP のアクセストークン）と、**ビルド用の Strapi の読み取り専用の API トークン** | **ローカルの PC の本番用の設定**（`.env.production` と Claude Code の MCP の設定。AWS には置かない。Git で追跡しない） | 本番の各管理画面でエージェント専用のアカウントに発行する。`ACCESS_LEVEL` は `read_write` まで（5.4。ADR-15・ADR-16）。Strapi の Admin トークンは下書きまで（ADR-17） |
 | `admin-auth` の Google の OAuth クライアントシークレット／ALB 用のクライアントシークレット | Secrets Manager（後者は ALB のリスナールールにも設定する） | 前者はタスクに注入する。後者は ALB と `admin-auth` の両方が知る必要がある |
 | **Cal.com の鍵**（セッションの秘密鍵・連携の暗号化の鍵。**変えると保存済みのカレンダー連携を復号できなくなる**）と、**Cal.com が使う Google の OAuth クライアントシークレット**（Google Calendar API） | Secrets Manager | 2026-10-01 に追加。**`admin-auth` と GSC と同じ Google Workspace の中で OAuth クライアントを発行する**（TA-04 の 8 節と同じ扱い）。**`admin-auth` のクライアントと共用しない**（用途とスコープが違う。Cal.com は Calendar、`admin-auth` はログイン） |
 | **`consent-api` が ElastiCache に接続する資格情報**（AUTH トークン） | Secrets Manager | 2026-10-01 に追加。既存の ElastiCache の AUTH と同じもの（4.1）。**`consent-api` には RDS の資格情報を一切渡さない**（DB を持たないサービスのため。3.1） |
@@ -449,6 +455,10 @@ sequenceDiagram
 ## 9. 費用
 
 > **（2026-10-06）ADR-21: ECS のサービスが 2 つ（Strapi・n8n）減り、WireGuard の EC2（`t4g.nano`）・Elastic IP・EBS が増える。** 最新の見積りは `cloud/README.md`。この節の Strapi・n8n の Fargate の費用は ADR-16 の見積りである。
+>
+> **（2026-10-06）ADR-25: Umami の分（Fargate の 1 タスク・RDS の `umami` の容量・ECR の 1 リポジトリ・Secrets Manager の値・アラーム・ALB のルール）が減る。** GA4 は無料の範囲で使い（標準のプロパティ）、AWS の費用は増えない。下の表の「11 サービス」「約 18 個」は Umami を含む旧版の数である。
+>
+> **（2026-10-06）ADR-25 の反映後の `cloud/` の数**（`cloud/README.md` の 1 節・3 節。cloud 担当の確認）: **Secrets Manager はテンプレートが作るもの 21 → 18**（RDS が管理するものを含めると 23 → 20。`services/umami.yaml` の `DATABASE_URL` と `secrets.yaml` の `UmamiDbPassword`・`UmamiAppSecret` が無くなった）・**ECR 5 → 4**・**ECS のサービス 7 → 6**・**PostgreSQL のデータベース（`ops-tasks` が作るもの）5 → 4**（`chatwoot`・`admin_auth`・`strapi`・`n8n`）・**CloudWatch のアラーム 28 → 26**。ALB の `stats.` のリスナールール 3 つ（訪問者向け・機械向け・OIDC）・ACM の SAN と DNS 検証の `stats.`・WAF の `/mcp` の条件も外した。**前の版をデプロイ済みの環境があれば、`DeletionPolicy: Retain` の ECR（`comegin/<env>/umami`）・Secret（`comegin/<env>/umami/*`）と RDS の `umami` データベースを手で消す**（`cloud/README.md` の 6 節）。
 
 **見積もりは未実施である。** 固定費がかかる要素だけを列挙する。
 
@@ -484,7 +494,8 @@ sequenceDiagram
 | メール | MailHog | SES（顧客向け）・SNS（社内向け。ADR-08） |
 | 入口 | `127.0.0.1`（ngrok は Astro dev サーバーの共有にだけ使う） | ALB ＋ WAF ＋ `admin-auth`（Better Auth） |
 | n8n | サンドボックスを含む（Docker-in-Docker） | **サンドボックスを置かない**（Fargate は privileged を受け付けない） |
-| **エージェント（MCP）の接続** | **する**（`chatwoot` / `mautic` / `umami` / `strapi-mcp` / `n8n`。`full` まで） | **する**（`chatwoot-prod` / `mautic-prod` / `umami-prod` / `strapi-prod` / `n8n-prod`。`read_write` まで。ADR-15・ADR-16。`strapi-prod` は下書きまで。ADR-17） |
+| **エージェント（MCP）の接続** | **する**（`chatwoot` / `mautic` / `strapi-mcp` / `n8n`。`full` まで。**`umami` は ADR-25 で外した**） | **する**（`chatwoot-prod` / `mautic-prod` / `strapi-prod` / `n8n-prod`。`read_write` まで。ADR-15・ADR-16。`strapi-prod` は下書きまで。ADR-17。**`umami-prod` は ADR-25 で外した。GA4 は `openseo` で読むだけ**） |
+| **アクセス解析**（2026-10-06 に追加。ADR-25） | **無し**（開発環境では GA4 のタグを出さない。`PUBLIC_GA4_MEASUREMENT_ID` を設定しない） | **GA4（SaaS）**。本番のプロパティ 1 つ。AWS に何も置かない |
 | PostHog | 開発用のプロジェクト | **本番用のプロジェクト**（ADR-16） |
 | **Cal.com**（2026-10-01 に追加） | **compose**（`backend/calcom-system`。想定）。**開発ポートは `3105`**（**ユーザーが 2026-10-01 に承認**。TA-01 の 5 節の表に記載済み。`3103` は `admin-auth`、`3104` は `consent-api`） | `calcom`（`cal.comegin.com`） |
 | **`consent-api`**（同日に追加） | **ローカルで起動**（`backend/consent-api`。想定）。**開発ポートは `3104`**（同上） | `consent-api`（`consent.comegin.com`） |
@@ -507,7 +518,7 @@ sequenceDiagram
 - **n8n のホスト名**（5.1）。`n8n.comegin.com` は案。判断者 `R1`。
 - **n8n の MCP（`/mcp-server/http`）の認証方式とツールの範囲**（5.4）。ワークフローの実行・有効化まで含むため、`n8n-prod` で許すツールを TA-07 の 3.3 で絞る。
 - **Mautic の公式イメージが 7.x を提供しているか。** 3.2。無ければ取り込み済みのソースからイメージを作る作業が増える。
-- **Umami のイメージが起動時に DB を自動で移行するか。** 3.3。
+- **（2026-10-06 に ADR-25 で消滅）Umami のイメージが起動時に DB を自動で移行するか。** 3.3。
 - **Chatwoot の S3 をタスクロールで使えるか。** 7 節。
 - **SES の本番アクセスの申請と、バウンス・苦情を Mautic に返す経路。** 6 節。申請は顧客にメールを送る前に済ませる必要があり、BA-04 のトスアップ（フォームの自動返信）を始める前提になる。
 - **費用の見積もり。** 9 節。
@@ -533,10 +544,10 @@ sequenceDiagram
 | オンプレの送信元 IP による許可 | **採らない**（IP が固定ではない）。機械向けの API は製品側の認証と WAF のレート制限で守る | 5.2・5.4 |
 | 管理画面の関門 | **Better Auth（`admin-auth`）を IdP にした ALB の OIDC 認証。ログインは Google Workspace**（当初案の Cognito は採らない。ADR-13） | 5.2.1 |
 | 訪問者側の守り | **認証・認可をしない。WAF のレート制限だけ** | 5.2・5.5 |
-| ホスト名 | **`chat.` / `mkt.` / `stats.comegin.com` で確定** | 5.1 |
+| ホスト名 | **`chat.` / `mkt.` / `stats.comegin.com` で確定**（**`stats.` は 2026-10-06 の ADR-25 で廃止**） | 5.1 |
 | 可用性 | **単一構成**（RDS は Single-AZ、タスクは 1、NAT Gateway は 1、ElastiCache は 1 ノード） | 4.6 |
-| Umami MCP の接続先 | **自前の Umami**。Umami Cloud は使わない。（ADR-14 で一時保留にしたが、ADR-15 で本番の `/mcp` に接続すると戻した） | 5.4 |
-| 取り込み済みの Umami | **上流の v3.4.0 に取り込み直した**（無改変。3.3.1 と差分が無いことを確認してから置き換えた） | 3.2・5.4 |
+| Umami MCP の接続先 | **自前の Umami**。Umami Cloud は使わない。（ADR-14 で一時保留にしたが、ADR-15 で本番の `/mcp` に接続すると戻した）（**2026-10-06 ADR-25 で Umami ごと廃止**） | 5.4 |
+| 取り込み済みの Umami | **上流の v3.4.0 に取り込み直した**（無改変。3.3.1 と差分が無いことを確認してから置き換えた）（**ADR-25 で `middleware/umami-master` を削除**） | 3.2・5.4 |
 | オンプレの全滅の検知 | **CloudWatch のアラームから SNS へ直接送る**（オンプレからのハートビートが途絶えたら通知。TA-05） | — |
 
 ### 2026-09-19 に決まったこと（ADR-14・ADR-15）
@@ -544,7 +555,7 @@ sequenceDiagram
 | 項目 | 決定 | 節 |
 |---|---|---|
 | 本番の Strapi | **置かない**（ADR-14 で AWS に置くとしたが、ADR-15 で取り消し。**同日の ADR-16 で再び置くことにした**） | — |
-| エージェント（MCP）の接続先 | **開発環境と、本番の Mautic・Chatwoot・Umami**（同じ MCP サーバを本番用に別登録。本番は `read_write` まで。ADR-15） | 5.4・7・10 |
+| エージェント（MCP）の接続先 | **開発環境と、本番の Mautic・Chatwoot・Umami**（同じ MCP サーバを本番用に別登録。本番は `read_write` まで。ADR-15）（**Umami は ADR-25 で廃止**） | 5.4・7・10 |
 | Astro のビルド | **オンプレで行い、配信は人間が承認する**（ADR-15。TA-07 の 7 節）。読む Strapi は ADR-16 で本番の Strapi に変わった | — |
 | n8n の本番への書き込み（`I-17` `I-19`） | **認める**（ADR-15 と整合） | 5.4 |
 
@@ -584,8 +595,17 @@ sequenceDiagram
 | 項目 | 決定 | 節 |
 |---|---|---|
 | Cookie 同意の状態の保存先 | **Cookie とサーバの両方**（`localStorage` は使わない）。サーバ側は**既存の ElastiCache（Valkey）**を使い、ストアを増やさない | 4.1・4.8 |
-| 同意の対象 | **PostHog と Chatwoot の 2 つ**（Umami は同意の前でも送る）。本番の Chatwoot のウィジェットは同意の後にだけ読み込まれる | 4.8（DD-02 の 4.4） |
+| 同意の対象 | **PostHog と Chatwoot の 2 つ**（Umami は同意の前でも送る）。本番の Chatwoot のウィジェットは同意の後にだけ読み込まれる（**2026-10-06 ADR-25: 同意の対象は PostHog・Chatwoot・GA4 の 3 つになった。Umami は廃止。同意のポリシーの版〈`CONSENT_POLICY_VERSION`〉を上げる。`consent-api` のコードと Cookie の形式は変えない**） | 4.8（DD-02 の 4.4） |
 | 同意を受け取る受け口 | **ALB の後ろの自作のサービス `consent-api`（ECS on Fargate）。** Lambda 関数 URL・API Gateway・CloudFront Function は採らない（**実行基盤を増やさない**） | 3.1・4.8・5.3・5.5 |
 | **Cal.com**（`I-25`） | **セルフホストする**（SaaS として使わない）。TA-01 の 8 節の「SaaS に依存してよい 2 種類」に当たらないため、**基準を変えずに運用対象を 1 つ増やす側を選んだ**。ECS の `calcom`・RDS の `calcom` データベース・`cal.comegin.com`（案） | 3.1・3.2・4.1・4.3・5.1・5.3 |
 | Cal.com と Google Calendar | **`calcom` が Google Calendar API を呼ぶ**（OAuth クライアントは `admin-auth`・GSC と同じ Google Workspace の中で発行し、**`admin-auth` のクライアントと共用しない**）。**開発環境は本番のカレンダーを指さない** | 7・10 |
 | 氏名・メールアドレスの越境 | **予約の正本（`E-16`）は起きない**（セルフホストのため `ap-northeast-1` に留まる）。**ただし予約の成立後に Google Calendar へ予定を作るため、氏名・メールアドレス・日時は Google LLC（米国）に渡る**（同日のユーザーの決定）。**TA-01 の 8 節の SaaS 依存の基準は変えないが、越境する先は PostHog と Google Calendar の 2 つになった**（DA-05 の 1.2・1.2.2） | 7（DD-02 の 7.5） |
+
+### 2026-10-06 に決まったこと（アクセス解析の正本を GA4 にする。**AA-05 の ADR-25**）
+
+| 項目 | 決定 | 節 |
+|---|---|---|
+| Umami | **廃止する**（ユーザーの決定）。ECS の `umami`・RDS の `umami`・ALB の `stats.comegin.com`・ECR・Secrets Manager の値・アラーム・`umami-prod` を外す | 冒頭・3.1・4.1・5.1・5.3・5.4・7・9・10 |
+| アクセス解析の正本 | **GA4（SaaS）。AWS に何も置かない。** タグは gtag.js を公開サイトに直接置き、同意の後だけ読み込む（Consent Mode v2 の basic）。読み取りはオンプレの OpenSEO（`analytics.readonly`）。TA-01 の 8 節の SaaS の基準は変えず、「ユーザーの決定による例外」に加える | TA-01 の 7 節（経路 24・25）・8 節 |
+| 同意の対象 | **PostHog・Chatwoot・GA4 の 3 つ**。`consent-api` のコードと Cookie の形式は変えず、同意のポリシーの版を上げる | 4.8（DD-02 の 4 節） |
+| 開発環境 | **GA4 のタグを出さない**（測定 ID を設定しない）。開発環境のアクセス解析は無い | 10 |

@@ -41,8 +41,8 @@ node setup/setup.mjs --target dev
 | `host-relay` | `middleware/host-relay/setup/` | 中継の起動（172.17.0.1 の 8000・1025・5678） | なし |
 | `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
 | `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・カスタム項目 3 つ・フォーム `consult`・`source_dl`・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
-| `umami` | `middleware/umami/setup/` | init-env（秘密値の生成）・起動（自作の compose。`127.0.0.1:3000`、MCP は有効）・初期パスワードの変更・Web サイト・API キー → `umami-dev.env` | 初期値から変わったパスワードが分からない |
-| `openseo` | `middleware/open-seo-main/dev/setup/` | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／Search Console 用の OAuth クライアント／Search Console の接続（画面） |
+| `ga4` | `middleware/ga4/setup/` | `GA4_PROPERTY_ID`（数字）と `GA4_MEASUREMENT_ID`（`G-…`）の形式の確認・開発の Astro の環境変数に測定 ID が無いことの確認（あれば失敗。GA4 は SaaS。API は呼ばない。ADR-25） | 本番の GA4 プロパティの作成と設定（`ga4:property`） |
+| `openseo` | `middleware/open-seo-main/dev/setup/` | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／Search Console と GA4 用の OAuth クライアント（GA4 は Analytics Admin API・Data API の有効化と `/api/ga4/oauth/callback` を含む）／Search Console の接続（画面）／GA4 の接続（画面。本番のプロパティだけ。ADR-25） |
 | `strapi` | `backend/strapi-system/setup/` | 環境変数ファイル・`pnpm install`・管理者（0 人のときだけ）・MCP 用の Admin トークン（下書きまで）・ビルド用の読み取りトークン → `strapi-dev.env` | 開発サーバーの起動（別の端末で `pnpm dev`）／既にいる管理者のパスワード |
 | `n8n` | `middleware/n8n/setup/` | init-env・起動・オーナー・公開 API のキー・MCP の有効化とトークン → `n8n-dev.env`・provision（Data Table・Mautic と Chatwoot の Webhook・資格情報・ワークフローの取り込みと子の公開） | 既にいるオーナーのパスワード／作成済みの MCP トークン（写すか `N8N_MCP_ROTATE=true`） |
 | `consent-api` | `backend/consent-api/setup/` | 環境変数ファイル・起動（Valkey 付き）・`/healthz` | なし |
@@ -73,13 +73,12 @@ node setup/setup.mjs --target dev
 | `CHATWOOT_INBOX_ID`・`CHATWOOT_WEBSITE_TOKEN` | chatwoot | 公開サイトのチャットウィジェット |
 | `MAUTIC_ADMIN_PASSWORD`✔ | mautic | 未インストールから入れたときだけ（ユーザー名は `admin`） |
 | `MAUTIC_FORM_ID_CONSULT`・`MAUTIC_FORM_ID_SOURCE_DL`・`MAUTIC_SEGMENT_ID_MQL` | mautic | 公開サイト（Astro の環境変数）に写す |
-| `UMAMI_ADMIN_PASSWORD`✔・`UMAMI_API_KEY`✔・`UMAMI_WEBSITE_ID` | umami | 管理者のログイン（ユーザー名 `admin`）／MCP／公開サイトの計測タグ |
 | `STRAPI_ADMIN_PASSWORD`✔・`STRAPI_DEV_TOKEN`✔・`STRAPI_BUILD_TOKEN`✔ | strapi | 管理者のログイン／strapi-mcp／Astro のビルド |
 | `N8N_OWNER_PASSWORD`✔・`N8N_API_KEY`✔・`N8N_DEV_TOKEN`✔ | n8n | オーナーのログイン／provision／n8n の MCP |
 
 管理者のメールアドレスはすべて `ADMIN_EMAIL`（Chatwoot のエージェント専用ユーザーだけは `+ai-agent` 付き）。
 
-**MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`umami-dev.env`・`n8n-dev.env`。
+**MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`n8n-dev.env`（`umami-dev.env` は ADR-25 で Umami を廃止したので作らない。前に作られたものは自分で消す）。
 
 **各プロジェクトの環境変数ファイル**: 既存の `dev/init-env.sh` と同じく、**空のキーだけを書く**（暗号化の鍵などを上書きしない）。
 

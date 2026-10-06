@@ -33,8 +33,8 @@
 
 - CMS: Strapi
 - MA: Mautic
-- アクセス解析: Umami
-- 行動分析 / ABテスト: PostHog
+- アクセス解析: Google Analytics 4（GA4。流入・ページ・参照元の数字の正本。2026-10-06 に Umami から切り替え）
+- ABテスト・例外の監視・記事のイベント・実測の Core Web Vitals: PostHog
 - Web接客 / チャット: Chatwoot
 - フロントエンドフレームワーク / SSG: Astro
 - ワークフロー自動化 / iPaaS: n8n

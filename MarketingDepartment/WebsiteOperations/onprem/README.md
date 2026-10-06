@@ -1,6 +1,6 @@
 # onprem（オンプレの本番 Strapi・n8n と WireGuard）
 
-ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い、**再帰的自己改善の仕組みである Strapi と n8n の本番をオンプレで動かし、データは AWS（RDS・S3）に置く**ためのモジュール。クラウドの製品（Mautic・Chatwoot・Umami・Astro）と、クラウドに残す部品（`consent-api`・Cal.com・`admin-auth`）は `cloud/` が作る。
+ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い、**再帰的自己改善の仕組みである Strapi と n8n の本番をオンプレで動かし、データは AWS（RDS・S3）に置く**ためのモジュール。クラウドの製品（Mautic・Chatwoot・Astro。Umami は ADR-25 で廃止）と、クラウドに残す部品（`consent-api`・Cal.com・`admin-auth`）は `cloud/` が作る。
 
 | ディレクトリ | 内容 |
 |---|---|
@@ -95,7 +95,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://10.99.0.2:5680/rest/login       
 ## 止まったときの影響
 
 - **オンプレのマシン・回線・WireGuard・`webhook-proxy`・n8n のどれかが止まると、クラウドの Mautic・Chatwoot からの Webhook が届かず欠落する**（`I-11` `I-12`）。Mautic の Webhook の再送の有無は未確認（縮退運転は DD-07 で扱う）。
-- 訪問者に届くサービス（Astro・Mautic・Chatwoot・Umami・`consent-api`・Cal.com・`admin-auth`）は止まらない。
+- 訪問者に届くサービス（Astro・Mautic・Chatwoot・`consent-api`・Cal.com・`admin-auth`）は止まらない。
 - Strapi が止まると、記事の制作・ビルドが止まる（公開済みのページは Astro に焼き込み済みなので止まらない）。データは RDS・S3 にあるので、マシンを失っても消えない（暗号化キー・鍵類を控えてあれば復旧できる）。
 
 ## 秘匿ファイルとキー

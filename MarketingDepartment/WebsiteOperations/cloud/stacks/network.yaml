@@ -33,9 +33,6 @@ Parameters:
   ChatwootWebPort:
     Type: Number
     Default: 3000
-  UmamiPort:
-    Type: Number
-    Default: 3000
   AdminAuthPort:
     Type: Number
     Default: 3103
@@ -220,7 +217,6 @@ Resources:
         - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: OIDC IdP endpoints }
         - { IpProtocol: tcp, FromPort: !Ref MauticWebPort, ToPort: !Ref MauticWebPort, DestinationSecurityGroupId: !Ref MauticWebSecurityGroup, Description: To mautic-web }
         - { IpProtocol: tcp, FromPort: !Ref ChatwootWebPort, ToPort: !Ref ChatwootWebPort, DestinationSecurityGroupId: !Ref ChatwootWebSecurityGroup, Description: To chatwoot-web }
-        - { IpProtocol: tcp, FromPort: !Ref UmamiPort, ToPort: !Ref UmamiPort, DestinationSecurityGroupId: !Ref UmamiSecurityGroup, Description: To umami }
         - { IpProtocol: tcp, FromPort: !Ref AdminAuthPort, ToPort: !Ref AdminAuthPort, DestinationSecurityGroupId: !Ref AdminAuthSecurityGroup, Description: To admin-auth }
         - { IpProtocol: tcp, FromPort: !Ref ConsentApiPort, ToPort: !Ref ConsentApiPort, DestinationSecurityGroupId: !Ref ConsentApiSecurityGroup, Description: To consent-api }
       Tags:
@@ -266,16 +262,6 @@ Resources:
         - { IpProtocol: tcp, FromPort: 0, ToPort: 65535, CidrIp: 0.0.0.0/0, Description: Outbound via NAT for ECR and Secrets Manager and SES and external APIs }
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-chatwoot-worker' }
-
-  UmamiSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: umami tasks
-      VpcId: !Ref Vpc
-      SecurityGroupEgress:
-        - { IpProtocol: tcp, FromPort: 0, ToPort: 65535, CidrIp: 0.0.0.0/0, Description: Outbound via NAT for ECR and Secrets Manager and SES and external APIs }
-      Tags:
-        - { Key: Name, Value: !Sub 'comegin-${EnvName}-umami' }
 
   AdminAuthSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -343,7 +329,7 @@ Resources:
   PostgresSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS for PostgreSQL (chatwoot, umami, admin_auth, strapi, n8n)
+      GroupDescription: RDS for PostgreSQL (chatwoot, admin_auth, strapi, n8n)
       VpcId: !Ref Vpc
       SecurityGroupEgress:
         - { IpProtocol: tcp, FromPort: 1, ToPort: 1, CidrIp: 127.0.0.1/32, Description: No outbound traffic needed }
@@ -377,9 +363,6 @@ Resources:
   ChatwootWebFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref ChatwootWebSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref ChatwootWebPort, ToPort: !Ref ChatwootWebPort, Description: From ALB }
-  UmamiFromAlb:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref UmamiSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref UmamiPort, ToPort: !Ref UmamiPort, Description: From ALB }
   AdminAuthFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref AdminAuthSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref AdminAuthPort, ToPort: !Ref AdminAuthPort, Description: From ALB }
@@ -421,9 +404,6 @@ Resources:
   PostgresFromChatwootWorker:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref PostgresSecurityGroup, SourceSecurityGroupId: !Ref ChatwootWorkerSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: From chatwoot-worker }
-  PostgresFromUmami:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref PostgresSecurityGroup, SourceSecurityGroupId: !Ref UmamiSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: From umami }
   PostgresFromAdminAuth:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref PostgresSecurityGroup, SourceSecurityGroupId: !Ref AdminAuthSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: From admin-auth }
@@ -479,8 +459,6 @@ Outputs:
     Value: !Ref ChatwootWebSecurityGroup
   ChatwootWorkerSecurityGroupId:
     Value: !Ref ChatwootWorkerSecurityGroup
-  UmamiSecurityGroupId:
-    Value: !Ref UmamiSecurityGroup
   AdminAuthSecurityGroupId:
     Value: !Ref AdminAuthSecurityGroup
   ConsentApiSecurityGroupId:

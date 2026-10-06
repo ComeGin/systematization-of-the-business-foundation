@@ -34,7 +34,7 @@ const dirOf = (ctx) => join(ctx.W, "frontend/next-js");
 const planeDirOf = (ctx) => join(ctx.W, "backend/control-plane");
 const envPathOf = (ctx) => join(dirOf(ctx), ".env");
 
-/** ブラウザで開く URL（= BETTER_AUTH_URL）。末尾の / は落とす。以前の既定（localhost:3000。Umami と衝突）は 3200 とみなす */
+/** ブラウザで開く URL（= BETTER_AUTH_URL）。末尾の / は落とす。以前の既定（localhost:3000。以前は Umami と衝突していた）は 3200 とみなす */
 function publicUrlOf(env) {
   const raw = (env.BETTER_AUTH_URL || LOCAL_URL).replace(/\/+$/, "");
   return raw === "http://localhost:3000" ? LOCAL_URL : raw;
