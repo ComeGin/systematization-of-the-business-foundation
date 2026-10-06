@@ -1,10 +1,16 @@
-// OpenSEO（開発環境）の設定。環境変数ファイルの作成 → 起動 → /api/health の確認 → Google Search Console と GA4 の接続（画面）。
+// OpenSEO の設定。環境変数ファイルの作成 → 起動 → /api/health の確認 → （--target prod だけ）Google Search Console と GA4 の接続（画面）。
+//
+// target ごとの違い:
+//   - OpenSEO はオンプレのローカルに 1 つだけあり（127.0.0.1:3001）、開発と本番のエージェントが同じものを使う（TA-07 の 3.7）
+//   - --target dev: 起動と DataForSEO まで。Google（OAuth クライアント・Search Console・GA4）の手順は飛ばし、check でも求めない。
+//     開発の時点では公開サイトが AWS に展開されておらず、Search Console のプロパティにも GA4 の本番のプロパティにもデータが無いため
+//   - --target prod（AWS に展開した後）: dev の内容に加えて、Google の OAuth クライアント・Search Console の接続・GA4 の接続を案内する
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - open-seo-main は上流の取り込み。独自の追加は dev/setup/ の中だけ。上流の compose.yaml は変えずに、そのまま docker compose up -d する
 //   - compose.yaml は env_file で同じディレクトリの環境変数ファイルを丸ごと渡す。ひな形は上流の環境変数のテンプレート（.env.example。全部コメントアウト）。
 //     既に値があるキーは変えない（BETTER_AUTH_SECRET は保存済みの Google の OAuth トークンの暗号鍵なので、変えると接続が切れる）。
-//     設定（dev.conf）の値は、変わったら環境変数ファイルにも反映する（上流の環境変数ファイルにだけ値がある場合は、それを使う）
+//     設定（<target>.conf）の値は、変わったら環境変数ファイルにも反映する（上流の環境変数ファイルにだけ値がある場合は、それを使う）
 //   - 認証は AUTH_MODE=local_noauth（Docker の自前運用の上流の既定。127.0.0.1 だけにバインドされ、画面にも MCP にも認証が無い）。トンネルを張らない
 //   - OpenSEO の費用が出るツール（DataForSEO を呼ぶもの）はここでは呼ばない。確かめるのは /api/health だけ（無認証・無料・値を返さない）
 //   - Google Search Console の接続は、Google の同意画面を通るので画面の操作（ctx.manual）。接続の有無はアプリの DB の中にあり、
@@ -15,7 +21,7 @@
 //     GSC と同じ GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET・BETTER_AUTH_SECRET なので、health の gsc が Configured なら GA4 の環境変数も揃っている。
 //     済んだことは OPENSEO_GA4_CONNECTED=yes で知らせる
 //
-// 設定のキー（~/.config/comegin/setup/dev.conf。雛形は setup/setup.conf.example）:
+// 設定のキー（~/.config/comegin/setup/<target>.conf。雛形は setup/setup.conf.example）:
 //   DATAFORSEO_API_KEY            DataForSEO の login:password を base64 にした値（ダッシュボードの API キーそのものではない）
 //   OPENSEO_GOOGLE_CLIENT_ID / OPENSEO_GOOGLE_CLIENT_SECRET   Search Console 用の OAuth クライアント。無ければ GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET（admin-auth と共用）
 //   OPENROUTER_API_KEY            任意。アプリ内の AI エージェント（SAM）を使うときだけ
@@ -40,7 +46,7 @@
 //   src/lib/selfhost-preflight.ts（check のキーは auth・dataforseo・gsc・ai・runtime。ga4 は無い）、src/server/lib/setup-status.ts（これに database を足す）
 import { join } from "node:path";
 
-export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ・Search Console。開発環境）", targets: ["dev"], after: [] };
+export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ。Search Console と GA4 の接続は prod だけ）", targets: ["dev", "prod"], after: [] };
 
 const DIR = "middleware/open-seo-main";
 const BASE_URL = "http://127.0.0.1:3001";
@@ -54,6 +60,9 @@ const root = (ctx) => join(ctx.W, DIR);
 const envPath = (ctx) => join(root(ctx), ".env");
 const templatePath = (ctx) => join(root(ctx), ".env.example");
 const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
+/** Google（Search Console・GA4）の手順を扱う target か。dev は AWS に展開されていないので扱わない */
+const handlesGoogle = (ctx) => ctx.target === "prod";
+const GOOGLE_SKIPPED_IN_DEV = "Search Console と GA4 の接続は開発では飛ばす（公開サイトが AWS に無い）。AWS に展開した後に node setup/setup.mjs --target prod --only ga4,openseo で行う";
 
 // ---------------------------------------------------------------------------
 // 設定の値（設定ファイル → 環境変数ファイルの今の値の順）
@@ -66,9 +75,11 @@ function googleClient(ctx) {
   };
 }
 
-/** 設定の値を環境変数ファイルに書く。値が変わったら上書きする（設定が正）。書いたキーの名前を返す */
+/** 設定の値を環境変数ファイルに書く。値が変わったら上書きする（設定が正）。書いたキーの名前を返す。
+ *  Google の OAuth クライアントは prod のときだけ書く（環境変数ファイルは dev と prod で 1 つなので、dev.conf の
+ *  GOOGLE_CLIENT_ID〈admin-auth 用〉で prod の接続に使っているクライアントを上書きしないため） */
 function syncFromConf(ctx) {
-  const google = googleClient(ctx);
+  const google = handlesGoogle(ctx) ? googleClient(ctx) : {};
   return ctx.writeEnvFile(
     envPath(ctx),
     {
@@ -129,11 +140,11 @@ async function ensureStack(ctx, envChanged) {
 // 画面の操作
 // ---------------------------------------------------------------------------
 
-function dataForSeoSteps() {
+function dataForSeoSteps(ctx) {
   return [
     "DataForSEO の API 認証情報を用意する（アカウントが無ければ作る。新規は 1 ドル分の無料クレジットがある。費用が出るのはこのキーで OpenSEO がデータを取るとき）",
     "https://app.dataforseo.com/api-access を開き、「Send by email」で認証情報を取り寄せ、「Base64」と書かれた長いほうの値を控える（login:password を base64 にした値。ダッシュボードの API キーではない）",
-    "~/.config/comegin/setup/dev.conf に DATAFORSEO_API_KEY=<その値> を書く（chmod 600。エディタで書く）",
+    `~/.config/comegin/setup/${ctx.target}.conf に DATAFORSEO_API_KEY=<その値> を書く（chmod 600。エディタで書く）`,
   ];
 }
 
@@ -146,7 +157,7 @@ function googleClientSteps(ctx) {
     `Google Cloud Console（https://console.cloud.google.com/）でプロジェクトを選ぶか作り、${apis}を有効にする`,
     "「APIs & Services → OAuth consent screen」で、Workspace 内だけなら Internal、そうでなければ External を選ぶ。External のまま Testing なら、接続する Google アカウントを Test users に足す（足さないと access_denied）",
     `「Credentials → Create credentials → OAuth client ID」で、種類を Web application にし、Authorized redirect URI に ${uris} を入れる（スキーム・ホスト・ポート・パスが完全に一致していること。末尾にスラッシュを付けない）`,
-    "表示された Client ID と Client secret を ~/.config/comegin/setup/dev.conf に書く（chmod 600。エディタで書く）。OpenSEO 専用にするなら OPENSEO_GOOGLE_CLIENT_ID= と OPENSEO_GOOGLE_CLIENT_SECRET=、admin-auth と同じクライアントを使うなら GOOGLE_CLIENT_ID= と GOOGLE_CLIENT_SECRET=（その場合はクライアントに上のリダイレクト URI も足す）",
+    "表示された Client ID と Client secret を ~/.config/comegin/setup/prod.conf に書く（chmod 600。エディタで書く）。OpenSEO 専用にするなら OPENSEO_GOOGLE_CLIENT_ID= と OPENSEO_GOOGLE_CLIENT_SECRET=、admin-auth と同じクライアントを使うなら GOOGLE_CLIENT_ID= と GOOGLE_CLIENT_SECRET=（その場合はクライアントに上のリダイレクト URI も足す）",
     "Search Console を使わないと決めたなら OPENSEO_SKIP_GSC=yes、GA4 を接続しないと決めたなら OPENSEO_SKIP_GA4=yes を書く（両方なら OAuth クライアントは要らない）",
   ];
 }
@@ -156,7 +167,7 @@ function gscConnectSteps() {
     "ブラウザで http://localhost:3001 を開く（127.0.0.1 ではなく localhost。リダイレクト URI と合わせる）",
     "Integrations を開き、「Connect with Google」を押して、Search Console で認証済みのプロパティを持つ Google アカウントで同意する",
     "プロジェクトに紐付けるプロパティを選ぶ",
-    "~/.config/comegin/setup/dev.conf に OPENSEO_GSC_CONNECTED=yes を書く（接続の有無は OpenSEO の DB の中にあり、このスクリプトからは確かめられない）",
+    "~/.config/comegin/setup/prod.conf に OPENSEO_GSC_CONNECTED=yes を書く（接続の有無は OpenSEO の DB の中にあり、このスクリプトからは確かめられない）",
   ];
 }
 
@@ -168,7 +179,7 @@ function ga4ConnectSteps() {
     "ブラウザで http://localhost:3001 を開き（127.0.0.1 ではなく localhost）、プロジェクトのダッシュボードか Project settings → Analytics の「Connect with Google」を押す",
     "本番のプロパティを読める Google アカウントで、読み取りだけ（analytics.readonly）の同意をする（GSC の接続とは別に 1 回要る）。External のまま Testing なら、そのアカウントを Test users に足しておく",
     "本番のプロパティを選ぶ",
-    "~/.config/comegin/setup/dev.conf に OPENSEO_GA4_CONNECTED=yes を書く（接続の有無は OpenSEO の DB の中にあり、health にも出ないので、このスクリプトからは確かめられない）",
+    "~/.config/comegin/setup/prod.conf に OPENSEO_GA4_CONNECTED=yes を書く（接続の有無は OpenSEO の DB の中にあり、health にも出ないので、このスクリプトからは確かめられない）",
   ];
 }
 
@@ -185,6 +196,11 @@ export async function check(ctx) {
   if (health.authMode !== "local_noauth") notes.push("authMode が local_noauth ではない（トンネルを張らない前提が崩れる）");
 
   if (health.checks?.dataforseo?.status !== "ok") ok = false;
+
+  if (!handlesGoogle(ctx)) {
+    notes.push(GOOGLE_SKIPPED_IN_DEV);
+    return { ok, notes };
+  }
 
   if (yes(ctx.value("OPENSEO_SKIP_GSC"))) {
     notes.push("Search Console は使わない（OPENSEO_SKIP_GSC）");
@@ -225,7 +241,13 @@ export async function apply(ctx) {
   if (health.checks?.database?.status !== "ok") throw new Error("OpenSEO のデータベースが使えない（health の database が ok ではない）。docker compose logs open-seo を見る");
   if (health.authMode !== "local_noauth") throw new Error(`OpenSEO の authMode が local_noauth ではない（${health.authMode}）。環境変数ファイルの AUTH_MODE を確かめる`);
 
-  if (health.checks?.dataforseo?.status !== "ok") ctx.manual("dataforseo-key", "DataForSEO の API キーを設定に書く", dataForSeoSteps());
+  if (health.checks?.dataforseo?.status !== "ok") ctx.manual("dataforseo-key", "DataForSEO の API キーを設定に書く", dataForSeoSteps(ctx));
+
+  if (!handlesGoogle(ctx)) {
+    ctx.log(GOOGLE_SKIPPED_IN_DEV);
+    ctx.log(`終わった。画面: ${BASE_URL}（認証なし。ループバックだけ）`);
+    return;
+  }
 
   const skipGsc = yes(ctx.value("OPENSEO_SKIP_GSC"));
   const skipGa4 = yes(ctx.value("OPENSEO_SKIP_GA4"));

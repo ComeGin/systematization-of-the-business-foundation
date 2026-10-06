@@ -45,7 +45,7 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 
 **合格**: Chatwoot `127.0.0.1:3100`・n8n `127.0.0.1:5678`・Mautic `127.0.0.1:8000`・Strapi `127.0.0.1:1337` が応答する。MailHog `127.0.0.1:8025` が開く。
 
-### A1b. GA4 と OpenSEO の GA4 の接続（2026-10-06。ADR-25）
+### A1b. GA4・OpenSEO（開発では Google の手順を飛ばす。2026-10-06。ADR-25）
 
 > **（2026-10-06）ADR-25（AA-05）で Umami を廃止した。** 旧版のこの節は「A1b. Umami（開発環境。`middleware/umami`）」で、自作の compose の起動・`node setup/setup.mjs --target dev --only umami`・`127.0.0.1:3000` のバインドと `/mcp` の 401 の確認を行っていた。**Umami の確認手順はすべて外した。** `middleware/umami`・`middleware/umami-master` はリポジトリから消え、ポート 3000 は空きになった。流入・ページ・参照元の正本は **GA4**（SaaS）で、エージェントは **OpenSEO の MCP（`127.0.0.1:3001`。登録名 `openseo`）の GA4 のツール**で読む。設定値の記録は `middleware/ga4/README.md`。
 
@@ -53,24 +53,11 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 - Docker のボリューム **`umami_db-data`・`umami_umami-db-data`・`umami-master_umami-db-data`** は残してある（コンテナは `-v` なしで止め済み）。要らなければ `docker volume rm` で消す
 - `~/.config/comegin/setup/dev.state.json` の `UMAMI_*` のキーと、`~/.config/comegin/mcp/umami-dev.env` は残してある。要らなければ消す。Claude Code の MCP の登録に `umami`・`umami-prod` が残っていれば外す
 
-**あなたの作業（GA4 のプロパティ。本番の 1 つだけ）**
-- [ ] GA4 で本番のプロパティを作る（タイムゾーン `Asia/Tokyo`・通貨 `JPY`・データ保持 14 か月・Google シグナル オフ・広告のリンクなし・ユーザー提供データの収集 オフ）。Web のデータストリームを作り、測定 ID（`G-…`）を得る
-- [ ] プロパティ ID（数字）と測定 ID を `~/.config/comegin/setup/dev.conf` の `GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に書く（どちらも秘密値ではない）。**開発の Astro の環境変数（`PUBLIC_GA4_MEASUREMENT_ID`）には書かない**（開発環境ではタグを出さない）
-
-**あなたの作業（OpenSEO に GA4 を接続する。GSC と同じ OAuth クライアント）**
-- [ ] Google Cloud（GSC の OAuth クライアントと同じプロジェクト）で **Google Analytics Admin API** と **Google Analytics Data API** を有効にする
-- [ ] 同じ OAuth クライアント（Web アプリケーション）の承認済みのリダイレクト URI に **`http://localhost:3001/api/ga4/oauth/callback`** を足す（GSC の `/api/gsc/oauth/callback` は残す）
-- [ ] OpenSEO の画面（`http://localhost:3001`）の `comegin.com` のプロジェクトで、**Project settings → Analytics の Connect with Google** を押し、Analytics の読み取り専用の許可を与えて、**本番のプロパティだけ**を選ぶ（GSC とは別に同意が 1 回要る）
-- [ ] 済んだら `dev.conf` に `OPENSEO_GA4_CONNECTED=yes` を書く（GA4 を接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。その場合 `analytics-reporter` は GA4 を読めない）
-
-出典: `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`（API の有効化・リダイレクト URI・Connect with Google・トークンは Better Auth の account テーブルに暗号化して保存）、`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`（スコープは `analytics.readonly`）。
+**開発環境で確かめること（2026-10-06 の変更。Google の手順は開発では飛ばす）**
+- 開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いので、**`--target dev` は Google（OAuth クライアント・Search Console・GA4 のプロパティ・OpenSEO の GA4 の接続）の手順を飛ばす**。これらは AWS に展開した後に B7 で行う
 
 **Claude の作業**
-- `node setup/setup.mjs --target dev --check --only ga4,openseo` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、開発の Astro の環境変数に測定 ID が無い、`OPENSEO_GA4_CONNECTED` か `OPENSEO_SKIP_GA4` がある）
-- Claude Code から `mcp__openseo__get_google_analytics_measurement_health` を `comegin.com` のプロジェクトで呼び、**接続済み（`not_connected` でない）**ことと、選んだのが本番のプロパティであることを確かめる（無料。費用の出るツールは呼ばない）
-- `I-05`（本番のタグ）が通るまではデータが無いのが正常（`empty_but_ok`。DD-03 の 5.2）
-
-**合格**: `--check` が通り、`get_google_analytics_measurement_health` が接続済みを返す。**確かめていない点**（2026-10-06 の時点）: 本番のタグを置いた後に GA4 のリアルタイム表示で同意の前に送られていないこと（DD-02 の 2 節）。`connection expired` が出たら、上の Connect with Google をやり直す（OAuth アプリが Testing のままだと更新の許可が短命になる。手順書の Troubleshooting）。
+- `node setup/setup.mjs --target dev --check --only ga4,openseo` が通る（開発の Astro の環境変数に `PUBLIC_GA4_MEASUREMENT_ID` が無い、OpenSEO の health が ok で DataForSEO が ok。Google の接続は求めない）
 
 ### A2. consent-api（Cookie 同意の受け口）
 
@@ -268,6 +255,29 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 **合格**: 2 回目が差分なしで `success`。PR は確認後に閉じる。
 
 ---
+
+### B7. GA4 と Search Console の接続（AWS に展開した後。2026-10-06 に A1b から移した。ADR-25）
+
+開発環境（`--target dev`）では Google の手順を飛ばす（A1b）。公開サイトを AWS に展開してから、`node setup/setup.mjs --target prod --only ga4,openseo` で行う。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使う。値は `~/.config/comegin/setup/prod.conf` に書く。Search Console の OAuth クライアントと接続（`openseo:google-oauth-client`・`openseo:gsc-connect`）も同じ実行で案内される（`setup/manual-steps.md` の 7.4）。
+
+**あなたの作業（GA4 のプロパティ。本番の 1 つだけ）**
+- [ ] GA4 で本番のプロパティを作る（タイムゾーン `Asia/Tokyo`・通貨 `JPY`・データ保持 14 か月・Google シグナル オフ・広告のリンクなし・ユーザー提供データの収集 オフ）。Web のデータストリームを作り、測定 ID（`G-…`）を得る
+- [ ] プロパティ ID（数字）と測定 ID を `~/.config/comegin/setup/prod.conf` の `GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に書く（どちらも秘密値ではない）。**開発の Astro の環境変数（`PUBLIC_GA4_MEASUREMENT_ID`）には書かない**（開発環境ではタグを出さない）
+
+**あなたの作業（OpenSEO に GA4 を接続する。GSC と同じ OAuth クライアント）**
+- [ ] Google Cloud（GSC の OAuth クライアントと同じプロジェクト）で **Google Analytics Admin API** と **Google Analytics Data API** を有効にする
+- [ ] 同じ OAuth クライアント（Web アプリケーション）の承認済みのリダイレクト URI に **`http://localhost:3001/api/ga4/oauth/callback`** を足す（GSC の `/api/gsc/oauth/callback` は残す）
+- [ ] OpenSEO の画面（`http://localhost:3001`）の `comegin.com` のプロジェクトで、**Project settings → Analytics の Connect with Google** を押し、Analytics の読み取り専用の許可を与えて、**本番のプロパティだけ**を選ぶ（GSC とは別に同意が 1 回要る）
+- [ ] 済んだら `prod.conf` に `OPENSEO_GA4_CONNECTED=yes` を書く（GA4 を接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。その場合 `analytics-reporter` は GA4 を読めない）
+
+出典: `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`（API の有効化・リダイレクト URI・Connect with Google・トークンは Better Auth の account テーブルに暗号化して保存）、`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`（スコープは `analytics.readonly`）。
+
+**Claude の作業**
+- `node setup/setup.mjs --target prod --check --only ga4,openseo` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、`OPENSEO_GSC_CONNECTED` か `OPENSEO_SKIP_GSC`、`OPENSEO_GA4_CONNECTED` か `OPENSEO_SKIP_GA4` がある）
+- Claude Code から `mcp__openseo__get_google_analytics_measurement_health` を `comegin.com` のプロジェクトで呼び、**接続済み（`not_connected` でない）**ことと、選んだのが本番のプロパティであることを確かめる（無料。費用の出るツールは呼ばない）
+- `I-05`（本番のタグ）が通るまではデータが無いのが正常（`empty_but_ok`。DD-03 の 5.2）
+
+**合格**: `--check` が通り、`get_google_analytics_measurement_health` が接続済みを返す。**確かめていない点**（2026-10-06 の時点）: 本番のタグを置いた後に GA4 のリアルタイム表示で同意の前に送られていないこと（DD-02 の 2 節）。`connection expired` が出たら、上の Connect with Google をやり直す（OAuth アプリが Testing のままだと更新の許可が短命になる。手順書の Troubleshooting）。
 
 ## 終わったら
 

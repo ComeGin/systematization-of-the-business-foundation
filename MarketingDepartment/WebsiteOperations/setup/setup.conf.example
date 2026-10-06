@@ -72,6 +72,7 @@ CHATWOOT_URL_FROM_N8N=
 # DataForSEO の login:password を base64 にした値（https://app.dataforseo.com/api-access の「Base64」。ダッシュボードの API キーではない）。
 # 既に OpenSEO の環境変数ファイルにあればそれを使うので、書かなくても止まらない（health の dataforseo が ok なら）
 DATAFORSEO_API_KEY=
+# ---- ここから「OpenSEO の Google の接続」と「GA4」の節は prod.conf にだけ書く（--target prod だけで使う。dev は AWS に展開されていないので Google の手順を飛ばす） ----
 # Search Console と GA4 用の Google の OAuth クライアント（任意。空なら下の GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET を使う）。
 # リダイレクト URI は http://localhost:3001/api/gsc/oauth/callback と、GA4 も使うなら http://localhost:3001/api/ga4/oauth/callback（同じクライアントに両方を足す）
 OPENSEO_GOOGLE_CLIENT_ID=
@@ -88,7 +89,7 @@ OPENSEO_SKIP_GA4=
 
 # ---- GA4（middleware/ga4。ADR-25。どちらも秘密値ではない） ----
 # 本番の GA4 プロパティの ID（数字）と、Web ストリームの測定 ID（G- で始まる）。作り方は middleware/ga4/README.md。
-# 開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない。ユーザーの決定）
+# 開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない。ユーザーの決定）。--target prod でだけ確かめる
 GA4_PROPERTY_ID=
 GA4_MEASUREMENT_ID=
 # アプリ内の AI エージェント（SAM）を使うときだけ

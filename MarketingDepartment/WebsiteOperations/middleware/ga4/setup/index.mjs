@@ -1,5 +1,10 @@
 // GA4（アクセス解析の正本。ADR-25）の設定。本番のプロパティの ID と測定 ID が設定にあり、形式が正しいかを確かめるだけ。
 //
+// target ごとの違い:
+//   - --target dev: 開発の Astro の環境変数に測定 ID が無いことだけを確かめる。本番のプロパティの作成と ID の確認は飛ばす
+//     （開発の時点では公開サイトが AWS に展開されておらず、本番のプロパティにはまだ送るものも読むものも無い）
+//   - --target prod（AWS に展開した後）: 本番のプロパティの作成（ga4:property）と、2 つの値の形式の確認
+//
 // 方針（setup/lib/core.mjs の契約）:
 //   - GA4 は Google の SaaS で、動かすものが無い。プロパティは本番の 1 つだけで、作るのも設定するのも画面の操作（ctx.manual）
 //   - GA4 の API は呼ばない（Admin API で確かめるには analytics.readonly の OAuth が要り、それは OpenSEO の接続の側で持つ。
@@ -9,7 +14,7 @@
 //     環境変数ファイルは読むだけで、書き換えない（消すのは人）
 //   - OpenSEO から GA4 を読む接続（OPENSEO_GA4_CONNECTED／OPENSEO_SKIP_GA4）は openseo モジュールが扱う
 //
-// 設定のキー（~/.config/comegin/setup/dev.conf。雛形は setup/setup.conf.example。どちらも秘密値ではない）:
+// 設定のキー（~/.config/comegin/setup/prod.conf。雛形は setup/setup.conf.example。どちらも秘密値ではない）:
 //   GA4_PROPERTY_ID      本番のプロパティの ID（数字だけ）
 //   GA4_MEASUREMENT_ID   本番の Web ストリームの測定 ID（G- で始まる）
 //
@@ -20,7 +25,7 @@
 //   middleware/ga4/README.md（プロパティの設定値・タグ・CSP・OpenSEO の接続。ほかの出典もここ）
 import { join } from "node:path";
 
-export const meta = { id: "ga4", title: "GA4（アクセス解析の正本。本番のプロパティの設定値）", targets: ["dev"], after: [] };
+export const meta = { id: "ga4", title: "GA4（アクセス解析の正本。本番のプロパティの設定値）", targets: ["dev", "prod"], after: [] };
 
 const SITE_DIR = "frontend/verdant-virgo";
 const DEV_ENV_FILES = [".env", ".env.local", ".env.development", ".env.development.local"]; // Vite が開発で読む順
@@ -60,7 +65,7 @@ function propertySteps() {
     "管理 → データの収集と修正 → データの保持 で、イベントデータとユーザーデータの保持をどちらも 14 か月にして保存する",
     "管理 → データの収集と修正 → データ収集 で、Google シグナルのデータ収集とユーザー提供データの収集がどちらもオフであることを確かめる（オンなら切る）",
     "管理 → サービス間のリンク設定 で、Google 広告などのリンクを作らない",
-    "管理 → プロパティの設定 → プロパティの詳細 の「プロパティ ID」（数字）と、データストリームの「測定 ID」（G- で始まる）を ~/.config/comegin/setup/dev.conf に GA4_PROPERTY_ID=… と GA4_MEASUREMENT_ID=… として書く（chmod 600。どちらも秘密値ではない）",
+    "管理 → プロパティの設定 → プロパティの詳細 の「プロパティ ID」（数字）と、データストリームの「測定 ID」（G- で始まる）を ~/.config/comegin/setup/prod.conf に GA4_PROPERTY_ID=… と GA4_MEASUREMENT_ID=… として書く（chmod 600。どちらも秘密値ではない）",
     "詳しい設定値と理由は middleware/ga4/README.md の 1 節。書いたら、同じコマンドを実行し直す",
   ];
 }
@@ -69,20 +74,32 @@ function propertySteps() {
 // 契約
 // ---------------------------------------------------------------------------
 
+const isProd = (ctx) => ctx.target === "prod";
+const PROPERTY_SKIPPED_IN_DEV = "本番の GA4 プロパティの手順は開発では飛ばす（公開サイトが AWS に無い）。AWS に展開した後に node setup/setup.mjs --target prod --only ga4,openseo で行う";
+
 export async function check(ctx) {
+  if (!isProd(ctx)) {
+    const files = devTagFiles(ctx);
+    const note = files.length ? `開発の Astro の環境変数に ${TAG_ENV} がある（${files.join("、")}。開発ではタグを出さない）` : `開発の Astro の環境変数に ${TAG_ENV} は無い`;
+    return { ok: files.length === 0, notes: [note, PROPERTY_SKIPPED_IN_DEV] };
+  }
   const problems = configProblems(ctx);
   const notes = problems.length ? [...problems] : [`本番のプロパティ ${ctx.value("GA4_PROPERTY_ID")}／測定 ID ${ctx.value("GA4_MEASUREMENT_ID")}（形式だけを確かめた。プロパティの設定は画面で確かめる）`];
-  const files = devTagFiles(ctx);
-  notes.push(files.length ? `開発の Astro の環境変数に ${TAG_ENV} がある（${files.join("、")}。開発ではタグを出さない）` : `開発の Astro の環境変数に ${TAG_ENV} は無い`);
-  return { ok: problems.length === 0 && files.length === 0, notes };
+  return { ok: problems.length === 0, notes };
 }
 
 export async function apply(ctx) {
-  const problems = configProblems(ctx);
-  if (problems.length) {
-    for (const p of problems) ctx.warn(p);
-    ctx.manual("property", "本番の GA4 プロパティを作り（設定済みなら確かめ）、プロパティ ID と測定 ID を設定に書く", propertySteps());
+  if (isProd(ctx)) {
+    const problems = configProblems(ctx);
+    if (problems.length) {
+      for (const p of problems) ctx.warn(p);
+      ctx.manual("property", "本番の GA4 プロパティを作り（設定済みなら確かめ）、プロパティ ID と測定 ID を設定に書く", propertySteps());
+    }
+    ctx.log(`本番のプロパティ ${ctx.value("GA4_PROPERTY_ID")}／測定 ID ${ctx.value("GA4_MEASUREMENT_ID")}（形式は正しい。本番のビルドに PUBLIC_GA4_MEASUREMENT_ID として渡す。cloud/README.md の 4.14）`);
+    ctx.log("終わった。OpenSEO からの読み取りの接続は openseo モジュール（OPENSEO_GA4_CONNECTED）");
+    return;
   }
+
   const files = devTagFiles(ctx);
   if (files.length) {
     throw new Error(
@@ -90,6 +107,6 @@ export async function apply(ctx) {
     );
   }
 
-  ctx.log(`本番のプロパティ ${ctx.value("GA4_PROPERTY_ID")}／測定 ID ${ctx.value("GA4_MEASUREMENT_ID")}（形式は正しい。開発の Astro には測定 ID が無い）`);
-  ctx.log("終わった。OpenSEO からの読み取りの接続は openseo モジュール（OPENSEO_GA4_CONNECTED）");
+  ctx.log("開発の Astro には測定 ID が無い（開発ではタグを出さない）");
+  ctx.log(PROPERTY_SKIPPED_IN_DEV);
 }

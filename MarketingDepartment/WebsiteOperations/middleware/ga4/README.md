@@ -23,7 +23,7 @@ GA4 は Google の SaaS で、こちらで動かすものは無い。このデ�
 | Web データストリーム | 1 つ。URL `https://comegin.com` | `properties.dataStreams`（`webStreamData.measurementId` が測定 ID） |
 | 拡張計測（2026-10-06 リード決定） | ページビュー（ブラウザの履歴の変更を含む）・スクロール・離脱クリック・サイト内検索・ファイルのダウンロードは**オン**。**フォームの操作はオフ**（CV の正本は Mautic。GA4 に 2 つ目の CV の数字を作らない）。**動画エンゲージメントはオフ**（動画が無い）。拡張計測のイベントはエージェントからは見えない（下の 6 節） | `EnhancedMeasurementSettings`: `streamEnabled`・`pageChangesEnabled`・`scrollsEnabled`・`outboundClicksEnabled`・`siteSearchEnabled`・`fileDownloadsEnabled` = `true`、`formInteractionsEnabled`・`videoEngagementEnabled` = `false` |
 
-setup の設定キー（`~/.config/comegin/setup/dev.conf`。どちらも秘密値ではない）:
+setup の設定キー（`~/.config/comegin/setup/prod.conf`。`--target prod` だけで使う。どちらも秘密値ではない）:
 
 | キー | 形式 | どこで見るか |
 |---|---|---|
@@ -100,14 +100,14 @@ OpenSEO に接続するのは本番のプロパティだけ。
 
 ## 5. 手で行う操作（setup が止まって頼むもの）
 
-setup（`node setup/setup.mjs --target dev --only ga4`）は GA4 の API を呼ばない。値が `dev.conf` に無いと、次の手順を表示して止まる（id `ga4:property`）。
+setup は GA4 の API を呼ばない。**`--target dev` では 1〜6 を飛ばし、7 だけを確かめる**（開発の時点では公開サイトが AWS に展開されておらず、本番のプロパティに送るものも読むものも無い）。AWS に展開した後に `node setup/setup.mjs --target prod --only ga4,openseo` を実行すると、値が `prod.conf` に無ければ次の手順を表示して止まる（id `ga4:property`）。OpenSEO への接続（`openseo:ga4-connect`）も prod だけで出る。
 
 1. https://analytics.google.com/ で、本番のプロパティを作る（アカウントが無ければ先に作る）。タイムゾーン `日本`、通貨 `日本円（JPY）`
 2. Web データストリームを作る（URL `https://comegin.com`）。拡張計測の歯車で、ページビュー（詳細設定の「ブラウザの履歴イベントに基づくページの変更」を含む）・スクロール数・離脱クリック・サイト内検索・ファイルのダウンロードをオン、**フォームの操作と動画エンゲージメントをオフ**にする（1 節の表）
 3. 管理 → データの収集と修正 → **データの保持** で、イベントデータとユーザーデータの保持を **14 か月** にする
 4. 管理 → データの収集と修正 → **データ収集** で、Google シグナルのデータ収集と、ユーザー提供データの収集が **オフ** であることを確かめる
 5. 管理 → サービス間のリンク設定 で、Google 広告などのリンクを作らない
-6. プロパティ ID（数字）と測定 ID（`G-…`）を `dev.conf` の `GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に書く
+6. プロパティ ID（数字）と測定 ID（`G-…`）を `prod.conf` の `GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に書く
 7. 開発の公開サイトの環境変数（`frontend/verdant-virgo` の `.env`・`.env.local`・`.env.development`・`.env.development.local`）に `PUBLIC_GA4_MEASUREMENT_ID` を書かない（書いてあると setup が失敗する。消してから `--from ga4` で実行し直す）
 
 本番のビルドに `PUBLIC_GA4_MEASUREMENT_ID` を渡すのは本番のビルドの設定（`cloud/`）。画面の表記は Google 側で変わることがある。

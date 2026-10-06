@@ -170,7 +170,7 @@ flowchart LR
 | スコープ | **`https://www.googleapis.com/auth/analytics.readonly`**（参照のみ） |
 | 接続の操作 | OpenSEO のプロジェクトの画面（または Project settings → Analytics）の **Connect with Google** → **本番のプロパティだけを選ぶ**（人が画面で行う） |
 | トークンの置き場 | OpenSEO の DB（Better Auth の account テーブル）に `BETTER_AUTH_SECRET` で暗号化。GA4 を外しても GSC は外れない |
-| setup の設定キー | `OPENSEO_GA4_CONNECTED=yes`（接続済み）／`OPENSEO_SKIP_GA4=yes`（接続しない）。プロパティの値は `GA4_PROPERTY_ID`（数字）・`GA4_MEASUREMENT_ID`（`G-…`）。**どれも秘密値ではない** |
+| setup の設定キー | `OPENSEO_GA4_CONNECTED=yes`（接続済み）／`OPENSEO_SKIP_GA4=yes`（接続しない）。プロパティの値は `GA4_PROPERTY_ID`（数字）・`GA4_MEASUREMENT_ID`（`G-…`）。**どれも秘密値ではない**。**`~/.config/comegin/setup/prod.conf` に書き、`--target prod` で扱う**（2026-10-06。開発〈`--target dev`〉は公開サイトが AWS に無いので、Search Console と GA4 の手順を飛ばす。`setup/manual-steps.md` の 7.4・7.5） |
 | エージェントが使うツール | **`agent/analytics-reporter` だけ**が次を持つ: `mcp__openseo__list_projects`・`get_project_context`・`get_google_analytics_traffic_acquisition`・`get_google_analytics_page_performance`・`get_google_analytics_organic_landing_pages`・`get_google_analytics_organic_overview`・`get_google_analytics_measurement_health`。**持たせない**: `get_google_analytics_audience_breakdown`・`ecommerce_performance`・`site_search`・`key_events`（CV の正本は Mautic）・`get_search_opportunities`、費用の出る OpenSEO のツールすべて（AA-03 の 2.4） |
 
 - **開発機が止まると GA4 も読めない。** 計測そのもの（ブラウザ → Google）は止まらず、GA4 の側にデータは残る。読めないのは止まっている間だけで、観測の期間（直近 35 日・終端は 3 日前）の中なら後から取り直せる。
