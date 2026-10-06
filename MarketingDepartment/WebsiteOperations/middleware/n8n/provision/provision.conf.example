@@ -29,6 +29,12 @@ CHATWOOT_API_ACCESS_TOKEN=
 CHATWOOT_ACCOUNT_ID=
 # このスクリプト（ホスト）から見た Chatwoot。既定: dev は http://127.0.0.1:3100、prod は https://chat.comegin.com
 CHATWOOT_API_URL=
+# n8n（コンテナ）から見た Chatwoot（週次の棚卸しが API を呼ぶ）。既定: dev は http://host.docker.internal:3100（middleware/host-relay の中継）、prod は https://chat.comegin.com
+CHATWOOT_URL_FROM_N8N=
+# 週次の棚卸し（n8n の資格情報「Chatwoot API（api_access_token）」）に入れるトークン。任意。
+# 棚卸しに要るのは会話の一覧の読み取りだけなので、専用のユーザー（エージェントの権限）のトークンを発行して書くことを勧める。
+# 空なら、上の CHATWOOT_API_ACCESS_TOKEN（管理者）で代用する（本番では警告が出る）
+CHATWOOT_N8N_API_TOKEN=
 # Chatwoot の Webhook の送り先。既定: dev は http://host.docker.internal:5678/webhook/chatwoot-event（中継）、prod は http://10.99.0.2:5680/webhook/chatwoot-event
 CHATWOOT_WEBHOOK_TARGET=
 

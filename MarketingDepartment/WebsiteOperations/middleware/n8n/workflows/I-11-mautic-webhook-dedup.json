@@ -321,7 +321,8 @@
             "company": "={{ $('イベント分割とキー生成').item.json.company }}",
             "sourcePath": "",
             "receivedAtSec": "={{ $('イベント分割とキー生成').item.json.timestampSec }}",
-            "state": ""
+            "state": "",
+            "detail": ""
           },
           "matchingColumns": [],
           "schema": [
@@ -391,6 +392,15 @@
             {
               "id": "state",
               "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
               "required": false,
               "defaultMatch": false,
               "display": true,

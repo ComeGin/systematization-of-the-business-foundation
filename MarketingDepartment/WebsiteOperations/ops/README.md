@@ -52,6 +52,7 @@ ops/
 | `daily-i13-file` | builtin | 毎日 08:00 | `I-13`。`draft` の `E-13` から GitHub に PR を作る |
 | `daily-miswrite-check` | builtin | 毎日 08:15 | 誤った書き込みの突き合わせ |
 | `daily-silence-check` | builtin | 毎日 08:30 | 沈黙の検出 |
+| `daily-n8n-export` | builtin | 毎日 08:45 | 本番の n8n のワークフローを Public API で読み、差分があれば GitHub に PR（`chore/n8n-export-YYYYMMDD`）。作業ツリーには書かない。**有効化の前に、API キーのスコープ（Enterprise のみ）を人が判断する**（`backend/control-plane/README.md` の n8n-export） |
 | `published-article-check` | builtin | 6 時間ごと（暫定） | 公開された記事の確認。あればビルドと計測を起こす |
 
 - **観測 4 本は並列で走り、`proposal-writer` だけが `after` で 4 本を待つ。** 並列に走らせると同じ観測から複数の提案が同時に起票されて `proposal_id` の採番が衝突する

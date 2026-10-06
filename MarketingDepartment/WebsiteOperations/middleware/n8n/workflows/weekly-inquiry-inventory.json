@@ -1,0 +1,552 @@
+{
+  "name": "週次 問い合わせの棚卸し",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "1310f33e-9ac6-53e9-a2e9-e4b236780dd9",
+      "name": "毎週月曜 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ops_settings"
+        },
+        "returnAll": true
+      },
+      "id": "6e5900cd-37b1-59b0-a041-a8b89f2bf585",
+      "name": "設定を読む",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "a759a2cc-5cd0-535d-a0dd-ec22992d1104",
+              "leftValue": "={{ $('設定を読む').all().find(r => r.json.key === 'inventoryEnabled')?.json.value ?? 'false' }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "fc9457af-dbbd-5b5b-aafe-2e368ca3d55d",
+      "name": "棚卸しが有効か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        96
+      ],
+      "notes": "ops_settings の inventoryEnabled が true のときだけ動く。行が無い・true 以外なら何もしない（安全側）。",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('設定を読む').all().find(r => r.json.key === 'chatwootBaseUrl')?.json.value }}/api/v1/accounts/{{ $('設定を読む').all().find(r => r.json.key === 'chatwootAccountId')?.json.value }}/conversations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "open"
+            },
+            {
+              "name": "assignee_type",
+              "value": "unassigned"
+            },
+            {
+              "name": "sort_by",
+              "value": "waiting_since_asc"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "0819820c-ffa4-5c29-ae56-9eaf4312ab04",
+      "name": "未割り当ての会話を取る",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        96
+      ],
+      "notes": "Chatwoot の会話一覧（開いていて担当者がいない会話）。1 ページ 25 件固定。件数は応答の meta から取り、ページは進めない。display_id は応答の id。",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Chatwoot API（api_access_token）"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "type": "boolean",
+              "value": "={{ !$('未割り当ての会話を取る').first().json.error && Array.isArray($('未割り当ての会話を取る').first().json.data?.payload) }}"
+            },
+            {
+              "id": "unassigned",
+              "name": "unassigned",
+              "type": "number",
+              "value": "={{ Number($('未割り当ての会話を取る').first().json.data?.meta?.unassigned_count ?? 0) }}"
+            },
+            {
+              "id": "detail",
+              "name": "detail",
+              "type": "string",
+              "value": "={{ (() => {\n  const u = $('未割り当ての会話を取る').first().json.data?.payload ?? [];\n  const nums = u.map(c => c.waiting_since).filter(s => s > 0);\n  const hours = nums.length ? Math.floor((Date.now() / 1000 - Math.min(...nums)) / 3600) : 0;\n  const total = Number($('未割り当ての会話を取る').first().json.data?.meta?.unassigned_count ?? 0);\n  const ids = u.slice(0, 10).map(c => '#' + c.id).join(' ');\n  return '未割り当て ' + total + ' 件／最も長い待ち ' + hours + ' 時間／未割り当ての会話 ' + (ids || 'なし') + (total > 10 ? ' ほか' : '');\n})() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7ae6d45f-b180-508c-a911-a309c9095b2f",
+      "name": "集計する",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        896,
+        96
+      ],
+      "notes": "会話の中身（名前・メール・本文）は読まない。件数（meta.unassigned_count）・display_id・待ち時間だけを取り出す（DD-04 の 8.3）。"
+    },
+    {
+      "parameters": {
+        "mode": "each",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RQ7X76GAXdPBcszO",
+          "cachedResultName": "I-21 SNS 通知"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "channel": "ops",
+            "kind": "weekly-inventory:fetch",
+            "idLabel": "",
+            "id": "",
+            "company": "",
+            "sourcePath": "",
+            "receivedAtSec": "={{ Math.floor(Date.now() / 1000) }}",
+            "state": "={{ $('集計する').first().json.ok ? 'ok' : 'ng' }}",
+            "detail": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kind",
+              "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "idLabel",
+              "displayName": "idLabel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sourcePath",
+              "displayName": "sourcePath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "receivedAtSec",
+              "displayName": "receivedAtSec",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "63c992a9-9366-511c-abd9-a77e5d88b33b",
+      "name": "取得の状態を伝える（I-21）",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        96
+      ],
+      "notes": "取得に失敗したとき（ok → ng）と、回復したとき（ng → ok）だけ I-21 が ops に発行する。ok が続くときは何も発行せず 0 件を返すので、alwaysOutputData で後続（棚卸しの通知）へ進める。",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "df042cde-41a7-5f1f-a295-87db3239ff71",
+              "leftValue": "={{ $('集計する').first().json.ok && $('集計する').first().json.unassigned > 0 }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "920153f5-9e2d-5f2c-a0ec-cd0444bd303e",
+      "name": "対応待ちがあるか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        96
+      ],
+      "notes": "取得に成功していて、未割り当てが 1 件以上あるときだけ通知する。0 件なら通知しない（生きていることはハートビートで見る）。"
+    },
+    {
+      "parameters": {
+        "mode": "each",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RQ7X76GAXdPBcszO",
+          "cachedResultName": "I-21 SNS 通知"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "channel": "lead",
+            "kind": "weekly-inventory",
+            "idLabel": "unassigned",
+            "id": "={{ String($('集計する').first().json.unassigned) }}",
+            "company": "",
+            "sourcePath": "",
+            "receivedAtSec": "={{ Math.floor(Date.now() / 1000) }}",
+            "state": "",
+            "detail": "={{ $('集計する').first().json.detail }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kind",
+              "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "idLabel",
+              "displayName": "idLabel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sourcePath",
+              "displayName": "sourcePath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "receivedAtSec",
+              "displayName": "receivedAtSec",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "f7a5c3de-574e-516b-a72c-943a2892eadd",
+      "name": "棚卸しの結果を通知する（I-21）",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1568,
+        96
+      ],
+      "notes": "lead（R3 宛て）。件数と display_id だけを detail に載せる。顧客への返信・社内メモの作成はしない。",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "### 週次 問い合わせの棚卸し（TA-03 の週次）\n毎週月曜 09:00（JST）。Chatwoot の open の会話のうち「未割り当て」（担当者がいない）だけを数え、lead（R3 宛て）に通知する。pending（ボットの対応中）・snoozed・resolved と、担当者がいる会話は数えない（R3 の決定。2026-10-06）。\n0 件なら通知しない。取得の失敗は ops に通知する。顧客への返信・社内メモの作成はしない（読み取りだけ）。",
+        "height": 160,
+        "width": 520,
+        "color": 4
+      },
+      "id": "9fac77e5-0bf8-5f41-aff5-f45bc6272717",
+      "name": "付箋: 棚卸しの範囲",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "毎週月曜 09:00": {
+      "main": [
+        [
+          {
+            "node": "設定を読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "設定を読む": {
+      "main": [
+        [
+          {
+            "node": "棚卸しが有効か",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "棚卸しが有効か": {
+      "main": [
+        [
+          {
+            "node": "未割り当ての会話を取る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "未割り当ての会話を取る": {
+      "main": [
+        [
+          {
+            "node": "集計する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "集計する": {
+      "main": [
+        [
+          {
+            "node": "取得の状態を伝える（I-21）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取得の状態を伝える（I-21）": {
+      "main": [
+        [
+          {
+            "node": "対応待ちがあるか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "対応待ちがあるか": {
+      "main": [
+        [
+          {
+            "node": "棚卸しの結果を通知する（I-21）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Tokyo",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 180
+  },
+  "pinData": {},
+  "meta": {
+    "description": "毎週月曜 09:00 に Chatwoot の未割り当ての会話（open で担当者がいない）を数え、0 件でなければ件数と display_id だけを I-21（lead）で通知する。取得の失敗は ops に通知。ops_settings の inventoryEnabled が true のときだけ動く。読み取りだけで、顧客への返信や社内メモは作らない。"
+  }
+}

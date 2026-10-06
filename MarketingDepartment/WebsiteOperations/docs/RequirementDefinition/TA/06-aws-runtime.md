@@ -12,6 +12,8 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 > - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。
 > - **WireGuard の EC2 を足す**（`t4g.nano` 程度、public サブネット、Elastic IP、送信元／宛先チェック無効）。private サブネットの経路表に「オンプレの WireGuard のアドレス帯 → この EC2」を足し、Mautic・Chatwoot のタスクからオンプレの n8n の Webhook に届くようにする。RDS のセキュリティグループには、WireGuard の EC2 から `strapi` `n8n` のために 5432 を許す。
 > - `cloud/` の SAM はこの注記に合わせて直した（2026-10-05）。
+>
+> **（2026-10-06）ADR-24: Cal.com も ECS から外れた**（SaaS の cal.com を使う。ユーザーの決定による例外）。**ECS の `calcom` サービス・RDS の `calcom` データベース・ALB の `cal.comegin.com` のルールと許可リスト・ACM の `cal.comegin.com`・WAF の Cal.com 向けのレート制限・Secrets Manager の Cal.com の鍵・開発ポート 3105 は作らない。** ECS に残るのは Mautic・Chatwoot・Umami と `consent-api`・`admin-auth`。**本文の Cal.com の記述（3.1・3.2・3.3・4.1・4.3・5.1・5.3・5.4・5.5・7・9・10・11）は ADR-19 の記述で、この注記を優先する。**
 
 ## 1. 検証の状態
 
@@ -27,6 +29,8 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 | **SES** | **サンドボックスのまま**（`ProductionAccessEnabled: false`。24 時間で 200 通、毎秒 1 通）。**顧客向けメールを送るには本番アクセスの申請が必須**（6 節） |
 
 ## 2. 図 1 全体構成（To-Be）
+
+> **（2026-10-06）ADR-21: 下の図の ECS の Strapi・n8n はオンプレに移った。図は ADR-16 の構成で、冒頭の ADR-21 の注記を優先する**（ECS に残るのは Mautic・Chatwoot・Umami と `consent-api`・Cal.com・`admin-auth`。Strapi・n8n のデータの置き場の RDS・S3 は AWS に残り、WireGuard の EC2 が RDS への経路になる）。
 
 ```mermaid
 flowchart LR
@@ -50,6 +54,8 @@ flowchart LR
 ## 3. 実行基盤（ECS on Fargate）
 
 ### 3.1 サービスとタスク
+
+> **（2026-10-06）ADR-21: この節の Strapi・n8n のサービス（タスク）は ECS に置かない**（オンプレの compose。`onprem/strapi`・`onprem/n8n`。n8n は本体と runners とリバースプロキシで、本番にサンドボックスは置かない）。ECS のサービスは Mautic（web・cron）・Chatwoot（web・worker）・Umami・`consent-api`・Cal.com・`admin-auth`。（**ADR-24: Cal.com は SaaS になり、ECS のサービスから外れた**）「n8n は 1 タスクに固定」「`cms.`・`n8n.` の ALB のターゲット」は ADR-16 の記述。
 
 | システム | ECS サービス | 役割 | タスク数（4.6 で決定） | 開発環境での対応 |
 |---|---|---|---|---|
@@ -77,6 +83,8 @@ flowchart LR
 
 ### 3.2 コンテナイメージ
 
+> **（2026-10-06）ADR-21: Strapi と n8n のイメージは ECR に置かない。** オンプレの compose がビルドする（Strapi は `backend/strapi-system` の Dockerfile、n8n は RDS の CA を足した派生イメージ。`onprem/README.md`）。ECR の対象は Mautic・Chatwoot・Umami・自作のサービス。
+
 | システム | イメージ | 規則 |
 |---|---|---|
 | Chatwoot | 公式の `chatwoot/chatwoot` | **`latest` を使わず、バージョンのタグで固定する。** 開発環境の compose は `latest` のままであり、本番と開発でバージョンがずれうる |
@@ -90,6 +98,8 @@ flowchart LR
 **イメージは ECR に置く。** Docker Hub から直接取得すると、取得回数の制限と、上流のタグの付け替えの影響を受ける。
 
 ### 3.3 DB の移行は、デプロイの前に 1 回だけのタスクで行う
+
+> **（2026-10-06）ADR-21: Strapi と n8n は起動時に自分で DB を移行する**ため、オンプレの compose の `up -d` で行う（1 回だけのタスクは使わない）。1 回だけのタスクの対象は ECS に残るサービスに限る。
 
 **Chatwoot のエントリーポイントは DB の移行を行わない**（`.claude/CLAUDE.md` の記述と同じ）。本番でも同じで、新しいイメージを出す前に `bundle exec rails db:chatwoot_prepare` を**1 回だけの ECS タスク**（`RunTask`）として実行する。
 
@@ -229,6 +239,8 @@ Mautic は次のファイルをローカルのディスクに書く。Fargate �
 
 ### 5.1 ホスト名
 
+> **（2026-10-06）ADR-21: `cms.comegin.com`・`n8n.comegin.com` は使わない**（本番の Strapi・n8n の管理画面はオンプレの `127.0.0.1` だけ。ALB のルールと ACM の対応する名前も外した）。
+
 **ALB を 1 つにして、ホスト名で 3 つのシステム（と `admin-auth`）に振り分ける。** ALB は 1 台ごとに固定費がかかるため、システムごとに分けない。
 
 | ホスト名（**2026-09-18 に確定**） | 振り分け先 | DD-02 の変数 |
@@ -306,6 +318,8 @@ sequenceDiagram
 
 ### 5.3 訪問者向けに認証なしで通すパス（許可リスト）
 
+> **（2026-10-06）ADR-21: n8n の Webhook は ALB を通らない**（ADR-16 では VPC の中。ADR-21 では WireGuard 越しにオンプレの `10.99.0.2:5680` へ。TA-01 の経路 5・DD-04 の 4.4）。
+
 **パスの一覧は製品のバージョンに依存する**（TA-04 の 7 節）。次の表は設計時点の想定であり、**実装時に各製品の実際のリクエストを DevTools で観測して確定する。**
 
 | システム | パス（想定） | 用途 |
@@ -324,6 +338,8 @@ sequenceDiagram
 - **Mautic の `/api/*` と `/oauth/*` は訪問者向けに含めない。** 機械向けの API（5.4）として扱う。
 
 ### 5.4 機械向けの API（ALB の認証なしで通すパス）
+
+> **（2026-10-06）ADR-21: ここに載る Strapi の `/mcp`・`/api/*` と n8n の `/mcp-server/http` は ALB で開けなくなった**（`strapi-prod`・`n8n-prod` の接続先と、ビルドが読む Content API は、オンプレの `127.0.0.1:1338`・`127.0.0.1:5679`）。**代わりに、オンプレの n8n が Chatwoot・Mautic の API を呼ぶ処理（`I-19`・棚卸しなど）がこの節の Chatwoot・Mautic のパスを通る**（トンネルを通れるのは RDS の 5432 だけ。認証は製品側のトークンと WAF のレート制限）。
 
 **ローカルの Claude Code の MCP とビルドはブラウザでのログインができない**ため、API のパスは管理者の認証の外に置く。**ADR-15・ADR-16 で、MCP は本番の Strapi・Mautic・Chatwoot・Umami・n8n を読み書きする**（自作の MCP サーバは本番用に別登録し、製品の組み込みの MCP には本番用の登録を足す。TA-07 の 3.3）。n8n は AWS に移ったため、n8n から Chatwoot・Mautic への呼び出しは VPC の中で行い、この表の経路を使わない。代わりに次の 2 つで守る。
 
@@ -388,6 +404,8 @@ sequenceDiagram
 
 ## 7. 秘密値
 
+> **（2026-10-06）ADR-21: Strapi・n8n の秘密値は Secrets Manager の注入先ではなくなった。** 暗号化キー・鍵類（`N8N_ENCRYPTION_KEY`・Strapi の各鍵）はオンプレの環境変数ファイル（`onprem/strapi`・`onprem/n8n`。追跡しない）に置き、別の場所に控える。DB のパスワードだけは Secrets Manager の `comegin/prod/strapi/DB_PASSWORD`・`comegin/prod/n8n/DB_PASSWORD` から人が取り出して入れる。SNS への発行はタスクロールではなく IAM ユーザー `comegin-<env>-onprem-n8n-sns`、Strapi のメディアは `comegin-<env>-onprem-strapi-media` のアクセスキー（人が発行。TA-04 の 1 節）。
+
 | 秘密値 | 置き場所 | 渡し方 |
 |---|---|---|
 | RDS のマスターパスワード | Secrets Manager（**RDS に管理させる**） | タスクには渡さない。アプリ用のユーザーを別に作る |
@@ -414,6 +432,8 @@ sequenceDiagram
 
 ## 8. デプロイ
 
+> **（2026-10-06）ADR-21: Strapi・n8n のデプロイは ECS ではなく、オンプレの `docker compose build && up -d`**（人が行う。起動順は WireGuard → Strapi → n8n。TA-03 の 2 節）。この節の ECS・ECR の手順は、残るサービスに限る。
+
 | # | 手順 | 内容 |
 |---|---|---|
 | 1 | イメージの用意 | 固定したバージョンのイメージを ECR に置く（3.2） |
@@ -427,6 +447,8 @@ sequenceDiagram
 - **IaC を使うかは TA-02 の 9 節の未決定事項と一体で決める。** 本ファイルの構成は要素が多く、手作業で作ると TA-05 の構成管理の「管理外」が一気に増える。
 
 ## 9. 費用
+
+> **（2026-10-06）ADR-21: ECS のサービスが 2 つ（Strapi・n8n）減り、WireGuard の EC2（`t4g.nano`）・Elastic IP・EBS が増える。** 最新の見積りは `cloud/README.md`。この節の Strapi・n8n の Fargate の費用は ADR-16 の見積りである。
 
 **見積もりは未実施である。** 固定費がかかる要素だけを列挙する。
 
@@ -450,6 +472,8 @@ sequenceDiagram
 
 ## 10. 開発環境との対応
 
+> **（2026-10-06）ADR-21: 本番の Strapi・n8n はオンプレにあり、開発環境とは別のインスタンス**（Strapi は 1337 と 1338、n8n は 5678 と 5679）。そろえる対象（設定・構造）は変わらない（TA-07 の 6.1）。
+
 | 要素 | 開発環境（ローカル） | 本番（AWS） |
 |---|---|---|
 | 実行 | Docker compose ／ PHP ビルトインサーバー | ECS on Fargate |
@@ -472,6 +496,8 @@ sequenceDiagram
 **2026-10-01 に 3 つめの差が加わった**: **Google Calendar の連携先**である。開発環境の Cal.com が本番のカレンダーを指すと、**試験の予約が実際の予定として入る**（他の開発環境が本番のデータに触れない作りになっているのと揃えるため、カレンダーも分ける）。**開発用のカレンダーを用意するのは人間の作業**であり、分けないまま動かさない。
 
 ## 11. 未決定事項
+
+> **（2026-10-06）ADR-21: 「n8n の Webhook を VPC の中で届ける方法」は解決した**（WireGuard の固定のアドレス `10.99.0.2:5680`。AA-02 の 5 節）。**Strapi・n8n の ECS・ALB に関する項目は、オンプレに移ったため前提が消えた。** 残件は、Mautic・Chatwoot がプライベートアドレス宛・`http://` の送信先を受け付けるか（runbook の B4）。
 
 - **（2026-10-03 に追加）`points-api` から unMineable・thirdweb への外向きの通信。** NAT Gateway（既存）を通す。宛先を絞るか（unMineable の API と thirdweb の API だけ）。
 - **（2026-10-03 に追加）`points-api` の利用者ポータルの公開の形。** ホスト名（5.1）、ALB で認証なしに通すパス（5.3 の許可リスト）、ログインのワンタイムリンクを送る口の WAF のレート制限（5.5。認証なしで SES の送信を起こせるため）を着手時に決める。決めるまでは 5.2 の既定（列挙していないパスは管理者の認証の側に倒す）により利用者はポータルに入れない。

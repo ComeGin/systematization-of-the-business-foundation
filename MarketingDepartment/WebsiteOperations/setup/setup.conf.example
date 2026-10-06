@@ -63,6 +63,29 @@ CONTROL_DATA_DIR=
 CHATWOOT_BASE_URL=
 MAUTIC_BASE_URL=
 
+# ---- n8n の週次の問い合わせの棚卸し（任意） ----
+# 棚卸し専用の Chatwoot のトークン（会話の一覧を読むだけ）。空なら管理者のトークン（CHATWOOT_ADMIN_TOKEN）で代用する（本番では警告）
+CHATWOOT_N8N_API_TOKEN=
+# n8n（コンテナ）から見た Chatwoot の URL（任意。空なら既定の http://host.docker.internal:3100〈middleware/host-relay の中継〉）
+CHATWOOT_URL_FROM_N8N=
+
+# ---- OpenSEO（middleware/open-seo-main。途中で画面の操作をしてから書くもの） ----
+# DataForSEO の login:password を base64 にした値（https://app.dataforseo.com/api-access の「Base64」。ダッシュボードの API キーではない）。
+# 既に OpenSEO の環境変数ファイルにあればそれを使うので、書かなくても止まらない（health の dataforseo が ok なら）
+DATAFORSEO_API_KEY=
+# Search Console 用の Google の OAuth クライアント（任意。空なら下の GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET を使う）。
+# リダイレクト URI は http://localhost:3001/api/gsc/oauth/callback
+OPENSEO_GOOGLE_CLIENT_ID=
+OPENSEO_GOOGLE_CLIENT_SECRET=
+# 画面で Google の接続を済ませたら yes（接続の有無は OpenSEO の DB の中で、health には出ないため申告制）
+OPENSEO_GSC_CONNECTED=
+# Search Console を使わないなら yes（接続の案内をしない。check も通る）
+OPENSEO_SKIP_GSC=
+# アプリ内の AI エージェント（SAM）を使うときだけ
+OPENROUTER_API_KEY=
+# イメージの上書き（任意。空なら版とダイジェストで固定した既定〈0.1.8〉。middleware/open-seo-main/dev/setup/index.mjs の PINNED_IMAGE）
+OPEN_SEO_IMAGE=
+
 # ---- admin-auth（任意。空でも開発環境は起動する。Google ログインを試すときだけ） ----
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=

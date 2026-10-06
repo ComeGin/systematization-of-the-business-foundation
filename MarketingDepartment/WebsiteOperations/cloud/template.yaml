@@ -12,11 +12,11 @@ Metadata:
       - Label: { default: 全体 }
         Parameters: [EnvName, DomainName, HostedZoneId]
       - Label: { default: ホスト名（ALB の振り分け。TA-06 の 5.1） }
-        Parameters: [ChatHost, MktHost, StatsHost, AuthHost, CalHost, ConsentHost]
+        Parameters: [ChatHost, MktHost, StatsHost, AuthHost, ConsentHost]
       - Label: { default: Astro の配信（CloudFront。global/template.yaml の出力を写す） }
         Parameters: [SiteHost, CloudFrontCertificateArn, CloudFrontWebAclArn]
       - Label: { default: コンテナの待ち受けポート }
-        Parameters: [MauticWebPort, ChatwootWebPort, UmamiPort, AdminAuthPort, CalcomPort, ConsentApiPort]
+        Parameters: [MauticWebPort, ChatwootWebPort, UmamiPort, AdminAuthPort, ConsentApiPort]
       - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
         Parameters: [AlbOidcClientId]
       - Label: { default: データストア（暫定値） }
@@ -24,11 +24,11 @@ Metadata:
       - Label: { default: オンプレとの WireGuard（ADR-21。wireguard.yaml） }
         Parameters: [OnpremWireguardCidr, WireguardServerAddress, OnpremPeerAddress, WireguardPort, WireguardIngressCidr, OnpremWebhookPort, OnpremWireguardPublicKey, WireguardInstanceType, WireguardAmiSsmId, WireguardFixedAmiId]
       - Label: { default: WAF（暫定値） }
-        Parameters: [WafRateLimitConsent, WafRateLimitForm, WafRateLimitBooking, WafRateLimitApi, WafRateLimitVisitor, WafRateLimitAuth, WafCommonRuleSetAction]
+        Parameters: [WafRateLimitConsent, WafRateLimitForm, WafRateLimitApi, WafRateLimitVisitor, WafRateLimitAuth, WafCommonRuleSetAction]
       - Label: { default: サービスのイメージのタグ（製品ごと。latest は使えない） }
-        Parameters: [MauticImageTag, ChatwootImageTag, UmamiImageTag, AdminAuthImageTag, CalcomImageTag, ConsentApiImageTag]
+        Parameters: [MauticImageTag, ChatwootImageTag, UmamiImageTag, AdminAuthImageTag, ConsentApiImageTag]
       - Label: { default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値） }
-        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, UmamiDesiredCount, UmamiCpu, UmamiMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory, CalcomDesiredCount, CalcomCpu, CalcomMemory, ConsentApiDesiredCount, ConsentApiCpu, ConsentApiMemory]
+        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, UmamiDesiredCount, UmamiCpu, UmamiMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory, ConsentApiDesiredCount, ConsentApiCpu, ConsentApiMemory]
       - Label: { default: サービスの設定 }
         Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
       - Label: { default: 通知と監視 }
@@ -65,10 +65,6 @@ Parameters:
     Type: String
     Default: auth.comegin.com
     Description: admin-auth（確定）
-  CalHost:
-    Type: String
-    Default: cal.comegin.com
-    Description: calcom。案（TA-06 の 5.1・11 節）
   ConsentHost:
     Type: String
     Default: consent.comegin.com
@@ -98,9 +94,6 @@ Parameters:
   AdminAuthPort:
     Type: Number
     Default: 3103
-  CalcomPort:
-    Type: Number
-    Default: 3000
   ConsentApiPort:
     Type: Number
     Default: 3104
@@ -126,9 +119,6 @@ Parameters:
     Type: Number
     Default: 30
   WafRateLimitForm:
-    Type: Number
-    Default: 100
-  WafRateLimitBooking:
     Type: Number
     Default: 100
   WafRateLimitApi:
@@ -178,11 +168,6 @@ Parameters:
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: 3.4.0-1
   AdminAuthImageTag:
-    Type: String
-    AllowedPattern: '^(?!latest$).+$'
-    ConstraintDescription: latest は使えない。バージョンのタグで固定する。
-    Default: REPLACE-WITH-FIXED-TAG
-  CalcomImageTag:
     Type: String
     AllowedPattern: '^(?!latest$).+$'
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
@@ -258,17 +243,6 @@ Parameters:
   AdminAuthMemory:
     Type: String
     Default: '512'
-  CalcomDesiredCount:
-    Type: Number
-    Default: 0
-    MinValue: 0
-  CalcomCpu:
-    Type: String
-    Default: '1024'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
-  CalcomMemory:
-    Type: String
-    Default: '2048'
   ConsentApiDesiredCount:
     Type: Number
     Default: 0
@@ -373,7 +347,6 @@ Resources:
         ChatwootWebPort: !Ref ChatwootWebPort
         UmamiPort: !Ref UmamiPort
         AdminAuthPort: !Ref AdminAuthPort
-        CalcomPort: !Ref CalcomPort
         ConsentApiPort: !Ref ConsentApiPort
         WireguardPort: !Ref WireguardPort
         WireguardIngressCidr: !Ref WireguardIngressCidr
@@ -447,18 +420,15 @@ Resources:
         MktHost: !Ref MktHost
         StatsHost: !Ref StatsHost
         AuthHost: !Ref AuthHost
-        CalHost: !Ref CalHost
         ConsentHost: !Ref ConsentHost
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
         UmamiPort: !Ref UmamiPort
         AdminAuthPort: !Ref AdminAuthPort
-        CalcomPort: !Ref CalcomPort
         ConsentApiPort: !Ref ConsentApiPort
         AlbOidcClientId: !Ref AlbOidcClientId
         WafRateLimitConsent: !Ref WafRateLimitConsent
         WafRateLimitForm: !Ref WafRateLimitForm
-        WafRateLimitBooking: !Ref WafRateLimitBooking
         WafRateLimitApi: !Ref WafRateLimitApi
         WafRateLimitVisitor: !Ref WafRateLimitVisitor
         WafRateLimitAuth: !Ref WafRateLimitAuth
@@ -510,6 +480,7 @@ Resources:
         RunLogBucketArn: !GetAtt RunLogArchiveStack.Outputs.RunLogBucketArn
         RunLogKeyPrefix: !GetAtt RunLogArchiveStack.Outputs.RunLogKeyPrefix
         HeartbeatNamespace: !GetAtt ObservabilityStack.Outputs.HeartbeatNamespace
+        N8nHeartbeatNamespace: !GetAtt ObservabilityStack.Outputs.N8nHeartbeatNamespace
         AstroBucketArn: !GetAtt DataStack.Outputs.AstroBucketArn
         DistributionArn: !GetAtt CdnStack.Outputs.DistributionArn
         StrapiMediaBucketArn: !GetAtt DataStack.Outputs.StrapiMediaBucketArn
@@ -686,27 +657,6 @@ Resources:
         AlbClientId: !Ref AlbOidcClientId
         AlbProtectedHosts: !GetAtt EdgeStack.Outputs.AlbProtectedHosts
 
-  CalcomService:
-    Type: AWS::Serverless::Application
-    Properties:
-      Location: stacks/services/calcom.yaml
-      Parameters:
-        EnvName: !Ref EnvName
-        ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
-        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
-        SecurityGroupId: !GetAtt NetworkStack.Outputs.CalcomSecurityGroupId
-        LogGroupName: !GetAtt ClusterStack.Outputs.CalcomLogGroupName
-        SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
-        ImageRepositoryUri: !GetAtt EcrStack.Outputs.CalcomRepositoryUri
-        ImageTag: !Ref CalcomImageTag
-        DesiredCount: !Ref CalcomDesiredCount
-        Cpu: !Ref CalcomCpu
-        Memory: !Ref CalcomMemory
-        ContainerPort: !Ref CalcomPort
-        TargetGroupArn: !GetAtt EdgeStack.Outputs.CalcomTargetGroupArn
-        PostgresEndpoint: !GetAtt DataStack.Outputs.PostgresEndpoint
-        CalHost: !Ref CalHost
-
   ConsentApiService:
     Type: AWS::Serverless::Application
     Properties:
@@ -744,7 +694,6 @@ Resources:
         ChatwootWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.ChatwootWebTargetGroupFullName
         UmamiTargetGroupFullName: !GetAtt EdgeStack.Outputs.UmamiTargetGroupFullName
         AdminAuthTargetGroupFullName: !GetAtt EdgeStack.Outputs.AdminAuthTargetGroupFullName
-        CalcomTargetGroupFullName: !GetAtt EdgeStack.Outputs.CalcomTargetGroupFullName
         ConsentApiTargetGroupFullName: !GetAtt EdgeStack.Outputs.ConsentApiTargetGroupFullName
         MysqlInstanceIdentifier: !GetAtt DataStack.Outputs.MysqlInstanceIdentifier
         PostgresInstanceIdentifier: !GetAtt DataStack.Outputs.PostgresInstanceIdentifier
@@ -759,6 +708,12 @@ Outputs:
   HeartbeatNamespace:
     Description: 監視アプリの HEARTBEAT_NAMESPACE
     Value: !GetAtt ObservabilityStack.Outputs.HeartbeatNamespace
+  N8nHeartbeatNamespace:
+    Description: オンプレの n8n の ops_settings.heartbeatNamespace（ハートビートの名前空間。ずれると IAM の条件で拒否される）
+    Value: !GetAtt ObservabilityStack.Outputs.N8nHeartbeatNamespace
+  N8nScheduleHeartbeatAlarmName:
+    Description: n8n のスケジュール実行のハートビートのアラーム。開発機を止めるときは HeartbeatAlarmName と一緒にアクションを無効にする。
+    Value: !GetAtt ObservabilityStack.Outputs.N8nScheduleHeartbeatAlarmName
   LeadAlertTopicArn:
     Value: !GetAtt ObservabilityStack.Outputs.LeadAlertTopicArn
   OpsAlertTopicArn:

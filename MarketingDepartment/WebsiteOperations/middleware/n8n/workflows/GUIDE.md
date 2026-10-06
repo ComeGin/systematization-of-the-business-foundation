@@ -1,6 +1,6 @@
 # n8n ワークフローの手順書（はじめての人向け）
 
-このフォルダの JSON（5 本のワークフロー）を、n8n に取り込んで動かすまでの手順。**n8n を一度も触ったことがない人**が、上から順に進めれば終わるように書いた。設計の背景や細かい仕様は [README.md](README.md) にある（この手順書と食い違ったら README が正しい）。
+このフォルダの JSON（8 本のワークフロー）を、n8n に取り込んで動かすまでの手順。**n8n を一度も触ったことがない人**が、上から順に進めれば終わるように書いた。設計の背景や細かい仕様は [README.md](README.md) にある（この手順書と食い違ったら README が正しい）。
 
 画面の名前は n8n 2.39 の英語表示に合わせている（日本語化していない既定の表示）。
 
@@ -14,7 +14,7 @@
 |---|---|
 | **ワークフロー**（Workflow） | 「何かが起きたら、これとこれをする」という処理の流れ。n8n の画面では、箱（ノード）を線でつないだ図になる |
 | **ノード**（Node） | 処理の 1 つ 1 つの箱。「Webhook を受ける」「表に書く」「メールを送る」など |
-| **トリガー**（Trigger） | ワークフローを動かすきっかけになる最初のノード。ここでは **Webhook**（外からの HTTP の呼び出し）と、**他のワークフローから呼ばれる**（サブワークフロー）の 2 種類 |
+| **トリガー**（Trigger） | ワークフローを動かすきっかけになる最初のノード。ここでは **Webhook**（外からの HTTP の呼び出し）・**スケジュール**（決めた時刻・間隔）・**他のワークフローから呼ばれる**（サブワークフロー）の 3 種類 |
 | **サブワークフロー** | 他のワークフローから呼ばれる部品のワークフロー。ここでは `I-21`（通知）と `I-19`（突き合わせ）がそれ |
 | **資格情報**（Credential） | パスワードや API のキーなどの秘密の値を、n8n の中に安全にしまっておく場所。**ワークフローの JSON には入らない**ので、取り込んだ後に自分で作る |
 | **Data Table** | n8n の中にある、小さな表（スプレッドシートのようなもの）。重複のチェックや設定の保存に使う。**JSON には入らない**ので、自分で作る |
@@ -31,9 +31,14 @@ Mautic   ──(Webhook)──▶  I-11  ──(顧客からの要求だけ)─�
 Chatwoot ──(Webhook)──▶  I-12  ──(会話の開始)──────────▶  I-21 通知
                            └──(メールアドレスがあるとき)─▶  I-19 突き合わせ ──▶ Mautic の API
 I-18 … 将来用の骨格（何もしない。公開しない）
+
+定期実行の 3 本（スケジュール。どれも ops_settings のスイッチが true のときだけ動く。**公開は人が確かめてから**）
+週次 問い合わせの棚卸し ─(月曜 09:00)─▶ Chatwoot の API を読む ─▶ I-21 通知（lead。取得の失敗は ops）
+n8n スケジュール実行のハートビート ─(5 分ごと)─▶ CloudWatch に PutMetricData（本番だけ有効にする）
+運用監視（開発だけ）─(5 分ごと・毎日)─▶ OpenSEO の health・sandbox-tls の期限 ─▶ I-21 通知（ops。状態が変わったときだけ）
 ```
 
-- `I-11` `I-12` は外から呼ばれる**親**、`I-21` `I-19` は親から呼ばれる**子**（サブワークフロー）。
+- `I-11` `I-12` は外から呼ばれる**親**、`I-21` `I-19` は親から呼ばれる**子**（サブワークフロー）。定期実行の 3 本は自分で動き、`I-21` を呼ぶ（呼び先の付け替えは 8.2）。
 - **子を先に取り込み、子を先に公開する**のが、この手順書の一番大事な順番。親は子を ID で呼ぶので、子が無いと親の設定ができず、子が公開されていないと本番で親が失敗する（エラー `Workflow is not active and cannot be executed`）。
 
 ---
@@ -62,7 +67,7 @@ I-18 … 将来用の骨格（何もしない。公開しない）
 
 ## 4. 事前に起動しておく: 開発環境の中継（`middleware/host-relay`）
 
-n8n と Chatwoot はコンテナ（Docker）の中で動いている。**コンテナの中から見た `127.0.0.1` はコンテナ自身**なので、パソコン本体で `127.0.0.1` だけに開いているサービス（Mautic・Mautic の MailHog・n8n）には、そのままでは届かない。そこで、開発環境では中継を動かしておく。
+n8n と Chatwoot はコンテナ（Docker）の中で動いている。**コンテナの中から見た `127.0.0.1` はコンテナ自身**なので、パソコン本体で `127.0.0.1` だけに開いているサービス（Mautic・Mautic の MailHog・n8n・Chatwoot・OpenSEO）には、そのままでは届かない。そこで、開発環境では中継を動かしておく。
 
 ```bash
 cd middleware/host-relay && docker compose up -d     # 一度起動すれば、再起動のたびに自動で上がる
@@ -75,6 +80,8 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 | Data Table `ops_settings` の `mauticBaseUrl` | `http://host.docker.internal:8000` |
 | 資格情報 `MailHog SMTP（開発）` | Host `host.docker.internal`、Port `1025` |
 | Chatwoot の Webhook の URL | `http://host.docker.internal:5678/webhook/chatwoot-event` |
+| Data Table `ops_settings` の `chatwootBaseUrl` | `http://host.docker.internal:3100`（週次の棚卸しが使う） |
+| 運用監視の OpenSEO の URL | `http://host.docker.internal:3001/api/health`（ワークフローに書いてある。中継は `GET /api/health` だけを通す） |
 | Mautic の Webhook の URL | `http://127.0.0.1:5678/webhook/mautic-event`（Mautic はパソコン本体で動くので、中継は通らない） |
 
 > 中継を動かさなくても、Webhook の受け取り・署名の検証・重複のチェックは確かめられる。その場合は `I-19`（Mautic への問い合わせ）と `I-21`（メールの送信）だけが失敗する（失敗しても親の `I-11` `I-12` は止まらない）。**本番には中継を置かない**（本番の経路は 10 節）。
@@ -113,8 +120,16 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 | `mauticBaseUrl` | `http://host.docker.internal:8000` | `https://mkt.comegin.com` |
 | `snsTopicArnLead` | （入れない） | SAM の出力 `LeadAlertTopicArn` の値 |
 | `snsTopicArnOps` | （入れない） | SAM の出力 `OpsAlertTopicArn` の値 |
+| `chatwootBaseUrl` | `http://host.docker.internal:3100` | `https://chat.comegin.com` |
+| `chatwootAccountId` | Chatwoot のアカウントの ID（画面の URL の `/app/accounts/<数字>/`） | 同じ |
+| `inventoryEnabled` | `false`（棚卸しを動かすときだけ `true`） | `false`（`R1` が確かめてから `true`） |
+| `heartbeatEnabled` | `false`（開発は動かさない） | `false`（**アラームのデプロイ後**に `R1` が `true`） |
+| `heartbeatNamespace` | `ComeGin/OnpremN8n` | `ComeGin/OnpremN8n`（IAM の条件と同じ綴り） |
+| `opsMonitorEnabled` | `false`（運用監視を動かすときだけ `true`） | `false`（本番には運用監視のワークフローを入れないので使わない。行は provision が入れる） |
 
-**確認**: Data tables の一覧に 5 つ並び、`ops_settings` に 2 行（本番は 4 行）ある。
+**スイッチ（`inventoryEnabled` `heartbeatEnabled` `opsMonitorEnabled`）は、`true` 以外・行が無いときは、そのワークフローは何もしない**（安全側）。provision は、これらの行が**無いときだけ**入れる（人が `true` にした値を、再実行で戻さない）。
+
+**確認**: Data tables の一覧に 5 つ並び、`ops_settings` に 8 行（本番は 10 行）ある。
 
 ---
 
@@ -136,7 +151,8 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 | `Chatwoot Webhook 署名鍵（Crypto）` | **Crypto** | **Hmac Secret** に、Chatwoot の Webhook のシークレット（9.3 で Chatwoot の Webhook を作ると表示される）。**値は 9.3 で入れてよい** | I-12 |
 | `Mautic API（client_credentials）` | **OAuth2 API** | Grant Type: **Client Credentials**、Access Token URL: `<Mautic の URL>/oauth/v2/token`、Client ID と Client Secret: Mautic の API 資格情報（`mautic-mcp` と同じものでよい）、Authentication: **Body** | I-19 |
 | `MailHog SMTP（開発）` | **SMTP** | Host: `host.docker.internal`（4 節の中継を通る）、Port: `1025`、SSL/TLS: 使わない、User・Password: 空（**開発環境だけ**）。届いたメールは `http://127.0.0.1:8025` で見る | I-21 |
-| `AWS SNS 発行（アクセスキー）` | **AWS** | Access Key ID と Secret Access Key: IAM ユーザー `comegin-prod-onprem-n8n-sns` のキー（`cloud/README.md` の 4.5 で発行）、Region: `ap-northeast-1`（**本番だけ**） | I-21 |
+| `AWS SNS 発行（アクセスキー）` | **AWS** | Access Key ID と Secret Access Key: IAM ユーザー `comegin-prod-onprem-n8n-sns` のキー（`cloud/README.md` の 4.5 で発行）、Region: `ap-northeast-1`（**本番だけ**）。**SNS への発行と、CloudWatch へのハートビート（`PutMetricData`）の両方に同じ資格情報を使う**（IAM の権限は SNS の発行と、名前空間 `ComeGin/OnpremN8n` への `PutMetricData` だけ） | I-21・n8n スケジュール実行のハートビート |
+| `Chatwoot API（api_access_token）` | **Header Auth** | Name: `api_access_token`、Value: Chatwoot のアクセストークン（会話の一覧を読めればよい。**管理者のトークンは避け**、エージェントの権限のユーザーで発行する） | 週次 問い合わせの棚卸し |
 
 > **Crypto の資格情報の Hmac Secret は、必ず値を入れる。** 空のまま作ると、誰でも正しい署名を作れてしまう（n8n からは空かどうかを確かめられない）。
 
@@ -144,7 +160,7 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 
 ## 7. 手順 3: ワークフローを取り込む（子 → 親の順）
 
-**この順番で取り込む**: `I-21` → `I-19` → `I-11` → `I-12` →（必要なら）`I-18`。
+**この順番で取り込む**: `I-21` → `I-19` → `I-11` → `I-12` →（必要なら）`I-18` → 定期実行の 3 本（`weekly-inquiry-inventory.json`・`n8n-schedule-heartbeat.json`・`ops-monitor.json`。**`ops-monitor` は開発環境だけ**）。
 
 ### 取り込み方（1 本分）
 
@@ -157,7 +173,7 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 6. 何も押さなくてよい。n8n は自動で保存する（**保存しただけでは本番では動かない**。動かすのは 9 節の公開）。
 7. 画面の左のメニューの **Overview** を押すと一覧に戻る。一覧に `I-21 SNS 通知` が増えている。
 
-同じ操作を、**`I-19-email-match.json` → `I-11-mautic-webhook-dedup.json` → `I-12-chatwoot-webhook-dedup.json`** の順に繰り返す（`I-18-posthog-writeback.json` は将来用なので、取り込まなくてよい）。
+同じ操作を、**`I-19-email-match.json` → `I-11-mautic-webhook-dedup.json` → `I-12-chatwoot-webhook-dedup.json`** の順に繰り返す（`I-18-posthog-writeback.json` は将来用なので、取り込まなくてよい）。定期実行の 3 本も同じ操作で取り込む（子の `I-21` を先に取り込んでおく）。
 
 取り込むと、**資格情報が割り当てられていないノードに赤い三角の警告**が出ることがある。これは正常で、次の手順 4 で直す。
 
@@ -178,6 +194,9 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 | I-19 Chatwoot と Mautic の email 突合 | `Mautic でメールアドレスを検索` | `Mautic API（client_credentials）` |
 | I-11 Mautic Webhook の受領と重複排除 | `Webhook-Signature を計算` | `Mautic Webhook 署名鍵（Crypto）` |
 | I-12 Chatwoot Webhook の受領と重複排除 | `X-Chatwoot-Signature を計算` | `Chatwoot Webhook 署名鍵（Crypto）` |
+| 週次 問い合わせの棚卸し | `未割り当ての会話を取る`・`割り当て済みの会話を取る` | `Chatwoot API（api_access_token）` |
+| n8n スケジュール実行のハートビート | `CloudWatch に PutMetricData` | `AWS SNS 発行（アクセスキー）` |
+| 運用監視 | （資格情報を使うノードは無い） | — |
 
 ### 8.2 呼び出し先（子のワークフロー）を選び直す
 
@@ -188,6 +207,8 @@ JSON の中の「呼び出し先」は、書き出し元の n8n のワークフ�
 | I-11 | `I-21 通知を呼ぶ` | `I-21 SNS 通知` |
 | I-12 | `I-21 通知を呼ぶ` | `I-21 SNS 通知` |
 | I-12 | `I-19 突合を呼ぶ` | `I-19 Chatwoot と Mautic の email 突合` |
+| 週次 問い合わせの棚卸し | `取得の状態を伝える（I-21）`・`棚卸しの結果を通知する（I-21）` | `I-21 SNS 通知` |
+| 運用監視 | `状態を伝える（項目 9。I-21）`・`状態を伝える（項目 5。I-21）` | `I-21 SNS 通知` |
 
 ノードを開き、**Source** が **Database**、**Workflow** の欄で **From list** を選び、一覧から選ぶ。入力の欄（Workflow Inputs）が表示されたら、取り込んだ値のままでよい（空になっていたら、更新ボタンで子の入力の定義を読み直す）。
 
@@ -199,7 +220,8 @@ JSON の中の「呼び出し先」は、書き出し元の n8n のワークフ�
 |---|---|---|
 | I-11・I-12・I-19 | **Save successful production executions** が **Do not save** | 実行履歴にメールアドレスが残らないようにするため |
 | I-21 | **Timeout Workflow** がオンで 10 秒 | 通知が詰まっても顧客対応を止めないため |
-| すべて | **Timezone** が `Asia/Tokyo` | 時刻の表示と自動削除の時刻（03:00）のため |
+| 定期実行の 3 本 | **Save successful production executions** が **Do not save** | 5 分ごとの実行が履歴を埋めないため。棚卸しは Chatwoot の会話の抜粋が履歴に残らないようにするため |
+| すべて | **Timezone** が `Asia/Tokyo` | 時刻の表示と自動削除の時刻（03:00）・棚卸しの月曜 09:00 のため |
 
 > 確認の間は、成功した実行の記録が残らないので、成功を画面で見られない。**確かめるときだけ** I-11・I-12 を **Save** にし、**終わったら Do not save に戻す**（戻し忘れると、実行履歴にメールアドレスが残る）。
 
@@ -312,6 +334,16 @@ Chatwoot は **4.12 以上**であること（それより前の版は署名を�
 - [ ] 確認で増えた Data Table の行を消す（`dedup_*` は 7 日で自動で消える。`monitor_state` と `contact_link` は自動では消えない）
 - [ ] ngrok を閉じたままにしておく
 
+### 9.7 定期実行の 3 本を動かす（確かめたあとに、人が公開する）
+
+provision・この手順書のどちらでも、**定期実行の 3 本は公開されない**（`ops_settings` のスイッチも `false`）。動かすときは、スイッチを `true` にしてから、ワークフローを公開する。
+
+| ワークフロー | 動かす前に | 動いたことの確かめ方 |
+|---|---|---|
+| 週次 問い合わせの棚卸し | `inventoryEnabled=true`、資格情報 `Chatwoot API`、開発は中継（3100）。**月曜 09:00 を待たず**、ワークフローを開いて **Execute workflow**（手動実行）で試せる | 件数と `#番号` が MailHog のメールの「内訳」に出る。**氏名・メール・本文が無いこと**。0 件なら何も届かない（意図どおり） |
+| 運用監視 | `opsMonitorEnabled=true`。開発の OpenSEO と中継（3001）が動いていること | OpenSEO を止めて 5 分待つと `[comegin] ops: ops-monitor:9 ng` が **1 通だけ**届く。戻すと `ok` が 1 通 |
+| n8n スケジュール実行のハートビート | `heartbeatEnabled=true`（**本番だけ**。開発は動かさない）、IAM ユーザーに `PutMetricData` の権限（`cloud/` のデプロイ後）、名前空間・メトリクス名の綴りが IAM の条件と同じ | CloudWatch の `ComeGin/OnpremN8n` の `ScheduleHeartbeat` が 5 分ごとに 1 件。止めると 15 分でアラーム |
+
 ---
 
 ## 10. 本番（オンプレの n8n）で行うときの違い
@@ -325,6 +357,7 @@ Chatwoot は **4.12 以上**であること（それより前の版は署名を�
 | 資格情報 | `MailHog SMTP（開発）` は作らない。`AWS SNS 発行（アクセスキー）` を作って `SNS に発行` に割り当てる |
 | Mautic・Chatwoot の Webhook の URL | `http://10.99.0.2:5680/webhook/mautic-event`・`http://10.99.0.2:5680/webhook/chatwoot-event`（WireGuard 越しの受け口。`onprem/README.md`） |
 | 公開 | **`R1` だけ** |
+| 定期実行の 3 本 | **`運用監視` は取り込まない**（OpenSEO も `sandbox-tls` も本番に無い）。棚卸しとハートビートは取り込み、`inventoryEnabled`・`heartbeatEnabled` を `true` にしてから公開する（ハートビートは AWS のアラームと IAM のデプロイが先）。棚卸しの Chatwoot は `https://chat.comegin.com`、トークンは専用のユーザーのもの |
 | 届いたことの確認 | オンプレで `docker compose logs webhook-proxy` を見て、**送信元が `10.99.0.1`** の要求が記録されていること |
 
 ---
@@ -337,11 +370,14 @@ Chatwoot は **4.12 以上**であること（それより前の版は署名を�
 | curl が **401** | 署名の鍵が違う（Crypto の Hmac Secret と、Mautic・Chatwoot のシークレットが一致していない）／Chatwoot のタイムスタンプが 5 分より古い／Chatwoot が 4.12 より古い | 鍵を入れ直す。Chatwoot の版を確かめる |
 | 親の実行が `Workflow is not active and cannot be executed` | 子（I-21・I-19）が公開されていない | 9.1 で子を公開する |
 | ノードに赤い警告 | 資格情報が割り当てられていない／呼び出し先を選んでいない | 8.1・8.2 |
-| I-21 が失敗する（開発） | 中継が動いていない（4 節）／資格情報の Host が `host.docker.internal` でない | `cd middleware/host-relay && docker compose ps` で 3 つ動いているか見る。6 節の Host を直す |
+| I-21 が失敗する（開発） | 中継が動いていない（4 節）／資格情報の Host が `host.docker.internal` でない | `cd middleware/host-relay && docker compose ps` で 5 つ（Mautic・MailHog・n8n・Chatwoot・OpenSEO の health）動いているか見る。6 節の Host を直す |
 | I-19 が失敗する（開発） | 中継が動いていない／Mautic（`dev/serve.sh`）が止まっている／OAuth2 の資格情報の値が違う | 4 節と 6 節を確かめる |
 | Chatwoot の Webhook が n8n に届かない（開発） | 中継が動いていない／Chatwoot の Webhook の URL が `127.0.0.1` になっている | URL を `http://host.docker.internal:5678/...` にする（Chatwoot はコンテナの中で動くため） |
 | 成功したはずなのに実行履歴に出ない | 8.3 で成功の記録を残さない設定にしている（意図どおり） | 確かめるときだけ Save にする |
 | Data Table のノードが空に見える | 表示の不具合（8.4） | 再読み込みボタン |
+| 棚卸し・運用監視が何もしない | `ops_settings` のスイッチが `true` でない／ワークフローを公開していない（定期実行は公開するまで動かない） | 9.7 |
+| 棚卸しの取得が失敗する（開発） | 中継（3100）が動いていない／`chatwootBaseUrl` が違う／`Chatwoot API` のトークンが違う | 4 節。`ops` に `weekly-inventory:fetch ng` が 1 通届く |
+| 運用監視の `ops-monitor:5` が `ng` | `sandbox-tls` の証明書を読めない（`public/` のマウントが無い）／残り 30 日未満 | `cd middleware/n8n && docker compose up -d`（`sandbox-certs` が `public/` を作る）。期限なら `middleware/n8n/README.md` の「証明書の更新」 |
 
 ---
 

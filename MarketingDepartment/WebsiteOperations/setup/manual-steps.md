@@ -17,6 +17,8 @@
 | `chatwoot:admin-password` | 以前に手で作った管理者がいる | パスワードを設定に書く／作り直しを許す | [3.1](#31-chatwoot) |
 | （mautic の失敗） | Mautic の管理者のパスワードが分からない | 画面の「Forgot your password?」 | [3.2](#32-mautic) |
 | `umami:admin-password` | 管理者のパスワードが初期値から変わっている | パスワードを設定に書く | [3.3](#33-umami) |
+| `openseo:dataforseo-key` | OpenSEO の health で DataForSEO が ok でない | DataForSEO の Base64 の認証情報を設定に書く | [7.4](#74-openseodataforseo-と-search-console) |
+| `openseo:google-oauth-client`／`openseo:gsc-connect` | Search Console 用の OAuth クライアントが無い／接続を申告していない | Google Cloud Console でクライアントを作る／OpenSEO の画面で接続する（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
 | `strapi:admin-password`／`strapi:admin-login` | 以前に手で作った管理者がいる | パスワードを設定に書く | [3.4](#34-strapi) |
 | `n8n:owner-password`／`n8n:owner-login` | 以前に手で作ったオーナーがいる | パスワードを設定に書く | [3.5](#35-n8n) |
 | `n8n:mcp-token` | n8n の MCP のトークンが作成済み | 控えを写す／作り直しを許す | [4](#4-n8n-の-mcp-のトークン) |
@@ -95,7 +97,7 @@ n8n（Webhook の作成・I-19 の検索）と mautic-mcp が使う OAuth 2 の�
 | 状況 | すること |
 |---|---|
 | パスワードを知っている | `dev.conf` に `UMAMI_ADMIN_PASSWORD=<今のパスワード>`（ユーザー名は `admin`） |
-| 知らない | Umami には API・CLI でパスワードを再設定する手段が無い。開発環境の Umami のデータを作り直してよければ、自分で `cd middleware/umami-master && docker compose -f docker-compose.yml -f dev/setup/compose.mcp.yml down -v` を実行してから再実行する（スクリプトはデータを消さない。初期の管理者 `admin` / `umami` に戻り、スクリプトがパスワードを変える） |
+| 知らない | Umami には API・CLI でパスワードを再設定する手段が無い。開発環境の Umami のデータを作り直してよければ、自分で `cd middleware/umami && docker compose down -v` を実行してから再実行する（2026-10-06 から開発環境の Umami は `middleware/umami` の自作の compose で動く。DB のボリュームは `umami_db-data`）（スクリプトはデータを消さない。初期の管理者 `admin` / `umami` に戻り、スクリプトがパスワードを変える） |
 
 2 要素認証を設定している管理者は、API でログインできないので止まる（解除してから再実行）。
 
@@ -197,6 +199,22 @@ Google の OAuth クライアントは、Google Workspace（comegin.com）の管
 ### 7.3 監視アプリのエージェント（任意。`ANTHROPIC_API_KEY`）
 
 Claude Console（https://platform.claude.com）で API キーを作り、`dev.conf` に書く。空のままでも監視アプリは起動するが、エージェントの実行は skipped として記録される。
+
+### 7.4 OpenSEO（DataForSEO と Search Console）
+
+OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・ループバックだけ）は、調査とランク追跡に DataForSEO（費用が出る）を、実績の取得に Google Search Console を使う。スクリプトは環境変数ファイルを作って起動し、`/api/health` の `checks` を見て、足りないものだけを案内する。
+
+| 表示の id | すること |
+|---|---|
+| `openseo:dataforseo-key` | https://app.dataforseo.com/api-access で認証情報を取り寄せ、「Base64」と書かれた長いほうの値（`login:password` を base64 にしたもの。ダッシュボードの API キーではない）を `DATAFORSEO_API_KEY=` に書く |
+| `openseo:google-oauth-client` | Google Cloud Console で「Google Search Console API」を有効にし、種類 Web application の OAuth クライアントを作る。リダイレクト URI は `http://localhost:3001/api/gsc/oauth/callback`（完全一致。末尾にスラッシュを付けない）。値は `OPENSEO_GOOGLE_CLIENT_ID=`・`OPENSEO_GOOGLE_CLIENT_SECRET=` に書く（admin-auth と同じクライアントを使うなら `GOOGLE_CLIENT_ID=`・`GOOGLE_CLIENT_SECRET=` に書き、クライアントに上のリダイレクト URI も足す） |
+| `openseo:gsc-connect` | ブラウザで `http://localhost:3001`（127.0.0.1 ではなく localhost）を開き、Integrations の「Connect with Google」で同意し、プロパティを選ぶ。済んだら `OPENSEO_GSC_CONNECTED=yes` を書く（接続の有無は OpenSEO の DB の中にあり、スクリプトからは確かめられないため申告制） |
+
+**接続しても「No properties available」と出るとき**は、接続した Google アカウントに Search Console の確認済みのプロパティが無い（OpenSEO の不具合ではない）。設計（ADR-09）どおり**ドメインプロパティ `sc-domain:comegin.com`** を登録する: Search Console で「プロパティを追加 → ドメイン」に `comegin.com` → 表示された TXT レコード（`google-site-verification=…`）を Route 53 のホストゾーン `comegin.com` に追加 → 確認 → OpenSEO で接続し直す。公開サイトが無くても登録できる。
+
+**Google Analytics（GA4）は接続しない**（ADR-09・DA-02 の 2 節。アクセス解析は Umami と PostHog）。OpenSEO の画面に GA4 の接続ボタンがあるが押さない（押すと `/api/ga4/oauth/callback` が未登録のため `redirect_uri_mismatch` になる）。
+
+Search Console を使わないと決めたなら `OPENSEO_SKIP_GSC=yes` を書く。詳しい手順はモジュール（`middleware/open-seo-main/dev/setup/index.mjs`）の案内にも出る。
 
 ## 8. 本番（`--target prod`）
 

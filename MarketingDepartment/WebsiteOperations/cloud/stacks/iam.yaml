@@ -6,7 +6,8 @@ Description: >-
   1) 監視アプリ用: E-15 の写しへの追記と、ハートビートの送信だけ（TA-04 の 1 節、TA-06 の 4.7・7 節）。
   2) デプロイ用: Astro の配信（s3 sync と無効化）だけ（TA-02 の 6 節）。
   3) IAM ユーザー comegin-<env>-onprem-strapi-media: Strapi のメディアのバケットだけ（ADR-21）。
-  4) IAM ユーザー comegin-<env>-onprem-n8n-sns: ops・lead の 2 トピックへの sns:Publish だけ（ADR-21）。
+  4) IAM ユーザー comegin-<env>-onprem-n8n-sns: ops・lead の 2 トピックへの sns:Publish と、n8n のスケジュール実行のハートビート
+     （名前空間 N8nHeartbeatNamespace だけへの cloudwatch:PutMetricData）だけ（ADR-21、TA-05 の 4 節の項目 3）。
 
 Parameters:
   EnvName:
@@ -23,6 +24,10 @@ Parameters:
     Type: String
     Default: ComeGin/Onprem
     Description: PutMetricData を許す名前空間。observability.yaml の値と一致させる。
+  N8nHeartbeatNamespace:
+    Type: String
+    Default: ComeGin/OnpremN8n
+    Description: n8n のスケジュール実行のハートビートに PutMetricData を許す名前空間。observability.yaml の値と一致させる。監視アプリの名前空間（HeartbeatNamespace）とは分ける。
   AstroBucketArn:
     Type: String
     Description: Astro の配信用バケットの ARN（data.yaml）
@@ -122,8 +127,11 @@ Resources:
             Action: s3:ListBucket
             Resource: !Ref StrapiMediaBucketArn
 
-  # オンプレの n8n 専用。通知（ops・lead）への発行だけ。購読の変更・トピックの設定変更は与えない（TA-04 の 1 節）。
+  # オンプレの n8n 専用。通知（ops・lead）への発行と、n8n のスケジュール実行のハートビートの送信だけ。
+  # 与えない: 購読の変更・トピックの設定変更（TA-04 の 1 節）、cloudwatch:PutMetricAlarm / DisableAlarmActions / DeleteAlarms
+  #   （自分への監視を止められない）、監視アプリの名前空間（ComeGin/Onprem）への送信（オンプレの生存を偽れない）。
   # n8n の AWS の資格情報には、このユーザーのアクセスキーを入れる（Assume Role と Use System Credentials は使わない）。
+  # SNS 用のノードと、ハートビートの HTTP Request ノード（PutMetricData の署名）で同じ資格情報を使う。
   OnpremN8nSnsUser:
     Type: AWS::IAM::User
     Properties:
@@ -133,7 +141,9 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: !Sub 'comegin-${EnvName}-onprem-n8n-sns'
-      Description: オンプレの n8n 用。ops・lead の 2 トピックへの sns:Publish だけ。
+      # Description は更新で置き換えになる（固定名のため、デプロイ後に変えると更新が失敗する）。
+      # 出典: https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-managedpolicy.html
+      Description: オンプレの n8n 用。ops・lead の 2 トピックへの sns:Publish と、n8n のハートビート用の cloudwatch:PutMetricData（名前空間 ComeGin/OnpremN8n だけ）。
       Users:
         - !Ref OnpremN8nSnsUser
       PolicyDocument:
@@ -145,6 +155,17 @@ Resources:
             Resource:
               - !Ref OpsAlertTopicArn
               - !Ref LeadAlertTopicArn
+          # PutMetricData はリソースを絞れないため、条件キーで名前空間を限定する（ControlPlanePolicy と同じ形）。
+          # 出典: https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/iam-cw-condition-keys-namespace.html
+          # cfn-guard の IAM_POLICYDOCUMENT_NO_WILDCARD_RESOURCE は、この 1 件だけ意図した例外
+          # （このアクションはリソースレベルの権限に対応しない）。
+          - Sid: SendN8nScheduleHeartbeatOnly
+            Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'cloudwatch:namespace': !Ref N8nHeartbeatNamespace
 
 Outputs:
   ControlPlanePolicyArn:

@@ -64,6 +64,12 @@ export function parseKeyValue(text) {
 }
 
 function ensurePrivateDir(dir) {
+  // 700 にするのは ~/.config/comegin の中だけ。リポジトリの中のディレクトリ（例: middleware/open-seo-main）は権限を変えない
+  // （環境変数ファイル自体は 600 で書くので、ほかのユーザーには読めない）
+  if (!(dir === CONFIG_DIR || dir.startsWith(`${CONFIG_DIR}/`))) {
+    mkdirSync(dir, { recursive: true });
+    return;
+  }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
     chmodSync(dir, 0o700);

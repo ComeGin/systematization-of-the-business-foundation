@@ -13,6 +13,8 @@ TA（Technology Architecture）層。ID はそれぞれの正本の定義をそ�
 
 ## 1. 秘匿値の管理方針
 
+> **（2026-10-06）ADR-24: Cal.com は SaaS（cal.com）になった。** **Cal.com の鍵（セッションの秘密鍵・連携の暗号化の鍵）と、Cal.com 用の Google の OAuth クライアントシークレットを、ComeGin の Secrets Manager に置く必要はなくなった**（SaaS の側が持つ。TA-06 の 7 節の該当行は ADR-19 の記述）。**代わりに、Cal.com のアカウント（管理者のログイン・MFA・Google Calendar の接続・Webhook を使う場合の署名鍵）を人間（`R1` `R3`）が管理する**（認証情報は ComeGin の環境変数ファイルに置かない。無料プランでの管理者の数と MFA の可否は未確認）。**Cal.com は管理画面の関門（`admin-auth`）の保護対象から外れる**（管理画面は SaaS 側のログイン）。**公開サイトの CSP を設ける場合は、完了画面だけ Cal.com の配信元を許可する**（DD-02 の 7 節。許可するドメインは実測で確定する）。
+
 ### 生成の仕組み（As-Is）
 
 一部の Docker スタックには `dev/init-env.sh` が置かれており、これが環境変数ファイルを用意する。**5 スタックのうち 2 つにしか無い。**
@@ -46,6 +48,18 @@ Mautic と Umami に生成の仕組みが無いことの意味は同じではな
 ### AWS の認証情報（Amazon SNS）
 
 ADR-08 により、n8n から Amazon SNS へ通知を発行する（TA-01 の経路 10）。**このための認証情報を最小権限で発行する。**
+
+> **（2026-10-06）ADR-21 で、主体が再び変わった。次の表を優先し、その下の ADR-16 の表と文は旧版として残す。** 本番の n8n はオンプレに戻ったため、ECS のタスクロールは使えない。SNS への発行もハートビートの送信も、**IAM ユーザーのアクセスキー**で行う。実装は `cloud/stacks/iam.yaml`。
+>
+> | 項目 | オンプレの n8n（本番）→ SNS・CloudWatch | 監視アプリ（オンプレ）→ CloudWatch・S3 |
+> |---|---|---|
+> | 主体 | **IAM ユーザー `comegin-<env>-onprem-n8n-sns`**（管理ポリシー `comegin-<env>-onprem-n8n-sns`。**名前は変えない**。変えると作り直しになる） | 監視アプリ用の管理ポリシー `comegin-<env>-control-plane`（`ControlPlanePolicy`） |
+> | 権限 | **`sns:Publish`**（`comegin-ops-alert`・`comegin-lead-alert` の 2 トピックに限定）＋ **`cloudwatch:PutMetricData`（条件キー `cloudwatch:namespace` = `ComeGin/OnpremN8n`。n8n のスケジュール実行のハートビートを送る）** | `s3:PutObject`（`E-15` の写しへの追記）＋ `cloudwatch:PutMetricData`（名前空間 `ComeGin/Onprem`。監視アプリのハートビート） |
+> | 与えない権限 | `sns:Subscribe` / `sns:Unsubscribe` / `sns:SetTopicAttributes` / `sns:DeleteTopic`、`cloudwatch:PutMetricAlarm` / `DisableAlarmActions` / `DeleteAlarms`（自分への監視を止められない）、**監視アプリの名前空間 `ComeGin/Onprem` への送信**（n8n が監視アプリの生存を偽れない） | `s3:DeleteObject` ほか、アラームを変える権限、`sns:*` |
+> | 置き場 | **本番の n8n の資格情報ストア**（種類は **AWS**。`AWS SNS 発行（アクセスキー）`。RDS の `n8n` に暗号化されて保存される。**`onprem/n8n/.env` には置かない**。人が IAM のコンソールでキーを発行して入れる。Assume Role と「システム資格情報」は使わない）。**SNS 用のノードとハートビートの HTTP Request ノード（`PutMetricData` の署名）が同じ資格情報を使う** | 監視アプリのサーバー側の環境変数だけ（Claude Code の実行環境に渡さない） |
+> | 鍵の更新 | アクセスキーの定期交換の手順を決める（未決定事項。DD-04 の 8.7 と同じ） | 同左 |
+>
+> **ハートビートの送り手は 2 本で決着した**（TA-05 の項目 3・16・17）。**`ComeGin/Onprem`（改善ループの生存）の送り手は監視アプリ**（TA-07 の 8 節の「送り手を移すか」は、移したものとして決着）、**`ComeGin/OnpremN8n`・メトリクス `ScheduleHeartbeat`（本番の n8n のスケジュール実行の生存）の送り手は本番の n8n**。名前空間を分けるのは、**片方がもう片方の生存を偽れないようにするため**である。アラームは `cloud/stacks/observability.yaml` の 2 つ（通知先は ops のトピック。有効・無効のスイッチ `HeartbeatAlarmActionsEnabled` は共有）。**漏れたときにできること**: n8n の IAM ユーザーのキーが漏れても、できるのは「2 トピックへの発行（通知の偽装・無料枠の消費）」と「n8n のハートビートの偽装」であり、通知先は変えられず、監視アプリの生存は偽れない。
 
 **ADR-16 で主体が 2 つに分かれた。** 旧版では、オンプレの n8n が 1 つの IAM ユーザーで SNS への発行とハートビートの送信の両方を行う前提だった。ADR-16 で本番の n8n が AWS に移り、ハートビートは開発環境の n8n が送る（暫定。TA-07 の 8 節）ため、次のように分ける（**本ファイルの判断**。TA-06 の 7 節の「n8n から SNS への発行はタスクロール」に合わせた）。
 
@@ -82,6 +96,8 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 | **SES の SMTP 認証情報**（Mautic 用と Chatwoot 用で別々に発行） | Secrets Manager | —（MailHog。認証なし） |
 | 2 節の暗号化の鍵（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`）、Umami の `APP_SECRET`、Mautic のアプリケーション鍵、**Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、n8n の `N8N_ENCRYPTION_KEY`・`N8N_RUNNERS_AUTH_TOKEN`**（ADR-16） | Secrets Manager | 各スタックの環境変数ファイル（Umami は compose に直書き。3 節） |
 | **本番の n8n に保存する資格情報**（本番の Chatwoot・Mautic・Strapi のトークンなど。ADR-16。**Strapi の資格情報は必要になるまで登録せず、登録するときも公開・非公開化・削除の権限を与えない〈下書きまで〉**。ADR-18） | **本番の n8n の DB**（RDS の `n8n` データベース。`N8N_ENCRYPTION_KEY` で暗号化）。**人間が本番のエディターで登録する** | 開発環境の n8n の DB（`db-data`）。**開発環境の資格情報を本番に持ち込まない** |
+| **（2026-10-06。ADR-21）n8n が持つ Chatwoot のトークン（週次の棚卸し用。`CHATWOOT_N8N_API_TOKEN`）** | **本番の n8n の DB（RDS の `n8n`）。資格情報 `Chatwoot API（api_access_token）`（種類は Header Auth。ヘッダー名 `api_access_token`）**。オンプレの n8n から ALB の公開ホスト名の API を呼ぶ。**棚卸し専用に別で発行する**（要るのは会話の一覧の読み取りだけで、エージェント用ユーザーの権限で足りる。管理者のトークンを n8n に常駐させない）。**空のときは provision が管理者のトークン（`CHATWOOT_API_ACCESS_TOKEN`）で代用し、本番では警告を出す**（provision の仕様。モックの n8n で確認済み。実機の通し実行は Wave 4） | 開発環境の n8n の DB。値は provision の設定（`~/.config/comegin/n8n-provision/`）から入る |
+| **（2026-10-06）ワークフローの書き出しの API キー（`CONTROL_N8N_EXPORT_API_KEY`）と URL（`CONTROL_N8N_EXPORT_URL`）** | **監視アプリのサーバー側の環境変数**（`frontend/next-js` の環境変数ファイル。Claude Code の実行環境に渡さない。Git で追跡しない）。本番の n8n の画面で発行する。**スコープ（`workflow:list`・`workflow:read`）を絞れるのは Enterprise だけで、コミュニティ版では全権限になる。有効化の前に、版と、その資格情報を監視アプリに置くことの是非を判断する**（TA-03 の 6 節） | — |
 | **本番の Strapi の PostHog のプロジェクトトークン** | Secrets Manager（**本番用のプロジェクト**。ADR-16 で開発と本番のプロジェクトを分けた） | `backend/strapi-system` の環境変数ファイル（開発用のプロジェクト） |
 | **`admin-auth`（管理画面の関門。Better Auth）の秘密値**: `BETTER_AUTH_SECRET`、Google の OAuth クライアントシークレット、ALB 用のクライアントシークレット | Secrets Manager（ALB 用のクライアントシークレットは ALB のリスナールールにも設定する。ALB と `admin-auth` の両方が知る必要があるため） | 開発用の環境変数ファイル（`backend/admin-auth` を想定。未作成） |
 | **本番の MCP 用のトークン**（Chatwoot のエージェント専用ユーザーの `api_access_token`、Mautic のエージェント専用の API クライアント、Umami のエージェント専用ユーザーの API キー、**Strapi の Admin トークン（下書きまで。ADR-17）、n8n の MCP のアクセストークン**）と、**ビルド用の Strapi の読み取り専用の API トークン**（ADR-16） | **ローカルの PC の `.env.production` と Claude Code の MCP の設定**（AWS には置かない。Git で追跡しない。ADR-15・ADR-16。TA-07 の 3.3） | 今の環境変数ファイル（開発環境のトークン） |
@@ -145,6 +161,11 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 
 ## 3. 課題: Umami のセキュリティ
 
+> **（2026-10-06）課題 1〜4 は、開発環境について `middleware/umami` で対処済みである。** 案 C（下の「上流を無改変に保つ方針とセキュリティ要件の衝突」）を採り、**自作の compose `middleware/umami/compose.yml`（compose のプロジェクト名 `umami`）を開発環境の Umami の実体にした**。上流の `middleware/umami-master/docker-compose.yml` は使わない（上流の取り込みは無改変のまま）。対処の内容は下の「対処方針」の表の状態の列。**本番の Umami は ECS で動き、この compose を使わない**（`cloud/images/umami`。ホスト名は `stats.comegin.com` のまま）。次の表の「現状」は、対処前（上流のサンプルそのもの）の記述である。
+> - **イメージの版は本番と同じ `ghcr.io/umami-software/umami:3.4.0` に固定**した（`cloud/images/umami/Dockerfile` の `UPSTREAM_TAG` と同じ。`latest` を使わない）。DB は `postgres:15-alpine` で、ホストに公開しない。`MCP_ENABLED=1` を compose に入れたため、MCP を有効にする上書きの compose（旧 `umami-master/dev/setup/compose.mcp.yml`）は要らなくなり、`umami-master/dev/` は削除した。
+> - **DB のボリュームは `umami_db-data`**（compose のキーは `db-data`）。**旧スタックのボリューム `umami-master_umami-db-data` と、2026-09-15 に旧パスワードで初期化された `umami_umami-db-data` は残してあり、使わない。** 後者を使うと、新しい `POSTGRES_PASSWORD` が効かず DB に接続できなくなるため、キー名を変えた。**データは引き継がない**（開発用のデータのため）。
+> - **setup モジュールは `middleware/umami/setup/index.mjs` に移した**（`meta.id` は `umami` のまま。状態のキー・`~/.config/comegin/mcp/umami-dev.env` の中身は変えていない）。`node setup/setup.mjs --target dev --only umami` が `dev/init-env.sh`（秘密値の生成）→ 起動 → 管理者のパスワード → Web サイト → API キー → MCP の env を行う。**新しい DB は管理者が初期値（`admin` / `umami`）に戻る**ため、`apply` の再実行が要る（手順は `middleware/umami/README.md`）。
+
 `middleware/umami-master/docker-compose.yml` には次の 4 点の問題がある。**本タスクの修正スコープ外**だが、事実として記録し、対処方針と方針上の衝突を明示する。
 
 **ADR-12 の後、この 4 点は開発環境だけの課題になった。** 本番の Umami は ECS on Fargate で動き、この compose を使わない。本番では private サブネットに置いて ALB だけをインターネットに面させ（課題 1 が構成上起きない）、`APP_SECRET` などの値は Secrets Manager から注入し（課題 2・3）、DB は RDS のアプリ用ユーザーで接続する（課題 4）。設計は TA-06 の 5.6・7 節。**開発環境では 4 点とも残る。**
@@ -168,11 +189,13 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 
 | 課題 | 対処 | 状態 |
 |---|---|---|
-| 1 | `127.0.0.1:3000:3000` にバインドし直す | `未着手` |
-| 2 | `APP_SECRET` を生成し、追跡対象外のファイルから参照する | `未着手` |
-| 3 | `TWO_FACTOR_ENCRYPTION_KEY` を生成する（`openssl rand -hex 32`。上流のコメントに生成方法が書かれている） | `未着手` |
-| 4 | `POSTGRES_PASSWORD` を生成する。**ボリュームの初期化前に行う**（2 節のとおり、後から変えても反映されない） | `未着手` |
-| 共通 | `dev/init-env.sh` 相当を追加し、上記 3 つの値を冪等に生成させる | `未着手` |
+| 1 | `127.0.0.1:3000:3000` にバインドし直す | **対処済み**（2026-10-06。`middleware/umami/compose.yml`。`ss -ltn` で `127.0.0.1:3000` だけを確認） |
+| 2 | `APP_SECRET` を生成し、追跡対象外のファイルから参照する | **対処済み**（`${APP_SECRET:?...}` で `.env`〈追跡対象外〉を参照。未設定なら compose が失敗する） |
+| 3 | `TWO_FACTOR_ENCRYPTION_KEY` を生成する（`openssl rand -hex 32`。上流のコメントに生成方法が書かれている） | **対処済み**（64 桁の hex を生成。同上） |
+| 4 | `POSTGRES_PASSWORD` を生成する。**ボリュームの初期化前に行う**（2 節のとおり、後から変えても反映されない） | **対処済み**（32 文字の英数字を生成。新しいボリューム `umami_db-data` の初期化前に行った。`dev/init-env.sh` は、`POSTGRES_PASSWORD` を新しく書いたときに同名のボリュームが既にあれば警告する） |
+| 共通 | `dev/init-env.sh` 相当を追加し、上記 3 つの値を冪等に生成させる | **対処済み**（`middleware/umami/dev/init-env.sh`。未定義・空・例の初期値のままの項目だけ書き換える。2 回目の実行で全部「維持」になることを確認。値は表示しない） |
+
+**確認していない点**: 新しい DB に対する setup の `apply` の通し実行（管理者の設定し直し〜API キー〜MCP の確認）は、Wave 4 でユーザーが行う（実行する前の `check` では「API キーが無効」と報告される状態）。**OpenSEO は今回この表の対象ではないが、イメージが `latest` のまま・匿名のテレメトリが有効のままである**（9 節の未決定事項）。
 
 ### 上流を無改変に保つ方針とセキュリティ要件の衝突
 
@@ -184,7 +207,7 @@ AA-05 の ADR-12 で、Mautic・Chatwoot・Umami の本番を AWS（ECS on Farga
 | B | `docker-compose.override.yml` を足す | 上流ファイルを 1 バイトも変えない。Compose が自動で読む | **`ports` は既定でリストが連結されるため、単純な override では `"3000:3000"` を取り消せない。** Compose の `!override` タグ（Compose v2.24 以降）でリストごと置き換える必要がある。本セッションでは実際に適用して確認していない |
 | C | Umami を他のスタックと同じ形にする（`middleware/umami` に自作の compose と `dev/init-env.sh` を置き、上流の compose を使わない） | 上流ディレクトリに一切触れない。`backend/chatwoot-system` や `middleware/n8n` と同じ「公式イメージを動かすための compose と環境変数テンプレートだけを自作する」形に揃う。リポジトリの命名規則とも整合する | 上流の compose 更新に自動では追随しない（ただし Umami の compose は 2 サービスと 1 ボリュームだけで、追随の負担は小さい） |
 
-**推奨は C。** 上流の取り込みを「読むための資料」として無改変に保ったまま、運用する実体は自作側に置くという分離になり、リポジトリ全体の構成（自作 8,500 対 160 の区別）と矛盾しない。B は上流ファイルを変えない点で魅力的だが、`ports` の連結という一点で目的（課題 1 の解消）を達成できない可能性があり、その確認ができていない状態で採用できない。
+**推奨は C（2026-10-06 に採用した。`middleware/umami`）。** 上流の取り込みを「読むための資料」として無改変に保ったまま、運用する実体は自作側に置くという分離になり、リポジトリ全体の構成（自作 8,500 対 160 の区別）と矛盾しない。B は上流ファイルを変えない点で魅力的だが、`ports` の連結という一点で目的（課題 1 の解消）を達成できない可能性があり、その確認ができていない状態で採用できない。
 
 **旧版では「ngrok による露出が決まったことで、課題 1 の重みが増した」と書いていた。** Umami を開発機からトンネルで公開する前提では、`0.0.0.0` のままだとトンネルにいくら認証をかけても同一ネットワークから素通りで管理画面に到達できたためである。**ADR-12 で本番の Umami は AWS に移り、開発機の Umami をトンネルで公開する経路は無くなった**（TA-01 の 7 節）。課題 1 の影響は「同一ネットワーク上の他の端末から開発環境の管理画面に到達できる」ことに戻った。
 
@@ -438,7 +461,10 @@ AA-05 の ADR-09 で採用したセルフホストの OpenSEO（`middleware/open
 - **「内部」は組織内の利用者に限る設定である。** 接続できるのは `comegin.com` の Workspace アカウントだけであり、**そのアカウントが Search Console のプロパティにアクセスできる必要がある**（ドメインプロパティを登録したアカウント、または権限を付与されたアカウント）。
 
 ## 9. 未決定事項
-
+- **（2026-10-06 に解決）Umami の対処を A / B / C のどの案で行うか。** **C で行った**（`middleware/umami`。3 節）。以下は旧版の記述。
+- **（2026-10-06 に追加）OpenSEO のイメージが `latest` のまま・匿名のテレメトリが有効のまま。** OpenSEO の compose は上流の既定（`ghcr.io/every-app/open-seo:latest`）で、固定していない（`OPEN_SEO_IMAGE` で固定できる）。匿名のテレメトリを送る（`OPENSEO_TELEMETRY_DISABLED=1` か `DO_NOT_TRACK=1` で止まる）。**版を固定するか・テレメトリを止めるかはユーザーの判断**で、`setup` の `apply` には入れていない。OpenSEO は無認証（`local_noauth`）で `127.0.0.1` に閉じていることが唯一の防御のため（8.2）、`latest` の更新で挙動が変わることの影響を判断する。判断者 `R1`。
+- **（2026-10-06 に追加）n8n の Public API のキーの権限。** 書き出し（TA-03 の 6 節）のキーはコミュニティ版では全権限になる（1 節の表）。有効化の前に判断する。判断者 `R1`。
+- **（2026-10-06 に追加）n8n の IAM ユーザーのアクセスキーの更新の手順と間隔**（1 節の ADR-21 の表。DD-04 の 8.7）。キーが失効・誤りのとき、通知は出ず、ハートビートは途絶える（後者は検知できる）。判断者 `R1`。
 - **Umami の対処を A / B / C のどの案で行うかが未決定。** 3 節では C（他のスタックと同じ形にする）を推奨したが、上流の取り込み方針そのものに関わる判断のため `R1` の決定を待つ。B を採る場合は Compose の `!override` タグが実際に `ports` の連結を回避できるかの検証が先に要る。
 - **（2026-09-18 に解決）本番の管理画面の関門の方式。** **自作の `admin-auth`（Better Auth）を IdP にした ALB の OIDC 認証で、ログインは Google Workspace**に決めた（`R1`。AA-05 の ADR-13。同日の当初案は ADR-13 の選択肢の表を参照）。旧版の「ngrok の認証方式」はこの項目に置き換わっていた。6 節。
 - **Better Auth の OAuth 2.1 Provider と ALB の `authenticate-oidc` の組み合わせを実地で確認していない**（トークンエンドポイントのクライアント認証方式が ALB と合うか、UserInfo の応答を ALB が受け付けるかなど）。TA-06 の 11 節。判断者 `R1`。

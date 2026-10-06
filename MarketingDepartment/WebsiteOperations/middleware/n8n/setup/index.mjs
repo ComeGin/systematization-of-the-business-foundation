@@ -27,7 +27,7 @@ const MCP_URL = `${BASE}/mcp-server/http`;
 
 // provision が読む設定のうち、状態から渡さないもの。設定（dev.conf）に同じ名前で書いてあれば、そのまま渡す
 const PASS_THROUGH = [
-  "N8N_BASE_URL", "MAUTIC_API_URL", "MAUTIC_URL_FROM_N8N", "MAUTIC_WEBHOOK_TARGET", "CHATWOOT_API_URL", "CHATWOOT_WEBHOOK_TARGET",
+  "N8N_BASE_URL", "MAUTIC_API_URL", "MAUTIC_URL_FROM_N8N", "MAUTIC_WEBHOOK_TARGET", "CHATWOOT_API_URL", "CHATWOOT_URL_FROM_N8N", "CHATWOOT_N8N_API_TOKEN", "CHATWOOT_WEBHOOK_TARGET",
   "SMTP_HOST", "SMTP_PORT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "SNS_TOPIC_ARN_LEAD", "SNS_TOPIC_ARN_OPS",
 ];
 
@@ -92,7 +92,8 @@ export async function check(ctx) {
   if (apiOk) {
     const list = await ctx.http("n8n", `${BASE}/api/v1/workflows?limit=250`, { headers: { "X-N8N-API-KEY": ctx.value("N8N_API_KEY") } }).catch(() => null);
     const names = (list?.data ?? []).filter((w) => !w.isArchived).map((w) => w.name);
-    const want = ["I-21", "I-19", "I-11", "I-12", "I-18"];
+    // 先頭が I-xx の 5 本と、定期実行の 3 本（名前の先頭の一部で見る）
+    const want = ["I-21", "I-19", "I-11", "I-12", "I-18", "週次 問い合わせの棚卸し", "n8n スケジュール実行のハートビート", "運用監視"];
     const have = want.filter((p) => names.some((n) => n.startsWith(p)));
     flowsOk = have.length === want.length;
     notes.push(`ワークフロー: ${have.length}/${want.length} 本が取り込み済み（${want.filter((p) => !have.includes(p)).join(", ") || "全部"}${have.length === want.length ? "" : " が無い"}）`);

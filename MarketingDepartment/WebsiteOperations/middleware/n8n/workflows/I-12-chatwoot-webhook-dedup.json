@@ -188,7 +188,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Chatwoot からの Webhook').first().json.body ?? {};\nconst event = body.event;\n\nlet displayId = null;\nlet messageId = '';\nlet contact = null;\nlet kind = '';\n\nif (event === 'conversation_created') {\n  // 会話イベントはトップレベルの id が display_id\n  displayId = body.id;\n  messageId = 'conversation_created';\n  contact = body.meta?.sender ?? null;\n  kind = 'conversation-opened';\n} else if (event === 'message_created') {\n  // 顧客からの公開メッセージだけを対象にする（担当者の返信・社内メモ・システムの活動は除く）\n  const isIncoming = body.message_type === 'incoming' || body.message_type === 0;\n  if (!isIncoming || body.private === true) return [];\n  displayId = body.conversation?.id ?? null;\n  messageId = String(body.id);\n  contact = body.sender ?? body.conversation?.meta?.sender ?? null;\n} else {\n  return [];\n}\n\nif (displayId === null || displayId === undefined) return [];\n\nreturn [\n  {\n    json: {\n      dedupKey: displayId + '|' + messageId,\n      event,\n      displayId,\n      messageId,\n      chatwootContactId: contact?.id ?? null,\n      // I-19 の突合に使う。lower(email) に揃える。メールは冪等キーの表にも通知にも載せない\n      email: String(contact?.email ?? '').trim().toLowerCase(),\n      kind,\n      topic: kind ? 'comegin-lead-alert' : '',\n      company: contact?.additional_attributes?.company_name ?? '',\n      receivedAtSec: Math.floor(Date.now() / 1000),\n    },\n  },\n];"
+        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Chatwoot からの Webhook').first().json.body ?? {};\nconst event = body.event;\n\nlet displayId = null;\nlet messageId = '';\nlet contact = null;\nlet kind = '';\n\nif (event === 'conversation_created') {\n  // 会話イベントはトップレベルの id が display_id\n  displayId = body.id;\n  messageId = 'conversation_created';\n  contact = body.meta?.sender ?? null;\n  kind = 'conversation-opened';\n} else if (event === 'message_created') {\n  // 顧客からの公開メッセージだけを対象にする（担当者の返信・社内メモ・システムの活動は除く）\n  const isIncoming = body.message_type === 'incoming' || body.message_type === 0;\n  if (!isIncoming || body.private === true) return [];\n  displayId = body.conversation?.id ?? null;\n  // 重複排除のキーに使えるメッセージ ID が無いイベントは読み飛ばす。String(undefined) の 'undefined' をキーにすると、\n  // 同じ会話の ID の無いメッセージがすべて同じキー（<display_id>|undefined）として重複扱いになる（Chatwoot は常に id を付けるので実害は小さい）\n  if (body.id === undefined || body.id === null) return [];\n  messageId = String(body.id);\n  contact = body.sender ?? body.conversation?.meta?.sender ?? null;\n} else {\n  return [];\n}\n\nif (displayId === null || displayId === undefined) return [];\n\nreturn [\n  {\n    json: {\n      dedupKey: displayId + '|' + messageId,\n      event,\n      displayId,\n      messageId,\n      chatwootContactId: contact?.id ?? null,\n      // I-19 の突合に使う。lower(email) に揃える。メールは冪等キーの表にも通知にも載せない\n      email: String(contact?.email ?? '').trim().toLowerCase(),\n      kind,\n      topic: kind ? 'comegin-lead-alert' : '',\n      company: contact?.additional_attributes?.company_name ?? '',\n      receivedAtSec: Math.floor(Date.now() / 1000),\n    },\n  },\n];"
       },
       "id": "5a8e7d47-14bb-57a4-ba1a-cbe4c97d0d2f",
       "name": "イベントの整理とキー生成",
@@ -336,7 +336,8 @@
             "company": "={{ $('イベントの整理とキー生成').item.json.company }}",
             "sourcePath": "",
             "receivedAtSec": "={{ $('イベントの整理とキー生成').item.json.receivedAtSec }}",
-            "state": ""
+            "state": "",
+            "detail": ""
           },
           "matchingColumns": [],
           "schema": [
@@ -406,6 +407,15 @@
             {
               "id": "state",
               "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
               "required": false,
               "defaultMatch": false,
               "display": true,

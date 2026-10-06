@@ -56,6 +56,9 @@ const RawSchema = z.object({
   MISWRITE_CHATWOOT_ACCOUNT_ID: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   MISWRITE_CHATWOOT_API_TOKEN: optionalString,
   MISWRITE_AGENT_USER_ID: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+  // 本番の n8n のワークフローの書き出し（builtin n8n-export）。2 つ揃ったときだけ有効（片方だけなら skipped）
+  CONTROL_N8N_EXPORT_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  CONTROL_N8N_EXPORT_API_KEY: optionalString,
 });
 
 type Raw = z.infer<typeof RawSchema>;
@@ -76,6 +79,8 @@ export interface ControlPlaneConfig {
   github: { token: string; repository: string; baseBranch: string; issueNumber: number; reviewer: string } | null;
   aws: { region: string; profile: string | null; runlogBucket: string; heartbeatNamespace: string } | null;
   miswrite: { baseUrl: string; accountId: number; apiToken: string; agentUserId: number } | null;
+  /** 本番の n8n の Public API（読み取り）。どちらかが未設定なら null（n8n-export は skipped）。キーはエージェントに渡さない */
+  n8nExport: { baseUrl: string; apiKey: string } | null;
 }
 
 /** 同じグループの変数は、全部未設定（そのグループは無効）か、全部設定のどちらか。全部設定なら true。 */
@@ -153,6 +158,11 @@ const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
           agentUserId: env.MISWRITE_AGENT_USER_ID!,
         }
       : null,
+    // groupIssues は使わない。片方だけの設定は例外にせず、n8n-export を skipped にする（固定シート 7 節）
+    n8nExport:
+      env.CONTROL_N8N_EXPORT_URL !== undefined && env.CONTROL_N8N_EXPORT_API_KEY !== undefined
+        ? { baseUrl: env.CONTROL_N8N_EXPORT_URL.replace(/\/+$/, ""), apiKey: env.CONTROL_N8N_EXPORT_API_KEY }
+        : null,
   };
 });
 

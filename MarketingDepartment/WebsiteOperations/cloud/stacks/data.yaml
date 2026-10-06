@@ -3,7 +3,7 @@ Description: >-
   データストア。RDS for MySQL 8.4（Mautic）、RDS for PostgreSQL 16（1 インスタンスに複数 DB）、
   ElastiCache（Valkey）、EFS（Mautic の media と config）、S3（Chatwoot の添付・Strapi のメディア・Astro の配信用）。
   TA-06 の 4 節。すべて単一構成（Single-AZ・1 ノード。4.6 で決定）。データを持つリソースは Retain。
-  PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / umami / admin_auth / strapi / n8n / calcom）は
+  PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / umami / admin_auth / strapi / n8n）は
   CloudFormation では作れない。ops-tasks.yaml の 1 回だけのタスクで作る（README の手順）。
 
 Parameters:

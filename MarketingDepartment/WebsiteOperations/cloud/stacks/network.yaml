@@ -39,9 +39,6 @@ Parameters:
   AdminAuthPort:
     Type: Number
     Default: 3103
-  CalcomPort:
-    Type: Number
-    Default: 3000
   ConsentApiPort:
     Type: Number
     Default: 3104
@@ -225,7 +222,6 @@ Resources:
         - { IpProtocol: tcp, FromPort: !Ref ChatwootWebPort, ToPort: !Ref ChatwootWebPort, DestinationSecurityGroupId: !Ref ChatwootWebSecurityGroup, Description: To chatwoot-web }
         - { IpProtocol: tcp, FromPort: !Ref UmamiPort, ToPort: !Ref UmamiPort, DestinationSecurityGroupId: !Ref UmamiSecurityGroup, Description: To umami }
         - { IpProtocol: tcp, FromPort: !Ref AdminAuthPort, ToPort: !Ref AdminAuthPort, DestinationSecurityGroupId: !Ref AdminAuthSecurityGroup, Description: To admin-auth }
-        - { IpProtocol: tcp, FromPort: !Ref CalcomPort, ToPort: !Ref CalcomPort, DestinationSecurityGroupId: !Ref CalcomSecurityGroup, Description: To calcom }
         - { IpProtocol: tcp, FromPort: !Ref ConsentApiPort, ToPort: !Ref ConsentApiPort, DestinationSecurityGroupId: !Ref ConsentApiSecurityGroup, Description: To consent-api }
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-alb' }
@@ -291,16 +287,6 @@ Resources:
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-admin-auth' }
 
-  CalcomSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: calcom tasks
-      VpcId: !Ref Vpc
-      SecurityGroupEgress:
-        - { IpProtocol: tcp, FromPort: 0, ToPort: 65535, CidrIp: 0.0.0.0/0, Description: Outbound via NAT for ECR and Secrets Manager and SES and external APIs }
-      Tags:
-        - { Key: Name, Value: !Sub 'comegin-${EnvName}-calcom' }
-
   ConsentApiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -357,7 +343,7 @@ Resources:
   PostgresSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS for PostgreSQL (chatwoot, umami, admin_auth, strapi, n8n, calcom)
+      GroupDescription: RDS for PostgreSQL (chatwoot, umami, admin_auth, strapi, n8n)
       VpcId: !Ref Vpc
       SecurityGroupEgress:
         - { IpProtocol: tcp, FromPort: 1, ToPort: 1, CidrIp: 127.0.0.1/32, Description: No outbound traffic needed }
@@ -397,9 +383,6 @@ Resources:
   AdminAuthFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref AdminAuthSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref AdminAuthPort, ToPort: !Ref AdminAuthPort, Description: From ALB }
-  CalcomFromAlb:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref CalcomSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref CalcomPort, ToPort: !Ref CalcomPort, Description: From ALB }
   ConsentApiFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref ConsentApiSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref ConsentApiPort, ToPort: !Ref ConsentApiPort, Description: From ALB }
@@ -444,9 +427,6 @@ Resources:
   PostgresFromAdminAuth:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref PostgresSecurityGroup, SourceSecurityGroupId: !Ref AdminAuthSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: From admin-auth }
-  PostgresFromCalcom:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref PostgresSecurityGroup, SourceSecurityGroupId: !Ref CalcomSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: From calcom }
   # オンプレの Strapi・n8n（WireGuard 経由。EC2 で SNAT されて、送信元は WireGuard の EC2 になる）。
   # このルールで届くのは PostgreSQL の 5432 まで。どのデータベースに入れるかは DB ユーザーの権限（ops-tasks の REVOKE ALL FROM PUBLIC と、データベースごとのオーナー）で strapi・n8n だけに絞る。
   PostgresFromWireguard:
@@ -503,8 +483,6 @@ Outputs:
     Value: !Ref UmamiSecurityGroup
   AdminAuthSecurityGroupId:
     Value: !Ref AdminAuthSecurityGroup
-  CalcomSecurityGroupId:
-    Value: !Ref CalcomSecurityGroup
   ConsentApiSecurityGroupId:
     Value: !Ref ConsentApiSecurityGroup
   WireguardSecurityGroupId:

@@ -176,7 +176,7 @@ erDiagram
 | `E-13` | `ImprovementProposal` | 後述の 12 項目 | Git（`docs/proposals/` の Markdown。PR で承認） | Markdown + YAML frontmatter | 未着手 |
 | `E-14` | `ApprovalRecord` | `approver` / `decision` / `decided_at` / `comment` | `E-13` に従属（PR のレビュー承認） | Git / GitHub | 未着手 |
 | `E-15` | `AgentRun` | `agent_name` / `trigger` / `started_at` / `outcome` / **`summary`（要約）/ `target_ids`（対象の ID）**。**ツールの結果は属性に持たない**（ADR-18 の追加の決定） | **監視アプリ（`frontend/next-js`。ローカル）の実行記録**（ADR-18。**ADR-16 の「正本はクラウド」の唯一の例外**）。当初は n8n の実行履歴としていた（下の注記） | 監視アプリのローカルの DB（種類は未決定。TA-07 の 3.6）。**S3 に追記専用で写す**（写しは正本ではない。TA-06 の 4.7） | 未着手 |
-| **`E-16`** | **`Booking`** | `booking_uid` / `starts_at` / `duration` / `status`（確定 / 変更 / キャンセル）/ `invitee_email`（**個人情報**）/ `cta_id` | **本番の Cal.com**（セルフホスト。RDS for PostgreSQL の `calcom` データベース。TA-06 の 3.1・4.1） | **製品の DB** | 未着手（**2026-10-01 に追加**。4.1） |
+| **`E-16`** | **`Booking`** | `booking_uid` / `starts_at` / `duration` / `status`（確定 / 変更 / キャンセル）/ `invitee_email`（**個人情報**）/ `cta_id` | **本番の Cal.com**（セルフホスト。RDS for PostgreSQL の `calcom` データベース。TA-06 の 3.1・4.1）**〔2026-10-06 ADR-24: SaaS の Cal.com〈cal.com。米国〉に変わった。RDS の `calcom` は作らない〕** | **製品の DB** | 未着手（**2026-10-01 に追加**。4.1） |
 | `E-17` | `MiningOptIn`（2026-10-03 に追加） | `user_id` / `contact_ref`（`E-09` への参照）/ `consent_version` / `consented_at` / `revoked_at` / `max_threads` | `points-api` の DB（RDS for PostgreSQL の `points`。本番: AWS） | テーブル（**削除できる**。削除請求に応じるため） | 未着手 |
 | `E-18` | `MiningContribution`（2026-10-03 に追加） | `user_id`（unMineable の worker 名）/ `date` / `hashrate` / `accepted_shares` | `points-api` の日次スナップショット（発生源は unMineable の `/v1/workers`） | テーブル | 未着手 |
 | `E-19` | `PointTransaction`（2026-10-03 に追加） | `tx_id` / `kind`（`grant` / `redeem` / `reversal`）/ `user_id` / `amount` / `basis`（`E-18` の期間、発注書番号、または打ち消す `tx_id`）/ `approved_by` / `idempotency_key` / `correlation_id` / `chain_tx_hash`。**状態は出来事の列（`events[]`）から求める** | `points-api` の DB（**追記だけ**） | テーブル（INSERT だけ。出来事も行として追記） | 未着手 |
@@ -209,11 +209,11 @@ erDiagram
 
 | 検討した案 | 採否 | 理由 |
 |---|---|---|
-| **`E-16` として新しく立てる** | **採用** | 正本が明確（本番の Cal.com）で、他の型と関連を結べる。**セルフホストにしたため正本が自分たちのクラウドにあり、ADR-16 の基準（正本のデータを持つシステムはクラウド）を満たす** |
+| **`E-16` として新しく立てる** | **採用** | 正本が明確（本番の Cal.com）で、他の型と関連を結べる。**セルフホストにしたため正本が自分たちのクラウドにあり、ADR-16 の基準（正本のデータを持つシステムはクラウド）を満たす**（**2026-10-06 ADR-24 で、この理由は成り立たなくなった。正本は SaaS にあり、ADR-16・ADR-21 の基準の例外としてユーザーが決めた。TA-01 の 8 節**） |
 | `E-09 Contact` の属性で持つ | 不採用 | **1 人が複数回予約しうる**（変更・再予約・2 回目の面談）。属性にすると最後の 1 件しか残らず、`status` の遷移も持てない |
 | 型を立てずに未決のまま残す | 不採用 | **`I-25` の payload（AA-02 のカタログ）と、`form_submitted` → `booking_scheduled` の歩留まり（DA-02 の 4.4）が、どちらも参照先の無い記述になる。** `CAP-15` の監査ログで実際に起きた「型が無いので仕組みを設計できない」と同じ行き止まりを繰り返さない |
 
-- **正本は本番の Cal.com**（RDS for PostgreSQL の `calcom` データベース）。**Google Calendar の予定は複製先であって正本ではない**（Cal.com が予定を作る。予定を直接消しても予約の記録は Cal.com に残る）。Mautic にも写さない（写すなら `E-09` のカスタムフィールドだが、1 対多を持てないため採らない）。
+- **正本は本番の Cal.com**（RDS for PostgreSQL の `calcom` データベース）。**（2026-10-06 ADR-24: 正本は SaaS の Cal.com〈米国〉。RDS の `calcom` は作らない。以下は ADR-19 の記述）** **Google Calendar の予定は複製先であって正本ではない**（Cal.com が予定を作る。予定を直接消しても予約の記録は Cal.com に残る）。Mautic にも写さない（写すなら `E-09` のカスタムフィールドだが、1 対多を持てないため採らない）。
 - **`E-09` との関連は email で結ぶ**（小文字化して突合する。`I-19` と `I-08` と同じ規則。DD-02 の 5.3）。**予約だけが先に成立することは無い**（`I-08` のフォームの送信が先にあり、`E-09` が必ず存在する。DD-02 の 7.2）。
 - **`invitee_email` は実名情報である。** `E-09` `E-10` と同じ区分として扱い、**DA-05 の個人情報の区分・保持期間・削除請求の対象に加える必要がある**（7 節。本ファイルでは DA-05 を変更していない）。
 - **`cta_id` を持つのは、どの入口からの予約かを残すためである**（いまは完了画面の `booking_thanks_embed` だけだが、将来ほかの画面に予約の入口を置いたときに分けられる。`E-06` を参照する）。

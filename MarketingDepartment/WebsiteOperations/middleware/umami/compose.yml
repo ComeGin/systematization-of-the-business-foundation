@@ -1,0 +1,68 @@
+# Umami（アクセス解析。開発環境）
+#
+# 上流の middleware/umami-master/docker-compose.yml（「まず動かしてみる」用のサンプル）は使わず、
+# 公式イメージを動かすための compose だけをここに自作する（docs/RequirementDefinition/TA/04-security-and-secrets.md の 3 節 案 C）。
+# 上流のサンプルからの変更点:
+#   - ホストへの公開を 127.0.0.1 だけにする（課題 1）
+#   - APP_SECRET・TWO_FACTOR_ENCRYPTION_KEY・POSTGRES_PASSWORD を追跡対象外の環境変数ファイルから参照する（課題 2〜4）
+#   - イメージを latest ではなく固定の版にする（本番の cloud/images/umami の UPSTREAM_TAG と揃える）
+#   - MCP（/mcp）を有効にする（MCP_ENABLED=1。無いと /mcp は 404）
+#
+# 確かめた出典:
+#   環境変数（DATABASE_URL・APP_SECRET・TWO_FACTOR_ENCRYPTION_KEY〈64 桁の hex〉・MCP_ENABLED）と healthcheck の形:
+#     middleware/umami-master/{docker-compose.yml,README.md}（上流 v3.4.0）、https://github.com/umami-software/umami/blob/master/README.md
+#   イメージのタグ: cloud/images/umami/Dockerfile（UPSTREAM_TAG=3.4.0。ghcr.io のタグは v なし）。
+#     docker manifest inspect ghcr.io/umami-software/umami:3.4.0 で存在を確認済み
+#
+# 初回の準備:
+#   ./dev/init-env.sh      # 環境変数ファイルを作り、パスワード・キーを生成する
+#   docker compose up -d
+# ブラウザからは http://localhost:3000（初期の管理者は admin / umami。setup/setup.mjs が生成した値に変える）
+
+name: umami
+
+services:
+  umami:
+    # 版を上げるときは cloud/images/umami の UPSTREAM_TAG と合わせる
+    image: ghcr.io/umami-software/umami:3.4.0
+    ports:
+      # 外部ネットワークに公開しないようループバックのみにバインド（上流のサンプルは "3000:3000" で全インターフェースに開く）
+      - '127.0.0.1:3000:3000'
+    environment:
+      DATABASE_URL: postgresql://umami:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD を設定してください（dev/init-env.sh で生成できます）}@db:5432/umami
+      APP_SECRET: ${APP_SECRET:?APP_SECRET を設定してください（dev/init-env.sh で生成できます）}
+      # 2 要素認証の秘密を暗号化する鍵（64 桁の hex）。変えると登録済みの 2 要素認証を復号できなくなる
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY:?TWO_FACTOR_ENCRYPTION_KEY を設定してください（dev/init-env.sh で生成できます）}
+      # /mcp（Streamable HTTP の MCP）を有効にする。Bearer の API キーだけを受ける。setup/index.mjs が未認証で 401 になることを確かめる
+      MCP_ENABLED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+    init: true
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:3000/api/heartbeat']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD を設定してください（dev/init-env.sh で生成できます）}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # ホストには公開しない（Compose の既定ネットワーク越しに umami だけが db で到達する）
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # 実体の名前は umami_db-data。旧スタック（umami-master_umami-db-data）とも、過去に project 名 umami で作られた
+  # umami_umami-db-data とも別のボリュームにする（後者は POSTGRES_PASSWORD=umami で初期化済みで、新しい値が効かないため）
+  db-data:

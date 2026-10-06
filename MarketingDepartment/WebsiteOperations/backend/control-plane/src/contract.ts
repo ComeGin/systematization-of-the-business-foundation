@@ -75,7 +75,8 @@ export type BuiltinJob =
   | "silence-check"
   | "lighthouse"
   | "published-article-check"
-  | "runlog-flush";
+  | "runlog-flush"
+  | "n8n-export";
 
 /** 定期実行の定義（承認済み main のチェックアウトから読んだもの）。 */
 export interface JobDefinition {

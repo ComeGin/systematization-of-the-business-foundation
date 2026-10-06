@@ -49,13 +49,23 @@ services:
       - >
         bootstrap-mtls.sh --out-dir /tls --api-san sandbox-api
         --control-san-prefix sandbox-runner --world-readable &&
-        chown -R sandbox-api:sandbox-api /tls/api && chmod -R a+rX /tls
+        chown -R sandbox-api:sandbox-api /tls/api && chmod -R a+rX /tls &&
+        mkdir -p /tls/public &&
+        cp /tls/api/grpc-server.crt /tls/public/api-grpc-server.crt &&
+        cp /tls/api/control-grpc-api-client.crt /tls/public/api-control-grpc-api-client.crt &&
+        cp /tls/runner/grpc-client.crt /tls/public/runner-grpc-client.crt &&
+        cp /tls/runner/control-grpc-server.crt /tls/public/runner-control-grpc-server.crt &&
+        chmod -R a+rX /tls/public
     environment:
       NUM_RUNNERS: "1"
     volumes:
       - sandbox-tls:/tls
     # 一度だけ走って mTLS 証明書を作り、終了する。証明書は自動更新されないため、
-    # 期限が切れたら sandbox-tls ボリュームを作り直す
+    # 期限が切れたら sandbox-tls ボリュームを作り直す。
+    # /tls/public には公開部分（*.crt）だけをコピーする。n8n の ops-monitor（TA-05 の項目 5）が期限を読むために、
+    # n8n にはこのディレクトリだけをマウントする（秘密鍵 *.key と CA の鍵 ca.key は渡さない）。
+    # bootstrap-mtls.sh は証明書がそろっていれば何もしない（冪等）ので、up のたびに再実行されても安全
+    # 出典: bootstrap-mtls.sh（n8n-sandbox-service-api:1.2.0 の /usr/local/bin。tls_complete の判定）
 
   sandbox-api:
     image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.2.0
@@ -139,8 +149,23 @@ services:
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # 実行履歴は 90 日で消す（DA-05 の 2 節）。env_file より environment が優先されるので、環境変数ファイルを更新しなくても効く。
+      # 件数の既定（10,000）のままだと 90 日に届く前に消えるため 50000 にする（DB の肥大の安全弁として上限は残す）
+      # 出典: https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/executions
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-2160}
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${EXECUTIONS_DATA_PRUNE_MAX_COUNT:-50000}
     volumes:
       - n8n-data:/home/node/.n8n
+      # サンドボックスの mTLS 証明書の公開部分（*.crt）だけを、読み取り専用で。ops-monitor の「sandbox-tls の期限」（TA-05 の項目 5）が
+      # Read/Write Files ノードで読む。n8n 2.0 以降、このノードは既定で ~/.n8n-files の下しか読めない（N8N_RESTRICT_FILE_ACCESS_TO の既定。
+      # 出典: https://docs.n8n.io/changelog/v20-breaking-changes）。subpath は Compose の long syntax（Docker 26 以降）
+      - type: volume
+        source: sandbox-tls
+        target: /home/node/.n8n-files/sandbox-tls
+        read_only: true
+        volume:
+          subpath: public
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
       interval: 10s

@@ -121,9 +121,11 @@ describe("メッセージの作成（message_created）", () => {
     expect(await run(messageCreated({ conversation: {} }))).toEqual([]);
   });
 
-  it.todo(
-    "不具合候補: message_created の本文に id が無いと messageId が文字列 'undefined' になり、同じ会話の id の無いメッセージがすべて同じキー（<display_id>|undefined）として重複扱いになる（workflows/I-12-chatwoot-webhook-dedup.json のノード「イベントの整理とキー生成」の messageId = String(body.id)。Chatwoot は常に id を付けるので実害は小さい）",
-  );
+  // 2026-10-06 に直した不具合: 以前は messageId = String(body.id) で、id が無いと文字列 'undefined' になり、
+  // 同じ会話の id の無いメッセージがすべて同じキー（<display_id>|undefined）として重複扱いになっていた
+  it.each([undefined, null])("message_created の本文の id が %s なら読み飛ばす（キー <display_id>|undefined を作らない）", async (id) => {
+    expect(await run(messageCreated({ id }))).toEqual([]);
+  });
 });
 
 describe("対象外のイベント", () => {

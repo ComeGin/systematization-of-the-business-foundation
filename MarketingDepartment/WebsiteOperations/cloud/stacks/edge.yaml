@@ -33,8 +33,6 @@ Parameters:
     Type: String
   AuthHost:
     Type: String
-  CalHost:
-    Type: String
   ConsentHost:
     Type: String
 
@@ -51,9 +49,6 @@ Parameters:
   AdminAuthPort:
     Type: Number
     Default: 3103
-  CalcomPort:
-    Type: Number
-    Default: 3000
   ConsentApiPort:
     Type: Number
     Default: 3104
@@ -72,10 +67,6 @@ Parameters:
   AdminAuthHealthCheckPath:
     Type: String
     Default: /healthz
-  CalcomHealthCheckPath:
-    Type: String
-    Default: /api/version
-    Description: TODO(T1-3) Cal.com の公式の健全性確認のパスを確かめる。
   ConsentApiHealthCheckPath:
     Type: String
     Default: /healthz
@@ -123,11 +114,6 @@ Parameters:
     Default: 100
     MinValue: 10
     Description: Mautic のフォーム受付（/form/submit*）。
-  WafRateLimitBooking:
-    Type: Number
-    Default: 100
-    MinValue: 10
-    Description: Cal.com の予約（cal. ホスト全体）。偽の予約は R3 の時間枠を奪う。
   WafRateLimitApi:
     Type: Number
     Default: 1000
@@ -159,7 +145,7 @@ Conditions:
 Resources:
   # ---------------------------------------------------------------- 証明書
   # ALB に付ける証明書は ALB と同じリージョンのもの（CloudFront 用の us-east-1 とは別。global/template.yaml）。
-  # 名前を増やすと再発行になるため、cal. / consent. は確定してから（TA-06 の 5.1）。
+  # 名前を増やすと再発行になるため、consent. は確定してから（TA-06 の 5.1）。
   Certificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
@@ -168,7 +154,6 @@ Resources:
         - !Ref MktHost
         - !Ref StatsHost
         - !Ref AuthHost
-        - !Ref CalHost
         - !Ref ConsentHost
       ValidationMethod: DNS
       DomainValidationOptions:
@@ -176,7 +161,6 @@ Resources:
         - { DomainName: !Ref MktHost, HostedZoneId: !Ref HostedZoneId }
         - { DomainName: !Ref StatsHost, HostedZoneId: !Ref HostedZoneId }
         - { DomainName: !Ref AuthHost, HostedZoneId: !Ref HostedZoneId }
-        - { DomainName: !Ref CalHost, HostedZoneId: !Ref HostedZoneId }
         - { DomainName: !Ref ConsentHost, HostedZoneId: !Ref HostedZoneId }
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-alb' }
@@ -292,24 +276,6 @@ Resources:
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-admin-auth' }
 
-  CalcomTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VpcId
-      TargetType: ip
-      Protocol: HTTP
-      Port: !Ref CalcomPort
-      HealthCheckPath: !Ref CalcomHealthCheckPath
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 10
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      Matcher: { HttpCode: '200-399' }
-      TargetGroupAttributes:
-        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
-      Tags:
-        - { Key: Name, Value: !Sub 'comegin-${EnvName}-calcom' }
-
   ConsentApiTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -331,7 +297,6 @@ Resources:
   # ---------------------------------------------------------------- 優先度帯 100 番台: 訪問者向け（認証も認可もしない。WAF のレート制限だけ）
   # パスは TA-06 の 5.3 の想定。製品のバージョンに依存するため、DevTools で実測して確定する（TODO(T1-3)）。
   # ALB の制約: 1 ルールの条件値は 5 つまで（host-header も 1 つに数える）。そのためホスト 1 + パス 4 以内で分割する。
-  # Cal.com の訪問者向けのルールは作らない（ライセンスとパスの切り分けが未確定。TA-06 の 11 節）。cal. は全体が OIDC の内側。
   VisitorUmamiRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -524,28 +489,6 @@ Resources:
             OnUnauthenticatedRequest: authenticate
         - { Type: forward, Order: 2, TargetGroupArn: !Ref UmamiTargetGroup }
 
-  OidcCalcomRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref HttpsListener
-      Priority: 1006
-      Conditions:
-        - { Field: host-header, HostHeaderConfig: { Values: [!Ref CalHost] } }
-      Actions:
-        - Type: authenticate-oidc
-          Order: 1
-          AuthenticateOidcConfig:
-            Issuer: !Sub 'https://${AuthHost}${OidcIssuerPath}'
-            AuthorizationEndpoint: !Sub 'https://${AuthHost}${OidcAuthorizationPath}'
-            TokenEndpoint: !Sub 'https://${AuthHost}${OidcTokenPath}'
-            UserInfoEndpoint: !Sub 'https://${AuthHost}${OidcUserInfoPath}'
-            ClientId: !Ref AlbOidcClientId
-            ClientSecret: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET:SecretString}}'
-            Scope: openid email profile
-            SessionTimeout: !Ref OidcSessionTimeoutSeconds
-            OnUnauthenticatedRequest: authenticate
-        - { Type: forward, Order: 2, TargetGroupArn: !Ref CalcomTargetGroup }
-
   # ---------------------------------------------------------------- WAF（REGIONAL。ALB に関連付ける）
   # 訪問者向けのパスは認証の代わりにレート制限を必ずかける。守りはこれだけ（TA-06 の 5.2・5.5）。
   # レート制限は 5 分の窓・送信元 IP ごと。ルールの評価は優先度の小さい順で、Block したら以降は評価しない。
@@ -599,22 +542,6 @@ Resources:
                         SearchString: /form/submit
                         PositionalConstraint: STARTS_WITH
                         TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
-        # Cal.com の予約。偽の予約は実在しない相手のために時間枠を埋める（R3 の時間を直接奪う）。
-        - Name: rate-limit-booking
-          Priority: 2
-          Action: { Block: {} }
-          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: rate-limit-booking }
-          Statement:
-            RateBasedStatement:
-              Limit: !Ref WafRateLimitBooking
-              EvaluationWindowSec: 300
-              AggregateKeyType: IP
-              ScopeDownStatement:
-                ByteMatchStatement:
-                  FieldToMatch: { SingleHeader: { Name: host } }
-                  SearchString: !Ref CalHost
-                  PositionalConstraint: EXACTLY
-                  TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
         # 機械向けの API（TA-06 の 5.4）。送信元 IP で絞れないため、防御は製品側の認証とこのレート制限の 2 つだけ。
         - Name: rate-limit-api
           Priority: 3
@@ -777,14 +704,6 @@ Resources:
       Type: A
       AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
 
-  CalRecord:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Ref CalHost
-      Type: A
-      AliasTarget: { DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: false }
-
   ConsentRecord:
     Type: AWS::Route53::RecordSet
     Properties:
@@ -810,7 +729,7 @@ Outputs:
   # admin-auth が /oauth2/idpresponse を登録するホスト（ALB_PROTECTED_HOSTS。カンマ区切り）。
   # authenticate-oidc を掛けているホストと一致させる。
   AlbProtectedHosts:
-    Value: !Join [',', [!Ref ChatHost, !Ref MktHost, !Ref StatsHost, !Ref CalHost]]
+    Value: !Join [',', [!Ref ChatHost, !Ref MktHost, !Ref StatsHost]]
   MauticWebTargetGroupArn:
     Value: !Ref MauticWebTargetGroup
   MauticWebTargetGroupFullName:
@@ -827,10 +746,6 @@ Outputs:
     Value: !Ref AdminAuthTargetGroup
   AdminAuthTargetGroupFullName:
     Value: !GetAtt AdminAuthTargetGroup.TargetGroupFullName
-  CalcomTargetGroupArn:
-    Value: !Ref CalcomTargetGroup
-  CalcomTargetGroupFullName:
-    Value: !GetAtt CalcomTargetGroup.TargetGroupFullName
   ConsentApiTargetGroupArn:
     Value: !Ref ConsentApiTargetGroup
   ConsentApiTargetGroupFullName:

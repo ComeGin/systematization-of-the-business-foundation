@@ -1,11 +1,15 @@
-// Umami（開発環境）の設定。起動（MCP を有効にして）→ 管理者のパスワードの変更 → Web サイト → API キー → MCP の env ファイル。
+// Umami（開発環境）の設定。環境変数の生成と起動 → 管理者のパスワードの変更 → Web サイト → API キー → MCP の env ファイル。
 //
 // 方針（setup/lib/core.mjs の契約）:
-//   - 使うのは Umami の公式の REST API だけ（画面も DB も触らない）。umami-master は上流の取り込みなので、独自の追加は dev/setup/ の中だけ
-//   - 上流の docker-compose.yml は MCP が無効（MCP_ENABLED=1 が無いと /mcp は 404）。上流は変えず、dev/setup/compose.mcp.yml で上書きして起動する
+//   - 使うのは Umami の公式の REST API だけ（画面も DB も触らない）
+//   - 起動するのは middleware/umami の自作の compose（TA-04 の 3 節 案 C。127.0.0.1 だけに開き、MCP_ENABLED=1 を compose に持つ）。
+//     秘密値は dev/init-env.sh が先に生成する（冪等。生成した値は表示しない）。上流の umami-master の compose は使わない
+//   - 旧スタック（project 名 umami-master）が動いていると 3000 が衝突するので、止める手順を案内して失敗させる（勝手には止めない）
+//   - 旧スタックの DB とは別のボリュームなので、管理者は初期値（admin / umami）に戻っている。状態に残っている管理者のパスワードがあれば、それを新しい管理者に設定し直す。
+//     Web サイトと API キーは作り直す（状態のキーの名前と umami-dev.env の中身は変えない）
 //   - API キーは「ログインして得たトークン」で作る（API キー自身では /api/me/api-keys を呼べない）。平文は作成時にしか返らないので、状態と MCP の env に置く
 //
-// 確かめた出典（middleware/umami-master のソース v3.4.0。動いているコンテナも同じ版）:
+// 確かめた出典（middleware/umami-master のソース v3.4.0。middleware/umami の compose の版も同じ）:
 //   src/app/api/auth/login/route.ts（POST /api/auth/login → { token }。上流の既定の管理者は admin / umami）
 //   src/app/api/me/password/route.ts（POST { currentPassword, newPassword }。8 文字以上）
 //   src/app/api/websites/{route.ts,request-schema.ts}（GET 一覧は { data }、POST { name, domain }。domain は localhost 可）
@@ -16,7 +20,8 @@ import { join } from "node:path";
 
 export const meta = { id: "umami", title: "Umami（アクセス解析。開発環境）", targets: ["dev"], after: [] };
 
-const DIR = "middleware/umami-master";
+const DIR = "middleware/umami";
+const OLD_PROJECT = "umami-master"; // 旧スタックの compose のプロジェクト名
 const BASE_URL = "http://127.0.0.1:3000";
 const DEFAULT_SITE_URL = "http://localhost:4321"; // 開発の公開サイト（Astro dev）
 const ADMIN_USER = "admin";
@@ -39,11 +44,24 @@ async function mcpStatus() {
   return res?.status ?? null;
 }
 
+/** 旧スタック（umami-master）のコンテナが残っているか */
+async function oldStackRunning(ctx) {
+  const out = await ctx.run("docker", ["ps", "-q", "--filter", `label=com.docker.compose.project=${OLD_PROJECT}`]);
+  return out.trim() !== "";
+}
+
 async function ensureStack(ctx) {
-  await ctx.run("docker", ["compose", "-f", "docker-compose.yml", "-f", "dev/setup/compose.mcp.yml", "up", "-d"], { cwd: root(ctx) });
+  if (await oldStackRunning(ctx)) {
+    throw new Error(
+      `旧スタック（${OLD_PROJECT}）が動いていて、3000 が衝突する。ボリュームを消さずに止めてから実行し直す: ` +
+        `docker compose -p ${OLD_PROJECT} down（-v を付けない。古いボリュームは残る）`,
+    );
+  }
+  await ctx.run(join(root(ctx), "dev/init-env.sh"), [], { cwd: root(ctx) }); // 秘密値の生成（既にある値は変えない。出力に値は出ない）
+  await ctx.run("docker", ["compose", "up", "-d"], { cwd: root(ctx) });
   if (!(await ctx.waitForHttp(`${BASE_URL}/api/heartbeat`, { timeoutMs: 180_000 }))) throw new Error(`Umami が ${BASE_URL} で応答しない。docker compose logs umami を見る（${DIR}）`);
   const status = await mcpStatus();
-  if (status !== 401) throw new Error(`Umami の /mcp が有効になっていない（未認証で 401 のはずが ${status}）。compose.mcp.yml で MCP_ENABLED=1 を渡せているか、docker compose logs umami を確かめる`);
+  if (status !== 401) throw new Error(`Umami の /mcp が有効になっていない（未認証で 401 のはずが ${status}）。compose.yml の MCP_ENABLED=1 が効いているか、docker compose logs umami を確かめる`);
   ctx.log("起動している（MCP は有効）");
 }
 
@@ -89,7 +107,7 @@ async function ensureAdmin(ctx) {
 
   ctx.manual("admin-password", `Umami の管理者（${ADMIN_USER}）のパスワードが初期値ではなく、このスクリプトも知らない`, [
     "管理者のパスワードを知っている場合: ~/.config/comegin/setup/dev.conf に UMAMI_ADMIN_PASSWORD=<そのパスワード> を書く（chmod 600）",
-    "知らない場合: API・CLI にはパスワードを再設定する手段が無い。開発環境の Umami のデータを作り直してよければ、自分で docker compose down -v を実行してから、このコマンドを実行し直す（スクリプトはデータを消さない）",
+    "知らない場合: API・CLI にはパスワードを再設定する手段が無い。開発環境の Umami のデータを作り直してよければ、自分で middleware/umami で docker compose down -v を実行してから、このコマンドを実行し直す（スクリプトはデータを消さない）",
     "書いたら、同じコマンドを実行し直す",
   ]);
 }
@@ -155,7 +173,7 @@ async function ensureApiKey(ctx, jwt) {
 export async function check(ctx) {
   const notes = [];
   const status = await mcpStatus();
-  notes.push(status === null ? `Umami が ${BASE_URL} で応答しない` : status === 401 ? "Umami は起動していて、MCP は有効" : `Umami の MCP が無効（/mcp が ${status}。compose.mcp.yml を付けて起動し直す）`);
+  notes.push(status === null ? `Umami が ${BASE_URL} で応答しない` : status === 401 ? "Umami は起動していて、MCP は有効" : `Umami の MCP が無効（/mcp が ${status}。middleware/umami の compose で起動し直す。旧スタックが 3000 を握っていないかも確かめる）`);
   let ok = status === 401;
 
   for (const key of ["UMAMI_ADMIN_PASSWORD", "UMAMI_WEBSITE_ID", "UMAMI_API_KEY"]) {

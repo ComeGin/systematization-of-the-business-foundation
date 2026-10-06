@@ -5,7 +5,7 @@ TA（Technology Architecture）層。ロール ID（正本は BA-03）・Capabil
 
 > **（2026-10-05）ADR-21 で配置の基準が変わった。本ファイルの本文より、この注記を優先する。**
 > 基準は「**再帰的自己改善の仕組みはオンプレ、成果物（製品）はクラウド、データの置き場は AWS**」。
-> - **クラウド（AWS）**: 製品の Astro（S3 + CloudFront）・Mautic・Chatwoot・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。データの置き場は RDS・ElastiCache・S3・EFS・SES・SNS。
+> - **クラウド（AWS）**: 製品の Astro（S3 + CloudFront）・Mautic・Chatwoot・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。（**2026-10-06 ADR-24: Cal.com は SaaS（cal.com）に変わり、AWS に置かない。ユーザーの決定による例外として 8 節の一覧に載せる**）データの置き場は RDS・ElastiCache・S3・EFS・SES・SNS。
 > - **オンプレ**: **Strapi（本番）・n8n（本番）**・監視アプリ・Claude Code・MCP サーバ・OpenSEO・Lighthouse CI・ビルド・全システムの開発環境。Strapi・n8n のデータは AWS の RDS（`strapi` `n8n`）と S3（Strapi のメディア）に置く。
 > - **境界越えの通信**: オンプレと VPC を小さな EC2 の **WireGuard** でつなぐ（オンプレから外向きに接続）。オンプレ → RDS（`strapi` `n8n` だけ）、AWS → オンプレ（Mautic・Chatwoot から n8n の Webhook だけ）。S3・SNS はトンネルを通さず API で使う。
 > - 本文中の「本番の Strapi・n8n は AWS」「`cms.comegin.com`・`n8n.comegin.com`」「AWS からローカルへ向かう線は作らない」は、ADR-21 の前の記述である。
@@ -128,18 +128,21 @@ flowchart LR
 
 **開発環境（開発機のローカル）の割当である。** 本番では Strapi・Mautic・Chatwoot・Umami・n8n は AWS の ALB の後ろで動き（Strapi は ADR-15 でオンプレだけに戻したが、ADR-16 で n8n とともに本番を AWS に置いた）、この表のポートは使わない（TA-06）。1337（Strapi）と 5678（n8n）も開発環境のポートである。複数スタックを同時に起動する前提で調整済みの割当。新しくポートを使うときはこの表を崩さない。
 
+> **（2026-10-06）ADR-21 の反映。** 本番の Strapi と n8n は ECS ではなく**オンプレで動く**ため、**この表に本番のポート（1338・5679・5680）を足した**（`.claude/CLAUDE.md` のポート表と同じ。同じマシンで開発と本番を同時に動かせるよう、ポートをずらしてある）。上の「本番では Strapi・n8n は AWS の ALB の後ろで動き…この表のポートは使わない」は ADR-16 の記述で、Mautic・Chatwoot・Umami について今も成り立つ。**新しいホストポートは増やしていない**（`middleware/host-relay` が `docker0` のアドレス `172.17.0.1` で待ち受けるだけ）。host-relay の中継は 8000（Mautic）・1025（MailHog）・5678（n8n）・**3001（OpenSEO の `GET /api/health` だけ）・3100（Chatwoot）**で、開発環境だけに置く。
+
 | ポート | 用途 | 定義箇所 | 状態 |
 |---|---|---|---|
 | 1025 | Mautic の MailHog（SMTP） | `backend/mautic-system/docker/compose.yaml` | `実装済み` |
-| 1337 | Strapi | `backend/strapi-system` | `実装済み` |
-| 3000 | Umami | `middleware/umami-master/docker-compose.yml` | `実装済み` |
-| **3001** | **OpenSEO**（UI と MCP の `/mcp`） | `middleware/open-seo-main/compose.yaml`（`PORT` の既定。上流のまま） | `実装済み` |
-| 3100 | Chatwoot 本体（`CHATWOOT_PORT`） | `backend/chatwoot-system/docker-compose.yaml` | `実装済み` |
+| 1337 | Strapi（開発環境） | `backend/strapi-system` | `実装済み` |
+| **1338** | **Strapi（本番。オンプレ。ADR-21）**。データは AWS の RDS・S3。`127.0.0.1` だけに開く。`strapi-prod` の接続先（`/mcp`） | `onprem/strapi/compose.yml` | `実装済み`（未起動。起動は人が行う） |
+| 3000 | Umami（**2026-10-06 に `middleware/umami/compose.yml` に移した。`127.0.0.1` にバインド**。旧: `middleware/umami-master/docker-compose.yml`） | `middleware/umami/compose.yml` | `実装済み` |
+| **3001** | **OpenSEO**（UI と MCP の `/mcp`）。**2026-10-06: n8n のコンテナからは `middleware/host-relay` の nginx が `172.17.0.1:3001` で `GET /api/health` だけを通す**（運用監視用。UI と `/mcp` は中継しない。新しいホストポートは増えない） | `middleware/open-seo-main/compose.yaml`（`PORT` の既定。上流のまま） | `実装済み` |
+| 3100 | Chatwoot 本体（`CHATWOOT_PORT`）。**2026-10-06: n8n のコンテナからは `middleware/host-relay` の socat が `172.17.0.1:3100 → 127.0.0.1:3100` で中継する**（週次の棚卸し用） | `backend/chatwoot-system/docker-compose.yaml` | `実装済み` |
 | 3100 | **mautic-mcp の HTTP 既定値**（衝突。後述） | `backend/mautic-mcp/src/config.ts` | `実装済み` |
 | 3102 | chatwoot-mcp（HTTP 時） | `backend/chatwoot-mcp/src/config.ts` | `実装済み` |
 | **3103** | **`admin-auth`（管理画面の関門。Better Auth）の開発サーバー**（本番は ALB の後ろ。TA-06 の 5.2.1） | 未作成（`backend/admin-auth` を想定） | `未着手` |
 | **3104** | **`consent-api`（Cookie 同意の受け口）の開発サーバー**（本番は ALB の後ろ。TA-06 の 4.8。AA-05 の ADR-19。**番号はユーザーが 2026-10-01 に承認**） | 未作成（`backend/consent-api` を想定） | `未着手` |
-| **3105** | **Cal.com（オンライン面談の予約。セルフホスト）**（本番は ALB の後ろ。TA-06 の 3.1。同じ ADR-19。**番号はユーザーが 2026-10-01 に承認**） | 未作成（`backend/calcom-system` を想定。公式イメージ ＋ compose） | `未着手` |
+| **3105** | **Cal.com（オンライン面談の予約。セルフホスト）**〔**2026-10-06 ADR-24: SaaS に変わったため、3105 は使わない。欠番にする**。以下は ADR-19 の記述〕（本番は ALB の後ろ。TA-06 の 3.1。同じ ADR-19。**番号はユーザーが 2026-10-01 に承認**） | 未作成（`backend/calcom-system` を想定。公式イメージ ＋ compose） | `未着手` |
 | **3106** | **`points-api`（採掘の貢献量の取り込みと譲渡不可ポイントの付与）の開発サーバー**（本番は ALB の後ろ。TA-06 の 3.1。AA-05 の ADR-20。2026-10-03 に追加） | `backend/points-api`（想定） | `未着手` |
 | **3200** | **監視アプリ（Next.js）の開発サーバー**（Next.js の既定 3000 は Umami と衝突するため。TA-07 の 4 節） | `frontend/next-js`（`dev` スクリプトに `-p 3200` を付けるか `PORT` で渡す。**未設定**） | `未着手` |
 | 3306 | Mautic の MySQL 8.4 | `backend/mautic-system/docker/compose.yaml` | `実装済み` |
@@ -147,7 +150,9 @@ flowchart LR
 | 4322 | Lighthouse CI が使う preview（固定） | `frontend/verdant-virgo/lighthouserc.cjs` | `実装済み` |
 | 5432 | Chatwoot の PostgreSQL（pgvector pg16） | `backend/chatwoot-system/docker-compose.yaml` | `実装済み` |
 | 5433 | n8n の PostgreSQL 18 | `middleware/n8n/compose.yml` | `実装済み` |
-| 5678 | n8n | `middleware/n8n/compose.yml` | `実装済み` |
+| 5678 | n8n（開発環境） | `middleware/n8n/compose.yml` | `実装済み` |
+| **5679** | **n8n（本番。オンプレ。ADR-21）**のエディター・API・MCP。データは AWS の RDS の `n8n`。`127.0.0.1` だけに開く。`n8n-prod` の接続先（`/mcp-server/http`）と、ワークフローの書き出し（`CONTROL_N8N_EXPORT_URL`）の読み先 | `onprem/n8n/compose.yml` | `実装済み`（未起動） |
+| **5680** | **n8n の本番の Webhook の受け口**（リバースプロキシ `webhook-proxy`）。**WireGuard のアドレス `10.99.0.2` だけ**に開き、**POST の `/webhook/*` だけ**を n8n に通す（送信元は `10.99.0.1` だけ）。エディター・API はクラウドから届かない | `onprem/n8n/compose.yml`・`onprem/n8n/proxy/` | `実装済み`（未起動） |
 | 6379 | Chatwoot の Redis | `backend/chatwoot-system/docker-compose.yaml` | `実装済み` |
 | 8000 | Mautic（PHP ビルトインサーバー） | `backend/mautic-system/dev/serve.sh` | `実装済み` |
 | 8025 | Mautic の MailHog（UI） | `backend/mautic-system/docker/compose.yaml` | `実装済み` |
@@ -168,21 +173,26 @@ Chatwoot 本体（`CHATWOOT_PORT` の既定 3100）と `mautic-mcp` の HTTP 既
 
 **開発環境の事実である**（本番の Strapi・Mautic・Chatwoot・Umami・n8n は private サブネットに置き、ALB だけがインターネットに面する。TA-06 の 5.6）。ホストへ公開するポートのバインド先を一覧にする。**Umami だけが全インターフェースに公開されている。**
 
+> **（2026-10-06）** Umami は `middleware/umami` に移して `127.0.0.1` にバインドし、**この表の「Umami だけが全インターフェースに公開されている」は解消した**（TA-04 の 3 節）。**ADR-21 で本番の Strapi（1338）と n8n（5679）を `127.0.0.1` だけに、Webhook の受け口（5680）を WireGuard のアドレス `10.99.0.2` だけに足した。**
+
 | ポート | サービス | バインド | 定義箇所 |
 |---|---|---|---|
-| 3000 | Umami | **`0.0.0.0`（全インターフェース）** | `middleware/umami-master/docker-compose.yml` の `"3000:3000"` |
+| 3000 | Umami | **`127.0.0.1`**（2026-10-06 に対処済み。旧: `0.0.0.0`〈全インターフェース〉。上流の `middleware/umami-master/docker-compose.yml` の `"3000:3000"`） | `middleware/umami/compose.yml` の `127.0.0.1:3000:3000` |
 | **3001** | **OpenSEO** | **`127.0.0.1`** | `middleware/open-seo-main/compose.yaml`（上流のまま） |
 | 3100 | Chatwoot（rails） | `127.0.0.1` | `backend/chatwoot-system/docker-compose.yaml` |
 | **3200** | **監視アプリ（Next.js）** | **`127.0.0.1` にする**（エージェントを動かせる入口のため。TA-07 の 3.4）。**未設定**（`next dev` の既定は全インターフェース） | `frontend/next-js` |
 | 5432 | Chatwoot の PostgreSQL | `127.0.0.1` | 同上 |
 | 6379 | Chatwoot の Redis | `127.0.0.1` | 同上 |
 | 8026 | Chatwoot の MailHog | `127.0.0.1` | 同上 |
-| 5678 | n8n | `127.0.0.1` | `middleware/n8n/compose.yml` |
+| 5678 | n8n（開発環境） | `127.0.0.1` | `middleware/n8n/compose.yml` |
+| **1338** | **Strapi（本番。ADR-21）** | **`127.0.0.1`** | `onprem/strapi/compose.yml` |
+| **5679** | **n8n（本番。ADR-21）** | **`127.0.0.1`** | `onprem/n8n/compose.yml` |
+| **5680** | **n8n の本番の Webhook の受け口（`webhook-proxy`）** | **WireGuard のアドレス `10.99.0.2` だけ**（`127.0.0.1` にも全インターフェースにも開かない。`wg0` が上がっていないと起動に失敗する） | `onprem/n8n/compose.yml` |
 | 5433 | n8n の PostgreSQL | `127.0.0.1` | 同上 |
 | 3306 | Mautic の MySQL | `127.0.0.1` | `backend/mautic-system/docker/compose.yaml` |
 | 1025 / 8025 | Mautic の MailHog | `127.0.0.1` | 同上 |
 | 8000 | Mautic（PHP ビルトイン） | `127.0.0.1`（`HOST` の既定） | `backend/mautic-system/dev/serve.sh` |
-| （なし） | Umami の PostgreSQL | ホストへ公開しない | `middleware/umami-master/docker-compose.yml` |
+| （なし） | Umami の PostgreSQL | ホストへ公開しない | `middleware/umami/compose.yml`（旧: `middleware/umami-master/docker-compose.yml`） |
 | （なし） | n8n の `sandbox-api` / `sandbox-runner-1` / `runners` / `searxng` | ホストへ公開しない | `middleware/n8n/compose.yml` |
 
 n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワークに公開しないようループバックのみにバインド」というコメントが明示的に付いている。すなわち**この非対称は設計思想の違いではなく、Umami にだけ同じ判断が適用されていないという欠落**である。原因は Umami が上流の compose を無改変で取り込んでいることにある（`middleware/umami-master` は上流の v3.4.0 の 2,026 ファイルをそのまま取り込んでいる）。
@@ -200,28 +210,28 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 | 1 | オンプレ → AWS | 送信 | `astro build` の成果物を S3 へ同期し、CloudFront を無効化する。**人間が承認して実行する**（ADR-15。TA-07 の 7 節） | IAM（デプロイ専用の権限。Claude Code には渡さない）。設計は TA-02 | `未着手` |
 | 2 | AWS → オンプレ | 受信 | CloudFront / S3 のアクセスログを回収し `E-12` の材料にする | 取得は読み取りのみ | `未着手` |
 | 3 | 訪問者 → AWS（CloudFront） | 受信 | 公開サイトの閲覧 | ACM の TLS、AWS WAF | `未着手` |
-| 4 | **訪問者のブラウザ → AWS（ALB）** | 受信 | Umami のトラッカー配信とイベント受信、Chatwoot のウィジェットと WebSocket、Mautic のフォーム受付とトラッキング、**配信メールの開封・クリック計測**、**Cal.com の予約の枠（`I-25`）**、**同意の受け口（`consent-api`）**（後ろの 2 つは 2026-10-01 に追加。TA-06 の 3.1・4.8）、**`points-api` の利用者ポータル（`I-29`。2026-10-03 に追加）** | **認証・認可をしない。WAF のレート制限だけ**（訪問者が到達できないと `CAP-10` `CAP-11` `CAP-12` が成立しないため。`R1` の 2026-09-18 の決定）。**ALB のリスナールールでパス単位の許可リスト**。設計は TA-06 の 5 節 | `未着手` |
-| 5 | **AWS（Mautic・Chatwoot・Strapi）→ AWS（n8n）**（**ADR-16 で境界を越えなくなった**。旧: AWS → オンプレ〈ngrok〉） | VPC の中 | n8n の Webhook 受け口（`N8N_WEBHOOK_URL`）。ADR-12〜ADR-15 では公開の経路で ngrok を通る唯一の線だったが、**ADR-16 で n8n が AWS に移り、VPC の中で届く。ALB にも出さない**（TA-06 の 5.3）。内部の名前の付け方（ECS Service Connect か Cloud Map か）は TA-06 の 11 節 | セキュリティグループ（n8n のタスクは Chatwoot・Mautic・Strapi のタスクからだけ受ける）＋ n8n の Webhook パス | `未配線` |
+| 4 | **訪問者のブラウザ → AWS（ALB）** | 受信 | Umami のトラッカー配信とイベント受信、Chatwoot のウィジェットと WebSocket、Mautic のフォーム受付とトラッキング、**配信メールの開封・クリック計測**、**Cal.com の予約の枠（`I-25`）**、**同意の受け口（`consent-api`）**（**2026-10-06 ADR-24: Cal.com の予約の枠は ALB を通らなくなった。ブラウザから SaaS に直接届く**）（後ろの 2 つは 2026-10-01 に追加。TA-06 の 3.1・4.8）、**`points-api` の利用者ポータル（`I-29`。2026-10-03 に追加）** | **認証・認可をしない。WAF のレート制限だけ**（訪問者が到達できないと `CAP-10` `CAP-11` `CAP-12` が成立しないため。`R1` の 2026-09-18 の決定）。**ALB のリスナールールでパス単位の許可リスト**。設計は TA-06 の 5 節 | `未着手` |
+| 5 | **（2026-10-06）ADR-21: AWS（Mautic・Chatwoot）→ オンプレ（n8n）。WireGuard 越し。Mautic・Chatwoot → WireGuard の EC2〈`10.99.0.1`。masquerade〉→ オンプレの `webhook-proxy`〈`10.99.0.2:5680`。POST の `/webhook/*` だけを n8n に通す。送信元は `10.99.0.1` だけ〉。ngrok・ALB は通らない。Strapi → n8n の Webhook は ADR-17 で使わなくなった。以下は ADR-16 の記述** **AWS（Mautic・Chatwoot・Strapi）→ AWS（n8n）**（**ADR-16 で境界を越えなくなった**。旧: AWS → オンプレ〈ngrok〉） | VPC の中 | n8n の Webhook 受け口（`N8N_WEBHOOK_URL`）。ADR-12〜ADR-15 では公開の経路で ngrok を通る唯一の線だったが、**ADR-16 で n8n が AWS に移り、VPC の中で届く。ALB にも出さない**（TA-06 の 5.3）。内部の名前の付け方（ECS Service Connect か Cloud Map か）は TA-06 の 11 節 | セキュリティグループ（n8n のタスクは Chatwoot・Mautic・Strapi のタスクからだけ受ける）＋ n8n の Webhook パス | `未配線` |
 | 6 | 外部 → オンプレ（ngrok） | 受信 | Astro dev サーバーの共有（`comegin-astro-dev.ngrok.app`） | Vite の `allowedHosts` による Host 照合 | `実装済み` |
 | 7 | **運用者 → AWS（ALB）** | 受信 | Mautic・Chatwoot・Umami の管理画面、**Strapi の `/admin` と n8n のエディター**（ADR-16）（**オンプレの PC のブラウザから開く**。ADR-14） | **要認証**（ALB の OIDC 認証。IdP は自作の `admin-auth`（Better Auth）で、ログインは Google Workspace。2 段階認証は Workspace で必須。TA-06 の 5.2.1）。各製品のログインはその後ろ | `未着手` |
 | 8 | **AWS（本番の Strapi）→ PostHog**（開発環境の Strapi はオンプレ → PostHog） | 送信 | 記事ライフサイクルのイベントと例外。**本番の Strapi は本番用のプロジェクトに、開発環境の Strapi は開発用のプロジェクトに送る**（ADR-16。旧版は「オンプレ → PostHog」の 1 本だった） | `POSTHOG_PROJECT_TOKEN`（本番用は Secrets Manager。TA-06 の 7 節） | `実装済み`（開発環境のみ） |
 | 9 | **オンプレ → AWS（ALB）** | **送信** | **ローカルの Claude Code の MCP（本番用の登録。読み書き。ADR-15・ADR-16）**: `chatwoot-prod`・`mautic-prod` から Chatwoot / Mautic の API、`umami-prod` から Umami の `/mcp`、**`strapi-prod` から Strapi の `/mcp`、`n8n-prod` から n8n の `/mcp-server/http`**（TA-06 の 5.4）。**ローカルのビルドが本番の Strapi の Content API（`/api/*`）を読む**（ADR-16）。**監視アプリの定期実行が本番の Strapi を読み、公開された記事を見つける**（案。ADR-17。TA-03 の 3.1）。**n8n から Chatwoot / Mautic への API は ADR-16 で VPC の中に移り、この経路から外れた** | Chatwoot は `api_access_token`、Mautic は OAuth2 client_credentials、Umami は API キー、**Strapi の MCP は Admin トークン（ADR-16 では削除の権限を与えないとし、ADR-17 で公開・非公開化の権限も外して下書きまでに絞った）、ビルドは読み取り専用の API トークン、n8n は MCP のアクセストークン**（いずれもエージェント専用のアカウント。MCP は `read_write` まで）。**監視アプリが公開の確認に使うトークンは未決定**（ビルド用の読み取り専用の API トークンを使うか。9 節）。**ALB の認証は通さず、製品側の認証と WAF のレート制限で守る**（送信元 IP では絞らない。オンプレの IP が固定ではないため） | `未着手`（MCP サーバの開発環境への接続は `実装済み`） |
-| 10 | **AWS（n8n）→ AWS（SNS）**（**ADR-16 で境界を越えなくなった**。旧: オンプレ → AWS） | 送信 | 本番の n8n から通知を発行する（顧客からの要求・監視の検知）。設計は AA-02 の `I-21` | **タスクロール**（**`sns:Publish` のみ**。対象トピックを限定。アクセスキーを発行しない。TA-04 の 1 節・TA-06 の 7 節） | `未着手` |
+| 10 | **（2026-10-06）ADR-21: オンプレ（n8n）→ AWS（SNS）。インターネット越しの API で、トンネルを通さない。IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキー〈`sns:Publish` のみ。TA-04 の 1 節〉。以下は ADR-16 の記述** **AWS（n8n）→ AWS（SNS）**（**ADR-16 で境界を越えなくなった**。旧: オンプレ → AWS） | 送信 | 本番の n8n から通知を発行する（顧客からの要求・監視の検知）。設計は AA-02 の `I-21` | **タスクロール**（**`sns:Publish` のみ**。対象トピックを限定。アクセスキーを発行しない。TA-04 の 1 節・TA-06 の 7 節） | `未着手` |
 | 11 | オンプレ → DataForSEO | 送信 | OpenSEO からの検索データの問い合わせ（キーワード・ドメイン・地域コード）。AA-02 の `I-23` | `DATAFORSEO_API_KEY`。**前払い残高が支出の上限** | `実装済み` |
 | 12 | オンプレ → Google（Search Console API） | 送信 | OpenSEO が OAuth で自サイトの検索実績を取得する。AA-02 の `I-15` | OAuth（スコープ `webmasters.readonly`）。トークンは OpenSEO の DB に `BETTER_AUTH_SECRET` で暗号化 | `未着手` |
 | 13 | オンプレ → AWS（公開サイト） | 送信 | OpenSEO のサイト監査のクロール。AA-02 の `I-24` | 自サイトのみ（BA-05） | `未着手` |
 | 14 | オンプレ → OpenSEO 開発元の PostHog（米国） | 送信 | OpenSEO の匿名テレメトリ。送るのは件数（インストール数・ユーザー数・プロジェクト数・機能の利用回数）と無作為なインストール ID、失敗した設定チェックの名前と状態だけで、**URL・キーワード・プロンプト・メール・IP 由来の位置情報は含まない**（上流の `docs/SELF_HOSTING_DOCKER.md`）。インストール後 2 時間は 5 分ごと、以後は 1 日 1 回まで | **無し（送信を許可する。`R1` の 2026-09-18 の判断。AA-05 の ADR-09）** | `実装済み`（既定で有効） |
 | **15** | **AWS（Mautic・Chatwoot）→ 顧客（SES）** | **送信** | **顧客向けメール**（Mautic の配信・フォームの自動返信、Chatwoot のメール） | SES の SMTP 認証情報。送信元ドメイン `comegin.com` の DKIM・SPF・DMARC。**送るかどうかは BA-05 の承認ゲート**（TA-06 の 6 節） | `未着手`（サンドボックスのまま） |
-| **16** | **オンプレ → AWS（CloudWatch）** | **送信** | **開発環境の n8n が 5 分ごとにハートビート（生存信号）を送る**（暫定。本番の n8n は AWS に移ったため、オンプレの生存を知らない。TA-07 の 8 節）。途絶えると CloudWatch のアラームが SNS の `comegin-ops-alert` に直接通知する（TA-05）。**ADR-16 で重要度は下がった**（本番が開発機に依存しなくなった）。**ADR-17 でエージェントの定期実行が監視アプリに移り、途絶えることは「改善ループが止まっている」ことを意味するようになった**（重要度が戻った）。**送り手を監視アプリにすることを検討する**（未決定。TA-07 の 9 節。今の送り手では、開発環境の n8n が動いていて監視アプリだけが止まった状態を検知できない） | IAM（`cloudwatch:PutMetricData` のみ。名前空間 `ComeGin/Onprem` に限定。TA-04 の 1 節） | `未着手` |
+| **16** | **オンプレ → AWS（CloudWatch）** | **送信** | **（2026-10-06。ADR-21 の整理）ハートビートは 2 本。監視アプリが `ComeGin/Onprem`・`Heartbeat` を、オンプレの本番の n8n が `ComeGin/OnpremN8n`・`ScheduleHeartbeat` を、それぞれ 5 分ごとに送る。n8n の分は IAM ユーザー `comegin-<env>-onprem-n8n-sns` の `cloudwatch:PutMetricData`（名前空間を限定）。トンネルを通さない。TA-05 の項目 3・16。下は旧版の記述。** **開発環境の n8n が 5 分ごとにハートビート（生存信号）を送る**（暫定。本番の n8n は AWS に移ったため、オンプレの生存を知らない。TA-07 の 8 節）。途絶えると CloudWatch のアラームが SNS の `comegin-ops-alert` に直接通知する（TA-05）。**ADR-16 で重要度は下がった**（本番が開発機に依存しなくなった）。**ADR-17 でエージェントの定期実行が監視アプリに移り、途絶えることは「改善ループが止まっている」ことを意味するようになった**（重要度が戻った）。**送り手を監視アプリにすることを検討する**（未決定。TA-07 の 9 節。今の送り手では、開発環境の n8n が動いていて監視アプリだけが止まった状態を検知できない） | IAM（`cloudwatch:PutMetricData` のみ。名前空間 `ComeGin/Onprem` に限定。TA-04 の 1 節） | `未着手` |
 | **17** | **AWS（`admin-auth`）→ Google Workspace** | **送信** | 管理者のログイン。Better Auth が Google の OIDC で認証し、`hd` クレームと管理者の許可リストを検査する（TA-06 の 5.2.1） | Google Cloud の OAuth クライアント（「内部」）。クライアントシークレットは Secrets Manager | `未着手` |
 | **18** | **オンプレ → GitHub**（**ADR-17 で加えた**） | **送信** | **改善提案の起票（AA-02 の `I-13`）。** 監視アプリの定期実行が、ローカルの `docs/proposals/` の `E-13` から GitHub に PR を作る。ADR-05 では n8n が起票する想定で、ADR-16 の反映では本番の n8n（AWS）に GitHub の資格情報を置く形になっていた。**改善提案のファイルがローカルの Git にあるため、ローカルから行う**（ADR-17） | GitHub の資格情報を**ローカルの PC に置く**（本番の n8n に置かない）。**PR の作成だけを許し、マージを許さない**（マージは `R2` の承認。`E-14`）。どのアカウントで発行するかは未決定（TA-04 の 9 節） | `未着手` |
 | **19** | **オンプレ（監視アプリ）→ AWS（S3）**（**ADR-18 の追加の決定で加えた**） | **送信** | **実行記録（`E-15`）の写し。** 正本はローカルの監視アプリの実行記録のままで、写しは開発機を失ったときの復旧に使う。中身は要約と ID だけ（本番の個人情報を含まない前提）。ALB を通らず S3 の API に直接書く。頻度と形式は未決定（TA-07 の 9 節） | **写し用の資格情報**（監視アプリのサーバー側だけ。Claude Code に渡さない。`s3:PutObject` だけで削除の権限なし。TA-04 の 1 節）。バケットはパブリックアクセスを全ブロック・バージョニング有効・削除と上書きを許さない（TA-06 の 4.7） | `未着手` |
-| **20** | **AWS（`calcom`）→ Google Workspace（Google Calendar API）**（**2026-10-01 の決定で加えた**） | **送信** | **オンライン面談の予約**（AA-02 の `I-25`。BA-04 の商談プロセスの段 2）。**ComeGin のカレンダーの空き時間を読み**、予約が成立したら**予定を作って訪問者を招待する**。**招待により、訪問者の氏名・メールアドレス・面談の日時が Google LLC（米国）に渡る**（ユーザーの決定。**越境する**。DA-05 の 1.2.2）。**予定の説明欄に相談内容を書かない**（渡すのは氏名・メールアドレス・日時だけ） | Google Cloud の OAuth クライアント（Google Workspace の中で発行。**`admin-auth`〈経路 17〉のクライアントと共用しない**。スコープはカレンダーの読み書き）。クライアントシークレットは Secrets Manager（TA-06 の 7 節）。**開発環境は本番のカレンダーを指さない**（TA-06 の 10 節） | `未着手` |
+| **20** | **AWS（`calcom`）→ Google Workspace（Google Calendar API）**〔**2026-10-06 ADR-24: 呼び手は自前の `calcom` ではなく Cal.com の SaaS（米国）になった。「SaaS → Google」の線。氏名・メール・日時は Cal.com にも渡る**。以下は ADR-19 の記述〕（**2026-10-01 の決定で加えた**） | **送信** | **オンライン面談の予約**（AA-02 の `I-25`。BA-04 の商談プロセスの段 2）。**ComeGin のカレンダーの空き時間を読み**、予約が成立したら**予定を作って訪問者を招待する**。**招待により、訪問者の氏名・メールアドレス・面談の日時が Google LLC（米国）に渡る**（ユーザーの決定。**越境する**。DA-05 の 1.2.2）。**予定の説明欄に相談内容を書かない**（渡すのは氏名・メールアドレス・日時だけ） | Google Cloud の OAuth クライアント（Google Workspace の中で発行。**`admin-auth`〈経路 17〉のクライアントと共用しない**。スコープはカレンダーの読み書き）。クライアントシークレットは Secrets Manager（TA-06 の 7 節）。**開発環境は本番のカレンダーを指さない**（TA-06 の 10 節） | `未着手` |
 | **21** | （2026-10-03 に追加）**利用者環境 → unMineable**（`miner`〈XMRig〉→ `rx.unmineable.com:3333`〈Stratum〉） | 送信 | 採掘の share、worker 名（利用者 ID） | ComeGin は観測しない（利用者のサーバの中で完結する。AA-04 の暴走条件 #13） | `未着手` |
 | **22** | （2026-10-03 に追加）**AWS → unMineable**（`points-api` → unMineable の API〈HTTPS〉） | 送信 | 貢献量と払い出しの履歴の取得 | API キーと秘密（HMAC 署名）。参照系だけ（TA-04 の「収益化の秘匿値と権限」） | `未着手` |
 | **23** | （2026-10-03 に追加）**AWS → thirdweb**（`points-api` → thirdweb の API〈HTTPS〉） | 送信 | ポイントの mint・burn | thirdweb の秘密鍵。ポイントのコントラクトへの mint・burn だけ（TA-04 の「収益化の秘匿値と権限」） | `未着手` |
 
-**訪問者・顧客の個人データが国外に出るのは経路 8（PostHog）と経路 20（Google Calendar）の 2 本だけである**（2026-10-01 に 1 本増えた。8 節、DA-05 の 1.2）。**経路 20 で越境するのは「予定」という複製であり、予約の正本（`E-16`）は `ap-northeast-1` の Cal.com に留まる**（Cal.com はセルフホスト。経路 4 で受けた予約は境界を越えない）。
+**訪問者・顧客の個人データが国外に出るのは経路 8（PostHog）と経路 20（Google Calendar）の 2 本だけである**（**2026-10-06 ADR-24: 経路 22 として「訪問者のブラウザ → Cal.com（SaaS。米国）」が加わり、3 本になった**。以下は ADR-19 の記述）（2026-10-01 に 1 本増えた。8 節、DA-05 の 1.2）。**経路 20 で越境するのは「予定」という複製であり、予約の正本（`E-16`）は `ap-northeast-1` の Cal.com に留まる**（Cal.com はセルフホスト。経路 4 で受けた予約は境界を越えない）。
 
 **OpenSEO は外から中への経路を 1 本も必要としない。** 経路 11〜14 はすべて中から外への送信であり、GSC の OAuth のコールバックも運用者のブラウザから `http://localhost:3001` に戻るだけで完結する。**OpenSEO の UI と MCP にトンネルを張らない**（TA-04 の 7 節）。
 
@@ -249,6 +259,8 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 
 ### 面談の予約（Cal.com）をこの基準にどう当てたか（2026-10-01）
 
+> **（2026-10-06）ADR-24 で、この小節の結論（セルフホスト）は置き換わった。** **ユーザーが Cal.com を SaaS（cal.com）で使うと決めた**（無料。運用対象が増えない）。**この節の基準（SaaS に依存してよい 2 種類）は変えない。Cal.com は PostHog・thirdweb と同じ「ユーザーの決定による例外」として、下の「例外の一覧」に列挙する。** 以下は ADR-19 の時点の記述である。
+
 **Cal.com は SaaS として使わず、セルフホストにした。** この節の基準を変えないためである。
 
 - **Cal.com は上の 2 種類のどちらにも当たらない。** 「自前で持つと観測の一巡が遅くなる機能」でもなく（予約は観測の一巡に関わらない）、「自前で持てないデータの取得元」〈2026-10-03 に「自前で持てない外部の台帳」に広げた〉でもない（**Cal.com は自前で立てられる**）。したがって SaaS として使えば、**基準に第 3 の種類を足すことになる**。
@@ -257,6 +269,16 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 - **予約の正本（`E-16`）は `ap-northeast-1` に留まる。** Google に渡るのは予定という複製である。**正本と複製を取り違えない**（DA-05 の 1.2.2）。
 
 ### PostHog を例外とする理由
+
+> **例外の一覧（2026-10-06 に整理。ADR-24）**: 基準の 2 種類のどちらにも当たらないが、ユーザーの決定で SaaS を使うものは次の 3 つ。**一覧に載せることで、基準を緩めずに例外を管理する。**
+>
+> | 例外 | 使うもの | 決定 | 例外であることの帰結 |
+> |---|---|---|---|
+> | **PostHog** | 行動観測・実験・エラー追跡 | 当初から（ADR-01） | `E-08` `E-11` の正本が外部。越境（米国）。下の節 |
+> | **thirdweb** | サーバウォレット・API・RPC | ユーザーの決定（ADR-20） | 鍵は thirdweb の Vault。次の節 |
+> | **Cal.com**（**2026-10-06 に追加**） | **面談の予約（SaaS の cal.com。完了画面に埋め込む）** | **ユーザーの決定（ADR-24）。ADR-19 のセルフホストを置き換えた** | **`E-16` の正本が外部。氏名・メール・日時が Cal.com, Inc.〈米国〉に渡る（越境）。保持と削除は Cal.com 側。埋め込みは第三者のスクリプト〈Cookie の同意と CSP の見直し〉。偽の予約の防御は Cal.com の設定だけ** |
+>
+> **境界の説明の一文の面談の句は、「面談の予約は Cal.com（SaaS。例外）で受け、予定は Google カレンダーに入れる」に読み替える**（上の「正本のデータを持つ本番…面談の予定は Google カレンダーに入れる」は ADR-19 の記述）。
 
 - **例外を認める理由**: PostHog に求めている機能（セッションリプレイ、エラー追跡、Scout による自動巡回）は、自前で立てると運用対象が 1 つ増えるうえ、Scout やリプレイ解析は自己ホスト版でも同等に動くとは限らない。観測基盤の運用に人手を取られると、この事業基盤が最適化しようとしている「観測から改善までの一巡の時間」がかえって延びる（BA-01 の目的と直接矛盾する）。
 - **例外であることの帰結**: `E-08` `Person`（PostHog）と `E-11` `Experiment`（PostHog）の正本が外部にある。すなわち**この 2 つのエンティティだけは、自前のバックアップ（本番の RDS・S3 とオンプレ）を取っても復旧できない**（TA-05 の 5 節で扱う）。
@@ -296,6 +318,8 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 - **（2026-09-19 に ADR-18 で決定）`E-15 AgentRun` の正本は監視アプリ（ローカル）の実行記録**（1 節の基準の唯一の例外。この決定だけでは経路は増えない）、**本番の n8n に登録する Strapi の資格情報も下書きまで**（必要になるまで登録しない）。**同日の追加の決定で、実行記録を S3 に追記専用で写す**（経路 19 を加えた）、**記録は要約と ID だけ**、**定期実行の定義は Git で持ち、監視アプリは承認済みの `main` のチェックアウトで読む**（3 節）。
 - **監視アプリが本番の Strapi を読むためのトークン**（経路 9。ADR-17）。公開の確認はビルドと同じ Content API を読むため、ビルド用の読み取り専用の API トークンを使えるが、監視アプリのサーバー側と Claude Code の実行環境のどちらに置くかで守りが変わる。TA-04 の 9 節と一体で決める。判断者 `R1`。
 - **GitHub を 8 節の SaaS 依存の基準にどう位置づけるか**（経路 18。ADR-17）。改善提案の承認（`E-14`）は GitHub の PR で行う（AA-05 の ADR-04）ため、GitHub への依存は以前からあったが、8 節の基準にも 7 節の一覧にも現れていなかった。ADR-17 で起票がローカルから GitHub への経路として明示されたため、8 節の 2 種類に当てはまらない依存であることが見えるようになった。基準に 3 つ目の種類（**正本〈`E-13` の履歴と `E-14`〉を置くコードホスティング**）を足すか、Git の正本はローカルと GitHub の両方にあるとして例外にするかを決める（**本ファイルが見つけた論点**）。判断者 `R1`。
+- **（2026-10-06 に解決）開発環境の Umami が `0.0.0.0` にバインドされている問題**（6 節）。`middleware/umami` で `127.0.0.1` にバインドした（TA-04 の 3 節）。
+- **（2026-10-06 に ADR-21 で解決）VPC の中で Webhook を届ける方法と、n8n のホスト名。** 送信先は WireGuard の固定のアドレス `http://10.99.0.2:5680/webhook/*` に決まり、内部の名前も `n8n.comegin.com` も要らない（AA-02 の 5 節、DD-04 の 4.4）。残件は、Mautic・Chatwoot がプライベートアドレス宛・`http://` の送信先を受け付けるか（未確認。runbook の B4）。
 - **VPC の中で Webhook を届ける方法と、n8n のホスト名。** 経路 5 の送信先（`N8N_WEBHOOK_URL`）を ECS Service Connect か Cloud Map の内部の名前にするか、ALB の内部向けのリスナーを置くか。n8n の管理画面のホスト名 `n8n.comegin.com` は案である。いずれも TA-06 の 11 節。判断者 `R1`。
 - **（2026-09-18 に決定）AWS 側の可用性は単一構成**（TA-06 の 4.6）、**オンプレの送信元 IP による許可は採らない**（経路 9）、**管理画面の関門は Better Auth（Google Workspace）を IdP にした ALB の OIDC 認証**（経路 7・17。ADR-13）、**訪問者側は認証・認可をせずレート制限だけ**（経路 4）、**オンプレの全滅は CloudWatch から SNS へ直接知らせる**（経路 16）。
 - **OpenSEO を開発機の外から使う方法が無い。** Docker 版は無認証（`local_noauth`）であり、トンネルを張らないと決めた（7 節）。運用者が 2 名を超えて別の端末から使いたくなった場合、**ngrok の認証の後ろに置く**か、OpenSEO の Cloudflare 版（Cloudflare Access の認証付き）に移るか、ADR-12 と同じく AWS に置くかを決める必要がある。判断者 `R1`。
