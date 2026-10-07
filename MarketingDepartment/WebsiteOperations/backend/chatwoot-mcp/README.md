@@ -17,6 +17,7 @@ MCP クライアント ──(stdio。HTTP のときは Bearer: MCP_AUTH_TOKEN)�
 ## ツール
 
 32 ツール（`CHATWOOT_ACCESS_LEVEL=full` のとき）。秘匿情報らしいキー（`secret` / `token` / `password` / `hmac` を含むキー）の値は伏せ字にし、1,000 文字を超える文字列は `include_long_text=true` を指定しない限り省略する。
+コンタクト・会話の `custom_attributes`（キーを運用者が自由に決める）も同じ扱いにする。`include_long_text` を持つのは `chatwoot_list_messages` だけなので、1,000 文字を超えるカスタム属性の値は全文では読めない。
 
 ### アクセスレベル（`CHATWOOT_ACCESS_LEVEL`）
 

@@ -4,6 +4,7 @@ import type { Core } from '@strapi/strapi';
 import type { Event } from '@strapi/database';
 
 import { capturePostHogEvent, shutdownPostHog } from './posthog';
+import { lockDownEndUserAuth } from './users-permissions-lockdown';
 
 const POSTHOG_DISTINCT_ID = 'strapi_cms';
 const ARTICLE_UID = 'api::article.article';
@@ -13,13 +14,20 @@ const ARTICLE_UID = 'api::article.article';
 // 非公開化が article_deleted になり、削除は article_deleted が 2 件出る。
 // Document Service のミドルウェアが unpublish と delete を 1 操作 1 件として送り、その最中の
 // afterDelete は送らない。この印がある間は afterDelete を送らず、無いとき（Document Service を通らない
-// DB の直接の削除など）だけ保険として送る。
-const documentOperationScope = new AsyncLocalStorage<true>();
+// DB の直接の削除など）だけ保険として送る。印には操作の名前（context.action）を入れる。
+const documentOperationScope = new AsyncLocalStorage<string>();
 
 const DOCUMENT_OPERATION_EVENTS: Record<string, string> = {
   unpublish: 'article_unpublished',
   delete: 'article_deleted',
 };
+
+// 行を置き換えるだけで記事は消えない操作。publish は古い公開版の行を消してから作り直し（公開し直し）、
+// discardDraft は古い下書きの行を消してから公開版から作り直す。update（status=published）は内部で publish を呼ぶ。
+// どれも afterDelete が出るが article_deleted ではないので、印の中で実行してイベントは送らない
+// （公開は afterCreate の article_published が送る）。discardDraft の作り直しの afterCreate も、新しい記事ではないので
+// article_created を送らない（下書きを公開版に戻すだけで、公開サイトに出る内容は変わらない）。
+const ROW_REPLACING_ACTIONS = new Set(['publish', 'discardDraft', 'update']);
 
 const getArticleProperties = (event: Event) => {
   const data = (event.params.data ?? {}) as Record<string, unknown>;
@@ -48,13 +56,21 @@ export default {
     // 非公開化（BA-05 では承認が要る操作）を通常の更新・削除と区別して送る（DD-04 の 2.4 の穴 1）。
     // あわせて、削除を documentId ごとに 1 件だけ送る。
     strapi.documents.use(async (context, next) => {
-      const eventName = DOCUMENT_OPERATION_EVENTS[context.action];
-
-      if (context.uid !== ARTICLE_UID || !eventName) {
+      if (context.uid !== ARTICLE_UID) {
         return next();
       }
 
-      const result = await documentOperationScope.run(true, next);
+      if (ROW_REPLACING_ACTIONS.has(context.action)) {
+        return documentOperationScope.run(context.action, next);
+      }
+
+      const eventName = DOCUMENT_OPERATION_EVENTS[context.action];
+
+      if (!eventName) {
+        return next();
+      }
+
+      const result = await documentOperationScope.run(context.action, next);
       const operated = result as { documentId?: string; entries?: Array<{ locale?: string | null }> } | null;
       const params = (context.params ?? {}) as { documentId?: string; locale?: string };
       const entries = operated?.entries ?? [];
@@ -84,6 +100,10 @@ export default {
     strapi.db.lifecycles.subscribe({
       models: [ARTICLE_UID],
       async afterCreate(event) {
+        if (documentOperationScope.getStore() === 'discardDraft') {
+          return;
+        }
+
         const data = (event.params.data ?? {}) as Record<string, unknown>;
 
         await captureArticleEvent(data.publishedAt ? 'article_published' : 'article_created', event);
@@ -106,6 +126,9 @@ export default {
         await captureArticleEvent('article_deleted', event);
       },
     });
+
+    // エンドユーザーの登録と Public ロールの権限を止める（起動のたびに冪等に。src/users-permissions-lockdown.ts）
+    return lockDownEndUserAuth(strapi);
   },
 
   async destroy() {

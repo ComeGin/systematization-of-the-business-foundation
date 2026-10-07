@@ -68,6 +68,7 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 - 残すのは要約・対象の ID・成否・起動の種類・費用だけ。ツールの結果は残さない。要約はメールアドレスと電話番号の形を `[redacted:...]` に伏せ、伏せたら `summaryRedacted=true`（氏名は形で検出できないため、エージェント定義の「人は ID で指す」規則に頼る）。
 - 実行中の印は `leases` テーブル（リース時間 = `timeout_sec` + 60 秒。持ち主のプロセスが死んでいれば奪える）。前回が実行中なら起動を見送って `skipped` を記録する。起動時に、持ち主のいない `running` を `failure` に確定する。
 - E-15 への書き込みが DB の例外（`database is locked` など）で失敗したとき: `running` の記録に失敗したら、取ったリースを返して起動を失敗にする（実行はしない）。結果の確定に失敗したら、stderr に `ERROR` を出してリースを返し、プロセスは落とさない（監視アプリと 1 プロセスのため）。その run は **次にプロセスを起動するまで `running` のまま残り**、起動時に `failure`（`timeout`）に確定する。
+- 停止要求（`stop()`。`start()` の前に `runNow` で起動したものを含む）で打ち切った run は `failure`（`timeout`）に確定する。打ち切りの後に builtin が `success`・`partial` を返しても成功として残さない。
 - **ハートビートは E-15 に記録しない**。5 分ごとで 1 日 288 件になり、エージェントの実行記録（見送り・失敗を見つけるための記録）が埋もれるため。止まったことは CloudWatch のアラームで知る。定義の `heartbeat` で起動した場合だけ記録される。
 - `trigger` の `proposal` は、今は使っていない（定期実行は `schedule`、画面からは `manual`）。
 
@@ -126,7 +127,7 @@ TA-07 の 6.2・DD-07 の 4.1 は「どの E-13 にも対応しない」の定�
 - (a) `CONTROL_MAIN_CHECKOUT` の `docs/proposals/*.md` のうち `approval.state` が `approved` / `applied` で、`target.identifier` または `also_affects` に `display_id=<n>` を含み、送信時刻が `created_at` 以降のもの
 - (b) 送信時刻が前後 1 分の幅で重なる E-15 の run の `targetIds` に `chatwoot-conversation:<n>` があるもの（`targetIds` はエージェントの `TARGET_IDS:` 行に加え、`mcp__chatwoot*` の `tool_use` の `conversation_id` から取り出す。結果は読まない）
 
-範囲は「前回の完了から今まで」（初回は 24 時間前。5 分の重なりを持たせ、重複は `message_id` で除く）。本文は保存せず、ID・時刻・理由だけを残す。会話は更新の新しい順（上流の既定）に最大 40 ページ（25 件/ページ）、メッセージは 1 会話あたり最大 10 ページ（20 件/ページ）を読み、上限に達したら `partial`（`truncated`）にして前回完了の時刻を進めない。**拾えるのは送信だけで、会話の属性（担当者・ラベル・状態）の変更は拾えない。**
+範囲は「前回の完了から今まで」（初回は 24 時間前。5 分の重なりを持たせ、重複は `message_id` で除く）。本文は保存せず、ID・時刻・理由だけを残す。会話は更新の新しい順（上流の既定）に最大 40 ページ（25 件/ページ）、メッセージは 1 会話あたり最大 10 ページ（20 件/ページ。上流は 1 ページを古い順に返すので、最も小さい id を `before` にして遡る）を読み、上限に達したら `partial`（`truncated`）にして前回完了の時刻を進めない。**拾えるのは送信だけで、会話の属性（担当者・ラベル・状態）の変更は拾えない。**
 
 ### silence-check
 

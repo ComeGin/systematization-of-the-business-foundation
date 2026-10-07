@@ -1,4 +1,4 @@
-// Chatwoot（開発環境）の設定。環境変数の用意 → DB の準備 → 起動 → 管理者・アカウント → エージェント専用ユーザー → Web サイトの受信箱。
+// Chatwoot（開発環境）の設定。環境変数の用意 → DB の準備 → 起動 → Webhook の私設アドレスへの送信の許可 → 管理者・アカウント → エージェント専用ユーザー → Web サイトの受信箱。
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - 使うのは Chatwoot の公式の API（Application API）と、製品のモデルを通した rails runner だけ。SQL は書かない・画面は操作しない
@@ -148,6 +148,27 @@ async function ensureStack(ctx) {
   ctx.log(`起動している（v${info.version}）`);
 }
 
+/** 動いている sidekiq（Webhook を送るジョブ）が、私設アドレスへの送信を許されているか */
+async function privateNetworkAllowed(ctx) {
+  const value = await compose(ctx, ["exec", "-T", "sidekiq", "printenv", "SAFE_FETCH_ALLOW_PRIVATE_NETWORK"]).catch(() => "");
+  return value.trim() === "true";
+}
+
+// n8n の I-12 への Webhook（http://host.docker.internal:5678）は私設アドレスで、Chatwoot の SafeFetch（lib/safe_fetch.rb）は
+// SAFE_FETCH_ALLOW_PRIVATE_NETWORK が true でないと送らずに終わる（Sidekiq のログに "has no public ip addresses"。再送もしない）。
+// dev/init-env.sh が開発の既定値として .env に true を書く。環境変数は起動時にしか読まれないので、動いているコンテナが古い値のままなら作り直す
+async function ensureWebhookEgress(ctx) {
+  if (await privateNetworkAllowed(ctx)) {
+    ctx.log("Webhook の私設アドレスへの送信は許可済み（SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true）");
+    return;
+  }
+  ctx.log("rails と sidekiq を作り直す（SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true を反映する）");
+  await compose(ctx, ["up", "-d", "--force-recreate", "rails", "sidekiq"]);
+  if (!(await ctx.waitForHttp(`${BASE_URL}/api`, { timeoutMs: 240_000 }))) throw new Error(`Chatwoot が ${BASE_URL} で応答しない。docker compose logs rails を見る（${DIR}）`);
+  if (!(await privateNetworkAllowed(ctx))) throw new Error(`sidekiq に SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true が入らない。${DIR}/.env の値を確かめる（dev/init-env.sh は値が空か false のときだけ書く）`);
+  ctx.log("Webhook の私設アドレスへの送信を許可した");
+}
+
 async function ensureAdmin(ctx) {
   const email = ctx.require("ADMIN_EMAIL");
   const known = ctx.value("CHATWOOT_ADMIN_PASSWORD");
@@ -280,6 +301,12 @@ export async function check(ctx) {
   await checkToken("CHATWOOT_ADMIN_TOKEN", "管理者のトークン");
   await checkToken("CHATWOOT_AGENT_TOKEN", "エージェント専用ユーザーのトークン");
 
+  if (info) {
+    const allowed = await privateNetworkAllowed(ctx);
+    notes.push(allowed ? "Webhook の私設アドレスへの送信は許可済み" : "SAFE_FETCH_ALLOW_PRIVATE_NETWORK が true でない（n8n の I-12 に Webhook が届かない）");
+    if (!allowed) ok = false;
+  }
+
   for (const key of ["CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_WEBSITE_TOKEN", "CHATWOOT_AGENT_USER_ID"]) {
     if (!ctx.state.has(key)) {
       notes.push(`${key} がまだ状態に無い`);
@@ -292,6 +319,7 @@ export async function check(ctx) {
 export async function apply(ctx) {
   ctx.require("ADMIN_EMAIL");
   await ensureStack(ctx);
+  await ensureWebhookEgress(ctx);
   await ensureAdmin(ctx);
   await ensureAgent(ctx);
   await ensureInbox(ctx);

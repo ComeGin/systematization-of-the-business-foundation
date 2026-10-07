@@ -9,7 +9,7 @@ vi.mock('../../src/posthog', () => ({
 
 import createMiddleware from '../../src/middlewares/posthog-error';
 import { capturePostHogException } from '../../src/posthog';
-import { httpError } from '../helpers/http-error';
+import { httpError, koaHttpError } from '../helpers/http-error';
 
 const capture = vi.mocked(capturePostHogException);
 
@@ -85,6 +85,39 @@ describe('posthog-error', () => {
         expect(capture).not.toHaveBeenCalled();
       }
     );
+
+    it.each([400, 404, 409])(
+      '入力: koa の ctx.throw（別の版の http-errors）の %i も、instanceof に頼らず想定内として送らない',
+      async (status) => {
+        const error = koaHttpError(status, 'msg');
+        // 前提: クラスが別なので errors.HttpError の instanceof は偽（回帰の再現条件）
+        expect(error instanceof errors.HttpError).toBe(false);
+
+        await expect(build()(ctx({ status }), failingNext(error))).rejects.toBe(error);
+        expect(capture).not.toHaveBeenCalled();
+      }
+    );
+
+    it('サーバ: koa の ctx.throw の 5xx（expose が false）は送ってから再送出する', async () => {
+      const error = koaHttpError(503);
+
+      await expect(build()(ctx({ status: 503 }), failingNext(error))).rejects.toBe(error);
+      expect(capture).toHaveBeenCalledTimes(1);
+    });
+
+    it('サーバ: status が 4xx でも expose の無い例外（上流の HTTP の失敗を写したもの）は送る', async () => {
+      const error = Object.assign(new Error('Request failed with status code 404'), { status: 404 });
+
+      await expect(build()(ctx({ status: 500 }), failingNext(error))).rejects.toBe(error);
+      expect(capture).toHaveBeenCalledTimes(1);
+    });
+
+    it('空入力: status が数値でない（文字列の "404"）例外は想定内として扱わず送る', async () => {
+      const error = Object.assign(new Error('odd'), { status: '404', expose: true });
+
+      await expect(build()(ctx(), failingNext(error))).rejects.toBe(error);
+      expect(capture).toHaveBeenCalledTimes(1);
+    });
 
     it.each([500, 502, 503, 504])('サーバ: HttpError の %i は送ってから再送出する', async (status) => {
       const error = httpError(status);

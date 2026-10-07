@@ -221,6 +221,11 @@ export class Engine {
       logLine("ERROR", "engine", `実行中に内部エラー: ${error instanceof Error ? error.message : "不明"}`, runId);
       result = { outcome: "failure", summary: "実行中に内部エラーが発生した", targetIds: [], failureClass: null };
     }
+    // 停止要求（stop()）で打ち切った run は failure（timeout）に確定する（契約の stop）。打ち切りで途中までしか見ていない builtin
+    // （例: miswrite-check は会話を 1 件も読まずに抜ける）が success を返しても、それを成功として残さない
+    if (controller.signal.aborted && (result.outcome === "success" || result.outcome === "partial")) {
+      result = { ...result, outcome: "failure", summary: "停止要求で中断した", failureClass: "timeout" };
+    }
     try {
       const summary = redactSummary(result.summary ?? "");
       this.ctx.runs.finish(runId, {

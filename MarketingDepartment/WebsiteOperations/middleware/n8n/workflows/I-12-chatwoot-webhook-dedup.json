@@ -188,7 +188,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Chatwoot からの Webhook').first().json.body ?? {};\nconst event = body.event;\n\nlet displayId = null;\nlet messageId = '';\nlet contact = null;\nlet kind = '';\n\nif (event === 'conversation_created') {\n  // 会話イベントはトップレベルの id が display_id\n  displayId = body.id;\n  messageId = 'conversation_created';\n  contact = body.meta?.sender ?? null;\n  kind = 'conversation-opened';\n} else if (event === 'message_created') {\n  // 顧客からの公開メッセージだけを対象にする（担当者の返信・社内メモ・システムの活動は除く）\n  const isIncoming = body.message_type === 'incoming' || body.message_type === 0;\n  if (!isIncoming || body.private === true) return [];\n  displayId = body.conversation?.id ?? null;\n  // 重複排除のキーに使えるメッセージ ID が無いイベントは読み飛ばす。String(undefined) の 'undefined' をキーにすると、\n  // 同じ会話の ID の無いメッセージがすべて同じキー（<display_id>|undefined）として重複扱いになる（Chatwoot は常に id を付けるので実害は小さい）\n  if (body.id === undefined || body.id === null) return [];\n  messageId = String(body.id);\n  contact = body.sender ?? body.conversation?.meta?.sender ?? null;\n} else {\n  return [];\n}\n\nif (displayId === null || displayId === undefined) return [];\n\nreturn [\n  {\n    json: {\n      dedupKey: displayId + '|' + messageId,\n      event,\n      displayId,\n      messageId,\n      chatwootContactId: contact?.id ?? null,\n      // I-19 の突合に使う。lower(email) に揃える。メールは冪等キーの表にも通知にも載せない\n      email: String(contact?.email ?? '').trim().toLowerCase(),\n      kind,\n      topic: kind ? 'comegin-lead-alert' : '',\n      company: contact?.additional_attributes?.company_name ?? '',\n      receivedAtSec: Math.floor(Date.now() / 1000),\n    },\n  },\n];"
+        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Chatwoot からの Webhook').first().json.body ?? {};\nconst event = body.event;\n\nlet displayId = null;\nlet messageId = '';\nlet contact = null;\nlet kind = '';\n\nif (event === 'conversation_created') {\n  // 会話イベントはトップレベルの id が display_id\n  displayId = body.id;\n  messageId = 'conversation_created';\n  contact = body.meta?.sender ?? null;\n  kind = 'conversation-opened';\n} else if (event === 'message_created') {\n  // 顧客からの公開メッセージだけを対象にする（担当者の返信・社内メモ・システムの活動は除く）\n  const isIncoming = body.message_type === 'incoming' || body.message_type === 0;\n  if (!isIncoming || body.private === true) return [];\n  displayId = body.conversation?.id ?? null;\n  // 重複排除のキーに使えるメッセージ ID が無いイベントは読み飛ばす。String(undefined) の 'undefined' をキーにすると、\n  // 同じ会話の ID の無いメッセージがすべて同じキー（<display_id>|undefined）として重複扱いになる（Chatwoot は常に id を付けるので実害は小さい）\n  if (body.id === undefined || body.id === null) return [];\n  messageId = String(body.id);\n  contact = body.sender ?? body.conversation?.meta?.sender ?? null;\n} else {\n  return [];\n}\n\nif (displayId === null || displayId === undefined) return [];\n\nreturn [\n  {\n    json: {\n      dedupKey: displayId + '|' + messageId,\n      // 突合（I-19）が済んだ印のキー。同じ dedup_chatwoot に置き、I-19 が成功したときだけ記録する（失敗したら再送で突合をやり直す）\n      matchKey: displayId + '|' + messageId + '|match',\n      event,\n      displayId,\n      messageId,\n      chatwootContactId: contact?.id ?? null,\n      // I-19 の突合に使う。lower(email) に揃える。メールは冪等キーの表にも通知にも載せない\n      email: String(contact?.email ?? '').trim().toLowerCase(),\n      kind,\n      topic: kind ? 'comegin-lead-alert' : '',\n      company: contact?.additional_attributes?.company_name ?? '',\n      receivedAtSec: Math.floor(Date.now() / 1000),\n    },\n  },\n];"
       },
       "id": "5a8e7d47-14bb-57a4-ba1a-cbe4c97d0d2f",
       "name": "イベントの整理とキー生成",
@@ -198,7 +198,7 @@
         1568,
         0
       ],
-      "notes": "Chatwoot の会話 ID は display_id（Webhook の conversation.id / 会話イベントのトップレベル id）。冪等キー = display_id + message_id。会話の作成イベントにはメッセージ ID が無いので conversation_created を使う。対象は会話の作成と、顧客からの公開メッセージの受信だけ（それ以外は読み飛ばして 200 を返す）。"
+      "notes": "Chatwoot の会話 ID は display_id（Webhook の conversation.id / 会話イベントのトップレベル id）。冪等キー = display_id + message_id。会話の作成イベントにはメッセージ ID が無いので conversation_created を使う。対象は会話の作成と、顧客からの公開メッセージの受信だけ（それ以外は読み飛ばして 200 を返す）。 突合（I-19）は冪等キーと別の印（<display_id>|<message_id>|match）で重複を除き、I-19 が成功したときだけ印を記録する。I-19 が失敗した会話は、再送で突合だけをやり直す（通知〈I-21〉は冪等キーで 1 回だけ）。"
     },
     {
       "parameters": {
@@ -474,6 +474,36 @@
     },
     {
       "parameters": {
+        "resource": "row",
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_chatwoot"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedupKey",
+              "condition": "eq",
+              "keyValue": "={{ $json.matchKey }}"
+            }
+          ]
+        }
+      },
+      "id": "c0a6f3f2-6a63-5d0e-9d0f-2f3b1c8e7a01",
+      "name": "突合が済んでいないものだけ通す",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2464,
+        96
+      ],
+      "notes": "突合の印（<display_id>|<message_id>|match）が無いものだけ通す。冪等キー（通知の重複排除）とは別なので、通知済みの再送でも、突合が失敗していればここを通る。"
+    },
+    {
+      "parameters": {
         "mode": "each",
         "source": "database",
         "workflowId": {
@@ -531,11 +561,79 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
-        2464,
+        2688,
         96
       ],
-      "notes": "突合の失敗で Webhook の処理を止めない（onError: continueRegularOutput）。失敗は I-19 の実行履歴に残る。",
-      "onError": "continueRegularOutput"
+      "notes": "失敗は error 出力に流す（Webhook の処理は止めない）。成功したときだけ突合の印を記録するので、失敗した会話は再送で突合をやり直す。失敗は I-19 の実行履歴に残る。",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_chatwoot"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "dedupKey": "={{ $('イベントの整理とキー生成').item.json.matchKey }}",
+            "displayId": "={{ $('イベントの整理とキー生成').item.json.displayId }}",
+            "messageId": "={{ $('イベントの整理とキー生成').item.json.messageId }}"
+          },
+          "schema": [
+            {
+              "id": "dedupKey",
+              "displayName": "dedupKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "displayId",
+              "displayName": "displayId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "messageId",
+              "displayName": "messageId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      },
+      "id": "c0a6f3f2-6a63-5d0e-9d0f-2f3b1c8e7a02",
+      "name": "突合の済みを記録",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2912,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c0a6f3f2-6a63-5d0e-9d0f-2f3b1c8e7a03",
+      "name": "突合の失敗（再送でやり直す）",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2912,
+        192
+      ],
+      "notes": "印を記録しないので、同じイベントの再送で突合をやり直す。失敗の内容は I-19 の実行履歴に残る。"
     },
     {
       "parameters": {
@@ -681,6 +779,11 @@
             "node": "未処理のイベントだけ通す",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "メールアドレスがあるか",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -701,11 +804,6 @@
         [
           {
             "node": "会話の開始か",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "メールアドレスがあるか",
             "type": "main",
             "index": 0
           }
@@ -738,7 +836,36 @@
       "main": [
         [
           {
+            "node": "突合が済んでいないものだけ通す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "突合が済んでいないものだけ通す": {
+      "main": [
+        [
+          {
             "node": "I-19 突合を呼ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "I-19 突合を呼ぶ": {
+      "main": [
+        [
+          {
+            "node": "突合の済みを記録",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "突合の失敗（再送でやり直す）",
             "type": "main",
             "index": 0
           }

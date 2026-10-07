@@ -63,6 +63,7 @@ describe("会話の作成（conversation_created）", () => {
       expect(await run(conversationCreated())).toEqual([
         {
           dedupKey: "12|conversation_created",
+          matchKey: "12|conversation_created|match",
           event: "conversation_created",
           displayId: 12,
           messageId: "conversation_created",
@@ -194,6 +195,12 @@ describe("重複排除のキー", () => {
     it("キーに email を入れない", async () => {
       const [ev] = await run(messageCreated());
       expect(ev.dedupKey).not.toContain("@");
+      expect(ev.matchKey).not.toContain("@");
+    });
+
+    it("突合の印のキーは、冪等キーに |match を付けたもの（冪等キーと重ならない）", async () => {
+      const [ev] = await run(messageCreated());
+      expect(ev.matchKey).toBe(`${ev.dedupKey}|match`);
     });
   });
 });
@@ -242,6 +249,55 @@ describe("後続のノードとのつながり", () => {
       const used = Object.values(call.parameters.workflowInputs.value).flatMap((v) => [...String(v).matchAll(/\('イベントの整理とキー生成'\)\.item\.json\.(\w+)/g)].map((m) => m[1]));
       expect(new Set(used)).toEqual(new Set(["chatwootContactId", "displayId", "email"]));
       for (const key of used) expect(ev, key).toHaveProperty(key);
+    });
+  });
+});
+
+// 2026-10-07 に直した不具合: 以前は冪等キーを記録した後に I-19 を呼んでいたので、I-19 が失敗した会話は、再送しても冪等キーで弾かれて
+// 突合をやり直せなかった（結合テストで確認）。いまは突合を別の枝にし、I-19 が成功したときだけ突合の印（matchKey）を記録する
+describe("突合（I-19）の枝", () => {
+  const edgesFrom = (name) => (wf.connections[name]?.main ?? []).map((targets) => (targets ?? []).map((t) => t.node));
+
+  describe("正常系", () => {
+    it("突合は冪等キーの記録を待たず、Code ノードから別の枝で進む（通知の重複排除とは独立）", () => {
+      expect(edgesFrom("イベントの整理とキー生成")[0]).toEqual(expect.arrayContaining(["未処理のイベントだけ通す", "メールアドレスがあるか"]));
+      expect(edgesFrom("冪等キーを記録")[0]).toEqual(["会話の開始か"]);
+      expect(edgesFrom("メールアドレスがあるか")[0]).toEqual(["突合が済んでいないものだけ通す"]);
+      expect(edgesFrom("突合が済んでいないものだけ通す")[0]).toEqual(["I-19 突合を呼ぶ"]);
+    });
+
+    it("突合の印が無いものだけ I-19 に進む（dedup_chatwoot の dedupKey を matchKey で引く rowNotExists）", async () => {
+      const gate = getNode(wf, "突合が済んでいないものだけ通す");
+      expect(gate.parameters).toMatchObject({ operation: "rowNotExists", dataTableId: { value: "dedup_chatwoot" } });
+      expect(gate.parameters.filters.conditions).toEqual([expect.objectContaining({ keyName: "dedupKey", condition: "eq", keyValue: "={{ $json.matchKey }}" })]);
+      const [ev] = await run(messageCreated());
+      expect(ev).toHaveProperty("matchKey");
+    });
+
+    it("I-19 が成功したときだけ、突合の印（matchKey）を記録する。email は記録しない", async () => {
+      expect(edgesFrom("I-19 突合を呼ぶ")[0]).toEqual(["突合の済みを記録"]);
+      const record = getNode(wf, "突合の済みを記録");
+      expect(record.parameters).toMatchObject({ operation: "insert", dataTableId: { value: "dedup_chatwoot" } });
+      const columns = record.parameters.columns.value;
+      expect(columns.dedupKey).toContain("item.json.matchKey");
+      expect(Object.keys(columns)).not.toContain("email");
+      expect(JSON.stringify(columns)).not.toContain("email");
+    });
+  });
+
+  describe("異常系", () => {
+    it("サーバ: I-19 が失敗したら error 出力に流し、印を記録しない（Webhook の処理は止めず、再送で突合をやり直す）", () => {
+      const call = getNode(wf, "I-19 突合を呼ぶ");
+      expect(call.onError).toBe("continueErrorOutput");
+      const [ok, failed] = edgesFrom("I-19 突合を呼ぶ");
+      expect(ok).toEqual(["突合の済みを記録"]);
+      expect(failed).toEqual(["突合の失敗（再送でやり直す）"]);
+      expect(getNode(wf, "突合の失敗（再送でやり直す）").type).toBe("n8n-nodes-base.noOp");
+      expect(edgesFrom("突合の失敗（再送でやり直す）")).toEqual([]);
+    });
+
+    it("空入力: email が無いイベントは突合の枝に進まない（メールアドレスがあるか の偽の出口に何もつながない）", () => {
+      expect(edgesFrom("メールアドレスがあるか")[1] ?? []).toEqual([]);
     });
   });
 });

@@ -236,19 +236,40 @@ describe("重複排除のキー", () => {
   });
 
   describe("異常系", () => {
-    it("入力: どちらの timestamp も読めなければ、受信時刻（秒）で代用する", async () => {
+    it("入力: どちらの timestamp も読めなければ、受付時刻（timestampSec）は受信時刻で代用し、キーはイベントの中身のハッシュで作る", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-10-05T12:34:56.789Z"));
       const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "not-a-date" }] });
       expect(ev.timestampSec).toBe(Date.parse("2026-10-05T12:34:56Z") / 1000);
-      expect(ev.dedupKey).toBe(`1|mautic.lead_post_save_update|${ev.timestampSec}`);
+      expect(ev.dedupKey).toMatch(/^1\|mautic\.lead_post_save_update\|h[0-9a-f]+$/);
     });
 
-    it("空入力: どこにも timestamp が無ければ、受信時刻（秒）で代用する", async () => {
+    // 2026-10-07 に直した不具合: 以前は timestamp が読めないとキーに受信時刻（秒）を入れていたので、秒をまたいだ再送が別のキーになり、
+    // 重複と見なせなかった（結合テストで確認）。いまは本文から決まる値（コンタクト ID・種別・イベントの中身のハッシュ）だけで作る
+    it("入力: timestamp が読めないイベントの再送は、秒をまたいでも同じキーになる", async () => {
+      const body = { "mautic.lead_points_change": [{ contact: contact(1), points: { old_points: 0, new_points: 5 }, timestamp: "not-a-date" }] };
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-05T00:00:00Z"));
+      const [first] = await run(body);
+      vi.setSystemTime(new Date("2026-10-05T00:10:00Z"));
+      const [second] = await run(structuredClone(body));
+      expect(second.dedupKey).toBe(first.dedupKey);
+      expect(second.timestampSec).toBe(first.timestampSec + 600);
+    });
+
+    it("入力: timestamp が読めないイベントでも、中身が違えば別のキーになる", async () => {
+      const points = (n) => ({ "mautic.lead_points_change": [{ contact: contact(1), points: { old_points: 0, new_points: n } }] });
+      const [a] = await run(points(5));
+      const [b] = await run(points(10));
+      expect(a.dedupKey).not.toBe(b.dedupKey);
+    });
+
+    it("空入力: どこにも timestamp が無ければ、受付時刻は受信時刻（秒）で代用し、キーはハッシュで作る", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-10-05T00:00:00Z"));
       const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1) }] });
       expect(ev.timestampSec).toBe(Date.parse("2026-10-05T00:00:00Z") / 1000);
+      expect(ev.dedupKey).toMatch(/\|h[0-9a-f]+$/);
     });
   });
 });

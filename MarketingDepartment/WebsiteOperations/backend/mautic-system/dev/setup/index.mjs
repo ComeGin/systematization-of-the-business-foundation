@@ -1,4 +1,5 @@
-// Mautic（開発環境）の設定。MySQL・PHP ビルトインサーバーの起動 → 未インストールならインストール → API 資格情報（画面で作る）→ カスタム項目・フォーム・セグメント。
+// Mautic（開発環境）の設定。MySQL・PHP ビルトインサーバーの起動 → 未インストールならインストール → Webhook の設定（私設アドレスの許可・自動停止の無効化）
+// → API 資格情報（画面で作る）→ カスタム項目・フォーム・セグメント。
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - 使うのは Mautic 付属の公式のコンソール（mautic:install）と REST API だけ。DB は直接書かない。dev/reset.sh のような破壊的なものは呼ばない
@@ -8,6 +9,8 @@
 //
 // 確かめた出典（このリポジトリの上流のソースと、動いている開発環境）:
 //   backend/mautic-system/dev/serve.sh・dev/reset.sh・dev/configure-mailer.php（起動・インストール・メール設定の手順）
+//   app/bundles/WebhookBundle/Http/Client.php・app/bundles/CoreBundle/Helper/PrivateAddressChecker.php（私設アドレスへの Webhook は、
+//     webhook_allowed_private_addresses に入れたホスト名か IP だけ送る。それ以外は webhook_logs に "Access to private addresses is not allowed."）
 //   app/bundles/InstallBundle/Command/InstallCommand.php（mautic:install の引数。インストール済みなら "Mautic already installed" で何もせず終わる）
 //   app/AppKernel.php（未インストールなら /installer へリダイレクトする。インストール済みかの判定に使う）
 //   app/bundles/ApiBundle/EventListener/ApiSubscriber.php（API が無効だと 403 api_disabled。有効で未認証なら 401）
@@ -24,6 +27,8 @@ const DIR = "backend/mautic-system";
 const BASE_URL = "http://127.0.0.1:8000";
 const SITE_URL = "http://localhost:8000"; // dev/reset.sh の SITE_URL の既定値
 const MAILHOG = { host: "127.0.0.1", port: "1025" }; // 同梱の MailHog（dev/reset.sh の既定値）
+// n8n の I-11 の受け口（middleware/n8n/provision の MAUTIC_WEBHOOK_TARGET の開発の既定値。dev.conf で変えたらそれに合わせる）
+const DEFAULT_WEBHOOK_TARGET = "http://127.0.0.1:5678/webhook/mautic-event";
 
 const root = (ctx) => join(ctx.W, DIR);
 const composeFile = (ctx) => join(root(ctx), "docker/compose.yaml");
@@ -104,6 +109,47 @@ async function ensureInstalled(ctx) {
   for (const dir of ["var/cache/prod", "var/cache/dev"]) rmSync(join(root(ctx), dir), { recursive: true, force: true });
   if (!(await serverState()).installed) throw new Error("mautic:install の後も未インストールの応答が返る。dev/setup のログと、docker compose -f docker/compose.yaml ps を確かめる");
   ctx.log("インストールした");
+}
+
+// ---------------------------------------------------------------------------
+// Webhook の設定（開発だけ。I-11 の送り先が 127.0.0.1 のため。setup/README.md の「Webhook の送り先と SSRF 対策」）
+// ---------------------------------------------------------------------------
+
+/** 許可が要るホスト（Webhook の送り先のホストだけ。範囲では許可しない） */
+const webhookHost = (ctx) => new URL(ctx.value("MAUTIC_WEBHOOK_TARGET") || DEFAULT_WEBHOOK_TARGET).hostname;
+
+/** config/local.php の Webhook の設定 2 つ（秘密値を含むファイルなので、この 2 つだけを取り出す） */
+async function webhookConfig(ctx) {
+  const php = `$parameters = []; require 'config/local.php'; echo json_encode(['allowed' => array_values((array) ($parameters['webhook_allowed_private_addresses'] ?? [])), 'disableAutoUnpublish' => (bool) ($parameters['disable_auto_unpublish'] ?? false)]);`;
+  const out = await ctx.run("php", ["-r", php], { cwd: root(ctx) }).catch(() => "");
+  try {
+    return JSON.parse(out.trim().split("\n").pop() || "");
+  } catch {
+    return { allowed: [], disableAutoUnpublish: false };
+  }
+}
+
+/** dev/ の php で config/local.php を書く。変えたら true（最後の行が "changed"） */
+async function writeConfig(ctx, script, env = {}) {
+  const out = await ctx.run("php", [script], { cwd: root(ctx), env });
+  return out.trim().split("\n").pop() === "changed";
+}
+
+async function ensureWebhookConfig(ctx) {
+  const host = webhookHost(ctx);
+  // 1. 送り先の私設アドレスの許可（WebhookBundle/Http/Client.php の PrivateAddressChecker）
+  const allowedNow = await writeConfig(ctx, "dev/allow-webhook-private-addresses.php", { MAUTIC_WEBHOOK_ALLOWED_PRIVATE_ADDRESSES: host });
+  ctx.log(allowedNow ? `Webhook の送り先 ${host} を私設アドレスとして許可した（webhook_allowed_private_addresses）` : `Webhook の送り先 ${host} は私設アドレスとして許可済み`);
+  // 2. 失敗しても Webhook を自動で非公開にしない（開発では I-11 が未公開〈404〉なのが既定で、止められると通しの確認ができない）。本番は false のまま
+  const keptNow = await writeConfig(ctx, "dev/disable-webhook-auto-unpublish.php");
+  ctx.log(keptNow ? "送信に失敗した Webhook を自動で非公開にしないようにした（disable_auto_unpublish）" : "送信に失敗した Webhook は自動で非公開にならない（設定済み）");
+  if (!allowedNow && !keptNow) return;
+
+  // パラメーターは Symfony のコンテナのキャッシュに焼き込まれるので、捨てて次の要求で作り直させる（ensureInstalled と同じ）
+  for (const dir of ["var/cache/prod", "var/cache/dev"]) rmSync(join(root(ctx), dir), { recursive: true, force: true });
+  // 作り直しの最初の要求は数十秒かかる。後の API の確認（8 秒で打ち切る）が「API が無効」と誤るので、応答が戻るまで待つ
+  if (!(await ctx.waitForHttp(`${BASE_URL}/s/login`, { timeoutMs: 180_000 }))) throw new Error(`キャッシュを捨てた後、Mautic が ${BASE_URL} で応答しない`);
+  ctx.log("キャッシュを捨てて設定を反映した");
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +308,12 @@ export async function check(ctx) {
   let ok = s.up && s.installed;
 
   if (s.up && s.installed) {
+    const host = webhookHost(ctx);
+    const config = await webhookConfig(ctx);
+    const allowed = config.allowed.includes(host);
+    notes.push(allowed ? `Webhook の送り先 ${host} は私設アドレスとして許可済み` : `webhook_allowed_private_addresses に ${host} が無い（n8n の I-11 に Webhook が届かない）`);
+    notes.push(config.disableAutoUnpublish ? "送信に失敗した Webhook は自動で非公開にならない（disable_auto_unpublish）" : "disable_auto_unpublish が true でない（I-11 が未公開の間に「n8n I-11」が止まる）");
+    if (!allowed || !config.disableAutoUnpublish) ok = false;
     const enabled = await apiEnabled();
     notes.push(enabled ? "API は有効" : "API が無効（設定 > API 設定 で有効にする）");
     if (!enabled) ok = false;
@@ -288,6 +340,7 @@ export async function check(ctx) {
 export async function apply(ctx) {
   await ensureServer(ctx);
   await ensureInstalled(ctx);
+  await ensureWebhookConfig(ctx);
 
   const enabled = await apiEnabled();
   const clientId = ctx.value("MAUTIC_CLIENT_ID");

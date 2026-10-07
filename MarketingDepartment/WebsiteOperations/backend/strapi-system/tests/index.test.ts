@@ -5,8 +5,13 @@ vi.mock('../src/posthog', () => ({
   shutdownPostHog: vi.fn(async () => {}),
 }));
 
+vi.mock('../src/users-permissions-lockdown', () => ({
+  lockDownEndUserAuth: vi.fn(async () => {}),
+}));
+
 import app from '../src/index';
 import { capturePostHogEvent, shutdownPostHog } from '../src/posthog';
+import { lockDownEndUserAuth } from '../src/users-permissions-lockdown';
 
 const ARTICLE_UID = 'api::article.article';
 
@@ -174,6 +179,34 @@ describe('bootstrap: 記事のライフサイクルの購読', () => {
   });
 });
 
+describe('bootstrap: エンドユーザーの認証を止める', () => {
+  describe('正常系', () => {
+    it('起動のたびに lockDownEndUserAuth を strapi で呼び、その完了を bootstrap の戻り値で待たせる', async () => {
+      const lockDown = vi.mocked(lockDownEndUserAuth);
+      lockDown.mockClear();
+      const fake = createFakeStrapi();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await app.bootstrap({ strapi: fake.strapi as any });
+
+      expect(lockDown).toHaveBeenCalledTimes(1);
+      expect(lockDown).toHaveBeenCalledWith(fake.strapi);
+      // 記事の購読はその前に済んでいる
+      expect(fake.subscribers).toHaveLength(1);
+    });
+  });
+
+  describe('異常系', () => {
+    it('サーバ: 止める処理が失敗（DB の例外）したら bootstrap も失敗させる（開いたまま起動しない）', async () => {
+      const error = new Error('db failure');
+      vi.mocked(lockDownEndUserAuth).mockRejectedValueOnce(error);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect(app.bootstrap({ strapi: createFakeStrapi().strapi as any })).rejects.toBe(error);
+    });
+  });
+});
+
 describe('bootstrap: イベントのプロパティの取り出し', () => {
   describe('正常系', () => {
     it('result に documentId が無ければ where.documentId を使う', async () => {
@@ -303,6 +336,61 @@ describe('register: Document Service のミドルウェア', () => {
 
       expect(capture).toHaveBeenCalledTimes(1);
       expect(capture).toHaveBeenCalledWith('strapi_cms', 'article_deleted', expect.any(Object));
+    });
+
+    it.each(['publish', 'discardDraft', 'update'])(
+      '%s の最中の afterDelete（古い版の行の置き換え）は article_deleted にせず、ミドルウェアも何も送らない',
+      async (action) => {
+        const { subscriber, middleware } = setup();
+        const operated = { documentId: 'doc1', entries: [{ locale: 'ja-JP' }] };
+        const next = vi.fn(async () => {
+          await subscriber.afterDelete(lifecycleEvent({ result: { documentId: 'doc1' } }));
+          return operated;
+        });
+
+        const result = await middleware({ uid: ARTICLE_UID, action, params: {} }, next);
+
+        expect(result).toBe(operated);
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(capture).not.toHaveBeenCalled();
+      }
+    );
+
+    it('discardDraft の最中の作成（公開版から下書きを作り直す行）は article_created を送らない', async () => {
+      const { subscriber, middleware } = setup();
+      const next = vi.fn(async () => {
+        await subscriber.afterDelete(lifecycleEvent({ result: { documentId: 'doc1' } }));
+        await subscriber.afterCreate(lifecycleEvent({ data: { publishedAt: null }, result: { documentId: 'doc1' } }));
+        return { documentId: 'doc1', entries: [{}] };
+      });
+
+      await middleware({ uid: ARTICLE_UID, action: 'discardDraft', params: {} }, next);
+
+      expect(capture).not.toHaveBeenCalled();
+    });
+
+    it('discardDraft が終わった後の作成は、再び article_created を送る（印が残らない）', async () => {
+      const { subscriber, middleware } = setup();
+
+      await middleware({ uid: ARTICLE_UID, action: 'discardDraft' }, async () => ({ entries: [] }));
+      await subscriber.afterCreate(lifecycleEvent({ result: { documentId: 'doc2' } }));
+
+      expect(capture.mock.calls.map(([, name]) => name)).toEqual(['article_created']);
+    });
+
+    it('公開し直し（publish）は古い公開版の削除を送らず、新しい公開版の作成の article_published だけを送る', async () => {
+      const { subscriber, middleware } = setup();
+      const next = vi.fn(async () => {
+        await subscriber.afterDelete(lifecycleEvent({ result: { documentId: 'doc1' } }));
+        await subscriber.afterCreate(
+          lifecycleEvent({ data: { publishedAt: '2026-10-07T00:00:00Z' }, result: { documentId: 'doc1' } })
+        );
+        return { documentId: 'doc1', entries: [{}] };
+      });
+
+      await middleware({ uid: ARTICLE_UID, action: 'publish', params: {} }, next);
+
+      expect(capture.mock.calls.map(([, name]) => name)).toEqual(['article_published']);
     });
 
     it('ミドルウェアの操作が終わった後の afterDelete は再び送る', async () => {

@@ -136,7 +136,9 @@ export const miswriteCheck: BuiltinHandler = async ({ ctx, runId, signal }) => {
               reason: "no matching proposal or run",
             });
           }
-          const oldest = messages[messages.length - 1]!;
+          // 1 ページは古い順（ChatwootReader.messages）。並びに頼らず id の最も小さいものを次の before にする
+          // （末尾は最新なので、それを before にすると同じページを読み直し続けて上限で打ち切られる）
+          const oldest = messages.reduce((a, b) => (b.id < a.id ? b : a));
           if (oldest.createdAtMs < sinceMs || messages.length < 20) break;
           before = oldest.id;
           if (messagePage === MAX_MESSAGE_PAGES - 1) truncated = true;

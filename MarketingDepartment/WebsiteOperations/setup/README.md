@@ -41,8 +41,8 @@ node setup/setup.mjs --target dev
 | id | 場所 | 自動でやること | 止まって頼むこと（manual） |
 |---|---|---|---|
 | `host-relay` | `middleware/host-relay/setup/` | 中継の起動（172.17.0.1 の 8000・1025・5678） | なし |
-| `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
-| `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・カスタム項目 3 つ・フォーム `consult`・`source_dl`・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
+| `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・Webhook の私設アドレスへの送信の許可（下の「Webhook の送り先と SSRF 対策」）・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
+| `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・Webhook の設定（送り先の私設アドレスの許可・失敗での自動停止の無効化）・カスタム項目 3 つ・フォーム `consult`・`source_dl`・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
 | `ga4` | `middleware/ga4/setup/`（dev・prod） | **dev**: 開発の Astro の環境変数に測定 ID が無いことの確認だけ（あれば失敗）。**prod**: `GA4_PROPERTY_ID`（数字）と `GA4_MEASUREMENT_ID`（`G-…`）の形式の確認（GA4 は SaaS。API は呼ばない。ADR-25） | prod だけ: 本番の GA4 プロパティの作成と設定（`ga4:property`） |
 | `openseo` | `middleware/open-seo-main/dev/setup/`（dev・prod） | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／**prod だけ**（dev は AWS に展開されていないので飛ばす）: Search Console と GA4 用の OAuth クライアント（GA4 は Analytics Admin API・Data API の有効化と `/api/ga4/oauth/callback` を含む）／Search Console の接続（画面）／GA4 の接続（画面。本番のプロパティだけ。ADR-25） |
 | `strapi` | `backend/strapi-system/setup/` | 環境変数ファイル・`pnpm install`・管理者（0 人のときだけ）・MCP 用の Admin トークン（下書きまで）・ビルド用の読み取りトークン → `strapi-dev.env` | 開発サーバーの起動（別の端末で `pnpm dev`）／既にいる管理者のパスワード |
@@ -83,6 +83,18 @@ node setup/setup.mjs --target dev
 **MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`n8n-dev.env`（`umami-dev.env` は ADR-25 で Umami を廃止したので作らない。前に作られたものは自分で消す）。
 
 **各プロジェクトの環境変数ファイル**: 既存の `dev/init-env.sh` と同じく、**空のキーだけを書く**（暗号化の鍵などを上書きしない）。
+
+## Webhook の送り先と SSRF 対策
+
+Mautic と Chatwoot は、私設アドレスへの Webhook を既定で送らない（SSRF 対策）。n8n の受け口（I-11・I-12）は開発も本番も私設アドレスなので、許可が要る。
+
+| | 開発（このスクリプトが設定する） | 本番（ADR-21。宛先は WireGuard 越しの `10.99.0.2:5680`。人が設定する） |
+|---|---|---|
+| Mautic | `config/local.php` の `webhook_allowed_private_addresses` に `127.0.0.1`（`MAUTIC_WEBHOOK_TARGET` のホスト）を足す（`dev/allow-webhook-private-addresses.php`。キャッシュも捨てる） | 同じ項目（設定 > Webhook 設定）に **`10.99.0.2` だけ**を入れる。範囲（`10.0.0.0/8` など）では許可しない |
+| Mautic の自動停止 | `disable_auto_unpublish` を `true`（`dev/disable-webhook-auto-unpublish.php`）。開発は I-11 が未公開（404）なのが既定なので、失敗で「n8n I-11」が止まらないようにする | **`false` のまま**（失敗が続いた Webhook は止まる）。止まったら n8n の provision を実行し直して公開に戻す（非公開の「n8n I-11」を公開にする） |
+| Chatwoot | `.env` の `SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true`（`dev/init-env.sh`）。rails と sidekiq を作り直して反映する | 宛先ごとの許可が無く、私設アドレス全体を開ける切り替えしか無い。**本番でも `true` が要る**ので、Chatwoot のタスクのセキュリティグループの出口を、必要な私設アドレス（RDS・ElastiCache と `10.99.0.2:5680`）だけに絞る |
+
+許可が無いと、Mautic は webhook_logs に `Access to private addresses is not allowed.` を、Chatwoot は Sidekiq のログに `has no public ip addresses` を残すだけで、n8n には何も届かない（Chatwoot は再送しない）。
 
 ## 秘密値の扱い
 

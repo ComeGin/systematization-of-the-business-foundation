@@ -19,10 +19,14 @@ vi.mock("../../src/integrations/chatwoot.js", () => ({
       cw.conversationsPage(page);
       return cw.pages[page - 1] ?? [];
     }
+    // Chatwoot の MessageFinder と同じ: id が before より小さいもの（無ければ全部）の新しい方から 20 件を、古い順に並べて返す
     async messages(displayId: number, before?: number) {
       cw.messagesCall(displayId, before);
       const all = cw.messages.get(displayId) ?? [];
-      return all.filter((m) => before === undefined || m.id < before).slice(0, 20);
+      return all
+        .filter((m) => before === undefined || m.id < before)
+        .slice(0, 20)
+        .reverse();
     }
   },
 }));
@@ -315,6 +319,22 @@ describe("miswriteCheck の範囲と打ち切り", () => {
         [12, undefined],
         [12, 1005],
       ]);
+    });
+
+    // 回帰: 上流は 1 ページを古い順で返す。末尾（最新）を before にしていたため、1 つの会話でエージェントが 21 件以上送ると
+    // 同じページを読み直し続けて 10 ページで打ち切られ、partial（truncated）になって前回完了の時刻も進まなかった
+    it("エージェントが 31 件送った会話は、最も古い id を before にして 2 ページで読み切り、success にして前回完了の時刻を進める", async () => {
+      const messages = Array.from({ length: 31 }, (_, i) => agentMessage(2000 + i, NOW - (40 - i) * MIN));
+      cw.pages = [[conversation(12, messages)]];
+      const result = await miswriteCheck(input());
+      expect(cw.messagesCall.mock.calls).toEqual([
+        [12, undefined],
+        [12, 2011],
+      ]);
+      expect(result).toMatchObject({ outcome: "success", failureClass: null });
+      expect(result.summary).toContain("エージェントの送信 31 件、候補 31 件（新規 31 件）");
+      expect(ctx.miswrite.list().map((c) => c.messageId).sort()).toEqual(messages.map((m) => m.id));
+      expect(ctx.kv.get("miswrite.cursor")).toBe(new Date(NOW).toISOString());
     });
 
     it("ページの最も古いメッセージが範囲より古ければ、次のページを読まない", async () => {

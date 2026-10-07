@@ -23,7 +23,7 @@ erDiagram
         string keyword_id PK "E-01"
         string phrase "検索語句"
         int monthly_volume "推定検索ボリューム。OpenSEO 経由の DataForSEO"
-        string status "候補 / 採用 / 見送り"
+        string adoption_status "候補 / 採用 / 見送り"
     }
     SearchIntent {
         string intent_code PK "E-02。latent / semi_explicit / explicit"
@@ -161,7 +161,7 @@ erDiagram
 
 | ID | エンティティ | 主要属性 | 正本（System of Record） | 格納形式 | 状態 |
 |---|---|---|---|---|---|
-| `E-01` | `Keyword` | `phrase` / `monthly_volume` / `status` / `intent_code` | Strapi（`api::keyword.keyword`） | コンテンツタイプ | 未着手 |
+| `E-01` | `Keyword` | `phrase` / `monthly_volume` / `adoption_status` / `intent_code` | Strapi（`api::keyword.keyword`） | コンテンツタイプ | 未着手 |
 | `E-02` | `SearchIntent` | `intent_code` / `label` / `default_cta` | `E-01` の属性（enum） | 列挙値 | 未着手 |
 | `E-03` | `ContentPlan` | `title_draft` / `outline` / `plan_state` / `assignee_role` | Strapi（`api::content-plan.content-plan`） | コンテンツタイプ | 未着手 |
 | `E-04` | `Content` | `documentId` / `title` / `locale` / `publishedAt` | Strapi（`api::article.article`） | コンテンツタイプ | 実装済み |

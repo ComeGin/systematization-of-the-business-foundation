@@ -66,7 +66,11 @@ export class ChatwootReader {
     }));
   }
 
-  /** メッセージを新しい順に最大 20 件。before を渡すとそれより古いもの。本文は読み捨てる。 */
+  /**
+   * メッセージを最大 20 件。before が無ければ最新の 20 件、あれば id が before より小さいものの直近 20 件。
+   * **並びは古い順（created_at の昇順）**（Chatwoot の MessageFinder#messages_latest / messages_before が
+   * 新しい順に 20 件取ってから reverse する）。本文は読み捨てる。
+   */
   async messages(displayId: number, before?: number): Promise<ChatwootMessage[]> {
     const query = before === undefined ? "" : `?before=${before}`;
     const data = await this.get(`/conversations/${displayId}/messages${query}`, MessagePage);

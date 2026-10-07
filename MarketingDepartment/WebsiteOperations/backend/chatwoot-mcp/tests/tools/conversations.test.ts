@@ -72,7 +72,9 @@ describe("chatwoot_list_conversations", () => {
 
   describe("異常系", () => {
     it("入力: 応答が上限を超えると件数を減らし、truncation_message を付ける", async () => {
-      const payload = Array.from({ length: 25 }, (_, i) => conversation({ id: i + 1, custom_attributes: { note: "n".repeat(2_000) } }));
+      // custom_attributes も sanitize で LONG_TEXT_LIMIT（1,000 文字）を超える値が省略されるため、1,000 文字未満の値を 3 つ持たせて上限を超えさせる
+      const note = "n".repeat(900);
+      const payload = Array.from({ length: 25 }, (_, i) => conversation({ id: i + 1, custom_attributes: { note_a: note, note_b: note, note_c: note } }));
       installFetch(routes({ [`GET ${V1}/conversations`]: listResponse(payload) }));
       const result = await setup().call("chatwoot_list_conversations", { response_format: "json" });
       const structured = result.structuredContent as any;

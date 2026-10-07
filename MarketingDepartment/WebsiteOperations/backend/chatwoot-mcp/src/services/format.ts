@@ -56,7 +56,8 @@ export function toConversationSummary(conversation: ChatwootConversation, tz: Ti
           created_at: tz.format(last.created_at),
         })
       : null,
-    custom_attributes: conversation.custom_attributes,
+    // カスタム属性のキーは運用者が自由に決めるため、additional_attributes と同じく秘匿情報らしいキーの値を伏せる
+    custom_attributes: sanitize(conversation.custom_attributes),
   });
 }
 
@@ -135,7 +136,7 @@ export function toContactSummary(contact: ChatwootContact, tz: TimeZone): ApiRec
     inboxes: (contact.contact_inboxes ?? []).map((ci) => (ci.inbox ? `${ci.inbox.name} (inbox ${ci.inbox.id})` : null)).filter(Boolean),
     created_at: tz.format(contact.created_at),
     last_activity_at: tz.format(contact.last_activity_at),
-    custom_attributes: contact.custom_attributes,
+    custom_attributes: sanitize(contact.custom_attributes),
   });
 }
 

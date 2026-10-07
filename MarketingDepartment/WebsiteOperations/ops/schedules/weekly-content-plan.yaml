@@ -7,7 +7,7 @@ agent: content-planner
 builtin: null
 after: []
 prompt: |
-  採用済み（status が adopted）の E-01 のうち、企画がまだ無いものから、記事の構成案を E-03 として本番の Strapi に起案する。
+  採用済み（adoption_status が adopted）の E-01 のうち、企画がまだ無いものから、記事の構成案を E-03 として本番の Strapi に起案する。
 
   取得の範囲（変えない）:
   - 起案する数は 1 回の実行で 3 件まで

@@ -30,7 +30,7 @@ describe('api::keyword.keyword（E-01）', () => {
   const attributes = attributesOf(keywordSchema);
 
   describe('正常系', () => {
-    it('下書き・公開を使わない（採否は status で表す）', () => {
+    it('下書き・公開を使わない（採否は adoption_status で表す）', () => {
       expect(keywordSchema.options.draftAndPublish).toBe(false);
     });
 
@@ -38,13 +38,19 @@ describe('api::keyword.keyword（E-01）', () => {
       expect(attributes.phrase).toMatchObject({ type: 'string', required: true, unique: true });
     });
 
-    it('status は candidate・adopted・skipped で、既定は candidate（agent/keyword-researcher が作る値）', () => {
-      expect(attributes.status).toMatchObject({
+    it('adoption_status は candidate・adopted・skipped で、既定は candidate（agent/keyword-researcher が作る値）', () => {
+      expect(attributes.adoption_status).toMatchObject({
         type: 'enumeration',
         enum: ['candidate', 'adopted', 'skipped'],
         default: 'candidate',
         required: true,
       });
+    });
+
+    it('Strapi 5 のドキュメントの状態（draft / published）の status と名前を重ねない（属性に status を持たない）', () => {
+      // status という属性があると、管理 API は値を「Invalid status」で拒み、MCP の get / list の応答では
+      // ドキュメントの状態に置き換わって採否が読めなかった（2026-10-07 の結合テストで見つけて adoption_status に改名）
+      expect(Object.keys(attributes)).not.toContain('status');
     });
 
     it('intent_code は検索意図の 3 分類（E-02。DA-01 と同じ値）', () => {

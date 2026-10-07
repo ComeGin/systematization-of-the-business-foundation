@@ -55,7 +55,7 @@ vi.mock("control-plane", () => ({
   resolveDataDir: mocks.resolveDataDir,
 }));
 
-import { ensureAuthSchema, getAuth, isGoogleConfigured } from "@/lib/auth";
+import { ensureAuthSchema, getAuth, isAdminEmail, isGoogleConfigured } from "@/lib/auth";
 
 const REFUSED = "このアカウントでは監視アプリにログインできません";
 
@@ -107,6 +107,58 @@ describe("isGoogleConfigured", () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", id);
       vi.stubEnv("GOOGLE_CLIENT_SECRET", secret);
       expect(isGoogleConfigured()).toBe(false);
+    });
+  });
+});
+
+describe("isAdminEmail（要求ごとの許可リストの検査）", () => {
+  describe("正常系", () => {
+    it("Workspace のドメインで許可リストにあるメールなら true（大文字・前後の空白は区別しない）", () => {
+      vi.stubEnv("CONTROL_ADMIN_EMAILS", " other@comegin.com , Admin@Comegin.com ");
+      expect(isAdminEmail("ADMIN@comegin.com")).toBe(true);
+      expect(isAdminEmail("other@comegin.com")).toBe(true);
+    });
+
+    it("GOOGLE_HOSTED_DOMAIN を設定すれば、そのドメインで判定する", () => {
+      vi.stubEnv("GOOGLE_HOSTED_DOMAIN", "example.co.jp");
+      vi.stubEnv("CONTROL_ADMIN_EMAILS", "admin@example.co.jp,admin@comegin.com");
+      expect(isAdminEmail("admin@example.co.jp")).toBe(true);
+      expect(isAdminEmail("admin@comegin.com")).toBe(false);
+    });
+
+    it("許可リストは呼び出しのたびに読み直す（外したメールは次の判定から false）", () => {
+      expect(isAdminEmail("admin@comegin.com")).toBe(true);
+      vi.stubEnv("CONTROL_ADMIN_EMAILS", "someone-else@comegin.com");
+      expect(isAdminEmail("admin@comegin.com")).toBe(false);
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: 許可リストに無いメールなら false", () => {
+      expect(isAdminEmail("outsider@comegin.com")).toBe(false);
+    });
+
+    it("入力: 許可リストにあっても Workspace のドメインの外なら false", () => {
+      vi.stubEnv("CONTROL_ADMIN_EMAILS", "admin@example.com");
+      expect(isAdminEmail("admin@example.com")).toBe(false);
+    });
+
+    it("入力: ドメインの後ろに別のドメインを続けて装ったメールは false", () => {
+      vi.stubEnv("CONTROL_ADMIN_EMAILS", "admin@comegin.com.evil.example");
+      expect(isAdminEmail("admin@comegin.com.evil.example")).toBe(false);
+    });
+
+    it.each([
+      ["null", null],
+      ["undefined", undefined],
+      ["空文字", ""],
+    ])("空入力: メールが %s なら false", (_label, email) => {
+      expect(isAdminEmail(email)).toBe(false);
+    });
+
+    it("空入力: 許可リストが空なら、だれでも false", () => {
+      vi.stubEnv("CONTROL_ADMIN_EMAILS", "");
+      expect(isAdminEmail("admin@comegin.com")).toBe(false);
     });
   });
 });

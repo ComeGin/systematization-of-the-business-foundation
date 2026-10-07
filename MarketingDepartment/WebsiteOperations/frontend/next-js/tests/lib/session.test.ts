@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => {
       order.push("ensureAuthSchema");
     }),
     getSession: vi.fn(async (_input: { headers: Headers }): Promise<unknown> => null),
+    // 既定は許可リストにある（resetAllMocks の後もこの実装に戻る）
+    isAdminEmail: vi.fn((_email: string | null | undefined) => true),
+    deleteSession: vi.fn(async (_token: string) => {}),
   };
 });
 
@@ -24,12 +27,17 @@ vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/auth", () => ({
   ensureAuthSchema: mocks.ensureAuthSchema,
-  getAuth: () => ({ api: { getSession: mocks.getSession } }),
+  getAuth: () => ({
+    api: { getSession: mocks.getSession },
+    $context: Promise.resolve({ internalAdapter: { deleteSession: mocks.deleteSession } }),
+  }),
+  isAdminEmail: mocks.isAdminEmail,
 }));
 
 import { getSession, guardApiRequest, requirePageSession } from "@/lib/session";
 
-const SESSION = { user: { id: "u1", email: "admin@comegin.com" }, session: { id: "s1" } };
+const SESSION = { user: { id: "u1", email: "admin@comegin.com" }, session: { id: "s1", token: "tok-1" } };
+const REMOVED = { user: { id: "u2", email: "removed@comegin.com" }, session: { id: "s2", token: "tok-2" } };
 
 function apiRequest(method: string, headers: Record<string, string> = {}): Request {
   return new Request("http://127.0.0.1:3200/api/runs", { method, headers });
@@ -46,6 +54,8 @@ describe("getSession", () => {
       mocks.getSession.mockResolvedValue(SESSION);
       await expect(getSession()).resolves.toBe(SESSION);
       expect(mocks.order).toEqual(["headers", "ensureAuthSchema"]);
+      expect(mocks.isAdminEmail).toHaveBeenCalledWith("admin@comegin.com");
+      expect(mocks.deleteSession).not.toHaveBeenCalled();
       expect(mocks.getSession).toHaveBeenCalledWith({ headers: mocks.requestHeaders });
     });
 
@@ -58,6 +68,24 @@ describe("getSession", () => {
   });
 
   describe("異常系", () => {
+    it("入力: 許可リストから外された人のセッションは失効させ、null を返す（メールはログに出さない）", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      mocks.getSession.mockResolvedValue(REMOVED);
+      mocks.isAdminEmail.mockReturnValue(false);
+      await expect(getSession()).resolves.toBeNull();
+      expect(mocks.isAdminEmail).toHaveBeenCalledWith("removed@comegin.com");
+      expect(mocks.deleteSession).toHaveBeenCalledWith("tok-2");
+      expect(error.mock.calls.flat().join(" ")).not.toContain("removed@comegin.com");
+    });
+
+    it("サーバ: 許可リスト外のセッションの失効に失敗しても、例外にせず null を返す（通さない）", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      mocks.getSession.mockResolvedValue(REMOVED);
+      mocks.isAdminEmail.mockReturnValue(false);
+      mocks.deleteSession.mockRejectedValue(new Error("SQLITE_BUSY"));
+      await expect(getSession()).resolves.toBeNull();
+    });
+
     it("サーバ: スキーマの準備に失敗したら例外を返し、Better Auth に問い合わせない", async () => {
       mocks.ensureAuthSchema.mockRejectedValue(new Error("SQLITE_CANTOPEN"));
       await expect(getSession()).rejects.toThrow("SQLITE_CANTOPEN");
@@ -81,6 +109,14 @@ describe("requirePageSession", () => {
   });
 
   describe("異常系", () => {
+    it("入力: 許可リストから外された人のセッションなら、失効させて /login へリダイレクトする", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      mocks.getSession.mockResolvedValue(REMOVED);
+      mocks.isAdminEmail.mockReturnValue(false);
+      await expect(requirePageSession()).rejects.toThrow("NEXT_REDIRECT /login");
+      expect(mocks.deleteSession).toHaveBeenCalledWith("tok-2");
+    });
+
     it("空入力: 未ログイン（セッションが null）なら /login へリダイレクトする", async () => {
       await expect(requirePageSession()).rejects.toThrow("NEXT_REDIRECT /login");
       expect(mocks.redirect).toHaveBeenCalledWith("/login");
@@ -135,6 +171,18 @@ describe("guardApiRequest", () => {
       const res = await guardApiRequest(apiRequest("GET"));
       expect(res?.status).toBe(401);
       expect(await res?.json()).toEqual({ error: "unauthorized" });
+    });
+
+    it("入力: 許可リストから外された人のセッションなら、失効させて 401 を返す（GET でも POST でも）", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      mocks.getSession.mockResolvedValue(REMOVED);
+      mocks.isAdminEmail.mockReturnValue(false);
+      for (const request of [apiRequest("GET"), apiRequest("POST", { host: "127.0.0.1:3200", origin: "http://127.0.0.1:3200" })]) {
+        const res = await guardApiRequest(request);
+        expect(res?.status).toBe(401);
+        expect(await res?.json()).toEqual({ error: "unauthorized" });
+      }
+      expect(mocks.deleteSession).toHaveBeenCalledTimes(2);
     });
 
     it("入力: 未ログインなら、同じオリジンの POST でも 401 を返す（オリジンの検査より先）", async () => {

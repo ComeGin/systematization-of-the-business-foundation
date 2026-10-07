@@ -77,6 +77,11 @@ describe("toConversationSummary", () => {
       expect(last.sender).toBe("山田 太郎 (contact)");
     });
 
+    it("custom_attributes の秘匿情報らしいキー（token など）の値を伏せ、ほかの値はそのまま残す", () => {
+      const summary = toConversationSummary(conversation({ custom_attributes: { plan: "pro", api_token: "t" } }) as unknown as ChatwootConversation, tz);
+      expect(summary.custom_attributes).toEqual({ plan: "pro", api_token: "[redacted]" });
+    });
+
     it("空入力: 空値・0・false の項目（未読 0・ミュートなし・返信待ちなし・ラベルなし）は省く", () => {
       const summary = toConversationSummary(conversation() as unknown as ChatwootConversation, tz);
       for (const key of ["priority", "unread_count", "muted", "waiting_since", "snoozed_until", "labels", "assignee", "team", "last_message", "custom_attributes"]) {
@@ -197,6 +202,13 @@ describe("toContactSummary / toContactDetail", () => {
       expect((detail.additional_attributes as Record<string, unknown>).social_token).toBe("[redacted]");
     });
 
+    it("要約・詳細とも custom_attributes の秘匿情報らしいキーの値を伏せ、ほかの値はそのまま残す", () => {
+      const withSecret = contact({ custom_attributes: { plan: "trial", crm_password: "p", hmac_key: "h" } }) as unknown as ChatwootContact;
+      const expected = { plan: "trial", crm_password: "[redacted]", hmac_key: "[redacted]" };
+      expect(toContactSummary(withSecret, tz).custom_attributes).toEqual(expected);
+      expect(toContactDetail(withSecret, tz).custom_attributes).toEqual(expected);
+    });
+
     it("空入力: additional_attributes・contact_inboxes がない（null・undefined）ときは例外にせず、その項目を省く", () => {
       const bare = contact({ additional_attributes: null, contact_inboxes: undefined }) as unknown as ChatwootContact;
       expect(toContactSummary(bare, tz)).not.toHaveProperty("inboxes");
@@ -211,6 +223,11 @@ describe("toContactSummary / toContactDetail", () => {
       const partial = contact({ contact_inboxes: [{ source_id: "src-9", inbox: null }] }) as unknown as ChatwootContact;
       expect(toContactSummary(partial, tz)).not.toHaveProperty("inboxes");
       expect(toContactDetail(partial, tz).contact_inboxes).toEqual([{ source_id: "src-9" }]);
+    });
+
+    it("入力: custom_attributes の秘匿情報らしいキーの値が空文字・null なら伏せずにそのまま返す（伏せる値が無い）", () => {
+      const empty = contact({ custom_attributes: { api_token: "", secret_note: null } }) as unknown as ChatwootContact;
+      expect(toContactSummary(empty, tz).custom_attributes).toEqual({ api_token: "", secret_note: null });
     });
 
     it("サーバ: 連絡先のない応答（undefined）は TypeError を投げる（呼び出し側の errorResult が拾う）", () => {

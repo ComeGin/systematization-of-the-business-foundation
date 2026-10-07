@@ -550,6 +550,33 @@ describe("Engine.stopAll", () => {
       expect(ctx.runs.get(b.runId)!.status).toBe("finished");
     });
 
+    // 回帰: 打ち切りを受けて途中で抜けた builtin が success を返すと、その run が成功として残っていた
+    it("打ち切りの後に success・partial を返した実行も failure（timeout）に確定し、targetIds は残す", async () => {
+      mocks.handlers["silence-check"]!.mockImplementation(
+        ({ signal }: BuiltinInput) =>
+          new Promise<RunResult>((resolve) =>
+            signal.addEventListener("abort", () => resolve({ outcome: "success", summary: "会話 0 件を確認", targetIds: ["job:x"] })),
+          ),
+      );
+      mocks.handlers["i13-file"]!.mockImplementation(
+        ({ signal }: BuiltinInput) =>
+          new Promise<RunResult>((resolve) =>
+            signal.addEventListener("abort", () => resolve({ outcome: "skipped", summary: "見送り", targetIds: [], skipReason: "見送り" })),
+          ),
+      );
+      const success = await engine.start({ trigger: "schedule", job: makeJob({ id: "a" }) });
+      const skipped = await engine.start({ trigger: "schedule", job: makeJob({ id: "b", builtin: "i13-file" }) });
+      await engine.stopAll();
+      expect(ctx.runs.get(success.runId)).toMatchObject({
+        outcome: "failure",
+        failureClass: "timeout",
+        summary: "停止要求で中断した",
+        targetIds: ["job:x"],
+      });
+      // skipped（と failure）はそのまま
+      expect(ctx.runs.get(skipped.runId)).toMatchObject({ outcome: "skipped" });
+    });
+
     it("空入力: 実行中が無ければすぐ終わる", async () => {
       await expect(engine.stopAll()).resolves.toBeUndefined();
     });

@@ -242,8 +242,12 @@ function checkDataTableFilters(wf) {
   }
 }
 
+/** サブワークフローの失敗で止まらない。error 出力に流すもの（I-12 の I-19。成功したときだけ突合の印を記録する）は、error 出力がつながっている */
 function checkSubworkflowOnError(wf) {
-  for (const node of wf.nodes.filter((n) => n.type === "n8n-nodes-base.executeWorkflow")) expect(node.onError, node.name).toBe("continueRegularOutput");
+  for (const node of wf.nodes.filter((n) => n.type === "n8n-nodes-base.executeWorkflow")) {
+    expect(["continueRegularOutput", "continueErrorOutput"], node.name).toContain(node.onError);
+    if (node.onError === "continueErrorOutput") expect(wf.connections[node.name]?.main?.[1]?.length ?? 0, node.name).toBeGreaterThan(0);
+  }
 }
 
 const webhooksOf = (wf) => wf.nodes.filter((n) => n.type === "n8n-nodes-base.webhook");
@@ -369,7 +373,7 @@ describe.each(WORKFLOWS)("$file", ({ file, wf }) => {
     });
 
     it("ピン留めのデータ（pinData）を書き出していない（テストの本文や個人情報を Git に入れない）", () => checkNoPinData(wf));
-    it("サブワークフローの呼び出しは onError: continueRegularOutput（通知や突合が失敗しても止まらない）", () => checkSubworkflowOnError(wf));
+    it("サブワークフローの呼び出しは、失敗しても止まらない（continueRegularOutput か、error 出力をつないだ continueErrorOutput）", () => checkSubworkflowOnError(wf));
   });
 
   describe("資格情報と秘密値", () => {
@@ -730,6 +734,15 @@ describe("検査が約束違反を検出する（壊した複製）", () => {
       const cond = node(defaultTrue, "棚卸しが有効か").parameters.conditions.conditions[0];
       cond.leftValue = cond.leftValue.replace("?? 'false'", "?? 'true'");
       expect(() => checkSwitchGate(defaultTrue, spec)).toThrow();
+    });
+
+    it("サーバ: サブワークフローの呼び出しで onError を外した・error 出力をつながずに continueErrorOutput にしたワークフローを検出する", () => {
+      const removed = clone("I-11");
+      delete node(removed, "I-21 通知を呼ぶ").onError;
+      expect(() => checkSubworkflowOnError(removed)).toThrow();
+      const unwired = clone("I-12");
+      unwired.connections["I-19 突合を呼ぶ"].main = [unwired.connections["I-19 突合を呼ぶ"].main[0]];
+      expect(() => checkSubworkflowOnError(unwired)).toThrow();
     });
 
     it("サーバ: 定期実行の取得で onError を外した（失敗で止まる）ワークフローを検出する", () => {

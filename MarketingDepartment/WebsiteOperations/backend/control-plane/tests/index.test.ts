@@ -21,6 +21,12 @@ vi.mock("../src/integrations/aws.js", async (importOriginal) => ({
 
 const SCHEDULES = "MarketingDepartment/WebsiteOperations/ops/schedules";
 const AWS_ENV = { AWS_REGION: "ap-northeast-1", RUNLOG_BUCKET: "comegin-runlog" };
+const MISWRITE_ENV = {
+  MISWRITE_CHATWOOT_BASE_URL: "https://chat.example.test",
+  MISWRITE_CHATWOOT_ACCOUNT_ID: "1",
+  MISWRITE_CHATWOOT_API_TOKEN: "t",
+  MISWRITE_AGENT_USER_ID: "9",
+};
 
 let root: string;
 let cleanup: () => void;
@@ -325,6 +331,28 @@ describe("start / stop", () => {
       const plane = createControlPlane({ env: baseEnv() });
       await expect(plane.stop()).resolves.toBeUndefined();
       expect(logged()).not.toContain("停止");
+    });
+
+    // 回帰: stop() が started のときだけ動いていたため、start() の前に runNow で起動した実行は打ち切られず running のまま残った
+    it("start() の前に runNow で起動した実行も、stop() で打ち切って failure（timeout）に確定する", async () => {
+      writeSchedule("check", 'enabled: false\ncron: "15 7 * * *"\nkind: builtin\nbuiltin: miswrite-check\n');
+      // Chatwoot の読み取りは応答せず、打ち切りの signal で初めて終わる
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init: RequestInit) =>
+            new Promise((_resolve, reject) =>
+              init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }),
+            ),
+        ),
+      );
+      const plane = createControlPlane({ env: baseEnv(MISWRITE_ENV) });
+      const { runId, accepted } = await plane.runNow({ target: { kind: "job", jobId: "check" } });
+      expect(accepted).toBe(true);
+      expect((await plane.getRun(runId))!.status).toBe("running");
+
+      await plane.stop();
+      expect(await plane.getRun(runId)).toMatchObject({ status: "finished", outcome: "failure", failureClass: "timeout" });
     });
   });
 

@@ -32,7 +32,7 @@ Chatwoot ─Webhook─▶ I-12 ──(会話の開始)────────�
 ハートビート ─(5 分ごと)─▶ CloudWatch の PutMetricData（I-21 は通らない。判定は CloudWatch のアラーム）
 ```
 
-`I-11` `I-12` は **Webhook を受けたら、最初に署名を検証する**（次節）。検証を通ったら **先に 200 を返し**（`responseMode: responseNode`）、その後で重複排除と後続処理を行う。署名が合わなければ 401 を返してそこで止まる。重複でも 200 を返すので、上流が再送し続けることはない。後続（`I-21` `I-19`）の呼び出しは `onError: continueRegularOutput` で、**通知や突合が失敗しても Webhook の処理は止まらない**。失敗は呼ばれた側（`I-21` `I-19`）の実行履歴に残る（ADR-18。`E-15` の正本ではない）。
+`I-11` `I-12` は **Webhook を受けたら、最初に署名を検証する**（次節）。検証を通ったら **先に 200 を返し**（`responseMode: responseNode`）、その後で重複排除と後続処理を行う。署名が合わなければ 401 を返してそこで止まる。重複でも 200 を返すので、上流が再送し続けることはない。後続（`I-21` `I-19`）の呼び出しは、**通知や突合が失敗しても Webhook の処理は止まらない**（`I-21` は `onError: continueRegularOutput`、`I-12` の `I-19` は `continueErrorOutput` で失敗を error 出力に流す）。失敗は呼ばれた側（`I-21` `I-19`）の実行履歴に残る（ADR-18。`E-15` の正本ではない）。
 
 ## Webhook の署名検証（`I-11` `I-12`）
 
@@ -100,7 +100,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 
 - **目的**: Mautic のコンタクト系イベントを 1 件ずつに分け、重複を除いて、顧客からの要求だけを `I-21` に渡す。
 - **トリガー**: Webhook `POST /webhook/mautic-event`（Mautic の Webhook に `Secret` を設定する）。Mautic 側で購読するイベントは、コンタクトの作成・更新、ポイント変更、セグメント変更（`mautic.lead_list_change`）、フォーム送信（`mautic.form_on_submit`）。会社のイベントなど、コンタクトに紐づかないものは読み飛ばす。
-- **冪等キー**: **`contact_id` + イベント種別 + `timestamp`（秒）**。Data Table `dedup_mautic`、保持 7 日（毎日 03:00 に 7 日を過ぎた行を削除）。重複なら何もせず 200。
+- **冪等キー**: **`contact_id` + イベント種別 + `timestamp`（秒）**。**`timestamp` が読めないイベントは、秒の代わりにイベントの中身のハッシュ（`h` + 16 進。cyrb53）を使う**（以前は受信時刻〈秒〉を入れていたため、秒をまたいだ再送が別のキーになり重複と見なせなかった。2026-10-07 に直した。`timestampSec` の列と通知の受付時刻は、読めないときは受信時刻のまま）。Data Table `dedup_mautic`、保持 7 日（毎日 03:00 に 7 日を過ぎた行を削除）。重複なら何もせず 200。
   - **DD-01 6.2 の「`contact_id` + `timestamp`」にイベント種別を足している。** Mautic は 1 回のフォーム送信で `lead_post_save`・`points_change`・`list_change`・`form_on_submit` を同じ秒に出す。種別がないと、先に届いたイベントが後続の `form_on_submit`（無料相談の通知）を重複と見なして落とす。本物の再送（同じ種別・同じ秒）はこれまでどおり弾く。キーは Code ノード「イベント分割とキー生成」の 1 行で戻せる。
 - **通知する条件**（BA-04）: フォーム alias が `consult`（無料相談）→ `demo-requested`／セグメント `mql` に追加された → `mql`。**無料 DL（`source-dl`）は通知しない。**
 - **署名の検証**: `Webhook-Signature` を検証し、合わなければ 401（上の「Webhook の署名検証」）。
@@ -112,6 +112,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 - **目的**: Chatwoot の会話の作成と、顧客からのメッセージの受信を重複なく受け、会話の開始を `I-21` に、email があれば `I-19` に渡す。
 - **トリガー**: Webhook `POST /webhook/chatwoot-event`（Chatwoot の Webhook のシークレットを控える）。Chatwoot 側で購読するのは `conversation_created` と `message_created`。**顧客以外のメッセージ（担当者の返信・社内メモ・システムの活動）は読み飛ばす。**
 - **冪等キー**: **`display_id` + `message_id`**。Data Table `dedup_chatwoot`、保持 7 日（毎日 03:05 に掃除）。会話の作成イベントにはメッセージ ID が無いので、その部分は固定の `conversation_created` を使う。**`message_created` で `body.id` が無い・`null` のイベントは読み飛ばす**（`String(undefined)` の `'undefined'` をキーにすると、同じ会話の ID の無いメッセージがすべて同じキーとして重複扱いになるため。Chatwoot は常に `id` を付けるので実害は小さい。2026-10-06 に直した）。**会話 ID は必ず `display_id`**（Webhook の `conversation.id`、会話イベントのトップレベルの `id`）。
+- **突合（`I-19`）は冪等キーと別の印で重複を除く**（2026-10-07 に直した）。Code ノードから「通知の枝」（冪等キー → `I-21`）と「突合の枝」（email があるとき → 印 `<display_id>|<message_id>|match` が `dedup_chatwoot` に無いものだけ → `I-19`）に分かれ、**`I-19` が成功したときだけ印を記録する**。`I-19` が失敗した会話は、同じイベントの再送で突合だけをやり直す（Chatwoot 自身は失敗した Webhook を再送しないが、同じ会話の次の顧客のメッセージは別のイベントなので、そこでも突合される。通知は冪等キーで 1 回だけ。以前は冪等キーの記録の後に `I-19` を呼んでいたので、失敗した会話は再送しても突合をやり直せなかった）。印の行も 7 日で消える。`I-19` が何も返さない（`chatwootContactId` が無いなど突合できない入力）ときも印は記録しないので、再送のたびに `I-19` を呼ぶ（何も書かない）。
 - **署名の検証**: `X-Chatwoot-Signature` と `X-Chatwoot-Timestamp` を検証し、合わない・5 分より古いときは 401。
 - **必要な資格情報**: `Chatwoot Webhook 署名鍵（Crypto）`（種類は **Crypto**。`Hmac Secret` に、Chatwoot の Webhook のシークレットと同じ値を入れる）。
 - **Data Table**: `dedup_chatwoot`（`dedupKey` string／`displayId` number／`messageId` string）。

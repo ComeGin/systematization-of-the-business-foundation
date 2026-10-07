@@ -16,9 +16,9 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 | エージェント | 担う Capability | 責務 | 入力（E-ID / 手段） | 出力（E-ID） |
 |---|---|---|---|---|
-| `agent/keyword-researcher` | `CAP-02` | キーワード候補の抽出と検索意図の 3 分類（潜在 / 準顕在 / 顕在・指名）の割り当て。**検索ボリュームと SERP を根拠に付ける** | **OpenSEO**（キーワード調査・キーワード指標・SERP・GSC の実績）／ 既存の `E-01` | `E-01`（候補。`status: 候補`。`monthly_volume` を埋める） |
+| `agent/keyword-researcher` | `CAP-02` | キーワード候補の抽出と検索意図の 3 分類（潜在 / 準顕在 / 顕在・指名）の割り当て。**検索ボリュームと SERP を根拠に付ける** | **OpenSEO**（キーワード調査・キーワード指標・SERP・GSC の実績）／ 既存の `E-01` | `E-01`（候補。`adoption_status: 候補`。`monthly_volume` を埋める） |
 | `agent/knowledge-scout` | `CAP-16` | SEO・BtoB マーケティングの外部知見の調査と要約。**競合ドメインの把握**。採否は `R2` が決める | Web 調査 / **OpenSEO**（SERP 上の競合・ドメイン概要・順位キーワード・被リンク概要）／ `E-12` | 調査メモ（`docs/knowledge/` の Markdown）／ `E-12`（`source: market`） |
-| `agent/content-planner` | `CAP-03` | 採用済み `E-01` から構成案を作る | `E-01`（`status: 採用`）／ `E-12` | `E-03`（`plan_state: 起案`） |
+| `agent/content-planner` | `CAP-03` | 採用済み `E-01` から構成案を作る | `E-01`（`adoption_status: 採用`）／ `E-12` | `E-03`（`plan_state: 起案`） |
 | `agent/content-writer` | `CAP-04` | 承認済み企画から記事の初稿を書く。**取材が必要な一次情報は扱わない**（`R4` が素材を用意する） | `E-03`（`plan_state: 承認済`） | `E-04`（`publishedAt` を設定しない下書き。本番は `strapi-prod` のトークンに公開の権限が無い。ADR-17） |
 | `agent/quality-checker` | `CAP-06` | 機械チェック（BA-04 の 3a）。リンク切れ・表記ゆれ・構造化データ・Lighthouse のしきい値 | `E-04`（下書き）／ `E-12`（`source: lighthouse`） | 指摘一覧（`E-12` として `docs/audits/quality/` に記録） |
 | `agent/design-implementer` | `CAP-05` | shadcn/ui と Tailwind のトークンに沿った UI コンポーネントの実装。**デザインの正本はコード側**（BA-02 の内製化方針） | `E-03` `E-06`（表示定義）／ `components.json` | 作業ツリー上のコード差分（コミットはしない） |
@@ -50,7 +50,7 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 | エージェント | 接続する MCP | `CHATWOOT_ACCESS_LEVEL` | `MAUTIC_ACCESS_LEVEL` | Strapi 側の権限 | 承認が必要な操作 |
 |---|---|---|---|---|---|
-| `agent/keyword-researcher` | strapi-mcp（本番は `strapi-prod`）／ **OpenSEO**（2.4） | **接続しない** | **接続しない** | `E-01` の作成・更新（`api::keyword.keyword`） | `E-01` の `status` を `採用` にする（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
+| `agent/keyword-researcher` | strapi-mcp（本番は `strapi-prod`）／ **OpenSEO**（2.4） | **接続しない** | **接続しない** | `E-01` の作成・更新（`api::keyword.keyword`） | `E-01` の `adoption_status` を `採用` にする（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
 | `agent/knowledge-scout` | **OpenSEO**（2.4） | **接続しない** | **接続しない** | なし | 知見の採用（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
 | `agent/content-planner` | strapi-mcp（本番は `strapi-prod`） | **接続しない** | **接続しない** | `E-03` の作成・更新 | 企画の採否決定（`R2`。BA-04 のステップ 1） |
 | `agent/content-writer` | strapi-mcp（本番は `strapi-prod`） | **接続しない** | **接続しない** | `E-04` の**下書きのみ**（`publishedAt` を設定する権限を与えない。本番は `strapi-prod` のトークンに公開・非公開化・削除の権限が無い。ADR-17） | なし（**記事の公開・公開済み記事への更新の反映・削除は `R2` が本番の管理画面で自ら行う**。ADR-17。このエージェントには実行手段が無い） |

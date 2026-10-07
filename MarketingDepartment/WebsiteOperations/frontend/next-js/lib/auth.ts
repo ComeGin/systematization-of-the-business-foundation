@@ -5,6 +5,7 @@
 //  1. Google プロバイダーの hd（ライブラリが ID トークンの hd クレームを検査する。hd が無いトークンは拒否）
 //  2. mapProfileToUser（Google の profile の hd と email_verified を、このアプリが自前で検査する）
 //  3. databaseHooks（メールが Workspace のドメインで、許可リスト CONTROL_ADMIN_EMAILS にあるときだけ、ユーザーとセッションを作る）
+// 加えて、要求ごとに同じ検査（isAdminEmail）をする（lib/session.ts）。許可リストから外した人の作成済みのセッションは、次の要求で失効させる。
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
@@ -25,6 +26,17 @@ function allowlist(): Set<string> {
   );
 }
 
+function hostedDomain(): string {
+  return process.env.GOOGLE_HOSTED_DOMAIN?.trim() || DEFAULT_HOSTED_DOMAIN;
+}
+
+/** 監視アプリを使ってよいメールか（Workspace のドメインで、許可リストにある）。作成時の検査と要求ごとの検査で同じものを使う */
+export function isAdminEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return lower.endsWith(`@${hostedDomain()}`) && allowlist().has(lower);
+}
+
 /** Google の資格情報が入っているか。無ければログインの画面に案内を出す（ログインはできない） */
 export function isGoogleConfigured(): boolean {
   return Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim());
@@ -34,7 +46,7 @@ function create() {
   // node:sqlite を直接 import しない（開く処理は control-plane 側）
   const db = openAuthDatabase(resolveDataDir());
   const baseURL = process.env.BETTER_AUTH_URL?.trim() || DEFAULT_URL;
-  const domain = process.env.GOOGLE_HOSTED_DOMAIN?.trim() || DEFAULT_HOSTED_DOMAIN;
+  const domain = hostedDomain();
 
   const refuse = (reason: string): never => {
     // メールアドレスは記録しない（理由の種類だけ）
@@ -92,7 +104,8 @@ function create() {
       },
       session: {
         create: {
-          // 許可リストから外された人は、既存のユーザーでも新しいセッションを作れない。DB のユーザーの行からメールを引く
+          // 許可リストから外された人は、既存のユーザーでも新しいセッションを作れない（作成済みのセッションは lib/session.ts が要求ごとに失効させる）。
+          // DB のユーザーの行からメールを引く
           before: async (session) => {
             const row = db.prepare('SELECT email FROM "user" WHERE id = ?').get(session.userId) as { email?: string } | undefined;
             assertAdminEmail(row?.email);
