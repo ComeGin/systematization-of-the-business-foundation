@@ -37,6 +37,10 @@
             {
               "name": "state",
               "type": "string"
+            },
+            {
+              "name": "detail",
+              "type": "string"
             }
           ]
         }
@@ -159,7 +163,7 @@
               "id": "body",
               "name": "body",
               "type": "string",
-              "value": "={{ (() => {\n  const t = $('サブワークフローの入力').first().json;\n  const sec = t.receivedAtSec || Math.floor(Date.now() / 1000);\n  const at = DateTime.fromSeconds(Number(sec)).setZone('Asia/Tokyo').toFormat('yyyy-MM-dd HH:mm') + ' JST';\n  const lines = t.channel === 'ops'\n    ? ['種別: ' + t.kind, '状態: ' + t.state, '検知: ' + at, '確認: 監視の項目 ' + t.kind + ' を確認する']\n    : ['種別: ' + t.kind]\n        .concat(t.company ? ['会社名: ' + String(t.company).slice(0, 100)] : [])\n        .concat(['システム上の ID: ' + t.idLabel + ' ' + t.id])\n        .concat(t.sourcePath ? ['流入記事: ' + String(t.sourcePath).split('?')[0].slice(0, 200)] : [])\n        .concat(['受付: ' + at, '確認: ' + (t.idLabel === 'contact' ? 'Mautic のコンタクト画面を見る' : 'Chatwoot の会話画面を見る')]);\n  return lines.join('\\n');\n})() }}"
+              "value": "={{ (() => {\n  const t = $('サブワークフローの入力').first().json;\n  const sec = t.receivedAtSec || Math.floor(Date.now() / 1000);\n  const at = DateTime.fromSeconds(Number(sec)).setZone('Asia/Tokyo').toFormat('yyyy-MM-dd HH:mm') + ' JST';\n  const lines = t.channel === 'ops'\n    ? ['種別: ' + t.kind, '状態: ' + t.state, '検知: ' + at, '確認: 監視の項目 ' + t.kind + ' を確認する']\n    : ['種別: ' + t.kind]\n        .concat(t.company ? ['会社名: ' + String(t.company).slice(0, 100)] : [])\n        .concat(['システム上の ID: ' + t.idLabel + ' ' + t.id])\n        .concat(t.sourcePath ? ['流入記事: ' + String(t.sourcePath).split('?')[0].slice(0, 200)] : [])\n        .concat(['受付: ' + at, '確認: ' + (t.idLabel === 'contact' ? 'Mautic のコンタクト画面を見る' : 'Chatwoot の会話画面を見る')]);\n  // 任意の内訳（件数・display_id・残り日数など、個人情報を含まない値だけを呼び出し側が渡す）。最後の「確認」の行の前に入れる\n  if (t.detail) lines.splice(-1, 0, '内訳: ' + String(t.detail).replace(/\\s+/g, ' ').slice(0, 200));\n  return lines.join('\\n');\n})() }}"
             }
           ]
         },
@@ -174,7 +178,7 @@
         896,
         200
       ],
-      "notes": "Subject は ASCII のみ・100 文字未満（SNS の制約）。本文に載せるのは種別・会社名・システム上の ID・受付時刻だけ。email・氏名・本文は載せない（DA-05 の 1.3）。"
+      "notes": "Subject は ASCII のみ・100 文字未満（SNS の制約）。本文に載せるのは種別・会社名・システム上の ID・受付時刻と、任意の内訳（detail）だけ。detail には件数・display_id・残り日数のように個人情報を含まない値だけを入れる。email・氏名・本文は載せない（DA-05 の 1.3）。"
     },
     {
       "parameters": {
@@ -533,6 +537,6 @@
   },
   "pinData": {},
   "meta": {
-    "description": "顧客からの要求（lead）と監視の状態遷移（ops）を、本番は Amazon SNS、開発は MailHog に通知するサブワークフロー。"
+    "description": "顧客からの要求（lead）と監視・定例の状態遷移（ops）を、本番は Amazon SNS、開発は MailHog に通知するサブワークフロー。任意の入力 detail（個人情報を含まない内訳）を本文に添えられる。"
   }
 }

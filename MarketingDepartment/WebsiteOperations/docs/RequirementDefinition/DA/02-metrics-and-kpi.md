@@ -9,13 +9,16 @@
 
 ### 1.1 分母
 
-**分母は Umami のセッション数（`E-07 Session`）とする。**
+**分母は GA4 のセッション数（`SESSION-count`。`E-07 Session`）とする**（**2026-10-06 に AA-05 の ADR-25 で Umami から変えた**。旧版は「分母は Umami のセッション数」）。
 
 | 候補 | 採否 | 理由 |
 |---|---|---|
-| セッション数（Umami） | **採用** | 1 回の来訪という単位が安定しており、月次比較で定義が揺れない。AB テストの割付・評価の単位とも揃えられる |
-| 訪問者数（Umami のユニークビジター） | 不採用 | Umami はプライバシー重視でクロスサイト・長期の識別子を持たないため、期間をまたぐと同一人物が再計測される。分母が計測期間の長さに依存して膨らみ、前期間との比較が成立しない |
+| **セッション数（GA4）** | **採用**（2026-10-06。ADR-25） | 1 回の来訪という単位が安定しており、月次比較で定義が揺れない。**ADR-25 で流入・母数系の正本を GA4 にした**。ただし同意した訪問者だけを数える（下の注記） |
+| セッション数（Umami） | **採用していた**（**ADR-25 で廃止**） | 1 回の来訪という単位が安定しており、月次比較で定義が揺れない。AB テストの割付・評価の単位とも揃えられる |
+| 訪問者数（Umami のユニークビジター。**ADR-25 で廃止**） | 不採用 | Umami はプライバシー重視でクロスサイト・長期の識別子を持たないため、期間をまたぐと同一人物が再計測される。分母が計測期間の長さに依存して膨らみ、前期間との比較が成立しない。**GA4 のユーザー数も使わない**（OpenSEO のツールはチャネル別・ページ別の行でしか返さず、行を足すと重複する。4.1 の `VISITOR-count` の廃止） |
 | PostHog の person 数 | 不採用 | person の生成は同意の取得状況に依存するため、同意率が変わるだけで分母が動く（DA-05 の個人情報区分と連動する）。母数には使えない |
+
+> **分母と分子の母集団の偏り（2026-10-06。ADR-25 の帰結 6）。** GA4 は Cookie（`_ga`）を使うため、**同意した訪問者のセッションしか数えない**（Consent Mode v2 の basic。同意の前はタグを読み込まない）。分子の Mautic のフォーム送信（1.2）は**同意と無関係に全員**を数える。したがって **CVR は同意しない訪問者の CV の分だけ過大になり、同意率が下がると CVR が見かけ上上がる**（施策の効果と区別できない）。旧版の「PostHog の person 数は同意率で分母が動くので不採用」と同じ欠点を、GA4 のセッション数も持つ。**補正の方法は未決定**（6 節。同意率〈`consent-api` の記録〉を材料にする）。補正が決まるまでは、**同意率が大きく動いた期間の CVR の比較を `E-13` の `evidence` に使わない**。
 
 ### 1.2 分子
 
@@ -49,18 +52,44 @@
 ### 1.4 確定した式
 
 ```
-CVR-total      = 期間内の Mautic フォーム送信数（2 種合計） / 期間内の Umami セッション数
-CVR-consult    = 期間内の無料相談フォームの送信数 / 期間内の Umami セッション数
-CVR-source-dl  = 期間内の無料 DL フォームの送信数 / 期間内の Umami セッション数
-CVR-assist     = 期間内の Chatwoot の新規会話数 / 期間内の Umami セッション数
+CVR-total      = 期間内の Mautic フォーム送信数（2 種合計） / 期間内の GA4 セッション数（SESSION-count）
+CVR-consult    = 期間内の無料相談フォームの送信数 / 期間内の GA4 セッション数
+CVR-source-dl  = 期間内の無料 DL フォームの送信数 / 期間内の GA4 セッション数
+CVR-assist     = 期間内の Chatwoot の新規会話数 / 期間内の GA4 セッション数
 ```
+
+- **分母は 2026-10-06 に Umami のセッション数から GA4 のセッション数に変えた**（ADR-25）。**GA4 と Mautic の両方が `ok` か `empty_but_ok` で、両方の取得期間（`fetch.range`）が同じで、かつ `SESSION-count ≥ 1` のときだけ計算する**（どちらかが欠けたら CVR を書かない。0 で割らない）。**1.1 の注記の偏り（分母は同意した訪問者だけ、分子は全員）を、CVR を報告するたびに添える。**
 
 - 期間は月次（`CAP-01` の月次 CVR 改善会議に合わせる）。週次で見る場合も同じ式を使い、分母・分子とも同じ期間で切る。
 - **`CVR-total` の「2 種合計」は 2026-10-01 に 3 種から改めた**（1.3）。**フォームは 2 つしか作らない**ため（`MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`）、合計は常に 2 種である。
 - **オンライン面談の予約（`E-16`。`cta_type` が `booking`）は CVR に入れない。** CV の成立（フォームの送信）より**後ろの段**であり、入れると 1 人を 2 回数える（BA-04 の商談プロセス、4.4）。予約の歩留まりを測るかは 6 節。
-- **分母と分子が別システムにあるため、個々のセッションと送信を突合することはできない**（この比率は集計値どうしの比であり、セッション単位の CV フラグではない）。ページ単位の CVR を出すには DA-03 の ID 統合（Mautic のフォームに Umami のセッション ID を hidden field で載せる）が前提になる。
+- **分母と分子が別システムにあるため、個々のセッションと送信を突合することはできない**（この比率は集計値どうしの比であり、セッション単位の CV フラグではない）。ページ単位の CVR を出すには DA-03 の ID 統合（Mautic のフォームに Umami のセッション ID を hidden field で載せる）が前提になる。**〔2026-10-06 ADR-25: hidden field の `umami_session_id` は廃止し、代わりの識別子を足さない。訪問者単位の突合はできなくなり、CVR は集計値どうしの比だけになる（DA-03 の 2 節）〕**
 
-## 2. README の GA4 記述との矛盾
+## 2. README の GA4 記述との矛盾（2026-10-06 に AA-05 の ADR-25 で解消）
+
+**この節の「GA4 を Umami と PostHog に読み替える」は、ADR-25 で置き換えた。** GA4 を流入・ページ・参照元の正本として採用し、Umami をやめた。新しい割り当てを 2.1 に、旧版を 2.2 に残す。
+
+### 2.1 GA4 を採用した後の役割の割り当て（ADR-25）
+
+| 役割 | 割り当て先 | 取得手段（エージェント） | 備考 | 状態 |
+|---|---|---|---|---|
+| セッション数・チャネル分類 | **GA4** | OpenSEO の `get_google_analytics_traffic_acquisition`（`breakdown: channel_group`） | KPI の分母の正本。チャネル分類は **GA4 の既定チャネルグループ**（`Organic Search` など）に合わせる | 未配線 |
+| 参照元 | **GA4** | 同上（`breakdown: source_medium`） | source / medium 別 | 未配線 |
+| ページビュー（ページ別） | **GA4** | OpenSEO の `get_google_analytics_page_performance`（`channel: all`） | | 未配線 |
+| 自然検索のランディングページ | **GA4** | OpenSEO の `get_google_analytics_organic_landing_pages` | | 未配線 |
+| 計測の健全性 | **GA4** | OpenSEO の `get_google_analytics_measurement_health` | 指標にはしない。欠測の確認に使う | 未配線 |
+| コンバージョン計測 | **Mautic**（フォーム送信。変わらない） | `mautic_list_form_submissions` | **GA4 のキーイベント（`key_events`）は CV に使わない**（リード数と一致させるため。エージェントにもツールを持たせない） | 未配線 |
+| ファネル・経路分析 | PostHog | — | AB テストと同じ場所で見るため（変わらない） | 未着手 |
+| AB テスト | PostHog（feature flag / experiment） | — | `E-11 Experiment` の正本（変わらない） | 未着手 |
+| エラー・例外の追跡 | PostHog（Error Tracking） | — | 変わらない | 一部実装済み |
+| **Core Web Vitals（実測）** | **PostHog**（posthog-js の web vitals の自動取得。イベント `$web_vitals`） | `execute-sql` で p75 に集計 | **ユーザーの決定**（2026-10-06）。旧版は Umami の `get_performance`。**同意した訪問者だけの標本**である | 未着手 |
+| 検索クエリ・検索順位 | Google Search Console（OpenSEO 経由。AA-05 の ADR-06） | `get_search_console_performance` | 変わらない | 未着手 |
+
+- **OpenSEO の GA4 連携を使う**（ADR-09 の「使わない」を ADR-25 で置き換えた）。接続するのは本番のプロパティだけで、OAuth のスコープは `analytics.readonly` だけ。接続は人間（`R1`）が行う。
+- **指標が GA4 と他のツールで重なるときは GA4 を優先する。** **PostHog のページビュー・セッションの数字は報告に使わない**（デバッグと定性確認に限る。3 節）。
+- **OpenSEO の GA4 のツールはカスタムイベントの値を読めない**（ADR-25 の帰結 7）。GA4 に独自のイベントを足しても、エージェントからは件数しか見えないため、CTA・フォームのイベントは PostHog のまま（4.4）。
+
+### 2.2 旧版（ADR-25 より前。GA4 を Umami と PostHog に読み替えていた）
 
 ルート `README.md` は「月次の GA4/MA データに基づく CVR 改善会議」と書いているが、**採用ツールの一覧に GA4 は無い**（同 README の「システム（組み込むツール群）」はアクセス解析に Umami、行動分析 / AB テストに PostHog を挙げている）。
 GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virgo/src/layouts/Layout.astro` に GA4 を含むいかなるトラッカーのスクリプトも無い）。
@@ -80,15 +109,16 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 
 **OpenSEO にも GA4 の連携機能があるが、接続しない**（AA-05 の ADR-09）。接続すると、ここで Umami と PostHog に読み替えた GA4 が別の経路からランドスケープに戻り、同じ指標に 3 つ目の数字が生まれる。
 
-## 3. Umami と PostHog の使い分け（KPI の正本）
+## 3. GA4 と PostHog の使い分け（KPI の正本。2026-10-06 に ADR-25 で Umami を GA4 に置き換えた）
 
 両者ともアクセス解析機能を持つため、同じ指標を両方から出すと数値が食い違い、月次会議で「どちらが正しいか」の議論に時間を取られる。次のとおり**指標ごとに正本を 1 つに固定する**。
 
-- **流入・母数系（セッション・PV・参照元・ランディングページ）の正本は Umami。**
-- **行動・実験系（ファネル通過率・AB テストの結果・エラー率・リプレイ）の正本は PostHog。**
-- PostHog も「セッション数」を表示できるが、**KPI には使わない**（デバッグと定性確認に限る）。
+- **流入・母数系（セッション・PV・参照元・ランディングページ）の正本は GA4**（旧版は Umami。ADR-25）。
+- **行動・実験系（ファネル通過率・AB テストの結果・エラー率・リプレイ）と、実測の Core Web Vitals の正本は PostHog。**
+- PostHog も「セッション数」「ページビュー」を表示できるが、**報告にも KPI にも使わない**（デバッグと定性確認に限る）。
 
-理由: Umami は cookie を置かず個人を識別しないため、同意の有無によらず全トラフィックを数えられる。PostHog は `E-08 Person` を作る＝個人情報の取り扱いが発生するため、同意のある範囲でしか計測しない。母数を PostHog に置くと同意率の変動で分母が揺れ、前期間との比較が壊れる。
+理由: **GA4 を正本にしたのはユーザーの決定である**（ADR-25）。重なる指標を GA4 に寄せ、PostHog は GA4 に無い用途（AB テスト・例外の監視・記事のイベント・実測の Core Web Vitals）に限る。
+**旧版の理由（「Umami は cookie を置かず、同意の有無によらず全トラフィックを数えられる。母数を PostHog に置くと同意率の変動で分母が揺れる」）は、GA4 では成り立たない。** GA4 も PostHog も同意した訪問者だけを数えるため、**母数は同意率に左右される**（1.1 の注記）。この欠点は ADR-25 で受け入れた。
 詳細な役割分担表は DA-04 の 3 節に置く。
 
 ## 4. 指標一覧
@@ -100,19 +130,22 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 | 指標 | 定義（式） | 測定元ツール | 取得手段 | 更新頻度 | 状態 |
 |---|---|---|---|---|---|
 | `LEAD-count` | 期間内に新規作成された `E-09 Contact` の件数 | Mautic | `mautic_list_contacts`（`dateAdded` で絞り込み） | 日次集計・月次確定 | 未配線 |
-| `CVR-total` | Mautic フォーム送信数 / Umami セッション数 | Mautic + Umami | `mautic_list_form_submissions` + `get_website_stats` | 月次 | 未配線 |
-| `SESSION-count` | 期間内のセッション数 | Umami | `get_website_stats` | 日次 | 未配線 |
-| `ORGANIC-share` | 検索流入セッション / 全セッション | Umami | `get_website_metrics`（`type=referrer`） | 月次 | 未配線 |
+| `CVR-total` | Mautic フォーム送信数 / GA4 セッション数（`CV-count ÷ SESSION-count`。両方が `ok`/`empty_but_ok` かつ `SESSION-count ≥ 1` のときだけ。**分母は同意した訪問者だけ、分子は全員**。1.1 の注記） | Mautic + GA4 | `mautic_list_form_submissions` + OpenSEO の `get_google_analytics_traffic_acquisition` | 月次 | 未配線 |
+| `SESSION-count` | 期間内のセッション数（全チャネルの `sessions` の合計） | GA4 | OpenSEO の `get_google_analytics_traffic_acquisition`（`breakdown: channel_group`） | 日次 | 未配線 |
+| `ORGANIC-share` | `Organic Search` のセッション / `SESSION-count`（**2026-10-06 に訪問者ベースからセッションベースに変わった**。ADR-25） | GA4 | 同上 | 月次 | 未配線 |
+| `PAGEVIEW-count`（2026-10-06 に追加） | ページ別の views の合計。**全件を取れなかったとき（`hasMore` が残る・応答が打ち切られた）は書かない**（`truncated`） | GA4 | OpenSEO の `get_google_analytics_page_performance`（`channel: all`） | 日次 | 未配線 |
 
 ### 4.2 中位 KPI（週次・`R2` / `R3` が管理）
 
 | 指標 | 定義（式） | 測定元ツール | 取得手段 | 更新頻度 | 状態 |
 |---|---|---|---|---|---|
-| `CVR-consult` / `CVR-source-dl` | 各 CTA のフォーム送信数 / Umami セッション数（**2026-10-01 に `CVR-wp` / `CVR-demo` から改名し、`CVR-trial` を廃止**。1.3） | Mautic + Umami | `mautic_list_form_submissions`（`formId` 別）+ `get_website_stats` | 週次 | 未配線 |
-| `CVR-assist` | Chatwoot の新規会話数 / Umami セッション数 | Chatwoot + Umami | `chatwoot_get_report_summary` + `get_website_stats` | 週次 | 未配線 |
+| `CVR-consult` / `CVR-source-dl` | 各 CTA のフォーム送信数 / GA4 セッション数（**2026-10-01 に `CVR-wp` / `CVR-demo` から改名し、`CVR-trial` を廃止**。1.3） | Mautic + GA4 | `mautic_list_form_submissions`（`formId` 別）+ OpenSEO の `get_google_analytics_traffic_acquisition` | 週次 | 未配線 |
+| `CVR-assist` | Chatwoot の新規会話数 / GA4 セッション数 | Chatwoot + GA4 | `chatwoot_get_report_summary` + OpenSEO の `get_google_analytics_traffic_acquisition` | 週次 | 未配線 |
 | `CTR-cta` | CTA クリック数 / CTA 表示回数 | PostHog | カスタムイベント（`cta_viewed` / `cta_clicked`。4.4） | 週次 | 未着手 |
 | `FORM-abandon` | 1 − （フォーム送信の成功数 / フォームの入力開始数） | PostHog | カスタムイベント（`form_submitted` / `form_started`。4.4） | 週次 | 未着手 |
-| `PAGE-sessions` | ページ別のセッション数 | Umami | `get_website_metrics`（`type=url`） | 週次 | 未配線 |
+| `PAGE-views`（2026-10-06 に `PAGE-sessions` を置き換え。ADR-25） | ページ別の views、上位 100 件 | GA4 | OpenSEO の `get_google_analytics_page_performance`（`channel: all`） | 週次 | 未配線 |
+| `REFERRER-sessions`（2026-10-06 に追加） | 参照元（source / medium）別のセッション、上位 100 件 | GA4 | OpenSEO の `get_google_analytics_traffic_acquisition`（`breakdown: source_medium`） | 週次 | 未配線 |
+| `ORGANIC-landing`（2026-10-06 に追加） | 自然検索のランディングページ別のセッション、上位 100 件 | GA4 | OpenSEO の `get_google_analytics_organic_landing_pages` | 週次 | 未配線 |
 | `CONTENT-throughput` | 期間内の `article_published` イベント数 | PostHog（**本番用のプロジェクト**。ADR-16） | `backend/strapi-system/src/index.ts` が送信するイベントの集計 | 週次 | **実装済み** |
 
 ### 4.3 下位 KPI・品質指標（`R1` が管理）
@@ -126,12 +159,16 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 | `SERP-position` | 採用キーワードの計測時点の順位（モバイル） | DataForSEO（OpenSEO のランク追跡） | OpenSEO の `get_rank_tracker`（保存済みの結果を読むだけ。**費用は計測時に発生する**） | 週次 | 未配線 |
 | `INDEX-status` | 公開ページのうちインデックス登録済みのものの割合 | Google Search Console（URL 検査） | OpenSEO の `inspect_urls`（1 回 10 URL まで） | 週次 | 未着手 |
 | `SITE-issues` | サイト監査で見つかった問題の件数（重大度別） | OpenSEO のクローラ（自サイト） | OpenSEO の `get_audit_issues`（監査の実行は人間） | 週次 | 未着手 |
+| `CWV-lcp-p75` / `CWV-inp-p75` / `CWV-cls-p75`（2026-10-06 に追加） | 実測の LCP / INP / CLS の 75 パーセンタイル | PostHog（`$web_vitals`。**本番用のプロジェクト**） | `execute-sql` で `quantile(0.75)`（プロパティは `$web_vitals_LCP_value` / `$web_vitals_INP_value` / `$web_vitals_CLS_value`。下の注記） | 週次 | 未着手 |
 | `RESPONSE-first` | 初回応答までの中央値 | Chatwoot | `chatwoot_get_report_summary` | 週次 | 未配線 |
 | `FORM-failure` | フォーム送信の失敗数 /（成功数 ＋ 失敗数） | PostHog | カスタムイベント（`form_submit_failed` / `form_submitted`。4.4。`error_kind` 別の内訳も取る） | 日次 | 未着手 |
 | `FORM-invalid` | 入力エラーの発生数 / フォームの入力開始数 | PostHog | カスタムイベント（`form_validation_failed` / `form_started`。4.4。`fields` 別の内訳も取る） | 週次 | 未着手 |
 
 - **`GSC-position` と `SERP-position` は同じ「順位」でも定義が違う。** 前者は期間中に実際に表示されたときの平均、後者は計測した瞬間の 1 回の検索結果である。**KPI ツリーの `平均検索順位` の正本は `GSC-position`** とし、`SERP-position` は**まだ表示されていない狙いのキーワード**の進捗を見る補助に限る（GSC は表示されたクエリしか返さないため）。
 - **`LH-seo` と `SITE-issues` と `INDEX-status` は互いの代わりにならない。** `LH-seo` は 1 ページの合成監査、`SITE-issues` はサイト全体の構造監査、`INDEX-status` は Google が実際にどう扱ったかである。
+- **`CWV-*` は実測（フィールド）、`LH-performance` は合成（ラボ）であり、互いの代わりにならない。** `CWV-*` は **PostHog の `$web_vitals` を同意した訪問者だけから集めた標本**で（2026-10-06。ユーザーの決定。旧版は Umami の `get_performance`）、同意率と端末の偏りを持つ。p75 は Core Web Vitals の評価の慣例に合わせた（PostHog の Web 分析の画面も LCP を p75 で出す。https://posthog.com/docs/web-analytics/dashboard）。**プロパティ名は `$web_vitals_LCP_value` / `$web_vitals_INP_value` / `$web_vitals_CLS_value`**（posthog-js の `packages/browser/src/extensions/web-vitals/index.ts` が `` `$web_vitals_${metric.name}_value` `` の形で送る。同リポジトリのテスト `web-vitals.test.ts` にも `$web_vitals_LCP_value` がある。`.claude/agents/analytics-reporter.md` の集計もこの名前を使う。PostHog の docs〈https://posthog.com/docs/web-analytics/web-vitals〉にはイベント名 `$web_vitals` だけが載り、プロパティ名は載っていない）。**値の単位（LCP・INP はミリ秒）は実データで確かめる。** 日付は JST でそろえる（`toDate(toTimeZone(timestamp, 'Asia/Tokyo'))`）。
+- **`VISITOR-count` は廃止した**（2026-10-06。ADR-25。定期実行の定義〈`ops/schedules/daily-observe-analytics.yaml`〉にあった）。GA4 のユーザー数はチャネル別の行を足すと重複し、OpenSEO のツールに全体のユーザー数を返すものが無い。
+- **GA4 由来の指標（`SESSION-count` `ORGANIC-share` `PAGEVIEW-count` `PAGE-views` `REFERRER-sessions` `ORGANIC-landing`）は、少ない数が `null` になるか行ごと欠けることがある**（GA4 のしきい値。OpenSEO の `specs/0007`）。**欠けた値を 0 で埋めない**（`hasLimitedData` が真なら「限られた値」と注記する）。
 - `LH-seo` のしきい値は 1.0（SEO 対策がこの計測の目的のため死守ライン）。他 3 カテゴリは 0.9。しきい値は `frontend/verdant-virgo/lighthouserc.cjs` に定義されている。
 - `ERR-rate` が「Strapi のサーバ側のみ」なのは、ブラウザ側に PostHog のスクリプトが無く、フロントエンドの例外が 1 件も届いていないため。
 - `CONTENT-throughput` は現状で唯一実際にデータが流れている指標（`article_created` / `article_published` / `article_updated` / `article_deleted` の 4 イベント）。ただし `distinct_id` は固定値 `strapi_cms` で、`$process_person_profile: false` により person を作らないため、**執筆者別の内訳は取れない**。
@@ -166,7 +203,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 - **どのイベントも Cookie の同意の後にだけ送る**（DD-02 の 3 節。PostHog は同意まで初期化しない）。**同意の前の操作を溜めて後から送らない**（DA-03 の 2.1 が実質的に破れる）。
 - **プロパティにメールアドレス・氏名・会社名・相談内容を入れない**（`distinct_id` に email を入れない規則と同じ扱い。DA-05 の 1.2）。`form_validation_failed` の `fields` は**項目名だけ**で、入力された値を含めない。
 - **`cta_id` は画面をまたいで重複させない**（`cta_id` 単位の集計が混ざる）。同じ文言・同じ見た目でも画面が違えば別の ID にする。`cta_id` の一覧の正本は `01-content-spec.md` の 6.3 で、CTA の定義は `E-06` にあたる。
-- **Umami にはイベントを足さない**（DD-02 の 2.3）。Umami は同意と無関係にページビューだけを数え、CVR の分母（`SESSION-count`）を持つ役に徹する。イベントを両方に入れると、同意の有無で母数の揃わない 2 系統の数字ができる。
+- **Umami にはイベントを足さない**（DD-02 の 2.3）。Umami は同意と無関係にページビューだけを数え、CVR の分母（`SESSION-count`）を持つ役に徹する。イベントを両方に入れると、同意の有無で母数の揃わない 2 系統の数字ができる。**〔2026-10-06 ADR-25: Umami は廃止した。**後継の **GA4 にもイベントを足さない**。OpenSEO の GA4 のツールはカスタムイベントの値を読めず（ADR-25 の帰結 7）、GA4 のキーイベントを CV に使わないため（1.2）。GA4 は CVR の分母（`SESSION-count`）を持つ役に徹する。**GA4 も PostHog も同意した訪問者だけを数える**ため、旧版の「同意の有無で母数の揃わない 2 系統」の問題は、GA4 と PostHog の間では生じない（揃わないのは Mautic と Chatwoot の全件との間。1.1）〕
 - 状態はいずれも `未着手`（ブラウザ側に PostHog のスクリプトが無く、CTA もフォームも未実装）。
 
 ### 4.5 収益化の指標（2026-10-03 に追加。月次・`R1` が管理）
@@ -193,7 +230,8 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 
 | 観測対象 | 経路 | 粒度 | 期間 | 1 回あたりの上限 | 状態 |
 |---|---|---|---|---|---|
-| セッション・流入 | Umami MCP（`get_website_stats` / `get_website_traffic` / `get_website_metrics`）。**本番の自前の Umami の `/mcp` に API キーで接続する**（TA-06 の 5.4。現在の設定は Umami Cloud を向いており付け替えが要る） | 日次、URL 別 / 参照元別 | 直近 35 日（前月比較が取れる最小） | ランキング系は上位 100 件 | 未配線 |
+| セッション・流入 | **GA4**（2026-10-06。ADR-25。旧版は Umami MCP）。**OpenSEO の MCP**（`get_google_analytics_traffic_acquisition` / `get_google_analytics_page_performance` / `get_google_analytics_organic_landing_pages` / `get_google_analytics_organic_overview` / `get_google_analytics_measurement_health`）。OpenSEO はオンプレのローカルだけ（`openseo`。本番のプロパティだけに接続） | 日次、チャネル別 / 参照元別 / ページ別 | **直近 35 日、終端は 3 日前の終わり（JST）**（GA4 の反映の遅れ 24〜48 時間。5.2.1） | ランキング系は上位 100 件（`limit` は 1〜1,000）。`PAGEVIEW-count` は `hasMore` が偽になるまで `offset` で取り、取り切れなければ書かない | 未配線 |
+| 実測の Core Web Vitals | PostHog の `execute-sql`（`$web_vitals` の `$web_vitals_LCP_value` などの 3 つ。**本番用のプロジェクト**）。**GA4 とは別の `E-12` にする**（PostHog が落ちても GA4 の `E-12` に影響させない） | 指標ごとの p75 | 直近 35 日、終端は 3 日前の終わり（GA4 とそろえる） | 集計値 1 行 | 未着手 |
 | フォーム送信 | `mautic_list_form_submissions`（`formId` 指定） | 送信 1 件単位 | 判定対象期間のみ | ページングで取得。0 件時は `[]` が返る（null ではない点に注意） | 未配線 |
 | コンタクト | `mautic_list_contacts` / `mautic_get_contact` | コンタクト 1 件単位 | 新規は `dateAdded` で絞る | 一覧の 1 ページ分ずつ | 未配線 |
 | 会話・応答品質 | `chatwoot_get_report_summary` / `chatwoot_get_report_timeseries` | 期間集計・日次時系列 | 前期間との比較付きで取得 | レポート API は 1 回で完結 | 未配線 |
@@ -208,6 +246,10 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 | サイト監査 | OpenSEO の `get_audit_status` / `get_audit_issues` / `get_audit_pages` | 問題の種類 × ページ | 直近に完了した監査 | 読むだけ | 未着手 |
 | 市場データ | OpenSEO の調査系ツール（`research_keywords` など） | キーワード・ドメイン単位 | 取得時点 | **1 回の見積もり 2,000 クレジットまで**（AA-05 の ADR-10） | 未配線 |
 
+- **（2026-10-06 に追加。ADR-25）GA4 の観測は 2 件の `E-12` に分ける**（`agent/analytics-reporter` の実装。`.claude/agents/analytics-reporter.md`）。(a) 流入: `SESSION-count`・`ORGANIC-share`・表 `REFERRER-sessions`・`ORGANIC-landing`、(b) ページ: `PAGEVIEW-count`・表 `PAGE-views`。**`PAGEVIEW-count` が取り切れず (b) が `truncated` になっても、(a) の `SESSION-count` を CVR の分母に使えるようにするため**である。ページの全件は `limit: 1000` で `nextOffset` をたどり、最大 5 回（5,000 行）まで取る。実測の Core Web Vitals は PostHog の別の `E-12` にする（上の表）。
+- **（2026-10-06 に追加。ADR-25）GA4 が OpenSEO に接続されていない（`ga4_not_connected`）ときは `fetch.outcome` を `auth_failed` にする**（`empty_but_ok` にしない。人間が OpenSEO の画面で接続し直すまで取れないため。`seo-auditor` が GSC の未接続を `auth_failed` にしているのと同じ）。`comegin.com` のプロジェクトや Web ストリームを特定できないときは `permission_denied`。どちらも `ok` / `empty_but_ok` ではないため、`E-13` の根拠にも CVR の分母にも使わない。
+- **（2026-10-06 に追加。ADR-25）Mautic と PostHog の観測の期間も GA4 と同じ「直近 35 日、終端は 3 日前の終わり（JST）」にそろえる**（旧版は終端が昨日）。CVR の分母（GA4）と分子（Mautic）の期間を同じにするためである。上の表のフォーム送信の「判定対象期間のみ」は、日次の観測ではこの期間を指す。
+
 ### 5.2 上流 API の制約が契約に与える影響
 
 - **Chatwoot のページ件数はサーバ側で固定されている**（会話 25 / コンタクト 15 / メッセージ 20 / 監査ログ 25）。クライアント側で 1 ページの件数を増やすことはできないため、「直近 100 件の会話を読む」という契約は必ず 4 回のリクエストになる。契約には**件数ではなくページ数の上限**を書く（`最大 4 ページまで` のように）。
@@ -217,13 +259,19 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 - **Mautic の更新は `PATCH` 相当のみ**（`PUT` は存在しない ID で新規作成してしまう）。観測は参照のみなので直接の影響は無いが、提案の適用で Mautic を触る場合はこの制約が効く。
 - Mautic は 0 件のとき `[]` を返す。空配列を「取得失敗」と誤認しない（失敗はエラーとして返る）。
 
-### 5.2.1 OpenSEO 経由の取得に固有の制約
+### 5.2.1 OpenSEO 経由の取得に固有の制約（GSC・GA4）
 
 - **GSC の日付は太平洋時間である。** OpenSEO のツールは GSC の日付を米国太平洋時間のまま返す。この基盤の他の観測は日本時間で切っているため、**同じ「9 月 1 日」でも GSC だけ 16〜17 時間ずれる**。日次の比較では無視できるが、日単位で他の観測と突き合わせる場合は `E-12` の `range` にタイムゾーンを明記する。
 - **直近約 3 日の GSC のデータは不完全である**（OpenSEO のツール説明にも明記）。確定分だけを使う（DA-04 の 4 節）。
 - **GSC は 1 回 1,000 行までで、並び順はクリック数の降順に固定されている。** 順位や表示回数での絞り込みは、その上位 1,000 行の中でしか効かない（OpenSEO のツール説明）。ページ数が 1,000 を超えるまでは問題にならない。
 - **GSC のさかのぼれる期間は 16 か月まで**である。それより前の実績は取れない（登録した日より前も取れない）。
 - **GSC の平均掲載順位は Discover と Google ニュースでは返らない。** 返らないことを失敗ではなく「その種別には順位が無い」として扱う（`empty_but_ok` と同じ構造。DD-01 の 4.2）。
+- **（2026-10-06 に追加。ADR-25）GA4 の日付はプロパティのタイムゾーン（`Asia/Tokyo`）である**（OpenSEO の `specs/0007`）。GSC（太平洋時間）とはずれるが、この基盤の他の観測（日本時間）とはそろう。
+- **GA4 の直近 24〜48 時間は確定していない**（https://developers.google.com/analytics/devguides/collection/ga4/troubleshoot）。終端を 3 日前にする（GSC と同じ）。OpenSEO は終端を「プロパティの最後の完全な日」で切り、切ったときは `end_date_clamped` を返す。
+- **GA4 は少ない数を `null` にするか、行ごと省く**（しきい値。OpenSEO はそれを `hasLimitedData` / `subjectToThresholding` で知らせ、0 で埋めない）。欠けた行を 0 と読まない。
+- **GA4 の 1 回の取得は 1,000 行まで**（`limit`。既定 100）。続きは `pageInfo.nextOffset` で取る。
+- **カスタムイベントの値は読めない**（ADR-25 の帰結 7）。OpenSEO の GA4 のツールは要求の中身（次元・指標・絞り込み）を固定しており、呼び出し側で変えられない。
+- **GA4 の読み取りに費用は出ない**（OpenSEO のクレジットを使わない。`specs/0007`）。ただし GA4 の Data API のクォータを使う。
 - **調査系は同じ問い合わせでも毎回費用がかかる。** 再現性の条件（5.3）のために同じ `ref` で取り直すことが、そのまま支出になる。**市場データの再取得は検証に必要な場合に限る。**
 
 ### 5.3 観測の再現性
@@ -244,6 +292,9 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 - **（2026-09-19 に AA-05 の ADR-18 の追加の決定で解決）データ契約を固定する定期実行の定義の置き場所**（ADR-17 で生じ、ADR-18 の決定の際に AA-05・TA-07 に明記された。5 節の冒頭）。契約の値をいくら決めても、定義をエージェントが書き換えられる場所に置けば契約は約束にとどまる、としていた。**Git で持ち、監視アプリは承認済みの `main` のチェックアウトで読む。変更は PR を通す。** 残るのは、そのチェックアウトをいつ・誰が更新するか（TA-07 の 9 節）である。
 - **（2026-10-01 に解決）指標 ID が `cta_type` の新しい値と対応しない**（`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 10.3 の F7'）。**`CVR-wp` → `CVR-source-dl`、`CVR-demo` → `CVR-consult` に改名し、`CVR-trial` は廃止した**（1.3。対応する CTA がサイトに無く、分子が永久に 0 になるため）。`cta_type` の値そのものは**正本の DA-01 で同日に改めた**（`consult` / `source_dl` / `chat` / `booking`。`trial` は「使わない」として値を残す）。**残件**: `E-13` の `expectation.metric` に旧 ID を書いた提案はまだ 1 件も無い（`E-13` は 0 件）ため移行の作業は無いが、**今後 `CVR-trial` を見かけたらこの決定より前の記述である**。
 - **オンライン面談の予約（`E-16`）の歩留まりを指標として持つか**（4.4。2026-10-01 に `booking_*` を足したことで生じた）。`form_submitted` と `booking_scheduled` の比が商談プロセスの段 2 の歩留まりになるが、**指標 ID も更新頻度も与えていない**。候補の名前は `BOOKING-rate`（既存の `CTR-cta` `FORM-abandon` と同じ「対象-内容」の形）。**正本をどちらにするかも決める**: PostHog のイベント（同意した訪問者に限られる）か、**本番の Cal.com の予約の件数（`E-16`。全件だが取得手段が未確認）**か。**`CVR-*` には入れない**（CV の後ろの段。1.4）。BA-04 の未決定事項「予約を指標として持つか」と同じ論点である。判断者 `R3`。
-- **同意率を測る手段**（2026-10-01 の決定で生じた。DD-02 の 4.4・7 節）。Chatwoot が同意の対象に入ったため、`CVR-assist` の分子が同意した訪問者の会話だけになり、**同意率が下がると `CVR-assist` も下がる**。同意率そのものを持たないと切り分けられないが、同意バナーの操作は計測しないと決めている（同意の前は PostHog が動かない）。同意の記録（サーバ側。DD-02 の 3.3）の件数で代えられるかを決める必要がある。判断者 `R3`。
+- **（2026-10-06 に追加。ADR-25）CVR の分母と分子の母集団の偏りの補正**（1.1 の注記）。分母（GA4 のセッション）は同意した訪問者だけ、分子（Mautic のフォーム送信）は全員のため、同意率が下がると CVR が見かけ上上がる。**同意率（`consent-api` の記録の `granted` の割合）で分母を割り戻すか、補正せず注記と比較の除外（1.1）だけで扱うか**を決める。割り戻すなら、同意率の定義（記録の単位が訪問者かセッションか）と GA4 のセッションの単位がそろうかを確かめる必要がある。下の「同意率を測る手段」と一体で決める。判断者 `R3`。
+- **（2026-10-06 に追加。ADR-25）GA4 の BigQuery エクスポートを使うか。** 使えばしきい値・行の省略を避けられ、カスタムイベントも読める。費用（Google Cloud）と、OpenSEO の外の読み取りの経路が増えることと引き換えになる。判断者 `R1`。
+- **（2026-10-06 に追加。ADR-25）GA4 のデータ保持（14 か月）が、OpenSEO のツールが読むレポートに効くか。** 前年同月比（DA-05 の 2 節）が取れるかに効く。確かめていない。判断者 `R3`。
+- **同意率を測る手段**（2026-10-01 の決定で生じた。DD-02 の 4.4・7 節）。**（2026-10-06 の注記）ADR-25 で GA4 も同意の対象に入り、`CVR-assist` だけでなく `CVR-total` `CVR-consult` `CVR-source-dl` の分母も同意率に左右されるようになった**（上の項）。Chatwoot が同意の対象に入ったため、`CVR-assist` の分子が同意した訪問者の会話だけになり、**同意率が下がると `CVR-assist` も下がる**。同意率そのものを持たないと切り分けられないが、同意バナーの操作は計測しないと決めている（同意の前は PostHog が動かない）。同意の記録（サーバ側。DD-02 の 3.3）の件数で代えられるかを決める必要がある。判断者 `R3`。
 - 実験（`E-11`）の有意差判定の基準（有意水準・最小サンプルサイズ）。PostHog の実験機能に任せるか、`R3` が独自に判定するかが未確定。ブラウザ側トラッカーが無く実データで検証できないため、配線後に決める。
 - **（2026-10-03 に追加）`REV-mining-jpy` の円換算の基準。** 受け取った時点の価格か、換金した時点の約定か（税理士の確認〈承認ゲート G-2〉に従う）。

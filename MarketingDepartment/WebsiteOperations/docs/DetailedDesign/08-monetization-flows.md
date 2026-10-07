@@ -72,7 +72,7 @@ sequenceDiagram
 
 | 項目 | 値 |
 |---|---|
-| 起動 | 本番の n8n の日次のスケジュール（TA-03 の 3.3） |
+| 起動 | 本番の n8n の日次のスケジュール（TA-03 の 3.3）。**（2026-10-06）ADR-21 で本番の n8n はオンプレになり、AWS の `points-api` を呼ぶ経路は未設計。起動の主体は AA-02 の 5 節の未決定事項「`I-27` の起動の経路」で決める** |
 | 認証 | HMAC-SHA256（`x-user-api-key` `x-user-api-timestamp` `x-user-api-signature`）。鍵は Secrets Manager |
 | 呼ぶ API | `GET /v1/workers`（worker ごとの状態）、`GET /v1/workers/chart`（ハッシュレートの時系列）、`GET /v1/payments`（払い出しの履歴） |
 | 書く先 | `E-18`（`user_id` × `date` で upsert）、`E-20`（`payout_uuid` で upsert。`chain_tx_hash` はチェーンで確かめてから埋める） |
@@ -120,7 +120,7 @@ stateDiagram-v2
 
 ## 5. 月次の締め
 
-1. n8n が `points-api` の締めを呼ぶ（前月の 1 日〜末日。日時は TA-03 の未決定事項）。
+1. n8n が `points-api` の締めを呼ぶ（前月の 1 日〜末日。日時は TA-03 の未決定事項）。**（2026-10-06）ADR-21 でオンプレの n8n から AWS の `points-api` を呼ぶ経路が未設計になった。呼び手が n8n・`points-api` 自身の定期実行・監視アプリのどれになるかは AA-02 の 5 節で決める。**
 2. `points-api` が前月の `E-20` の円換算の合計（その月の採掘収入）を出す。
 3. 利用者ごとの貢献比 = 利用者の `E-18` の前月のハッシュ数 ÷ 全利用者の合計。
 4. 付与量 = 採掘収入 × 貢献比 × 還元率（1 ポイント = 1 円。端数は切り捨て）。

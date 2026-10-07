@@ -9,5 +9,9 @@ export default defineConfig({
     restoreMocks: true,
     unstubEnvs: true,
     unstubGlobals: true,
+    // vi.resetModules() のあとに src/index.ts を import し直すテストは、並列実行の負荷で初回の変換が
+    // 既定の 5 秒を超えることがあるため、全パッケージでそろえて 30 秒にする
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

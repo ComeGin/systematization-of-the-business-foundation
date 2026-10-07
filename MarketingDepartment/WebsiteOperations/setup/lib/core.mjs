@@ -41,7 +41,8 @@ export function registerSecret(value) {
 }
 export function mask(text) {
   let out = String(text);
-  for (const s of secretValues) out = out.split(s).join("[伏せ字]");
+  // 長い値から伏せる（短い値が長い値の一部だと、短いほうを先に伏せたときに長いほうの残りの文字が出てしまうため）
+  for (const s of [...secretValues].sort((a, b) => b.length - a.length)) out = out.split(s).join("[伏せ字]");
   return out;
 }
 
@@ -64,6 +65,12 @@ export function parseKeyValue(text) {
 }
 
 function ensurePrivateDir(dir) {
+  // 700 にするのは ~/.config/comegin の中だけ。リポジトリの中のディレクトリ（例: middleware/open-seo-main）は権限を変えない
+  // （環境変数ファイル自体は 600 で書くので、ほかのユーザーには読めない）
+  if (!(dir === CONFIG_DIR || dir.startsWith(`${CONFIG_DIR}/`))) {
+    mkdirSync(dir, { recursive: true });
+    return;
+  }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
     chmodSync(dir, 0o700);
@@ -74,7 +81,11 @@ function ensurePrivateDir(dir) {
 
 export function loadConfig(target, path) {
   const file = path ?? join(CONFIG_DIR, "setup", `${target}.conf`);
-  if (!existsSync(file)) return { file, conf: {} };
+  if (!existsSync(file)) {
+    // 明示した場所に無いのは打ち間違いなので止める（空の設定のまま apply に進ませない）。既定の場所に無いのは初回として空の設定で進む
+    if (path !== undefined && path !== null) throw new Error(`--config の ${file} が無い（setup.conf.example を写して作る）`);
+    return { file, conf: {} };
+  }
   if ((statSync(file).mode & 0o077) !== 0) console.error(`  ! ${file} はほかのユーザーも読める。chmod 600 を推奨`);
   const conf = parseKeyValue(readFileSync(file, "utf8"));
   for (const [k, v] of Object.entries(conf)) if (/SECRET|PASSWORD|TOKEN|KEY/i.test(k)) registerSecret(v);

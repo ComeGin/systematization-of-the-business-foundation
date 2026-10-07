@@ -36,8 +36,9 @@ const uploadProviderConfig = (env: Core.Config.Shared.ConfigParams['env']) => {
     throw new Error(`UPLOAD_PROVIDER must be "local" or "aws-s3" (got an unsupported value).`);
   }
 
-  const bucket = env('UPLOAD_S3_BUCKET');
-  const region = env('UPLOAD_S3_REGION');
+  // 空白だけ（引用符つきの ' ' など）は未設定として扱い、最初のアップロードまで気付けない事態を起動時に止める
+  const bucket = env('UPLOAD_S3_BUCKET', '').trim();
+  const region = env('UPLOAD_S3_REGION', '').trim();
 
   if (!bucket || !region) {
     throw new Error('UPLOAD_S3_BUCKET and UPLOAD_S3_REGION are required when UPLOAD_PROVIDER=aws-s3.');

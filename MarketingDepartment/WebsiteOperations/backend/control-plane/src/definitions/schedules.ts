@@ -18,6 +18,7 @@ const BUILTIN_JOBS = [
   "lighthouse",
   "published-article-check",
   "runlog-flush",
+  "n8n-export",
 ] as const satisfies readonly BuiltinJob[];
 
 const KEBAB_CASE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;

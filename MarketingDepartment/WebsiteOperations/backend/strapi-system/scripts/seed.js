@@ -35,31 +35,6 @@ async function isFirstRun() {
   return !initHasRun;
 }
 
-async function setPublicPermissions(newPermissions) {
-  // Find the ID of the public role
-  const publicRole = await strapi.query('plugin::users-permissions.role').findOne({
-    where: {
-      type: 'public',
-    },
-  });
-
-  // Create the new permissions and link them to the public role
-  const allPermissionsToCreate = [];
-  Object.keys(newPermissions).map((controller) => {
-    const actions = newPermissions[controller];
-    const permissionsToCreate = actions.map((action) => {
-      return strapi.query('plugin::users-permissions.permission').create({
-        data: {
-          action: `api::${controller}.${controller}.${action}`,
-          role: publicRole.id,
-        },
-      });
-    });
-    allPermissionsToCreate.push(...permissionsToCreate);
-  });
-  await Promise.all(allPermissionsToCreate);
-}
-
 function getFileSizeInBytes(filePath) {
   const stats = fs.statSync(filePath);
   const fileSizeInBytes = stats['size'];
@@ -237,14 +212,9 @@ async function importAuthors() {
 }
 
 async function importSeedData() {
-  // Allow read of application content types
-  await setPublicPermissions({
-    article: ['find', 'findOne'],
-    category: ['find', 'findOne'],
-    author: ['find', 'findOne'],
-    global: ['find', 'findOne'],
-    about: ['find', 'findOne'],
-  });
+  // Public ロール（トークン無し）には読み取りの権限を付けない。Strapi 5 の Content API は find の権限だけで
+  // ?status=draft を受け付けるため、付けると下書きの記事と author の email がトークン無しで読める
+  // （本番の ALB は /api/* に認証をかけない。TA-06 の 5.4）。ビルドは読み取り専用の API トークンで読む（DD-05 の I-09）
 
   // Create all entries
   await importCategories();

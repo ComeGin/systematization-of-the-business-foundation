@@ -1,11 +1,17 @@
 import path from 'path';
 import type { Core } from '@strapi/strapi';
-import { isDatabaseClientKind } from '@strapi/database';
+
+// 使える DATABASE_CLIENT の値。@strapi/database の isDatabaseClientKind は `client in clientMap` で判定するため
+// constructor・toString など Object.prototype のキーも通してしまい、後段で原因の分からないエラーになる。自前の表で弾く。
+const SUPPORTED_CLIENTS: readonly Core.Config.Database.ClientKind[] = ['postgres', 'mysql', 'sqlite'];
+
+const isSupportedClient = (client: unknown): client is Core.Config.Database.ClientKind =>
+  typeof client === 'string' && (SUPPORTED_CLIENTS as readonly string[]).includes(client);
 
 const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database => {
   const client = env('DATABASE_CLIENT', 'sqlite');
 
-  if (!isDatabaseClientKind(client)) {
+  if (!isSupportedClient(client)) {
     throw new Error(
       `Unsupported DATABASE_CLIENT: ${client}. Use "postgres", "mysql", or "sqlite".`
     );

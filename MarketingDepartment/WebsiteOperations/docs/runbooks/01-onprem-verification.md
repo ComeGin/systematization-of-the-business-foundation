@@ -45,6 +45,20 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 
 **合格**: Chatwoot `127.0.0.1:3100`・n8n `127.0.0.1:5678`・Mautic `127.0.0.1:8000`・Strapi `127.0.0.1:1337` が応答する。MailHog `127.0.0.1:8025` が開く。
 
+### A1b. GA4・OpenSEO（開発では Google の手順を飛ばす。2026-10-06。ADR-25）
+
+> **（2026-10-06）ADR-25（AA-05）で Umami を廃止した。** 旧版のこの節は「A1b. Umami（開発環境。`middleware/umami`）」で、自作の compose の起動・`node setup/setup.mjs --target dev --only umami`・`127.0.0.1:3000` のバインドと `/mcp` の 401 の確認を行っていた。**Umami の確認手順はすべて外した。** `middleware/umami`・`middleware/umami-master` はリポジトリから消え、ポート 3000 は空きになった。流入・ページ・参照元の正本は **GA4**（SaaS）で、エージェントは **OpenSEO の MCP（`127.0.0.1:3001`。登録名 `openseo`）の GA4 のツール**で読む。設定値の記録は `middleware/ga4/README.md`。
+
+**Umami の後片付け（ADR-25 で廃止した分。あなたの作業。Claude は消さない）**
+- Docker のボリューム **`umami_db-data`・`umami_umami-db-data`・`umami-master_umami-db-data`** は残してある（コンテナは `-v` なしで止め済み）。要らなければ `docker volume rm` で消す
+- `~/.config/comegin/setup/dev.state.json` の `UMAMI_*` のキーと、`~/.config/comegin/mcp/umami-dev.env` は残してある。要らなければ消す。Claude Code の MCP の登録に `umami`・`umami-prod` が残っていれば外す
+
+**開発環境で確かめること（2026-10-06 の変更。Google の手順は開発では飛ばす）**
+- 開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いので、**`--target dev` は Google（OAuth クライアント・Search Console・GA4 のプロパティ・OpenSEO の GA4 の接続）の手順を飛ばす**。これらは AWS に展開した後に B7 で行う
+
+**Claude の作業**
+- `node setup/setup.mjs --target dev --check --only ga4,openseo` が通る（開発の Astro の環境変数に `PUBLIC_GA4_MEASUREMENT_ID` が無い、OpenSEO の health が ok で DataForSEO が ok。Google の接続は求めない）
+
 ### A2. consent-api（Cookie 同意の受け口）
 
 **あなたの作業**
@@ -95,6 +109,21 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 - MailHog に通知メール（個人情報を含まない）が届くことを確かめる
 
 **合格**: 上の 3 つがすべて期待どおり。終わったら公開を戻す。
+
+### A5b. n8n（開発環境）の新しい 3 本（2026-10-06。ADR-21 の整理）
+
+`weekly-inquiry-inventory`（週次の棚卸し）・`n8n-schedule-heartbeat`（ハートビート）・`ops-monitor`（OpenSEO の死活とサンドボックスの証明書の期限。**開発環境だけ**）。**どれも未公開で、`ops_settings` のスイッチ（`inventoryEnabled`・`heartbeatEnabled`・`opsMonitorEnabled`）が既定で `false`**。確認の間だけ公開・有効化し、終わったら戻す。**flow の報告（`reports/flow.md`）で、`test_workflow` による確認は済んでいる。ここでは、公開した状態の実機での確認を行う。**
+
+**あなたの作業**
+- [ ] `node setup/setup.mjs --target dev --only n8n` で取り込む（provision。公開はされない）。Chatwoot の棚卸し用のトークン（`CHATWOOT_N8N_API_TOKEN`。空なら管理者のトークンで代用される）を設定に入れる
+- [ ] 確認する 1 本だけ公開し、対応するスイッチの行を `true` にする（`ops_settings`）
+
+**Claude の作業**
+- 棚卸し: 未割り当ての会話を Chatwoot に 1 件作ってから手動で実行し、MailHog に通知メール（会話番号と件数だけ。氏名・本文・email が無いこと）が届くこと。**0 件のときは通知されない**こと
+- `ops-monitor`: 実行して通知が出ない（`ok`）こと → OpenSEO を止めて（`docker compose stop`）もう一度実行し、**1 回だけ**通知が出ること → 起動し直して `ok` に戻ると 1 回だけ通知が出ること。`/api/health` の中継は `docker exec n8n-n8n-1 wget -qO- http://host.docker.internal:3001/api/health`（200）と、それ以外のパスが 404 であること
+- ハートビート: **AWS を呼ばない確認**にとどめる（署名の組み立てとローカルのエコーサーバー。実機の送信は AWS のデプロイ後。B5）
+
+**合格**: 上のとおり。終わったら公開を戻し、スイッチを `false` に戻す。
 
 ### A6. 監視アプリ（control-plane ＋ Next.js）
 
@@ -191,7 +220,64 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 
 **合格**: クラウドの Mautic・Chatwoot の Webhook が、オンプレの n8n で処理される。
 
+**あなたの作業（続き。再送と送信先の確認。2026-10-06 に追加）**
+- [ ] Mautic・Chatwoot の管理画面で、Webhook の送信先に **プライベートアドレス（`10.99.0.2`）の `http://` を保存できるか**を確かめる（製品によっては送信先のアドレスを検査して拒否する。AA-02 の 5 節の未確認の点）。拒否されたら、そこで止めて報告する
+- [ ] 受け口を**わざと止めた状態**（`docker compose stop webhook-proxy` など）で、テストのコンタクトのフォーム送信を 1 回行い、**Mautic・Chatwoot が失敗した Webhook を再送するか**（回数・間隔・諦めた後に記録が残るか）を見る。確かめたら受け口を戻し、再送が届いたときに重複排除（`dedup_*`）が働くことも見る（DD-04 の 11 節・DD-07 の 2.5）
+
+**合格（続き）**: 送信先が保存できる。再送の有無が分かり、DD-04 の 11 節・DD-07 の 2.5 の「未確認」を書き換えられる。
+
+### B5. n8n のハートビートとアラーム（AWS のデプロイ後。2026-10-06 に追加）
+
+**前提**: SAM のデプロイが済み（`observability`・`iam` を含む）、オンプレの n8n に IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーが資格情報として入っていること。**デプロイは別途の指示があるまで行わない。**
+
+**あなたの作業**
+- [ ] 本番の n8n で `n8n-schedule-heartbeat` を公開し、`ops_settings` の `heartbeatEnabled` を `true` にする（**公開は `R1` の判断**）
+- [ ] 監視アプリの `heartbeat`（`ops/schedules/heartbeat.yaml`。`enabled: false`）を有効にするかを判断する
+
+**Claude の作業**
+- CloudWatch に名前空間 `ComeGin/OnpremN8n`・メトリクス `ScheduleHeartbeat` が 5 分ごとに届くこと（ディメンションなし。綴りの違いは `AccessDenied`）。n8n の実行履歴に失敗が無いこと
+- アラーム `comegin-<env>-onprem-n8n-schedule-heartbeat` が OK になること。次に `heartbeatEnabled` を `false` にして（または n8n を止めて）15 分待ち、**ALARM になって ops に通知が届くこと**、戻すと OK の通知が届くこと
+- **止めたのが n8n だけか全体か**は、監視アプリのアラーム（`comegin-<env>-onprem-heartbeat`）と見比べて区別できること
+- プロキシだけを止めても**アラームが発火しない**（検出手段が無い。DD-07 の 2.5）ことを確かめて記録する
+
+**合格**: 欠損で ALARM、復旧で OK に戻り、通知が届く。**確かめられないこと**: n8n の HTTP Request ノードの署名が通るかは、ここで初めて分かる（flow の確認事項）。
+
+### B6. ワークフローの書き出し（`n8n-export`。2026-10-06 に追加）
+
+**あなたの作業**
+- [ ] 本番の n8n の版を確かめる。**コミュニティ版なら API キーは全権限になる**（`workflow:list`・`workflow:read` に絞れない）。その資格情報を監視アプリの環境変数に置いてよいかを判断する（TA-03 の 6 節・TA-04 の 9 節）
+- [ ] 本番の n8n で API キーを発行し、`frontend/next-js` の環境変数ファイルに `CONTROL_N8N_EXPORT_URL`（例 `http://127.0.0.1:5679`）・`CONTROL_N8N_EXPORT_API_KEY` を入れる（GitHub の資格情報は `I-13` と同じ）
+
+**Claude の作業**
+- 監視アプリから `daily-n8n-export` を**手動で 2 回**起動する。1 回目は差分があれば `chore/n8n-export-YYYYMMDD` のブランチに PR ができる（確認後に閉じる。テスト用のリポジトリで試せるならそちらを使う）（**初回は既存 5 本にキー順だけの再整形の差分が出る**）。**2 回目に差分が出ない**こと（出たら除去するフィールドの初期値を見直す。TA-03 の 6 節）
+- PR の差分に秘密値が無いこと。秘密値の疑いのあるワークフローは PR から外され、`E-15` の要約に名前だけが出ること。作業ツリーが書き換わっていないこと
+
+**合格**: 2 回目が差分なしで `success`。PR は確認後に閉じる。
+
 ---
+
+### B7. GA4 と Search Console の接続（AWS に展開した後。2026-10-06 に A1b から移した。ADR-25）
+
+開発環境（`--target dev`）では Google の手順を飛ばす（A1b）。公開サイトを AWS に展開してから、`node setup/setup.mjs --target prod --only ga4,openseo` で行う。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使う。値は `~/.config/comegin/setup/prod.conf` に書く。Search Console の OAuth クライアントと接続（`openseo:google-oauth-client`・`openseo:gsc-connect`）も同じ実行で案内される（`setup/manual-steps.md` の 7.4）。
+
+**あなたの作業（GA4 のプロパティ。本番の 1 つだけ）**
+- [ ] GA4 で本番のプロパティを作る（タイムゾーン `Asia/Tokyo`・通貨 `JPY`・データ保持 14 か月・Google シグナル オフ・広告のリンクなし・ユーザー提供データの収集 オフ）。Web のデータストリームを作り、測定 ID（`G-…`）を得る
+- [ ] プロパティ ID（数字）と測定 ID を `~/.config/comegin/setup/prod.conf` の `GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に書く（どちらも秘密値ではない）。**開発の Astro の環境変数（`PUBLIC_GA4_MEASUREMENT_ID`）には書かない**（開発環境ではタグを出さない）
+
+**あなたの作業（OpenSEO に GA4 を接続する。GSC と同じ OAuth クライアント）**
+- [ ] Google Cloud（GSC の OAuth クライアントと同じプロジェクト）で **Google Analytics Admin API** と **Google Analytics Data API** を有効にする
+- [ ] 同じ OAuth クライアント（Web アプリケーション）の承認済みのリダイレクト URI に **`http://localhost:3001/api/ga4/oauth/callback`** を足す（GSC の `/api/gsc/oauth/callback` は残す）
+- [ ] OpenSEO の画面（`http://localhost:3001`）の `comegin.com` のプロジェクトで、**Project settings → Analytics の Connect with Google** を押し、Analytics の読み取り専用の許可を与えて、**本番のプロパティだけ**を選ぶ（GSC とは別に同意が 1 回要る）
+- [ ] 済んだら `prod.conf` に `OPENSEO_GA4_CONNECTED=yes` を書く（GA4 を接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。その場合 `analytics-reporter` は GA4 を読めない）
+
+出典: `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`（API の有効化・リダイレクト URI・Connect with Google・トークンは Better Auth の account テーブルに暗号化して保存）、`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`（スコープは `analytics.readonly`）。
+
+**Claude の作業**
+- `node setup/setup.mjs --target prod --check --only ga4,openseo` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、`OPENSEO_GSC_CONNECTED` か `OPENSEO_SKIP_GSC`、`OPENSEO_GA4_CONNECTED` か `OPENSEO_SKIP_GA4` がある）
+- Claude Code から `mcp__openseo__get_google_analytics_measurement_health` を `comegin.com` のプロジェクトで呼び、**接続済み（`not_connected` でない）**ことと、選んだのが本番のプロパティであることを確かめる（無料。費用の出るツールは呼ばない）
+- `I-05`（本番のタグ）が通るまではデータが無いのが正常（`empty_but_ok`。DD-03 の 5.2）
+
+**合格**: `--check` が通り、`get_google_analytics_measurement_health` が接続済みを返す。**確かめていない点**（2026-10-06 の時点）: 本番のタグを置いた後に GA4 のリアルタイム表示で同意の前に送られていないこと（DD-02 の 2 節）。`connection expired` が出たら、上の Connect with Google をやり直す（OAuth アプリが Testing のままだと更新の許可が短命になる。手順書の Troubleshooting）。
 
 ## 終わったら
 

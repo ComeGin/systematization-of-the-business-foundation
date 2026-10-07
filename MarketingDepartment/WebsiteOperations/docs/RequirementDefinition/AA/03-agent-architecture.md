@@ -16,20 +16,20 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 | エージェント | 担う Capability | 責務 | 入力（E-ID / 手段） | 出力（E-ID） |
 |---|---|---|---|---|
-| `agent/keyword-researcher` | `CAP-02` | キーワード候補の抽出と検索意図の 3 分類（潜在 / 準顕在 / 顕在・指名）の割り当て。**検索ボリュームと SERP を根拠に付ける** | **OpenSEO**（キーワード調査・キーワード指標・SERP・GSC の実績）／ 既存の `E-01` | `E-01`（候補。`status: 候補`。`monthly_volume` を埋める） |
+| `agent/keyword-researcher` | `CAP-02` | キーワード候補の抽出と検索意図の 3 分類（潜在 / 準顕在 / 顕在・指名）の割り当て。**検索ボリュームと SERP を根拠に付ける** | **OpenSEO**（キーワード調査・キーワード指標・SERP・GSC の実績）／ 既存の `E-01` | `E-01`（候補。`adoption_status: 候補`。`monthly_volume` を埋める） |
 | `agent/knowledge-scout` | `CAP-16` | SEO・BtoB マーケティングの外部知見の調査と要約。**競合ドメインの把握**。採否は `R2` が決める | Web 調査 / **OpenSEO**（SERP 上の競合・ドメイン概要・順位キーワード・被リンク概要）／ `E-12` | 調査メモ（`docs/knowledge/` の Markdown）／ `E-12`（`source: market`） |
-| `agent/content-planner` | `CAP-03` | 採用済み `E-01` から構成案を作る | `E-01`（`status: 採用`）／ `E-12` | `E-03`（`plan_state: 起案`） |
+| `agent/content-planner` | `CAP-03` | 採用済み `E-01` から構成案を作る | `E-01`（`adoption_status: 採用`）／ `E-12` | `E-03`（`plan_state: 起案`） |
 | `agent/content-writer` | `CAP-04` | 承認済み企画から記事の初稿を書く。**取材が必要な一次情報は扱わない**（`R4` が素材を用意する） | `E-03`（`plan_state: 承認済`） | `E-04`（`publishedAt` を設定しない下書き。本番は `strapi-prod` のトークンに公開の権限が無い。ADR-17） |
 | `agent/quality-checker` | `CAP-06` | 機械チェック（BA-04 の 3a）。リンク切れ・表記ゆれ・構造化データ・Lighthouse のしきい値 | `E-04`（下書き）／ `E-12`（`source: lighthouse`） | 指摘一覧（`E-12` として `docs/audits/quality/` に記録） |
 | `agent/design-implementer` | `CAP-05` | shadcn/ui と Tailwind のトークンに沿った UI コンポーネントの実装。**デザインの正本はコード側**（BA-02 の内製化方針） | `E-03` `E-06`（表示定義）／ `components.json` | 作業ツリー上のコード差分（コミットはしない） |
 | `agent/seo-auditor` | `CAP-09` | Lighthouse CI の結果と、**OpenSEO 経由の GSC の実績・URL 検査・順位計測・サイト監査の結果**を `E-12` に正規化し、劣化を検出する | `.lighthouse/` の JSON ／ **OpenSEO の MCP（参照のみ）** | `E-12`（`source: lighthouse` / `gsc` / `serp` / `site_audit`） |
-| `agent/analytics-reporter` | `CAP-10` | 流入・CVR・ファネルの定期集計。**集計値のみを扱い、個々のコンタクト・会話は読まない** | `E-07`（Umami）／ `E-08` `E-11`（PostHog）／ Mautic のフォーム送信集計 | `E-12`（`source: umami` / `posthog` / `mautic`） |
+| `agent/analytics-reporter` | `CAP-10` | 流入・CVR・ファネルの定期集計。**集計値のみを扱い、個々のコンタクト・会話は読まない** | `E-07`（**GA4。OpenSEO の MCP 経由で集計値だけ**。2026-10-06 に ADR-25 で Umami から変えた。`E-12` は流入とページの 2 件）／ `E-08` `E-11`（PostHog。**実測の Core Web Vitals〈`$web_vitals`。別の `E-12`〉を含む**）／ Mautic のフォーム送信集計 | `E-12`（`source: umami`〈ADR-25 で廃止〉 / `posthog` / `mautic`。**実装〈`backend/control-plane/src/constants/audit-sources.ts`〉はまとめて `analytics`**。DA-01 の 7 節） |
 | `agent/lead-ops` | `CAP-11` | BA-04 のトスアップ条件に沿った `E-09` のセグメント追加・スコア加算 | `E-06` `E-09` | 更新された `E-09` |
 | `agent/conversation-triage` | `CAP-12` | 未対応・未割り当ての会話の一次切り分けと**社内メモ**の作成。記事化候補の抽出。**顧客への送信はしない**（社内メモだけを使うエージェント。ADR-17） | `E-10` | 社内メモ（`private=true`。社内メモ専用のツールか登録で書く。ADR-17）／ `E-12`（`source: chatwoot`） |
 | `agent/ops-watcher` | `CAP-13` | PostHog の Error Tracking と各コンテナの状態監視。検知を `E-12` に変換する | `E-12`（`source: posthog`） | `E-12`（`source: posthog`） |
 | `agent/proposal-writer` | `CAP-14` | 複数の `E-12` を根拠に `E-13` を起票する。**この基盤で唯一、観測を作用に変換する主体** | `E-12`（全 source） | `E-13`（`docs/proposals/<proposal_id>.md`。`approval.state: draft`） |
 
-**エージェントは監視アプリ（`frontend/next-js`）から起動され、MCP で開発環境と本番の Strapi・Mautic・Chatwoot・Umami・n8n を読み書きする**（`R1` の 2026-09-19 の決定。AA-05 の ADR-14・ADR-15・ADR-16、TA-07）。本番は `read_write` まで（ADR-16 で確定）。**本番の Strapi は下書きまでで、記事の公開は `R2` が本番の管理画面で行う**（ADR-17）。公開サイトへの反映は人間が配信を承認し、n8n のワークフローの本番での有効化も人間が行う（2.5）。
+**エージェントは監視アプリ（`frontend/next-js`）から起動され、MCP で開発環境と本番の Strapi・Mautic・Chatwoot・Umami・n8n を読み書きする**（**2026-10-06 の注記: Umami は ADR-25 で廃止。GA4 は `analytics-reporter` が OpenSEO の MCP で読むだけ**。`R1` の 2026-09-19 の決定。AA-05 の ADR-14・ADR-15・ADR-16、TA-07）。本番は `read_write` まで（ADR-16 で確定）。**本番の Strapi は下書きまでで、記事の公開は `R2` が本番の管理画面で行う**（ADR-17）。公開サイトへの反映は人間が配信を承認し、n8n のワークフローの本番での有効化も人間が行う（2.5）。
 
 **起動元は監視アプリに一本化されている**（ADR-17）。管理者の手動の指示に加えて、**観測の日次バッチなどエージェントを使う定期処理も監視アプリが起動する**（TA-07 の 3.5）。ADR-05 は日次のスケジュール起動を n8n に置いていたが、ADR-16 で n8n が AWS に移り、ローカルの Claude Code を起動できなくなったため置き換えた。本番の n8n に残るのは Webhook の受け口と、エージェントを使わない決定論的な定期処理である。
 
@@ -50,14 +50,14 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 | エージェント | 接続する MCP | `CHATWOOT_ACCESS_LEVEL` | `MAUTIC_ACCESS_LEVEL` | Strapi 側の権限 | 承認が必要な操作 |
 |---|---|---|---|---|---|
-| `agent/keyword-researcher` | strapi-mcp（本番は `strapi-prod`）／ **OpenSEO**（2.4） | **接続しない** | **接続しない** | `E-01` の作成・更新（`api::keyword.keyword`） | `E-01` の `status` を `採用` にする（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
+| `agent/keyword-researcher` | strapi-mcp（本番は `strapi-prod`）／ **OpenSEO**（2.4） | **接続しない** | **接続しない** | `E-01` の作成・更新（`api::keyword.keyword`） | `E-01` の `adoption_status` を `採用` にする（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
 | `agent/knowledge-scout` | **OpenSEO**（2.4） | **接続しない** | **接続しない** | なし | 知見の採用（`R2`）／ **見積もり 2,000 クレジット超の調査**（`R2`） |
 | `agent/content-planner` | strapi-mcp（本番は `strapi-prod`） | **接続しない** | **接続しない** | `E-03` の作成・更新 | 企画の採否決定（`R2`。BA-04 のステップ 1） |
 | `agent/content-writer` | strapi-mcp（本番は `strapi-prod`） | **接続しない** | **接続しない** | `E-04` の**下書きのみ**（`publishedAt` を設定する権限を与えない。本番は `strapi-prod` のトークンに公開・非公開化・削除の権限が無い。ADR-17） | なし（**記事の公開・公開済み記事への更新の反映・削除は `R2` が本番の管理画面で自ら行う**。ADR-17。このエージェントには実行手段が無い） |
 | `agent/quality-checker` | なし（ファイル読み取りのみ） | **接続しない** | **接続しない** | `E-04` の参照のみ | なし（`自律`） |
 | `agent/design-implementer` | なし | **接続しない** | **接続しない** | なし | main へのマージ（`R1`）・デプロイ（`R1`） |
 | `agent/seo-auditor` | **OpenSEO（費用の発生しない参照系のみ。2.4）**と `.lighthouse/` の読み取り | **接続しない** | **接続しない** | なし | なし（`自律`） |
-| `agent/analytics-reporter` | Umami MCP / mautic-mcp / PostHog | **接続しない** | `read_only` | なし | なし（`自律`） |
+| `agent/analytics-reporter` | **OpenSEO**（**GA4 の集計値の 5 本だけ**。2.4。2026-10-06 に ADR-25 で Umami MCP から変えた） / mautic-mcp / PostHog | **接続しない** | `read_only` | なし | なし（`自律`） |
 | `agent/lead-ops` | mautic-mcp | **接続しない** | **`read_write`** | なし | メール送信・キャンペーン開始（`R3`）／レコード削除（`R1`） |
 | `agent/conversation-triage` | chatwoot-mcp（**社内メモだけを使う。`chatwoot_send_message` を許可リストに載せない**。ADR-17） | **`read_write`** | `read_only` | なし | レコード削除（`R1`）。**顧客への返信（`private=false`。`R3`）はこのエージェントに持たせない**（ADR-17。社内メモのつもりの呼び出しが顧客に届く経路を無くすため） |
 | `agent/ops-watcher` | なし（PostHog） | **接続しない** | **接続しない** | なし | なし（`自律`） |
@@ -76,7 +76,7 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 ### 2.3 上流側の認証情報の分離
 
-**前提として SSO は導入しない**（`R1` の決定）。調査の結果、Strapi・Chatwoot・n8n は上位エディション、Umami は非対応、PostHog と GitHub は有料プランが必要で、追加費用なしで 1 つの IdP に寄せられるものが無いことが判明したため。当面は「アクセス経路を絞る ＋ パスワード管理 ＋ 担当者変更手順の文書化」で代替する（BA-05 の未決定事項と TA-04 の調査事項に対する結論）。
+**前提として SSO は導入しない**（`R1` の決定）。調査の結果、Strapi・Chatwoot・n8n は上位エディション、Umami は非対応（**ADR-25 で廃止**。GA4 は Google アカウントでログインする）、PostHog と GitHub は有料プランが必要で、追加費用なしで 1 つの IdP に寄せられるものが無いことが判明したため。当面は「アクセス経路を絞る ＋ パスワード管理 ＋ 担当者変更手順の文書化」で代替する（BA-05 の未決定事項と TA-04 の調査事項に対する結論）。
 
 **この決定はエージェントの権限設計に影響しない。** BA-05 と TA-04 が既に「エージェントの権限は SSO の外側で管理する」と定めており、以下の構成は SSO の有無に依存しない（人間のログイン状態がエージェントの実行可否を左右すると、権限の境界が追えなくなるため、この分離は SSO を導入した後も維持する）。
 
@@ -95,10 +95,11 @@ OpenSEO の MCP は `ACCESS_LEVEL` を持たず、Streamable HTTP の 1 プロ�
 
 | エージェント | 許可するツール | 費用 |
 |---|---|---|
-| 3 本に共通 | `whoami` / `list_projects` / `get_project_context` | 発生しない |
+| 3 本に共通（`seo-auditor` / `keyword-researcher` / `knowledge-scout`） | `whoami` / `list_projects` / `get_project_context` | 発生しない |
 | `agent/seo-auditor` | `get_search_console_performance` / `inspect_urls` / `get_rank_tracker` / `get_audit_status` / `get_audit_issues` / `get_audit_pages` | **発生しない**（GSC は自分の Google アカウントのデータであり計量されない。他は保存済みの結果を読むだけ） |
 | `agent/keyword-researcher` | `research_keywords` / `get_keyword_metrics` / `get_domain_keyword_suggestions` / `get_serp_results` / `search_serp_locations` / `get_search_console_performance` / `list_saved_keywords` / `save_keywords` | **発生する**（キーワード調査は 1 シードあたり約 30〜100 クレジット、SERP は 1 キーワードあたり約 5） |
 | `agent/knowledge-scout` | `find_serp_competitors` / `get_domain_overview` / `get_ranked_keywords` / `get_backlinks_overview` / `get_serp_results` / `list_saved_keywords` | **発生する**（ドメイン概要は約 100〜300 クレジット、被リンク概要は約 50） |
+| **`agent/analytics-reporter`**（2026-10-06 に追加。ADR-25。`.claude/agents/analytics-reporter.md` の `tools` と同じ） | `list_projects` / `get_project_context` / `get_google_analytics_traffic_acquisition` / `get_google_analytics_page_performance` / `get_google_analytics_organic_landing_pages` / `get_google_analytics_organic_overview` / `get_google_analytics_measurement_health` | **発生しない**（GA4 のレポートは OpenSEO のクレジットを使わない。`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`。GA4 の Data API のクォータは使う） |
 
 **どのエージェントにも許可しないツール**と、その理由。
 
@@ -110,16 +111,16 @@ OpenSEO の MCP は `ACCESS_LEVEL` を持たず、Streamable HTTP の 1 プロ�
 | `get_backlinks_profile` | ページ送りで 1 ページごとに課金される（約 30 クレジット）。ページ送りの回数をエージェントが決めると支出が読めない |
 | `create_project` / `update_project_context` | OpenSEO のプロジェクトとその記憶は `R1` が設定する（`seo-project-setup` スキルは人間が使う。7 節） |
 | `save_report` / `save_report_template` / `get_report` / `list_reports` / `list_report_templates` | レポートの正本は `E-12` と `E-13` であり、OpenSEO の中に 2 つ目のレポート置き場を作らない |
-| `get_google_analytics_*`（9 本）／ `get_search_opportunities` | **GA4 は採用しない**（DA-02 の 2 節・ADR-09）。OAuth も接続しない。`get_search_opportunities` は名前に GA4 が現れないが、**Search Console と GA4 の結合を前提にしたツール**である |
+| `get_google_analytics_audience_breakdown` / `get_google_analytics_ecommerce_performance` / `get_google_analytics_site_search` / `get_google_analytics_key_events` ／ `get_search_opportunities` | **（2026-10-06 に ADR-25 で改めた）`get_google_analytics_*` は `analytics-reporter` だけに、上の 5 本だけを許可する。** 残りの 4 本は指標に使わない（属性の内訳・EC・サイト内検索は DA-02 の指標に無い。**キーイベントは CV に使わない**〈CV の正本は Mautic。DA-02 の 1.2〉）。`get_search_opportunities` は名前に GA4 が現れないが、**Search Console と GA4 の結合を前提にしたツール**で、`seo-auditor` と `analytics-reporter` の境界をまたぐため誰にも持たせない。**旧版は「GA4 は採用しない〈DA-02 の 2 節・ADR-09〉。OAuth も接続しない」として 9 本すべてを禁じていた** |
 | ローカル SEO 系（`get_local_*` / `search_local_businesses` / `get_business_*` / `get_google_business_questions` / `list_business_categories`） | 使わない機能（ADR-09） |
 
 - **この許可リストは ADR-03 の「登録しない」をクライアント側に持ち上げたもの**である。サーバ側で登録しない方式より弱い（エージェント定義を書き換えれば外れる）が、**エージェント定義を Git の管理下に置けば、書き換えても正本にならない**（5.3）。
 - **許可リストに無いツールを呼ぶよう指示するスキルがあっても、許可リストが優先する**（7.1「スキルは知識であって権限ではない」）。たとえば `seo-audit` スキルは監査の実行を前提にしているが、`agent/seo-auditor` は結果の参照までしかできない。
 - **1 回の見積もりが 2,000 クレジットを超える調査は、実行前に `R2` の承認を求める**（BA-05）。ツールの引数で上限を指定できるのはランク追跡の実行だけであり、他の調査系では**エージェントの指示に書く約束**にとどまる。最後の歯止めは DataForSEO の前払い残高である（ADR-10）。
 
-### 2.5 操作対象: 開発環境と本番の Strapi・Mautic・Chatwoot・Umami・n8n（ADR-15・ADR-16・ADR-17）
+### 2.5 操作対象: 開発環境と本番の Strapi・Mautic・Chatwoot・Umami・n8n（ADR-15・ADR-16・ADR-17。Umami は ADR-25 で廃止）
 
-**MCP は同じサーバを開発環境用と本番用に 2 回登録する**（`chatwoot` / `chatwoot-prod`、`mautic` / `mautic-prod`、`umami` / `umami-prod` は ADR-15。`strapi-mcp` / `strapi-prod`、`n8n` / `n8n-prod` は ADR-16。TA-07 の 3.3）。OpenSEO はローカルだけにある。ADR-15 では Strapi もオンプレだけだったが、ADR-16 で本番の Strapi を AWS に置き、記事の正本を本番に移した。**本番の登録は `ACCESS_LEVEL=read_write` を上限にし（削除・統合を出さない。ADR-15 で暫定、ADR-16 で確定）、トークンはエージェント専用のアカウントで発行する。** `strapi-prod` は `ACCESS_LEVEL` を持たないため Admin トークンの権限で**下書きまで**に絞り（公開・非公開化・削除の権限を与えない。ADR-17）、`n8n-prod` はワークフローの作成と更新までにする（暫定）。 本番の登録を使ってよいエージェントは、エージェント定義の許可リストで明示したものに限る（2.4）。**`chatwoot-prod` の許可リストでは、社内メモだけを使うエージェントに `chatwoot_send_message` を載せない**（ADR-17。2.2）。
+**MCP は同じサーバを開発環境用と本番用に 2 回登録する**（`chatwoot` / `chatwoot-prod`、`mautic` / `mautic-prod`、`umami` / `umami-prod` は ADR-15〈**ADR-25 で廃止**〉。`strapi-mcp` / `strapi-prod`、`n8n` / `n8n-prod` は ADR-16。TA-07 の 3.3）。OpenSEO はローカルだけにある。ADR-15 では Strapi もオンプレだけだったが、ADR-16 で本番の Strapi を AWS に置き、記事の正本を本番に移した。**本番の登録は `ACCESS_LEVEL=read_write` を上限にし（削除・統合を出さない。ADR-15 で暫定、ADR-16 で確定）、トークンはエージェント専用のアカウントで発行する。** `strapi-prod` は `ACCESS_LEVEL` を持たないため Admin トークンの権限で**下書きまで**に絞り（公開・非公開化・削除の権限を与えない。ADR-17）、`n8n-prod` はワークフローの作成と更新までにする（暫定）。 本番の登録を使ってよいエージェントは、エージェント定義の許可リストで明示したものに限る（2.4）。**`chatwoot-prod` の許可リストでは、社内メモだけを使うエージェントに `chatwoot_send_message` を載せない**（ADR-17。2.2）。
 
 同日の ADR-14 は「MCP は開発環境だけ」「本番の資格情報を置かない」としていたが、観測系と顧客対応系が本来の役割を果たせないため、ADR-15 で置き換えた。
 
@@ -127,7 +128,7 @@ OpenSEO の MCP は `ACCESS_LEVEL` を持たず、Streamable HTTP の 1 プロ�
 |---|---|---|
 | **制作系** | `keyword-researcher` / `content-planner` / `content-writer` / `design-implementer` | **本番の Strapi（正本。`strapi-prod`。ADR-16）に下書きまで**と、ローカルのコードに書く（ADR-15 ではオンプレの Strapi が正本だった）。開発環境の Strapi は試験用で、記事を開発と本番の間で移さない。**記事の公開は `R2` が本番の管理画面で行い（ADR-17）**、公開された記事を監視アプリの定期実行が見つけて Claude Code がビルドと計測を行い、**人間が配信する**（TA-07 の 3.5・7 節）。制作の連鎖（4.2）の最後の人間ゲートは「公開」と「配信」の 2 つになる（ADR-15・ADR-16 の時点では「配信の承認」の 1 つだった） |
 | **品質・監査系** | `quality-checker` / `seo-auditor` | ローカルのビルド（本番の Strapi を読む。ADR-16）と `.lighthouse/` を読む。OpenSEO はローカルだけ（公開サイトの監査と GSC の実績は本番のデータ） |
-| **観測系** | `analytics-reporter` / `ops-watcher` | **本番の Umami（`umami-prod`）などを読む**。書き込まない |
+| **観測系** | `analytics-reporter` / `ops-watcher` | **本番の GA4（OpenSEO の MCP 経由。ADR-25。旧版は本番の Umami〈`umami-prod`〉）・PostHog・Mautic（参照専用）を読む**。書き込まない |
 | **顧客対応系** | `conversation-triage` / `lead-ops` | **本番の Chatwoot・Mautic を `read_write` で扱う**（社内メモ、ラベル、コンタクトの更新）。BA-05 の承認ゲートに従う。**顧客へのメッセージ送信も許す**（ADR-16。`chatwoot-prod` から送信系のツールを外さない。送信は `承認`・`R3` で、承認を得てから実行する。ADR-15 の時点では未決定だった）。**ただし社内メモだけを使う `conversation-triage` には送信のツールを見せない**（ADR-17）。送信を担うエージェントは 12 本の中に定義していない（8 節） |
 | **提案系** | `proposal-writer` | 変わらない（`E-12` のファイルを読み、`docs/proposals/` に書く） |
 | **（どのエージェントにも割り当てていない）** | — | **n8n のワークフローを本番に置く操作**（`n8n-prod`。ADR-16）。承認されたワークフローを開発環境で確かめ、`n8n-prod` で本番に置く。**有効化は人間（`R1`）が本番のエディターで行う**（TA-07 の 6.1）。12 本のうちどれに担わせるかは未決定（8 節） |
@@ -156,7 +157,7 @@ DA-02 の 5 節が定義したデータ契約を、エージェント別に割�
 | `agent/seo-auditor` | `.lighthouse/` の最新ビルド結果 ／ GSC は**直近 35 日のうち 3 日前までの確定データ**（OpenSEO の `get_search_console_performance`。ページ単位） | GSC は 1 回 1,000 行まで（OpenSEO の上限）。`hasMore` が真なら `startRow` で続きを取る | GSC のデータは 2〜3 日遅れて確定する（AA-02 の 3.5） |
 | `agent/keyword-researcher` | 1 回の実行で**シード 10 個まで**。市場は日本（日本語）に固定する | 見積もり 2,000 クレジットまで。超えるなら `R2` の承認 | 月次予算 10 USD（ADR-10）を週次の実行で割った値 |
 | `agent/knowledge-scout` | 1 回の実行で**競合ドメイン 5 件まで** | 同上 | 同上 |
-| `agent/analytics-reporter` | Umami は直近 35 日・ランキングは上位 100 件 ／ Mautic はフォーム送信の集計のみ | `truncation_message` を見たら期間を狭めて取り直す | 前月比較が取れる最小期間（DA-02 の 5.1） |
+| `agent/analytics-reporter` | **GA4・Mautic・PostHog とも直近 35 日、終端は 3 日前の終わり（JST）**（2026-10-06 に ADR-25 で変えた。旧版は Umami で、終端は昨日）・ランキングは上位 100 件／ GA4 は `E-12` を 2 件（流入・ページ）に分け、PostHog の `$web_vitals`（p75）は別の `E-12` にする（DA-02 の 5.1）／ Mautic はフォーム送信の集計のみ。**GA4 が未接続なら `auth_failed`** | `truncation_message` を見たら期間を狭めて取り直す。GA4 の `hasMore` が残ったまま全件が要る指標（`PAGEVIEW-count`）は書かない。**しきい値で欠けた値を 0 で埋めない** | 前月比較が取れる最小期間（DA-02 の 5.1）。終端の 3 日は GA4 の反映の遅れ（24〜48 時間） |
 | `agent/conversation-triage` | **直近の未解決の会話に限定。最大 4 ページ**（会話 25 件／ページのサーバ固定） | 4 ページ | 件数ではなくページ数で上限を書く（Chatwoot のページ件数がサーバ固定のため） |
 | `agent/lead-ops` | トスアップ対象の `E-09` のみ（`dateAdded` で絞る） | 一覧の 1 ページ分ずつ | 定期的に全件を舐めない（固定ページ件数のためリクエストが件数に比例する） |
 | `agent/ops-watcher` | PostHog の直近 24 時間の例外 | PostHog の API 制限に従う | 日次の観測サイクルに合わせる |
@@ -218,7 +219,7 @@ flowchart TD
 **観測系の 4 本は並列に走らせられる。** 根拠は 3 つ。
 
 - **読み取り専用である**（`agent/conversation-triage` の Chatwoot だけが `read_write` だが、書くのは社内メモのみで、他のエージェントの読み取り対象に影響しない）。
-- **参照する上流が重ならない**（Lighthouse / Umami + PostHog / Chatwoot / PostHog の Error Tracking）。唯一 PostHog が 2 本から参照されるが、どちらも読み取りのため衝突しない。
+- **参照する上流が重ならない**（Lighthouse と OpenSEO〈GSC〉 / GA4〈OpenSEO 経由〉 + PostHog + Mautic / Chatwoot / PostHog の Error Tracking）。PostHog と OpenSEO が 2 本から参照されるが、どちらも読み取りのため衝突しない（**2026-10-06 の注記: ADR-25 で Umami を GA4 に置き換え、`analytics-reporter` も OpenSEO を読むようになった**）。
 - **書き込み先ディレクトリが分かれている**（4.3）。
 
 `agent/proposal-writer` は 4 本の完了を**待つ**。並列に走らせると、同じ観測から複数の提案が同時に起票され、`proposal_id` の採番が衝突する。

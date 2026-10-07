@@ -69,18 +69,29 @@ export class Engine {
       return this.recordSkipped(runId, startedAt, request, identity, "前回の実行が継続中のため起動を見送った");
     }
 
-    this.ctx.runs.insertRunning({
-      runId,
-      jobId: prepared.jobId,
-      agentName: prepared.agentName,
-      builtin: prepared.builtin,
-      trigger: request.trigger,
-      startedAt,
-    });
+    try {
+      this.ctx.runs.insertRunning({
+        runId,
+        jobId: prepared.jobId,
+        agentName: prepared.agentName,
+        builtin: prepared.builtin,
+        trigger: request.trigger,
+        startedAt,
+      });
+    } catch (error) {
+      // 記録できないまま実行はしない。リースを返さないと、リース時間の間同じ定義の起動がすべて見送られる
+      this.ctx.leases.release(prepared.leaseKey, runId);
+      throw error;
+    }
     logLine("INFO", "engine", `起動 job=${prepared.jobId ?? "-"} agent=${prepared.agentName ?? "-"} builtin=${prepared.builtin ?? "-"}`, runId);
 
     const controller = new AbortController();
-    const done = this.run(runId, startedAt, prepared, controller).finally(() => this.active.delete(runId));
+    // done を reject させない。監視アプリと 1 プロセスで動くため、未処理の reject はプロセスごと落とす
+    const done = this.run(runId, startedAt, prepared, controller)
+      .catch((error: unknown) =>
+        logLine("ERROR", "engine", `実行の後始末に失敗: ${error instanceof Error ? error.message : "不明"}`, runId),
+      )
+      .finally(() => this.active.delete(runId));
     this.active.set(runId, { controller, done });
     return { runId, accepted: true };
   }
@@ -210,6 +221,11 @@ export class Engine {
       logLine("ERROR", "engine", `実行中に内部エラー: ${error instanceof Error ? error.message : "不明"}`, runId);
       result = { outcome: "failure", summary: "実行中に内部エラーが発生した", targetIds: [], failureClass: null };
     }
+    // 停止要求（stop()）で打ち切った run は failure（timeout）に確定する（契約の stop）。打ち切りで途中までしか見ていない builtin
+    // （例: miswrite-check は会話を 1 件も読まずに抜ける）が success を返しても、それを成功として残さない
+    if (controller.signal.aborted && (result.outcome === "success" || result.outcome === "partial")) {
+      result = { ...result, outcome: "failure", summary: "停止要求で中断した", failureClass: "timeout" };
+    }
     try {
       const summary = redactSummary(result.summary ?? "");
       this.ctx.runs.finish(runId, {
@@ -224,6 +240,15 @@ export class Engine {
         costUsd: result.costUsd ?? null,
       });
       logLine("INFO", "engine", `終了 outcome=${result.outcome} class=${result.failureClass ?? "-"}`, runId);
+    } catch (error) {
+      // 確定できなかった run は running のまま残り、次のプロセスの起動時（interruptStaleRuns）に中断として確定する。
+      // 例外の本文は SQLite のもの（束縛した値は含まない）。summary などの中身はログに出さない
+      logLine(
+        "ERROR",
+        "engine",
+        `結果の確定に失敗（running のまま残る） outcome=${result.outcome}: ${error instanceof Error ? error.message : "不明"}`,
+        runId,
+      );
     } finally {
       this.ctx.leases.release(prepared.leaseKey, runId);
     }

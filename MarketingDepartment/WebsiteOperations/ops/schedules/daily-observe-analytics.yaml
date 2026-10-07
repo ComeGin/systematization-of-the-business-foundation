@@ -1,5 +1,5 @@
 id: daily-observe-analytics
-description: "本番の Umami・Mautic（参照専用）・PostHog の集計値を E-12（source: analytics）に正規化する（日次の観測 4 本のうちの 1 本）"
+description: "本番の GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計値を E-12（source: analytics）に正規化する（日次の観測 4 本のうちの 1 本）"
 enabled: false
 cron: "0 6 * * *"
 kind: agent
@@ -7,13 +7,13 @@ agent: analytics-reporter
 builtin: null
 after: []
 prompt: |
-  本番の登録（umami-prod・mautic-prod-ro・posthog-prod）だけで、次の範囲を取得し、E-12（source: analytics）に正規化する。
+  openseo（GA4 は本番のプロパティだけを接続。ADR-25）・mautic-prod-ro・posthog-prod だけで、次の範囲を取得し、E-12（source: analytics）に正規化する。
 
   取得の範囲（変えない）:
-  - 期間: 直近 35 日（終端は昨日の終わり、始端はそこから 35 日前。timezone は Asia/Tokyo）
-  - Umami: サイト comegin.com の SESSION-count・VISITOR-count・PAGEVIEW-count・ORGANIC-share・Core Web Vitals の p75。ページ別は上位 100 件（get_website_metrics の limit は 100）
-  - Mautic: フォーム送信の集計だけ。畳み込みは mautic_form_id + lower(email) + 送信日（JST）。個票は読まない
-  - PostHog: 本番用のプロジェクトの article_published の件数（CONTENT-throughput）。参照のツール（execute-sql による件数の集計だけ。個票は読まない）だけ
-  - 応答に truncation_message が付いたら期間を半分に狭めて 1 回だけ取り直す
+  - 期間: 直近 35 日（終端は今日〈JST〉の 3 日前の終わり、始端は終端の 34 日前。両端を含む。timezone は Asia/Tokyo）。GA4・Mautic・PostHog のすべてで同じ期間を使う
+  - GA4: OpenSEO のプロジェクト comegin.com。最初に get_google_analytics_measurement_health で接続を確かめる。SESSION-count・ORGANIC-share（traffic_acquisition の channel_group）と PAGEVIEW-count（page_performance の channel=all。全件が取れなければ書かない）。本文の表 REFERRER-sessions（source_medium）・PAGE-views・ORGANIC-landing は上位 100 件（limit は 100）。行の省略と null を 0 で埋めない
+  - Mautic: フォーム送信の集計だけ。畳み込みは mautic_form_id + lower(email) + 送信日（JST）。個票は読まない。CVR-total は GA4 と Mautic の両方が ok/empty_but_ok のときだけ（同意の偏りを注記する）
+  - PostHog: 本番用のプロジェクトの article_published の件数（CONTENT-throughput）と、$web_vitals の p75（CWV-lcp-p75・CWV-inp-p75・CWV-cls-p75）。execute-sql による集計だけ。個票は読まない。ページビュー・セッションの数字は使わない
+  - Mautic・PostHog の応答に truncation_message が付いたら期間を半分に狭めて 1 回だけ取り直す
 timeout_sec: 900
 max_turns: 40

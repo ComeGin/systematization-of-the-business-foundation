@@ -84,7 +84,10 @@ export class RunStore {
       .run(run.runId, run.jobId, run.agentName, run.builtin, run.trigger, run.startedAt);
   }
 
-  /** 実行の終了を確定し、S3 への写しに使う snapshot_json も同時に固める（再送でも中身が変わらない）。 */
+  /**
+   * 実行の終了を確定し、S3 への写しに使う snapshot_json も同時に固める（再送でも中身が変わらない）。
+   * 確定済みの run は上書きせず、DB にある記録（1 回目の内容）をそのまま返す。
+   */
   finish(runId: string, result: RunFinish): RunRecord {
     const current = this.get(runId);
     if (!current) throw new Error(`run が存在しない: ${runId}`);
@@ -102,7 +105,7 @@ export class RunStore {
       costUsd: result.costUsd,
       copiedAt: null,
     };
-    this.db
+    const updated = this.db
       .prepare(
         `UPDATE runs SET status = 'finished', finished_at = ?, outcome = ?, summary = ?, summary_redacted = ?,
            target_ids = ?, skip_reason = ?, failure_class = ?, sdk_subtype = ?, cost_usd = ?, snapshot_json = ?
@@ -121,6 +124,8 @@ export class RunStore {
         JSON.stringify(finished),
         runId,
       );
+    // 0 件 = 既に確定済み（status が running でない）。引数で組み立てた記録は DB と食い違うので返さない
+    if (Number(updated.changes) === 0) return this.get(runId) ?? current;
     return finished;
   }
 

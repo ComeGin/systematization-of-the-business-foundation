@@ -76,7 +76,11 @@ claude mcp add --transport http mautic http://127.0.0.1:3100/mcp \
 claude mcp add mautic -- node --env-file=<このディレクトリ>/.env <このディレクトリ>/dist/index.js
 ```
 
-stdio で使う場合は `.env` に `TRANSPORT=stdio` を設定する（`MCP_AUTH_TOKEN` は不要）。
+stdio で使う場合は `.env` に `TRANSPORT=stdio` を設定する（`MCP_AUTH_TOKEN` は不要。`.env.example` のまま空にしておけば未設定と同じに扱う）。
+`MCP_ALLOWED_HOSTS` も空（空白とカンマだけを含む）なら未設定と同じに扱う。
+
+HTTP の既定ポート 3100 は Chatwoot 本体（`CHATWOOT_PORT`）と同じ。ポートが使用中などで待ち受けられないときは
+`[mautic-mcp-server] failed to listen on 127.0.0.1:3100 (EADDRINUSE)` を出して終了するので、`PORT` を変える。
 
 ## 動作確認
 

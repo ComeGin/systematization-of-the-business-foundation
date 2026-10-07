@@ -1,6 +1,6 @@
 # admin-auth
 
-本番の管理画面（Mautic・Chatwoot・Umami・Strapi・n8n・Cal.com）の手前にかける**関門**。Better Auth を OAuth 2.1 / OIDC Provider として動かし、ALB の `authenticate-oidc` の IdP にする（開発ポート 3103。本番は ALB 配下の ECS on Fargate、ホスト名 `auth.comegin.com`）。
+本番の管理画面（Mautic・Chatwoot）の手前にかける**関門**（ADR-21 で Strapi・n8n はオンプレに移り、ADR-24 で Cal.com は SaaS になり、ADR-25 で Umami は廃止したため、いずれも対象から外れた）。Better Auth を OAuth 2.1 / OIDC Provider として動かし、ALB の `authenticate-oidc` の IdP にする（開発ポート 3103。本番は ALB 配下の ECS on Fargate、ホスト名 `auth.comegin.com`）。
 
 - ログインは **Google Workspace**（認証）。誰を通すかは **管理者の許可リスト**（認可。`admin_auth` データベースの表）が決める。
 - 製品の SSO ではない。関門を通ったあとも、各製品のアカウントでログインする。

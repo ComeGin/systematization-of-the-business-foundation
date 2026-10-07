@@ -1,3 +1,5 @@
+// 基準 D の例外: テスト対象そのものが SQL（BEGIN IMMEDIATE による排他）のため、node:sqlite は差し替えず
+// :memory: と一時ディレクトリの実 SQLite で確かめる。プロセスの生死（process.kill）だけは spy で差し替える。
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,124 +37,196 @@ beforeEach(() => {
   leases = new LeaseStore(db);
 });
 
+afterEach(() => {
+  if (db.isOpen) db.close();
+});
+
 describe("LeaseStore.acquire", () => {
-  it("空いていれば取れて、自分の pid と期限（now + ttl）を記録する", () => {
-    expect(leases.acquire("job:a", "R1", 5_000, 1_000)).toBe(true);
-    expect(leaseRow(db, "job:a")).toEqual({ run_id: "R1", pid: process.pid, acquired_at: 1_000, expires_at: 6_000 });
-  });
-
-  it("期限内のリースは同じプロセスからでも取れない（前回が実行中なら見送る）", () => {
-    leases.acquire("job:a", "R1", 5_000, 1_000);
-    expect(leases.acquire("job:a", "R2", 5_000, 2_000)).toBe(false);
-    expect(leaseRow(db, "job:a")?.run_id).toBe("R1");
-  });
-
-  it("キーが違えば互いに干渉しない", () => {
-    expect(leases.acquire("job:a", "R1", 5_000, 1_000)).toBe(true);
-    expect(leases.acquire("job:b", "R2", 5_000, 1_000)).toBe(true);
-  });
-
-  it("期限ちょうど（expires_at == now）からは奪える。1 ミリ秒前はまだ奪えない", () => {
-    leases.acquire("job:a", "R1", 1_000, 0);
-    expect(leases.acquire("job:a", "R2", 1_000, 999)).toBe(false);
-    expect(leases.acquire("job:a", "R2", 1_000, 1_000)).toBe(true);
-    expect(leaseRow(db, "job:a")).toMatchObject({ run_id: "R2", expires_at: 2_000 });
-  });
-
-  it("期限内でも、持ち主のプロセスが死んでいれば（ESRCH）奪える", () => {
-    putForeignLease(db, "job:a", "R1", 10_000);
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
-      throw errno("ESRCH");
+  describe("正常系", () => {
+    it("空いていれば取れて、自分の pid と期限（now + ttl）を記録する", () => {
+      expect(leases.acquire("job:a", "R1", 5_000, 1_000)).toBe(true);
+      expect(leaseRow(db, "job:a")).toEqual({ run_id: "R1", pid: process.pid, acquired_at: 1_000, expires_at: 6_000 });
     });
-    expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(true);
-    expect(kill).toHaveBeenCalledWith(OTHER_PID, 0);
-    expect(leaseRow(db, "job:a")).toMatchObject({ run_id: "R2", pid: process.pid });
-  });
 
-  it("持ち主が生きていれば（kill(pid, 0) が通る）奪えない", () => {
-    putForeignLease(db, "job:a", "R1", 10_000);
-    vi.spyOn(process, "kill").mockImplementation(() => true);
-    expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(false);
-  });
-
-  it("EPERM は「別ユーザーのプロセスが生きている」とみなし、奪わない", () => {
-    putForeignLease(db, "job:a", "R1", 10_000);
-    vi.spyOn(process, "kill").mockImplementation(() => {
-      throw errno("EPERM");
+    it("期限内のリースは同じプロセスからでも取れない（前回が実行中なら見送る）", () => {
+      leases.acquire("job:a", "R1", 5_000, 1_000);
+      expect(leases.acquire("job:a", "R2", 5_000, 2_000)).toBe(false);
+      expect(leaseRow(db, "job:a")?.run_id).toBe("R1");
     });
-    expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(false);
+
+    it("キーが違えば互いに干渉しない", () => {
+      expect(leases.acquire("job:a", "R1", 5_000, 1_000)).toBe(true);
+      expect(leases.acquire("job:b", "R2", 5_000, 1_000)).toBe(true);
+    });
+
+    it("期限ちょうど（expires_at == now）からは奪える。1 ミリ秒前はまだ奪えない", () => {
+      leases.acquire("job:a", "R1", 1_000, 0);
+      expect(leases.acquire("job:a", "R2", 1_000, 999)).toBe(false);
+      expect(leases.acquire("job:a", "R2", 1_000, 1_000)).toBe(true);
+      expect(leaseRow(db, "job:a")).toMatchObject({ run_id: "R2", expires_at: 2_000 });
+    });
+
+    it("期限内でも、持ち主のプロセスが死んでいれば（ESRCH）奪える", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+        throw errno("ESRCH");
+      });
+      expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(true);
+      expect(kill).toHaveBeenCalledWith(OTHER_PID, 0);
+      expect(leaseRow(db, "job:a")).toMatchObject({ run_id: "R2", pid: process.pid });
+    });
+
+    it("持ち主が生きていれば（kill(pid, 0) が通る）奪えない", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      vi.spyOn(process, "kill").mockImplementation(() => true);
+      expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(false);
+    });
+
+    it("期限切れなら持ち主の生死を確かめずに奪う", () => {
+      putForeignLease(db, "job:a", "R1", 100);
+      const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+      expect(leases.acquire("job:a", "R2", 1_000, 100)).toBe(true);
+      expect(kill).not.toHaveBeenCalled();
+    });
+
+    it("同じファイルを開いた 2 つの接続の間でも排他になる", () => {
+      const temp = makeTempDir();
+      try {
+        const first = openE15Database(temp.dir);
+        const second = new DatabaseSync(join(temp.dir, "e15.sqlite"));
+        second.exec("PRAGMA busy_timeout = 5000");
+        expect(new LeaseStore(first).acquire("job:a", "R1", 60_000)).toBe(true);
+        expect(new LeaseStore(second).acquire("job:a", "R2", 60_000)).toBe(false);
+        first.close();
+        second.close();
+      } finally {
+        temp.cleanup();
+      }
+    });
+
+    it("空入力: ttl が 0 なら期限 = 取得時刻で、同じ時刻から別の run が奪える", () => {
+      expect(leases.acquire("job:a", "R1", 0, 1_000)).toBe(true);
+      expect(leaseRow(db, "job:a")).toMatchObject({ acquired_at: 1_000, expires_at: 1_000 });
+      expect(leases.acquire("job:a", "R2", 0, 1_000)).toBe(true);
+    });
   });
 
-  it("期限切れなら持ち主の生死を確かめずに奪う", () => {
-    putForeignLease(db, "job:a", "R1", 100);
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
-    expect(leases.acquire("job:a", "R2", 1_000, 100)).toBe(true);
-    expect(kill).not.toHaveBeenCalled();
-  });
+  describe("異常系", () => {
+    it("サーバ: kill(pid, 0) の EPERM は「別ユーザーのプロセスが生きている」とみなし、奪わない", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      vi.spyOn(process, "kill").mockImplementation(() => {
+        throw errno("EPERM");
+      });
+      expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(false);
+    });
 
-  it("同じファイルを開いた 2 つの接続の間でも排他になる", () => {
-    const temp = makeTempDir();
-    try {
-      const first = openE15Database(temp.dir);
-      const second = new DatabaseSync(join(temp.dir, "e15.sqlite"));
-      second.exec("PRAGMA busy_timeout = 5000");
-      expect(new LeaseStore(first).acquire("job:a", "R1", 60_000)).toBe(true);
-      expect(new LeaseStore(second).acquire("job:a", "R2", 60_000)).toBe(false);
-      first.close();
-      second.close();
-    } finally {
-      temp.cleanup();
-    }
+    it("サーバ: kill(pid, 0) が ESRCH・EPERM 以外で失敗したら、死んでいるとみなして奪う", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      vi.spyOn(process, "kill").mockImplementation(() => {
+        throw errno("EINVAL");
+      });
+      expect(leases.acquire("job:a", "R2", 1_000, 0)).toBe(true);
+    });
+
+    it("サーバ: 別の接続が書き込み中（SQLITE_BUSY）なら例外を投げ、取れたことにしない", () => {
+      const temp = makeTempDir();
+      try {
+        const holder = openE15Database(temp.dir);
+        const other = new DatabaseSync(join(temp.dir, "e15.sqlite"));
+        other.exec("PRAGMA busy_timeout = 0");
+        holder.exec("BEGIN IMMEDIATE");
+        expect(() => new LeaseStore(other).acquire("job:a", "R2", 60_000)).toThrow(/locked|busy/i);
+        holder.exec("ROLLBACK");
+        expect(holder.prepare("SELECT count(*) AS n FROM leases").get()).toEqual({ n: 0 });
+        holder.close();
+        other.close();
+      } finally {
+        temp.cleanup();
+      }
+    });
+
+    it("サーバ: DB が閉じていれば例外を投げる", () => {
+      db.close();
+      expect(() => leases.acquire("job:a", "R1", 1_000, 0)).toThrow();
+    });
   });
 });
 
-describe("LeaseStore.release / releaseByRun", () => {
-  it("release は run_id が一致するときだけ消す（奪われた後に前の持ち主が消さない）", () => {
-    leases.acquire("job:a", "R1", 1_000, 0);
-    leases.acquire("job:a", "R2", 1_000, 1_000);
-    leases.release("job:a", "R1");
-    expect(leaseRow(db, "job:a")?.run_id).toBe("R2");
-    leases.release("job:a", "R2");
-    expect(leaseRow(db, "job:a")).toBeUndefined();
-    expect(leases.acquire("job:a", "R3", 1_000, 1_500)).toBe(true);
-  });
+describe("LeaseStore.release", () => {
+  describe("正常系", () => {
+    it("run_id が一致するときだけ消す（奪われた後に前の持ち主が消さない）", () => {
+      leases.acquire("job:a", "R1", 1_000, 0);
+      leases.acquire("job:a", "R2", 1_000, 1_000);
+      leases.release("job:a", "R1");
+      expect(leaseRow(db, "job:a")?.run_id).toBe("R2");
+      leases.release("job:a", "R2");
+      expect(leaseRow(db, "job:a")).toBeUndefined();
+      expect(leases.acquire("job:a", "R3", 1_000, 1_500)).toBe(true);
+    });
 
-  it("releaseByRun は run_id で消す", () => {
-    leases.acquire("job:a", "R1", 1_000, 0);
-    leases.acquire("job:b", "R2", 1_000, 0);
-    leases.releaseByRun("R1");
-    expect(leaseRow(db, "job:a")).toBeUndefined();
-    expect(leaseRow(db, "job:b")?.run_id).toBe("R2");
+    it("空入力: 空のキー・run_id や、無いリースを指しても何もしない（例外にしない）", () => {
+      leases.acquire("job:a", "R1", 1_000, 0);
+      expect(() => leases.release("", "")).not.toThrow();
+      expect(() => leases.release("job:none", "R9")).not.toThrow();
+      expect(leaseRow(db, "job:a")?.run_id).toBe("R1");
+    });
+  });
+});
+
+describe("LeaseStore.releaseByRun", () => {
+  describe("正常系", () => {
+    it("run_id で消す", () => {
+      leases.acquire("job:a", "R1", 1_000, 0);
+      leases.acquire("job:b", "R2", 1_000, 0);
+      leases.releaseByRun("R1");
+      expect(leaseRow(db, "job:a")).toBeUndefined();
+      expect(leaseRow(db, "job:b")?.run_id).toBe("R2");
+    });
+
+    it("空入力: 空の run_id は何も消さない", () => {
+      leases.acquire("job:a", "R1", 1_000, 0);
+      leases.releaseByRun("");
+      expect(leaseRow(db, "job:a")?.run_id).toBe("R1");
+    });
   });
 });
 
 describe("LeaseStore.heldElsewhere", () => {
-  it("リースが無ければ false", () => {
-    expect(leases.heldElsewhere("R1", 0)).toBe(false);
-  });
-
-  it("自分のプロセスのリースは false（起動時の中断判定で自分を除く）", () => {
-    leases.acquire("job:a", "R1", 10_000, 0);
-    expect(leases.heldElsewhere("R1", 1)).toBe(false);
-  });
-
-  it("他のプロセスが期限内で生きていれば true", () => {
-    putForeignLease(db, "job:a", "R1", 10_000);
-    vi.spyOn(process, "kill").mockImplementation(() => true);
-    expect(leases.heldElsewhere("R1", 0)).toBe(true);
-  });
-
-  it("他のプロセスでも、期限切れか死んでいれば false", () => {
-    putForeignLease(db, "job:a", "R1", 10_000);
-    vi.spyOn(process, "kill").mockImplementation(() => true);
-    expect(leases.heldElsewhere("R1", 10_000)).toBe(false);
-    vi.spyOn(process, "kill").mockImplementation(() => {
-      throw errno("ESRCH");
+  describe("正常系", () => {
+    it("空入力: リースが無ければ（空の run_id も）false", () => {
+      expect(leases.heldElsewhere("R1", 0)).toBe(false);
+      expect(leases.heldElsewhere("", 0)).toBe(false);
     });
-    expect(leases.heldElsewhere("R1", 0)).toBe(false);
-  });
-});
 
-afterEach(() => {
-  if (db.isOpen) db.close();
+    it("自分のプロセスのリースは false（起動時の中断判定で自分を除く）", () => {
+      leases.acquire("job:a", "R1", 10_000, 0);
+      expect(leases.heldElsewhere("R1", 1)).toBe(false);
+    });
+
+    it("他のプロセスが期限内で生きていれば true", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      vi.spyOn(process, "kill").mockImplementation(() => true);
+      expect(leases.heldElsewhere("R1", 0)).toBe(true);
+    });
+
+    it("他のプロセスでも、期限切れか死んでいれば false", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      vi.spyOn(process, "kill").mockImplementation(() => true);
+      expect(leases.heldElsewhere("R1", 10_000)).toBe(false);
+      vi.spyOn(process, "kill").mockImplementation(() => {
+        throw errno("ESRCH");
+      });
+      expect(leases.heldElsewhere("R1", 0)).toBe(false);
+    });
+  });
+
+  describe("異常系", () => {
+    it("サーバ: 他のプロセスの生死が EPERM で確かめられなければ、生きているとみなして true", () => {
+      putForeignLease(db, "job:a", "R1", 10_000);
+      vi.spyOn(process, "kill").mockImplementation(() => {
+        throw errno("EPERM");
+      });
+      expect(leases.heldElsewhere("R1", 0)).toBe(true);
+    });
+  });
 });

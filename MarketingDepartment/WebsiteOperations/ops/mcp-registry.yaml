@@ -93,22 +93,6 @@ servers:
       env_file: "${HOME}/.config/comegin/mcp/strapi-prod.env"
       Authorization: "Bearer ${STRAPI_PROD_TOKEN}"
 
-  # ---------- Umami（組み込みの MCP。HTTP。閲覧のみ。API キーで認証）----------
-  - name: umami
-    env: dev
-    transport: http
-    url: http://127.0.0.1:3000/mcp
-    headers_from_env_file:
-      env_file: "${HOME}/.config/comegin/mcp/umami-dev.env"
-      Authorization: "Bearer ${UMAMI_DEV_API_KEY}"
-  - name: umami-prod
-    env: prod
-    transport: http
-    url: https://stats.comegin.com/mcp
-    headers_from_env_file:
-      env_file: "${HOME}/.config/comegin/mcp/umami-prod.env"
-      Authorization: "Bearer ${UMAMI_PROD_API_KEY}"
-
   # ---------- n8n（組み込みの MCP。HTTP）----------
   # どのエージェントにも割り当てていない（AA-03 の 8 節の未決定事項）。管理者の指示で起動した実行が使う。
   # 本番はワークフローの作成と更新まで。有効化と実行は人間が行う。
@@ -131,6 +115,7 @@ servers:
 
   # ---------- OpenSEO（ローカルだけ。認証なし。トンネルを張らない）----------
   # ACCESS_LEVEL を持たない。エージェントごとの差はエージェント定義の tools の許可リストだけで作る（AA-03 の 2.4）。
+  # GA4 も読む（analytics-reporter。本番のプロパティだけを接続。ADR-25）。許可リストに入れるのは get_google_analytics_* のうち 5 本だけ（AA-03 の 2.4）。
   - name: openseo
     env: dev
     transport: http

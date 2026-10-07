@@ -130,6 +130,8 @@ if $dev_defaults; then
     ensure SMTP_PORT 1025
     ensure SMTP_ENABLE_STARTTLS_AUTO false true
     ensure SMTP_OPENSSL_VERIFY_MODE none peer
+    # n8n の I-12 への Webhook（http://host.docker.internal:5678）は私設アドレス。SafeFetch が拒まないようにする（本番では付けない）
+    ensure SAFE_FETCH_ALLOW_PRIVATE_NETWORK true false
 fi
 
 # 既存の DB ボリュームがあると、新しい POSTGRES_PASSWORD は反映されず接続に失敗する

@@ -3,7 +3,6 @@ export const TIMEOUT_SEC = {
   chatwootMcp: 12, // Rack::Timeout の 15 秒より内側
   mauticMcp: 30,
   strapiMcp: 20,
-  umamiMcp: 20,
   posthogFlush: 5,
   formSubmit: 10,
   i13Github: 30,
@@ -18,6 +17,8 @@ export const TIMEOUT_SEC = {
 export const CONTROL_TIMEOUT_SEC = {
   /** 突き合わせで Chatwoot の API を読む（I-03 と同じ上流なので 12 秒に揃える） */
   chatwootRead: TIMEOUT_SEC.chatwootMcp,
+  // 本番の n8n の Public API（n8n-export。一覧と本体の取得。1 回の呼び出しごと）
+  n8nApi: 30,
   s3Put: 30,
   cloudwatchPut: 10,
 } as const;

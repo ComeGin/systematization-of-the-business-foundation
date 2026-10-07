@@ -57,8 +57,9 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 | I-13 | `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（`GITHUB_BASE_BRANCH` は既定 `main`） | 全部空なら `i13-file` は `skipped`。一部だけなら起動時に例外 |
 | AWS | `AWS_REGION`・`RUNLOG_BUCKET`（`AWS_PROFILE`・`HEARTBEAT_NAMESPACE` は任意） | 全部空なら写しとハートビートは無効 |
 | 突き合わせ | `MISWRITE_CHATWOOT_BASE_URL`・`..._ACCOUNT_ID`・`..._API_TOKEN`・`MISWRITE_AGENT_USER_ID` | 全部空なら `miswrite-check` は `skipped` |
+| n8n の書き出し | `CONTROL_N8N_EXPORT_URL`・`CONTROL_N8N_EXPORT_API_KEY`（＋ I-13 の GitHub の 4 変数） | どれかが未設定なら `n8n-export` は `skipped`（片方だけの設定でも例外にしない。理由に変数名だけ） |
 
-秘密値（`GITHUB_TOKEN`・AWS・`MISWRITE_*`・`BETTER_AUTH_SECRET`）はエージェントの子プロセスに渡らない。
+秘密値（`GITHUB_TOKEN`・AWS・`MISWRITE_*`・`CONTROL_N8N_EXPORT_API_KEY`・`BETTER_AUTH_SECRET`）はエージェントの子プロセスに渡らない。
 
 ## E-15（実行記録）
 
@@ -66,6 +67,8 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 - 1 回の起動 = 1 件。相関 ID（ULID）は起動の直前に発行し、`running` の行を先に書いてからエージェントに渡す（プロンプトの `CORRELATION_ID: <ULID>` 行）。
 - 残すのは要約・対象の ID・成否・起動の種類・費用だけ。ツールの結果は残さない。要約はメールアドレスと電話番号の形を `[redacted:...]` に伏せ、伏せたら `summaryRedacted=true`（氏名は形で検出できないため、エージェント定義の「人は ID で指す」規則に頼る）。
 - 実行中の印は `leases` テーブル（リース時間 = `timeout_sec` + 60 秒。持ち主のプロセスが死んでいれば奪える）。前回が実行中なら起動を見送って `skipped` を記録する。起動時に、持ち主のいない `running` を `failure` に確定する。
+- E-15 への書き込みが DB の例外（`database is locked` など）で失敗したとき: `running` の記録に失敗したら、取ったリースを返して起動を失敗にする（実行はしない）。結果の確定に失敗したら、stderr に `ERROR` を出してリースを返し、プロセスは落とさない（監視アプリと 1 プロセスのため）。その run は **次にプロセスを起動するまで `running` のまま残り**、起動時に `failure`（`timeout`）に確定する。
+- 停止要求（`stop()`。`start()` の前に `runNow` で起動したものを含む）で打ち切った run は `failure`（`timeout`）に確定する。打ち切りの後に builtin が `success`・`partial` を返しても成功として残さない。
 - **ハートビートは E-15 に記録しない**。5 分ごとで 1 日 288 件になり、エージェントの実行記録（見送り・失敗を見つけるための記録）が埋もれるため。止まったことは CloudWatch のアラームで知る。定義の `heartbeat` で起動した場合だけ記録される。
 - `trigger` の `proposal` は、今は使っていない（定期実行は `schedule`、画面からは `manual`）。
 
@@ -83,7 +86,25 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 | `miswrite-check` | 下記 |
 | `silence-check` | 下記 |
 | `lighthouse` | **`CONTROL_MAIN_CHECKOUT`** の `frontend/verdant-virgo` で `pnpm lh` を子プロセスとして実行し、結果の JSON を作業ツリーへ写す。詳細は下の「lighthouse の実行」 |
+| `n8n-export` | 本番の n8n のワークフローを Git に書き出す。下の「n8n-export」 |
 | `published-article-check` | **雛形。** `skipped`（理由「未実装」）を記録する。TODO: TA-07 の 3.5・DD-05 の 3.2（公開された記事の差分の確認、非公開化と削除の検知） |
+
+### n8n-export（本番の n8n のワークフローの書き出し）
+
+TA-03 の 6 節の方針（n8n → Git の一方向。資格情報は ID の参照だけ）の実装。**作業ツリーには何も書かない**（読むのは `CONTROL_MAIN_CHECKOUT` だけ。結果は GitHub の PR だけ）。
+
+| 項目 | 内容 |
+|---|---|
+| 読み先 | 本番の n8n の Public API。`GET /api/v1/workflows?limit=250` を `nextCursor` で全ページ（20 ページまで。超えたら `truncated`）→ 1 件ずつ `GET /api/v1/workflows/{id}`。アーカイブ済みは対象外。ヘッダーは `X-N8N-API-KEY`。30 秒、401 は再試行しない |
+| API キーのスコープ | 一覧が `workflow:list`、本体が `workflow:read`。**スコープを付けられるのは n8n の Enterprise だけで、コミュニティ版のキーは全権限になる。** キーは監視アプリの env にだけ置き、エージェントには渡らない（エージェントの env は `PATH`・`HOME`・`ANTHROPIC_API_KEY` の許可リスト）。有効化（`enabled: true`）の前に、本番の n8n の版を確かめて人が判断する。代案の CLI（`docker exec`）は監視アプリに docker の権限が要るので採らない |
+| 除去 | トップ: `id`・`versionId`・`activeVersionId`・`activeVersion`・`createdAt`・`updatedAt`・`pinData`（空の `{}` に直す）・`staticData`・`shared`・`triggerCount`・`isArchived`・`versionCounter`・`sourceWorkflowId`・`parentFolder`・`meta.instanceId`。ノード: `createdAt`・`updatedAt`。`settings` の `binaryMode`・`credentialResolverId`（派生の内部の設定）。`tags` は名前の配列にする。ノードの `credentials` はそのまま（`{ 種別: { id, name } }`。値は API が返さない） |
+| 残す | **`active` は本番の事実として残す**（本番で公開すれば `true` が Git に出る）。`name`・`nodes`・`connections`・`settings`・`description`・`nodeGroups` |
+| 整形 | インデント 2・末尾に改行。トップとノードのキーは固定の順（既存の `workflows/*.json` に合わせた画面の書き出しの順。ほかは末尾にアルファベット順）、**それ以外のオブジェクトのキーは再帰的にアルファベット順**。配列の順序は変えない（`nodes`・`connections` の中の配列を含む）。既存のファイルは、内容は同じでキー順だけが変わるため、**初回の PR は 1 度だけ再整形の差分が出る**（資格情報の `id` も、既存のファイルは持たないため差分になる） |
+| ファイル名 | 承認済み main の `W/middleware/n8n/workflows/*.json` の `name` と n8n のワークフロー名の完全一致（NFC）。無いものは名前から作る（`I-<数字>` で始まる名前はその番号を残し、残りを小文字の ASCII の kebab-case にする。空になれば `workflow-<id>`。衝突したら id を付ける） |
+| 比較 | 整形した文字列を、main の同名ファイルと**バイト単位で**比較する。差分があるものは GitHub の base の内容とも比べ、同じなら除く（main のチェックアウトが origin より遅れていても、マージ済みの内容で二重に PR を作らない）。差分が無ければ `success` で何もしない |
+| 消さない | **n8n に無い・名前が変わったワークフローの旧ファイルは消さない**（開発だけにあるものを消さないため）。本番で改名すると、新しい名前は**新規ファイル**として扱われ、旧ファイルが残る。人が旧ファイルを消す（仕様。`id` をファイルに残さない方針のため） |
+| 秘密値の検査 | GitHub に出る前に、ノードの値を検査する: キーが `secret`・`token`・`password`・`api_key`・`authorization` を含み値が固定の文字列、ヘッダーなどの `{ name, value }` の対で name がそれらを含み value が固定、または既知のトークンの形（`ghp_`・`github_pat_`・`AKIA`・`xox*-`・`sk-`・`Bearer` ＋ 20 文字以上・秘密鍵のヘッダー）。式（`{{ }}`）・空・URL は除く。**疑いのあるワークフローは PR から外し**、E-15 の要約には「ワークフロー名: 秘密値の疑い」だけを書く（値・キーの中身は書かない）。結果は `partial`。誤検知は人が n8n 側で式や資格情報に直すまで外れ続ける |
+| PR | ブランチ `chore/n8n-export-YYYYMMDD`（日本時間）。1 コミット（Git Data API の tree → commit → ref。ref を最後に作るので、ブランチがある = コミットが済んでいる）。Reviewer は `I13_REVIEWER`。冪等キーは日付: 同じブランチの PR があれば何もしない。**別の日の未マージの書き出しの PR（`chore/n8n-export-` の open）があれば、新しく作らない**（毎日 PR が積み上がらないように）。PR の本文はファイル名の一覧だけ（ワークフローの中身は載せない）。ローカルの Git の状態は変えない |
 
 ### lighthouse の実行
 
@@ -106,14 +127,14 @@ TA-07 の 6.2・DD-07 の 4.1 は「どの E-13 にも対応しない」の定�
 - (a) `CONTROL_MAIN_CHECKOUT` の `docs/proposals/*.md` のうち `approval.state` が `approved` / `applied` で、`target.identifier` または `also_affects` に `display_id=<n>` を含み、送信時刻が `created_at` 以降のもの
 - (b) 送信時刻が前後 1 分の幅で重なる E-15 の run の `targetIds` に `chatwoot-conversation:<n>` があるもの（`targetIds` はエージェントの `TARGET_IDS:` 行に加え、`mcp__chatwoot*` の `tool_use` の `conversation_id` から取り出す。結果は読まない）
 
-範囲は「前回の完了から今まで」（初回は 24 時間前。5 分の重なりを持たせ、重複は `message_id` で除く）。本文は保存せず、ID・時刻・理由だけを残す。会話は更新の新しい順（上流の既定）に最大 40 ページ（25 件/ページ）、メッセージは 1 会話あたり最大 10 ページ（20 件/ページ）を読み、上限に達したら `partial`（`truncated`）にして前回完了の時刻を進めない。**拾えるのは送信だけで、会話の属性（担当者・ラベル・状態）の変更は拾えない。**
+範囲は「前回の完了から今まで」（初回は 24 時間前。5 分の重なりを持たせ、重複は `message_id` で除く）。本文は保存せず、ID・時刻・理由だけを残す。会話は更新の新しい順（上流の既定）に最大 40 ページ（25 件/ページ）、メッセージは 1 会話あたり最大 10 ページ（20 件/ページ。上流は 1 ページを古い順に返すので、最も小さい id を `before` にして遡る）を読み、上限に達したら `partial`（`truncated`）にして前回完了の時刻を進めない。**拾えるのは送信だけで、会話の属性（担当者・ラベル・状態）の変更は拾えない。**
 
 ### silence-check
 
 `E-15` と成果物の照合だけを行う（エージェントに E-15 を読ませない。DD-07 の 3.2）。当日は日本時間の 0 時から今まで。
 
 - 成果物なし: `success` のエージェントの run があるのに、そのエージェントの `docs/audits/<source>/` に当日分（`AUD-<西暦>-<月日>-<source>-*`）が 1 件も無い（対応は `src/constants/audit-sources.ts`）
-- 未起動: `CONTROL_SCHEDULER_ENABLED=true` で、`enabled` のジョブの起動時刻（猶予 10 分）を過ぎているのに、`skipped` を含めて run が 1 件も無い
+- 未起動: `CONTROL_SCHEDULER_ENABLED=true` で、`enabled` のジョブの起動時刻（猶予 10 分）を過ぎているのに、その起動の窓に `skipped`・手動（`trigger=manual`）を含めて run が 1 件も無い。窓は起動時刻の 1 分前から次の起動時刻の 1 分前まで（1 分は間隔の半分を超えない）。1 日に複数回のジョブは起動時刻ごとに判定するので、後の起動の run が前の起動の欠落を隠さない
 
 検出しないもの: 開発機・監視アプリ自身の停止（ハートビートの役目）、成果物の中身の正しさ。検出があれば `partial`、要約に件数とエージェント名・ジョブ ID だけを書く。
 

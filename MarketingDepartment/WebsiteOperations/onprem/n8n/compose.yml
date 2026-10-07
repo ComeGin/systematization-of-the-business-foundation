@@ -51,6 +51,13 @@ services:
       N8N_EDITOR_BASE_URL: http://127.0.0.1:${N8N_EDITOR_PORT_HOST:-5679}
       # webhook-proxy の 1 段を信頼する（X-Forwarded-For を読む）
       N8N_PROXY_HOPS: '1'
+      # 実行履歴は 90 日で消す（DA-05 の 2 節。履歴には Webhook で受けた email・本文が残りうる）。
+      # 件数の既定（10,000）のままだと 90 日に届く前に消えるため 50000 にする（RDS の肥大の安全弁として上限は残す）。
+      # MAX_AGE は時間（2160 = 90 日）。この compose は変数を明示した分しか渡さないので、ここに書く
+      # 出典: https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/executions
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-2160}
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${EXECUTIONS_DATA_PRUNE_MAX_COUNT:-50000}
     volumes:
       - n8n-data:/home/node/.n8n
     healthcheck:

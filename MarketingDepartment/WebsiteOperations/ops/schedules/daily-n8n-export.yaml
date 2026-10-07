@@ -1,0 +1,9 @@
+id: daily-n8n-export
+description: "本番の n8n のワークフローを Public API で読み、揮発フィールドを除いて承認済み main と比べ、差分があれば GitHub に PR を作る（TA-03 の 6 節。エージェントは使わない。作業ツリーには書かない）"
+enabled: false
+cron: "45 8 * * *"
+kind: builtin
+agent: null
+builtin: n8n-export
+after: []
+timeout_sec: 600

@@ -54,6 +54,7 @@ export function makeConfig(overrides: Partial<ControlPlaneConfig> = {}): Control
     github: null,
     aws: null,
     miswrite: null,
+    n8nExport: null,
     ...overrides,
   };
 }

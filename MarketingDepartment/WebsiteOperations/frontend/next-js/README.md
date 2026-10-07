@@ -2,8 +2,8 @@
 
 エージェントの定期実行・手動の指示・実行記録（E-15）・誤った書き込みの候補を扱う、オンプレの管理画面。Next.js 16（App Router）に、サーバー側のライブラリ [`backend/control-plane`](../../backend/control-plane/README.md) を取り込み、**1 プロセス**で動かす。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`。
 
-- **`127.0.0.1:3200` にだけバインドする**（`dev` / `start` が `-p 3200 -H 127.0.0.1`）。開発では ngrok で外から開いてよい（ADR-23。`BETTER_AUTH_URL` をその URL にすると、`next.config.ts` がそのホストを `allowedDevOrigins` に入れる）。Next.js の既定の 3000 は Umami と衝突するため 3200 を使う。
-- **ログインは Google（Workspace）だけ**（Better Auth の Google プロバイダー。ADR-23）。メールとパスワードのログインは持たない。通すのは `hd`（`GOOGLE_HOSTED_DOMAIN`。既定 `comegin.com`）の ID トークンで、`email_verified` が true、かつ許可リスト `CONTROL_ADMIN_EMAILS`（カンマ区切り）にあるメールだけ。ユーザーは初回のログインで作られる。Google の OAuth クライアントの作り方は `setup/manual-steps.md` の 7.2（承認済みのリダイレクト URI は `<BETTER_AUTH_URL>/api/auth/callback/google`）。
+- **`127.0.0.1:3200` にだけバインドする**（`dev` / `start` が `-p 3200 -H 127.0.0.1`）。開発では ngrok で外から開いてよい（ADR-23。`BETTER_AUTH_URL` をその URL にすると、`next.config.ts` がそのホストを `allowedDevOrigins` に入れる）。Next.js の既定の 3000 は以前 Umami と衝突していたため 3200 を使う（Umami は ADR-25 で廃止したが、ポートは変えない）。
+- **ログインは Google（Workspace）だけ**（Better Auth の Google プロバイダー。ADR-23）。メールとパスワードのログインは持たない。通すのは `hd`（`GOOGLE_HOSTED_DOMAIN`。既定 `comegin.com`）の ID トークンで、`email_verified` が true、かつ許可リスト `CONTROL_ADMIN_EMAILS`（カンマ区切り）にあるメールだけ。ユーザーは初回のログインで作られる。許可リストは要求ごと（API・コンソールのページ）にも確かめ、外したメールのセッションは次の要求で失効させる（API は 401、ページは `/login` へ）。Google の OAuth クライアントの作り方は `setup/manual-steps.md` の 7.2（承認済みのリダイレクト URI は `<BETTER_AUTH_URL>/api/auth/callback/google`）。
 - ブラウザから Claude Code を直接呼ばない。指示はサーバー側（Route Handler）で受け、control-plane が Agent SDK を呼ぶ。ブラウザには経過と結果だけが返る。
 
 ## 起動
@@ -42,8 +42,13 @@ app/api/runs              GET 一覧 / POST 手動の起動
 app/api/runs/[runId]      GET 1 件
 app/api/jobs              GET ジョブ一覧
 app/api/miswrite-candidates  GET 誤った書き込みの候補
-app/{page,login,setup,runs/[runId]}  画面（Cloudscape Design System）
-components/               Cloudscape のコンポーネントを使う Client Component
+app/login                 ログイン前の画面（components/layout/PublicLayout）
+app/(console)/layout.tsx  ログイン後の外枠（components/layout/ConsoleLayout = AppLayoutToolbar）
+app/(console)/<モジュール>/  画面（Server Component。データを読み、components/<モジュール>/ の View に渡す）
+components/layout/        外枠・パンくず・ナビゲーション・Tools（routes.ts がパスから決める）
+components/<モジュール>/   runs・jobs・miswrite-candidates。一覧・詳細・新規の View と、Tools に出す help.tsx
+components/{common,auth}/ モジュールをまたぐ部品（自動の読み直し・設定エラー・遷移）とログイン
+lib/ids.ts                URL から受け取る ID の形の検査
 ```
 
 - **Route Handler はすべてログイン必須**（未ログインは 401）。状態を変える要求（POST）は `Origin` が自分のホストと同じときだけ受ける（403）。
@@ -56,11 +61,31 @@ components/               Cloudscape のコンポーネントを使う Client Co
 
 最小の UI。見た目には凝らない。UI は Cloudscape Design System（`@cloudscape-design/components`）で作る。Cloudscape のコンポーネントはクライアント側のフックを使うため、Server Component から直接使わず、`components/` の Client Component 経由にする。以前のスキャフォールドの Tailwind の CSS（`app/globals.css`）は使わないので削除した（`postcss.config.mjs` と Tailwind の依存はスキャフォールドのまま）。
 
-| 画面 | 内容 |
-|---|---|
-| `/` | 手動の起動、実行記録（E-15。実行中は自動で読み直す）、定期実行のジョブ、誤った書き込みの候補 |
-| `/runs/[runId]` | 実行 1 件（要約・対象の ID・失敗分類・費用・S3 の写し） |
-| `/login` | Google でのログイン（失敗すると `?error=` 付きで戻り、理由の種類はサーバーのログ `[auth] login refused: …` に残る） |
+ページのレイアウトは次の形にそろえる。モジュールを足すときは `app/(console)/<モジュール>/` と `components/<モジュール>/` を作り、`components/layout/routes.ts`（パンくず・ナビゲーション・Tools・contentType）に登録する。
+
+```
+App layout（AppLayoutToolbar。TopNavigation・SideNavigation・パンくず）
+├─ 一覧: Table（時系列のデータは新しい順）
+│  └─ 詳細: ContentLayout・KeyValuePairs・TextContent・子リソースの Table
+│     └─ 編集: Form（更新の API があるリソースだけ。今は無い）
+├─ 新規: Form
+└─ Tools: HelpPanel（その画面の説明。見出しの「情報」でも開く）
+```
+
+| 画面 | 種類 | 内容 |
+|---|---|---|
+| `/` | - | `/runs` へ移る |
+| `/runs` | 一覧 | 実行記録（E-15）。新しい順に 50 件ずつ、`?outcome=` で絞り込み、`?before=<run_id>` でさかのぼる。最新のページで実行中があれば自動で読み直す |
+| `/runs/new` | 新規 | 手動の起動（エージェント＋プロンプト、または定期実行の定義）。受け付けたら（見送りでも）その実行の詳細へ移る。`?jobId=` で定義を選んだ状態で開く |
+| `/runs/[runId]` | 詳細 | 実行 1 件（概要・要約）。子リソースは対象の ID と、この実行に近い誤った書き込みの候補 |
+| `/jobs` | 一覧 | 定期実行のジョブ |
+| `/jobs/[jobId]` | 詳細 | 定義 1 件（画面からは変えない。ADR-18）。子リソースはこのジョブの実行記録（50 件） |
+| `/miswrite-candidates` | 一覧 | 誤った書き込みの候補 |
+| `/login` | - | Google でのログイン（失敗すると `?error=` 付きで戻り、理由の種類はサーバーのログ `[auth] login refused: …` に残る） |
+
+- **編集の画面は無い。** 境界の型（`backend/control-plane/src/contract.ts`）に更新の API が無く、ジョブの定義は承認済みの `main` から読むだけのため。更新の API ができたら `app/(console)/<モジュール>/[id]/edit/` に足す。
+- **ログインの確認は各ページの `requirePageSession` で行う。** `(console)/layout.tsx` もセッションを読む（ユーザー名を出すため）が、レイアウトは画面遷移で再描画されないので、確認をレイアウトだけに頼らない。
+- 開発サーバーで、Table の `StickyScrollbar` の class の hydration の不一致がコンソールに出ることがある（Cloudscape がスクロールバーの幅を SSR では 0 と見なすため。画面の動作には影響しない）。
 
 ## 依存と pnpm の方針
 

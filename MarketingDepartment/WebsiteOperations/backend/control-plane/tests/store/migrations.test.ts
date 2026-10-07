@@ -1,3 +1,5 @@
+// 基準 D の例外: テスト対象そのものが SQL（スキーマと PRAGMA user_version）のため、node:sqlite は差し替えず
+// :memory: の実 SQLite で確かめる。
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/store/migrations.js";
@@ -13,56 +15,82 @@ function tables(db: DatabaseSync): string[] {
 }
 
 describe("migrate", () => {
-  it("空の DB に 4 つのテーブルを作り、user_version を進める", () => {
-    const db = new DatabaseSync(":memory:");
-    migrate(db);
-    expect(tables(db)).toEqual(["kv", "leases", "miswrite_candidates", "runs"]);
-    expect(userVersion(db)).toBeGreaterThanOrEqual(1);
+  describe("正常系", () => {
+    it("空入力: 空の DB に 4 つのテーブルを作り、user_version を進める", () => {
+      const db = new DatabaseSync(":memory:");
+      migrate(db);
+      expect(tables(db)).toEqual(["kv", "leases", "miswrite_candidates", "runs"]);
+      expect(userVersion(db)).toBeGreaterThanOrEqual(1);
+    });
+
+    it("2 回目以降は何もしない（冪等）。データも残る", () => {
+      const db = new DatabaseSync(":memory:");
+      migrate(db);
+      const version = userVersion(db);
+      db.prepare("INSERT INTO kv (key, value, updated_at) VALUES ('k', 'v', 't')").run();
+      expect(() => migrate(db)).not.toThrow();
+      expect(() => migrate(db)).not.toThrow();
+      expect(userVersion(db)).toBe(version);
+      expect(db.prepare("SELECT value FROM kv WHERE key = 'k'").get()).toEqual({ value: "v" });
+    });
+
+    it("CHECK 制約の範囲内の trigger_kind・status・outcome は入る", () => {
+      const db = new DatabaseSync(":memory:");
+      migrate(db);
+      const insert = db.prepare(
+        "INSERT INTO runs (run_id, trigger_kind, status, started_at, outcome) VALUES (?, ?, ?, '2026-10-05T00:00:00+09:00', ?)",
+      );
+      expect(() => insert.run("a", "schedule", "running", null)).not.toThrow();
+      expect(() => insert.run("b", "proposal", "finished", "skipped")).not.toThrow();
+    });
   });
 
-  it("2 回目以降は何もしない（冪等）。データも残る", () => {
-    const db = new DatabaseSync(":memory:");
-    migrate(db);
-    const version = userVersion(db);
-    db.prepare("INSERT INTO kv (key, value, updated_at) VALUES ('k', 'v', 't')").run();
-    expect(() => migrate(db)).not.toThrow();
-    expect(() => migrate(db)).not.toThrow();
-    expect(userVersion(db)).toBe(version);
-    expect(db.prepare("SELECT value FROM kv WHERE key = 'k'").get()).toEqual({ value: "v" });
-  });
+  describe("異常系", () => {
+    it("入力: コードより新しい版の DB は開かずに例外にする（版番号を含める）", () => {
+      const db = new DatabaseSync(":memory:");
+      migrate(db);
+      const newer = userVersion(db) + 1;
+      db.exec(`PRAGMA user_version = ${newer}`);
+      expect(() => migrate(db)).toThrow(new RegExp(`（${newer}）`));
+    });
 
-  it("コードより新しい版の DB は開かずに例外にする（版番号を含める）", () => {
-    const db = new DatabaseSync(":memory:");
-    migrate(db);
-    const newer = userVersion(db) + 1;
-    db.exec(`PRAGMA user_version = ${newer}`);
-    expect(() => migrate(db)).toThrow(new RegExp(`（${newer}）`));
-  });
+    it("サーバ: 途中で失敗した版は ROLLBACK され、作りかけのテーブルも user_version も残らない", () => {
+      const db = new DatabaseSync(":memory:");
+      // 版 1 の途中（kv の CREATE）で衝突させる
+      db.exec("CREATE TABLE kv (x INTEGER)");
+      expect(() => migrate(db)).toThrow();
+      expect(userVersion(db)).toBe(0);
+      expect(tables(db)).toEqual(["kv"]);
+      // 失敗のあともトランザクションは残っていない（次の BEGIN が通る）
+      expect(() => db.exec("BEGIN IMMEDIATE; ROLLBACK;")).not.toThrow();
+    });
 
-  it("途中で失敗した版は ROLLBACK され、作りかけのテーブルも user_version も残らない", () => {
-    const db = new DatabaseSync(":memory:");
-    // 版 1 の途中（kv の CREATE）で衝突させる
-    db.exec("CREATE TABLE kv (x INTEGER)");
-    expect(() => migrate(db)).toThrow();
-    expect(userVersion(db)).toBe(0);
-    expect(tables(db)).toEqual(["kv"]);
-    // 失敗のあともトランザクションは残っていない（次の BEGIN が通る）
-    expect(() => db.exec("BEGIN IMMEDIATE; ROLLBACK;")).not.toThrow();
-  });
+    it("サーバ: 閉じた DB は例外にする", () => {
+      const db = new DatabaseSync(":memory:");
+      db.close();
+      expect(() => migrate(db)).toThrow();
+    });
 
-  it("CHECK 制約で trigger_kind・status・outcome の値を縛る", () => {
-    const db = new DatabaseSync(":memory:");
-    migrate(db);
-    const insert = (trigger: string, status: string, outcome: string | null) =>
-      db
-        .prepare(
-          "INSERT INTO runs (run_id, trigger_kind, status, started_at, outcome) VALUES (?, ?, ?, '2026-10-05T00:00:00+09:00', ?)",
-        )
-        .run(`${trigger}-${status}-${outcome}`, trigger, status, outcome);
-    expect(() => insert("schedule", "running", null)).not.toThrow();
-    expect(() => insert("cron", "running", null)).toThrow(/CHECK/);
-    expect(() => insert("manual", "done", null)).toThrow(/CHECK/);
-    expect(() => insert("proposal", "finished", "error")).toThrow(/CHECK/);
-    expect(() => insert("proposal", "finished", "skipped")).not.toThrow();
+    it("入力: CHECK 制約で trigger_kind・status・outcome の値を縛る", () => {
+      const db = new DatabaseSync(":memory:");
+      migrate(db);
+      const insert = (trigger: string, status: string, outcome: string | null) =>
+        db
+          .prepare(
+            "INSERT INTO runs (run_id, trigger_kind, status, started_at, outcome) VALUES (?, ?, ?, '2026-10-05T00:00:00+09:00', ?)",
+          )
+          .run(`${trigger}-${status}-${outcome}`, trigger, status, outcome);
+      expect(() => insert("schedule", "running", null)).not.toThrow();
+      expect(() => insert("cron", "running", null)).toThrow(/CHECK/);
+      expect(() => insert("manual", "done", null)).toThrow(/CHECK/);
+      expect(() => insert("proposal", "finished", "error")).toThrow(/CHECK/);
+      expect(() => insert("proposal", "finished", "skipped")).not.toThrow();
+    });
+
+    it("空入力: runs の必須の列（trigger_kind・status・started_at）が無ければ NOT NULL で入らない", () => {
+      const db = new DatabaseSync(":memory:");
+      migrate(db);
+      expect(() => db.prepare("INSERT INTO runs (run_id) VALUES ('x')").run()).toThrow(/NOT NULL/);
+    });
   });
 });

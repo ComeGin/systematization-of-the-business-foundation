@@ -39,13 +39,20 @@ const DATA_TABLES = [
   },
 ];
 
-// 取り込む順番（子 → 親）。publish: "always" は子（親から呼ばれるため常に公開する）、"flag" は --publish のときだけ、"never" は公開しない
+// 取り込む順番（子 → 親）。publish: "always" は子（親から呼ばれるため常に公開する）、"flag" は --publish のときだけ、"never" は公開しない。
+// targets は取り込む環境。ops-monitor は開発環境の OpenSEO と sandbox-tls を見るので開発だけ（本番には OpenSEO も sandbox-tls も無い）。
+// 定期実行の 3 本（週次の棚卸し・ハートビート・運用監視）は、--publish を付けても公開しない。
+// 公開は人が確かめてから行う（ops_settings の inventoryEnabled・heartbeatEnabled・opsMonitorEnabled も既定は false）
+const BOTH = ["dev", "prod"];
 const WORKFLOWS = [
-  { file: "I-21-sns-notify.json", publish: "always", tags: ["subworkflow", "notification"] },
-  { file: "I-19-email-match.json", publish: "always", tags: ["subworkflow", "matching"] },
-  { file: "I-11-mautic-webhook-dedup.json", publish: "flag", tags: ["webhook"] },
-  { file: "I-12-chatwoot-webhook-dedup.json", publish: "flag", tags: ["webhook"] },
-  { file: "I-18-posthog-writeback.json", publish: "never", tags: ["blocked"] },
+  { file: "I-21-sns-notify.json", publish: "always", tags: ["subworkflow", "notification"], targets: BOTH },
+  { file: "I-19-email-match.json", publish: "always", tags: ["subworkflow", "matching"], targets: BOTH },
+  { file: "I-11-mautic-webhook-dedup.json", publish: "flag", tags: ["webhook"], targets: BOTH },
+  { file: "I-12-chatwoot-webhook-dedup.json", publish: "flag", tags: ["webhook"], targets: BOTH },
+  { file: "I-18-posthog-writeback.json", publish: "never", tags: ["blocked"], targets: BOTH },
+  { file: "weekly-inquiry-inventory.json", publish: "never", tags: ["schedule"], targets: BOTH },
+  { file: "n8n-schedule-heartbeat.json", publish: "never", tags: ["schedule", "monitoring"], targets: BOTH },
+  { file: "ops-monitor.json", publish: "never", tags: ["schedule", "monitoring"], targets: ["dev"] },
 ];
 
 const CRED = {
@@ -53,7 +60,10 @@ const CRED = {
   chatwootSig: "Chatwoot Webhook 署名鍵（Crypto）",
   mauticApi: "Mautic API（client_credentials）",
   smtp: "MailHog SMTP（開発）",
+  // SNS への発行（I-21）と、CloudWatch へのハートビート（n8n-schedule-heartbeat。PutMetricData）の両方に使う（同じ IAM ユーザー）
   aws: "AWS SNS 発行（アクセスキー）",
+  // 週次の棚卸しが Chatwoot の会話一覧を読む（ヘッダー api_access_token。ユーザーに紐づくトークン）
+  chatwootApi: "Chatwoot API（api_access_token）",
 };
 
 // Mautic の Webhook のイベント（README の I-11 の「トリガー」と同じ）
@@ -70,6 +80,8 @@ const DEFAULTS = {
     MAUTIC_URL_FROM_N8N: "http://host.docker.internal:8000",
     MAUTIC_WEBHOOK_TARGET: "http://127.0.0.1:5678/webhook/mautic-event",
     CHATWOOT_API_URL: "http://127.0.0.1:3100",
+    // n8n（コンテナ）から見た Chatwoot（middleware/host-relay の 3100 の中継）
+    CHATWOOT_URL_FROM_N8N: "http://host.docker.internal:3100",
     CHATWOOT_WEBHOOK_TARGET: "http://host.docker.internal:5678/webhook/chatwoot-event",
     SMTP_HOST: "host.docker.internal",
     SMTP_PORT: "1025",
@@ -80,6 +92,7 @@ const DEFAULTS = {
     MAUTIC_URL_FROM_N8N: "https://mkt.comegin.com",
     MAUTIC_WEBHOOK_TARGET: "http://10.99.0.2:5680/webhook/mautic-event",
     CHATWOOT_API_URL: "https://chat.comegin.com",
+    CHATWOOT_URL_FROM_N8N: "https://chat.comegin.com",
     CHATWOOT_WEBHOOK_TARGET: "http://10.99.0.2:5680/webhook/chatwoot-event",
     AWS_REGION: "ap-northeast-1",
   },
@@ -130,7 +143,8 @@ const HELP = `n8n のワークフローを、Data Table・資格情報・Mautic 
   --target   dev（開発環境 127.0.0.1:5678）か prod（本番。オンプレ 127.0.0.1:5679）
   --config   設定ファイル（既定 ~/.config/comegin/n8n-provision/<target>.conf）
   --check    設定と接続だけを確かめる（何も作らない）
-  --publish  親（I-11・I-12）も公開する。子（I-21・I-19）は常に公開する。本番の公開は R1 の判断
+  --publish  親（I-11・I-12）も公開する。子（I-21・I-19）は常に公開する。本番の公開は R1 の判断。
+             定期実行の 3 本（棚卸し・ハートビート・運用監視）は、このオプションでも公開しない（人が確かめてから公開する）
 
 詳しくは README.md。`;
 
@@ -167,7 +181,7 @@ export function buildConf(target, values) {
   for (const [k, v] of Object.entries(values)) if (v !== undefined && v !== null && v !== "") conf[k] = String(v);
   const missing = [...REQUIRED.common, ...REQUIRED[target]].filter((k) => !conf[k]);
   if (missing.length) fail(`設定に足りない項目がある（値は表示しない）: ${missing.join(", ")}`);
-  for (const k of Object.keys(conf)) if (/_URL$|_TARGET$/.test(k)) conf[k] = conf[k].replace(/\/+$/, "");
+  for (const k of Object.keys(conf)) if (/_URL$|_TARGET$|_FROM_N8N$/.test(k)) conf[k] = conf[k].replace(/\/+$/, "");
   return conf;
 }
 
@@ -273,9 +287,12 @@ async function ensureDataTables(api, conf, target) {
     def.id = table.id;
   }
 
+  // 接続先などの設定は、実行のたびにこのスクリプトの値で上書きする（環境から決まる値）
   const settings = target === "dev"
     ? { notifyBackend: "mailhog", mauticBaseUrl: conf.MAUTIC_URL_FROM_N8N }
     : { notifyBackend: "sns", mauticBaseUrl: conf.MAUTIC_URL_FROM_N8N, snsTopicArnLead: conf.SNS_TOPIC_ARN_LEAD, snsTopicArnOps: conf.SNS_TOPIC_ARN_OPS };
+  settings.chatwootBaseUrl = conf.CHATWOOT_URL_FROM_N8N;
+  settings.chatwootAccountId = String(conf.CHATWOOT_ACCOUNT_ID);
   const opsId = DATA_TABLES.find((t) => t.name === "ops_settings").id;
   for (const [key, value] of Object.entries(settings)) {
     await api.call(`ops_settings の ${key}`, `/data-tables/${opsId}/rows/upsert`, {
@@ -284,6 +301,21 @@ async function ensureDataTables(api, conf, target) {
     });
   }
   log(`  ops_settings: ${Object.keys(settings).join("・")} を設定した`);
+
+  // 定期実行の有効・無効のスイッチは、無いときだけ入れる（人が true にした値を、再実行で false に戻さない）。
+  // 出典: n8n 2.39.5 の公開 API（public-api/v1/handlers/data-tables/data-tables.rows.handler.js）。
+  //   GET /data-tables/{id}/rows → { data: [行], nextCursor }、POST /data-tables/{id}/rows ← { data: [行], returnType }
+  const switches = { heartbeatEnabled: "false", heartbeatNamespace: "ComeGin/OnpremN8n", opsMonitorEnabled: "false", inventoryEnabled: "false" };
+  const rows = await api.listAll("ops_settings の行", `/data-tables/${opsId}/rows`);
+  const have = new Set(rows.map((r) => r.key));
+  const missing = Object.entries(switches).filter(([key]) => !have.has(key));
+  if (missing.length) {
+    await api.call("ops_settings のスイッチの追加", `/data-tables/${opsId}/rows`, {
+      method: "POST",
+      json: { data: missing.map(([key, value]) => ({ key, value })), returnType: "count" },
+    });
+  }
+  log(`  ops_settings: スイッチ ${missing.length ? `${missing.map(([k]) => k).join("・")} を false などの既定値で足した` : "は既にある（変えない）"}`);
 }
 
 /**
@@ -331,6 +363,13 @@ async function ensureCredentials(api, conf, target, secrets, restSession) {
       },
     },
   ];
+  // 週次の棚卸し用。棚卸し専用のトークン（CHATWOOT_N8N_API_TOKEN）があればそれを使う。無ければ Webhook の作成に使う管理者のトークンで代用する
+  // （管理者のトークンを n8n に常駐させることになるので、本番では警告する）
+  const chatwootToken = conf.CHATWOOT_N8N_API_TOKEN || conf.CHATWOOT_API_ACCESS_TOKEN;
+  if (!conf.CHATWOOT_N8N_API_TOKEN && target === "prod") {
+    warn("CHATWOOT_N8N_API_TOKEN が空。管理者のトークンを n8n の資格情報「Chatwoot API」に入れる。棚卸しには会話の一覧を読むだけの権限で足りるので、専用のユーザーのトークンを発行して CHATWOOT_N8N_API_TOKEN に書くことを勧める");
+  }
+  wanted.push({ name: CRED.chatwootApi, type: "httpHeaderAuth", data: { name: "api_access_token", value: chatwootToken } });
   if (target === "dev") {
     wanted.push({ name: CRED.smtp, type: "smtp", data: { host: conf.SMTP_HOST, port: Number(conf.SMTP_PORT), secure: false, user: "", password: "" } });
     // I-21 の「SNS に発行」は aws の資格情報が必須で、無いと n8n が公開を拒む（2.39.5: "Missing required credential: aws"）。
@@ -371,6 +410,9 @@ async function ensureCredentials(api, conf, target, secrets, restSession) {
   return ids;
 }
 
+/** この環境（dev か prod）に取り込むワークフロー */
+const workflowsFor = (target) => WORKFLOWS.filter((w) => w.targets.includes(target));
+
 const WORKFLOW_SETTING_KEYS = ["saveExecutionProgress", "saveManualExecutions", "saveDataErrorExecution", "saveDataSuccessExecution", "executionTimeout", "errorWorkflow", "timezone", "executionOrder", "callerPolicy", "callerIds", "availableInMCP"];
 
 async function ensureTags(api, names) {
@@ -384,14 +426,15 @@ async function ensureTags(api, names) {
   return ids;
 }
 
-async function ensureWorkflows(api, credIds, publishParents) {
+async function ensureWorkflows(api, credIds, publishParents, target) {
   step("ワークフロー（子 → 親の順）");
   const existing = (await api.listAll("ワークフローの一覧", "/workflows")).filter((w) => !w.isArchived);
-  const tagIds = await ensureTags(api, [...new Set(WORKFLOWS.flatMap((w) => w.tags))]);
+  const targets = workflowsFor(target);
+  const tagIds = await ensureTags(api, [...new Set(targets.flatMap((w) => w.tags))]);
   const idByName = {};
   const result = [];
 
-  for (const def of WORKFLOWS) {
+  for (const def of targets) {
     const src = JSON.parse(readFileSync(join(WORKFLOWS_DIR, def.file), "utf8"));
     const nodes = src.nodes.map((node) => {
       const n = structuredClone(node);
@@ -525,7 +568,7 @@ async function ensureChatwootWebhook(conf) {
 // 本体
 // ---------------------------------------------------------------------------
 
-async function check(conf) {
+async function check(conf, target) {
   step("接続の確認（何も作らない）");
   await n8n(conf).call("API キーの確認", "/workflows?limit=1");
   log("  n8n: API キーが通る");
@@ -534,9 +577,9 @@ async function check(conf) {
   await http("Chatwoot の Webhook の一覧", `${conf.CHATWOOT_API_URL}/api/v1/accounts/${conf.CHATWOOT_ACCOUNT_ID}/webhooks`, { headers: { api_access_token: conf.CHATWOOT_API_ACCESS_TOKEN } });
   log("  Chatwoot: Webhook の一覧を読める（管理者のトークン）");
   const files = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".json"));
-  const lack = WORKFLOWS.filter((w) => !files.includes(w.file)).map((w) => w.file);
+  const lack = workflowsFor(target).filter((w) => !files.includes(w.file)).map((w) => w.file);
   if (lack.length) fail(`ワークフローの JSON が無い: ${lack.join(", ")}`);
-  log(`  ワークフローの JSON: ${WORKFLOWS.length} 本ある`);
+  log(`  ワークフローの JSON: ${workflowsFor(target).length} 本ある`);
 }
 
 /**
@@ -551,16 +594,16 @@ export async function provision({ target, conf, publish = false, checkOnly = fal
   if (target === "prod" && publish) warn("本番の親（I-11・I-12）を公開する。本番の公開は R1 の判断で行う（README の「本番」）");
 
   if (checkOnly) {
-    await check(conf);
+    await check(conf, target);
     return { workflows: [] };
   }
 
   const api = n8n(conf);
-  await check(conf);
+  await check(conf, target);
   await ensureDataTables(api, conf, target);
   const secrets = { mautic: await ensureMauticWebhook(conf), chatwoot: await ensureChatwootWebhook(conf) };
   const credIds = await ensureCredentials(api, conf, target, secrets, restSession);
-  const workflows = await ensureWorkflows(api, credIds, publish);
+  const workflows = await ensureWorkflows(api, credIds, publish, target);
 
   log("\n✓ 終わった");
   for (const w of workflows) log(`  ${w.published ? "公開" : "未公開"}  ${w.name}  ${conf.N8N_BASE_URL}/workflow/${w.id}`);

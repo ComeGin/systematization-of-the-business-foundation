@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { GoogleSignIn } from "@/components/GoogleSignIn";
-import { Shell } from "@/components/Shell";
+import { GoogleSignIn } from "@/components/auth/GoogleSignIn";
+import { PublicLayout } from "@/components/layout/PublicLayout";
 import { isGoogleConfigured } from "@/lib/auth";
 import { getSession } from "@/lib/session";
 
@@ -16,8 +16,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   if (await getSession()) redirect("/");
   const { error } = await searchParams;
   return (
-    <Shell title="監視アプリ">
+    <PublicLayout title="ログイン">
       <GoogleSignIn configured={isGoogleConfigured()} error={describeError(typeof error === "string" ? error : undefined)} />
-    </Shell>
+    </PublicLayout>
   );
 }

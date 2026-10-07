@@ -61,12 +61,19 @@ Example: name="山田 太郎", email="taro@example.com", additional_attributes={
       if (!body.name && !body.email && !body.phone_number && !body.identifier) {
         return errorText("Error: give at least one of name, email, phone_number or identifier.");
       }
-      let id: number;
+      let created: { payload?: { contact?: Partial<ChatwootContact> | null } | null } | null;
       try {
-        const created = await client.request<{ payload: { contact: ChatwootContact } }>("POST", "/contacts", body);
-        id = created.payload.contact.id;
+        created = await client.request<typeof created>("POST", "/contacts", body);
       } catch (error) {
         return errorResult(error, "Check inbox_id with chatwoot_list_records resource='inboxes'.");
+      }
+      // POST は成功している。ID を取り出せなくても作成済みの可能性が高いため、通信失敗とは言わず、再作成の前に確かめるよう伝える
+      const id = created?.payload?.contact?.id;
+      if (typeof id !== "number") {
+        return errorText(
+          "Error: Chatwoot accepted the request, but the response did not include the new contact's id. " +
+            "The contact may have been created; search with chatwoot_list_contacts (or get it with chatwoot_get_contact) before retrying.",
+        );
       }
       try {
         if (labels?.length) await applyLabelChange(ctx, `/contacts/${id}`, { set: labels });

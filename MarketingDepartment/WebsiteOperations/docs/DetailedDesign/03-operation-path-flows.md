@@ -2,11 +2,11 @@
 
 詳細設計層。ID の採番の正本は層ごとのファイルにあり、索引は [`docs/README.md` の「ID の採番と正本」](../README.md) にある。横断規約は [DD-01](01-flow-specification-rules.md) を参照する。
 
-**発信元がエージェントである 5 本**（`I-03` `I-04` `I-16` `I-17` `I-22`）を扱う。前の 4 本は AA-02 の 1.3 が定義した運用経路（認証必須・運用者のみ）に属する。**`I-22`（OpenSEO）だけはどちらの経路にも載せず、ホスト内で閉じる**（6 節）。
+**発信元がエージェントである 5 本**（`I-03` `I-04` `I-16` `I-17` `I-22`）を扱う。前の 4 本は AA-02 の 1.3 が定義した運用経路（認証必須・運用者のみ）に属する。**`I-22`（OpenSEO）だけはどちらの経路にも載せず、ホスト内で閉じる**（6 節）。（**2026-10-06 ADR-25: `I-17` は Umami の読み取りから GA4 の読み取り〈OpenSEO の MCP 経由〉に変わり、`I-22` と同じくホスト内で閉じる。5 節**）
 
 **この 4 本は本来トンネルに載らない。** AA-03 の 2.3 が MCP を stdio 前提としたため、プロセス間通信でポートを使わない。HTTP トランスポートで運用する場合のみ運用経路に現れ、そのときは固定 Bearer（`MCP_AUTH_TOKEN`）が唯一の防御になる。
 
-**2026-09-19 に接続先が開発環境と本番の 2 系統になった**（AA-05 の ADR-15。同日の ADR-14 の「開発環境だけ」を置き換えた）。エージェントは監視アプリ（`frontend/next-js`）から起動し（管理者の指示と、**ADR-17 で加わった定期実行**の 2 通り。TA-07 の 3.3・3.5）、**`I-03` `I-04` `I-17` は同じ MCP サーバを開発環境用（`chatwoot` / `mautic` / `umami`）と本番用（`chatwoot-prod` / `mautic-prod` / `umami-prod`）に 2 回登録する**。本番の登録は `ACCESS_LEVEL=read_write` を上限にし（**ADR-16 で暫定を外して確定**）、トークンはエージェント専用のアカウントで発行する（TA-07 の 3.3）。
+**2026-09-19 に接続先が開発環境と本番の 2 系統になった**（AA-05 の ADR-15。同日の ADR-14 の「開発環境だけ」を置き換えた）。エージェントは監視アプリ（`frontend/next-js`）から起動し（管理者の指示と、**ADR-17 で加わった定期実行**の 2 通り。TA-07 の 3.3・3.5）、**`I-03` `I-04` `I-17` は同じ MCP サーバを開発環境用（`chatwoot` / `mautic` / `umami`）と本番用（`chatwoot-prod` / `mautic-prod` / `umami-prod`）に 2 回登録する**。本番の登録は `ACCESS_LEVEL=read_write` を上限にし（**ADR-16 で暫定を外して確定**）、トークンはエージェント専用のアカウントで発行する（TA-07 の 3.3）。（**2026-10-06 ADR-25〈AA-05〉: Umami を廃止し、`umami`・`umami-prod` の登録を外した。2 回登録するのは `I-03` `I-04` だけになった。`I-17` は GA4 の読み取りに変わり、OpenSEO の MCP〈`openseo`。オンプレのローカル `127.0.0.1:3001`。登録は 1 つ〉を経由する。5 節**）
 
 **同日の ADR-16 で Strapi と n8n も本番として AWS に置いた。** `I-16`（Strapi）は ADR-15 の時点ではオンプレの Strapi＝正本だけに接続していたが、**開発環境（`strapi-mcp`）と本番（`strapi-prod`。本番の Strapi の組み込みの `/mcp`）の 2 系統になり、記事の正本は本番の Strapi になった**（4 節）。n8n の MCP も `n8n` / `n8n-prod` の 2 系統で登録するが、AA-02 のカタログに連携点の番号が無い（7 節・8 節）。`I-22`（OpenSEO）はローカルだけに接続する（6 節）。
 
@@ -154,7 +154,7 @@ DD-01 の 6.3 の第 3 層（`CV 数` の畳み込み）を、ここで実装で
 | 項目 | 値 |
 |---|---|
 | 取得元 | `mautic_list_form_submissions`（`E-09` の個票は読まない） |
-| 取得範囲 | **直近 35 日**（前月比較が取れる最小期間。DA-02 の 5.1） |
+| 取得範囲 | **直近 35 日**（前月比較が取れる最小期間。DA-02 の 5.1）。**終端は 3 日前の終わり（JST）**（**2026-10-06 ADR-25 で GA4 と同じ期間にそろえた**。旧版は終端が昨日。`CVR-total` の分母〈GA4〉と分子〈Mautic〉の期間を一致させるため。5.1。`.claude/agents/analytics-reporter.md`） |
 | 畳む単位 | `mautic_form_id` + `lower(email)` + 送信日（JST の日付） |
 | 記録するもの | **畳んだ件数と生の件数の両方** |
 | 上限 | `truncation_message` が付いたら期間を狭めて取り直す（DD-01 の 5.2） |
@@ -172,7 +172,8 @@ fetch:
 ```
 
 - **`dedup_dropped` が生の件数の 1 割を超えたら、二重送信が常態化している徴候として扱う**（[07 の 5 節](07-failure-and-degradation.md)）。1 割という値は暫定（未決定事項）。
-- **Umami の `SESSION-count` と組み合わせて `CVR` を出す**（分母は Umami、分子は Mautic）。異なる系から取った値を割るため、**片方だけが欠測した場合に CVR が跳ねる**。両方の `fetch.outcome` が `ok` か `empty_but_ok` でない限り `CVR` を計算しない。
+- **GA4 の `SESSION-count` と組み合わせて `CVR` を出す**（分母は GA4、分子は Mautic。`CVR-total = CV-count ÷ SESSION-count`）。異なる系から取った値を割るため、**片方だけが欠測した場合に CVR が跳ねる**。両方の `fetch.outcome` が `ok` か `empty_but_ok` で、かつ `SESSION-count ≥ 1` でない限り `CVR` を計算しない。（**2026-10-06 ADR-25〈AA-05〉: 分母を Umami から GA4 に替えた。**）
+- **分母と分子で数える訪問者の範囲が違う**（ADR-25 の帰結 6）。分母（GA4 のセッション）は**同意した訪問者だけ**、分子（Mautic のフォーム送信）は**全員**である。**同意率が下がると CVR が見かけ上上がる。** `E-12` の `CVR-total` にはこの偏りを注記し、同意率（consent-api の記録）を補正の材料にする（補正の方法は未決定。8 節）。**訪問者単位の突合はしない**（hidden field の `umami_session_id` を廃止し、代わりの識別子を足さない。DA-03）。CVR は集計値どうしの比だけである。
 
 ## 4. `I-16` エージェント → Strapi（`strapi-mcp`）
 
@@ -236,53 +237,95 @@ fetch:
 - 排他の仕組みはこの層では作らない（Strapi 側にロックが無く、作ると新たな状態を持つことになる）。
 - **編成の側で守る。** `agent/content-writer` は 1 回の実行で 1 記事しか触らない。
 
-## 5. `I-17` エージェント → Umami（Umami MCP）
+## 5. `I-17` エージェント → GA4（OpenSEO の MCP 経由）
+
+> **（2026-10-06）ADR-25（AA-05）の反映。** 流入・ページ・参照元の正本を **GA4** にし、**Umami を廃止した**。旧版のこの節は「`I-17` エージェント → Umami（Umami MCP）」で、Umami MCP（リポジトリ管理外）を開発環境（`umami`。3000）と本番（`umami-prod`。`stats.comegin.com/mcp`）の 2 つに登録し、本番の登録で訪問者の実績を読む（ADR-15）としていた。**Umami MCP・`umami`・`umami-prod` の登録はすべて外した。** GA4 は SaaS で、エージェントは **OpenSEO の MCP（`openseo`）の GA4 のツール**で読む。**連携点の番号を `I-17` のまま GA4 の読み取りに付け替えるか、`I-22`（OpenSEO）に含めるかは AA-02 のカタログに合わせる**（8 節）。
 
 | 項目 | 値 |
 |---|---|
-| 発信元 → 受信先 | `agent/analytics-reporter` → Umami MCP（**リポジトリ管理外**）→ Umami（**開発環境〈3000〉と本番〈`stats.comegin.com/mcp`〉の 2 登録**。ADR-15） |
-| 種別 | `MCP` |
-| 経路 | **運用経路**（ローカル） |
+| 発信元 → 受信先 | `agent/analytics-reporter` → OpenSEO の MCP（**リポジトリ管理外**。`http://127.0.0.1:3001/mcp`。登録名 `openseo`）→ GA4 の Data API（**本番のプロパティ 1 つだけ**。OpenSEO の OAuth の接続。スコープは `analytics.readonly` だけ） |
+| 種別 | `MCP`（Streamable HTTP） |
+| 経路 | **ホスト内**（ループバック。6 節の `I-22` と同じ。**トンネルを張らない**） |
 | トリガー | 日次の観測バッチ（**監視アプリの定期実行が起動する**。ADR-17。ADR-05 では n8n のスケジュール） |
 | 同期性 | 同期 |
-| タイムアウト | 20 秒 |
-| リトライ | `unreachable` 2 回 / `timeout` 1 回 |
-| 冪等キー | **不要**（参照のみ。同じ期間の再取得で同じ値になる） |
-| 失敗時の扱い | `fetch.outcome` に記録。`I-05` が通るまでは **`empty_but_ok` が正常な応答**である |
-| 観測点 | `docs/audits/analytics/` のファイル ／ Umami の管理画面 |
-| 完成度 | `仕様確定`（ただし `I-05` が通るまでデータが無い） |
+| タイムアウト | **30 秒**（6 節の参照系と同じ） |
+| リトライ | `unreachable` 2 回 / `timeout` 1 回。**GA4 の未接続・接続の失効は `auth_failed` に分類し、再試行せず人間に返す**（OpenSEO の画面で接続し直す。[07 の 2 節](07-failure-and-degradation.md)） |
+| 冪等キー | **不要**（参照のみ。費用も発生しない。ただし反映の遅れの範囲では同じ期間の再取得で値が変わりうる。5.1） |
+| 失敗時の扱い | `fetch.outcome` に記録。`I-05` が通るまでは **`empty_but_ok` が正常な応答**である（5.2） |
+| 観測点 | `docs/audits/analytics/` のファイル ／ GA4 の管理画面 ／ `get_google_analytics_measurement_health` |
+| 完成度 | `条件付き`（**本番の GA4 プロパティの作成と OpenSEO への接続**〈`runbooks/01-onprem-verification.md`〉／`I-05` が通るまでデータが無い） |
+
+**使ってよいツールは 7 本だけである**（ADR-25。`agent/analytics-reporter` の許可リストに書く。AA-03 の 2.4）。
+
+| ツール | 用途 |
+|---|---|
+| `mcp__openseo__list_projects` / `mcp__openseo__get_project_context` | `comegin.com` のプロジェクトの ID を得る（6.1 と同じく、そのプロジェクト以外を引数に渡さない） |
+| `mcp__openseo__get_google_analytics_traffic_acquisition` | `breakdown: channel_group` で `SESSION-count`・`ORGANIC-share`、`breakdown: source_medium` で `REFERRER-sessions` |
+| `mcp__openseo__get_google_analytics_page_performance` | `channel: all` で `PAGEVIEW-count`・`PAGE-views` |
+| `mcp__openseo__get_google_analytics_organic_landing_pages` | `ORGANIC-landing` |
+| `mcp__openseo__get_google_analytics_organic_overview` | 自然検索の概況（`ORGANIC-share` の確かめ） |
+| `mcp__openseo__get_google_analytics_measurement_health` | 計測の健全性（タグが届いているか、しきい値・サンプリングの有無）。**日次バッチの冒頭で呼ぶ** |
+
+**持たせないもの**: `get_google_analytics_audience_breakdown`・`get_google_analytics_ecommerce_performance`・`get_google_analytics_site_search`・`get_google_analytics_key_events`（**CV の正本は Mautic**。GA4 の `key_events` を CV に使わない）・`get_search_opportunities`、**費用の出る OpenSEO のツールすべて**。OpenSEO の 1 プロセスを `agent/seo-auditor` などと共有するため、**エージェントごとの差は許可リストだけで作る**（6.2 と同じ）。
 
 ### 5.1 取得範囲
 
 | 項目 | 値 | 根拠 |
 |---|---|---|
-| 期間 | **直近 35 日** | 前月比較が取れる最小期間（DA-02 の 5.1） |
-| ランキング | **上位 100 件** | 同上 |
-| 取る指標 | セッション数・PV・参照元・ランディングページ・Core Web Vitals（実測） | 流入・母数系の正本は Umami（ADR-01） |
-| 取らない指標 | ファネル・AB テスト | PostHog の担当（Umami にファネル機能はあるが使わない。DA-04 の 3 節） |
+| 期間 | **直近 35 日。終端は 3 日前の終わり（JST）** | 前月比較が取れる最小期間（DA-02 の 5.1）。**GA4 の反映の遅れ（24〜48 時間）を避けるため、終端を 3 日前にする**（GSC の 6.3 と同じ。ADR-25 の帰結 3）。プロパティのタイムゾーンは `Asia/Tokyo` |
+| ランキング | **上位 100 件**（`PAGE-views`・`REFERRER-sessions`・`ORGANIC-landing`） | 同上 |
+| 取る指標 | `SESSION-count`・`ORGANIC-share`・`PAGEVIEW-count`・`PAGE-views`・`REFERRER-sessions`・`ORGANIC-landing`（定義は DA-02。ADR-25 で置き換えた） | 流入・ページ・参照元の正本は GA4（ADR-25。ADR-01 の Umami の部分を置き換え） |
+| Core Web Vitals（実測） | **GA4 からは取らない。PostHog から取る**（`CWV-lcp-p75`・`CWV-inp-p75`・`CWV-cls-p75`。下記） | ADR-25（ユーザーの決定） |
+| 取らない指標 | `VISITOR-count`（**廃止**。GA4 のユーザー数はチャネル別の行を足すと重複し、OpenSEO に全体のユーザー数を返すツールが無い）・ファネル・AB テスト（PostHog の担当） | ADR-25・DA-04 の 3 節 |
+
+- **`ORGANIC-share` は訪問者ベースからセッションベースに変わった**（`Organic Search` の sessions ÷ `SESSION-count`）。ADR-25 の前の `E-12` と比べるときは、定義が違うことを注記する。
+- **`PAGEVIEW-count` は全件が取れたときだけ書く。** `hasMore` などで全件が取れなければ値を書かず、`fetch.outcome` を `truncated` にする（DD-01 の 5.2）。
+- **しきい値・行の省略を 0 で埋めない。** GA4 はプライバシーのしきい値で少ない数を伏せ、OpenSEO は伏せられた指標を `null` にし、省かれた行は「不明」として扱う（`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md` の「A restricted metric is `null`; an omitted or thresholded row is unknown and is never synthesized as zero.」）。**`E-12` でも `null` か行の欠落のまま残し、0 にしない。** 0 にすると、欠測を「流入が減った」と読む（AA-04 の暴走条件 #3）。
+- **観測できるのは同意した訪問者だけである**（GA4 は Cookie〈`_ga`・`_ga_<ID>`〉を使うため、同意の後にだけタグを読み込む。DD-02 の 2 節）。同意しない訪問者の分は失う（ADR-25 の帰結 1）。
+- **OpenSEO の GA4 のツールはカスタムイベントの値を読めない**（ADR-25 の帰結 7）。GA4 に独自のイベントを足しても、エージェントから見えるのは `key_events` の件数だけで、それも持たせない。
+
+**Core Web Vitals（実測）は PostHog の `$web_vitals` から取る**（ADR-25。PostHog の 4 つの用途の 1 つ）。posthog-js の Web Vitals の自動取得が送るイベントで、値のプロパティは `$web_vitals_LCP_value`・`$web_vitals_INP_value`・`$web_vitals_CLS_value` である（出典: https://posthog.com/docs/web-analytics/web-vitals ）。`execute-sql` で上の期間の `quantile(0.75)` を取り、`CWV-lcp-p75`・`CWV-inp-p75`・`CWV-cls-p75` として書く。**標本は同意した訪問者だけ**であることを `E-12` に注記する（PostHog も同意の対象。DD-02 の 4 節）。**PostHog のページビュー・セッションの数字は報告に使わない**（ADR-25。正本は GA4）。
+
+### 5.1.1 `E-12` の分け方と `fetch.outcome`（2026-10-06。ADR-25。`agent/analytics-reporter` の実装）
+
+**1 回の日次バッチで、GA4 から 2 件、PostHog の CWV から 1 件の `E-12` を書く**（`.claude/agents/analytics-reporter.md`。Mautic の `CV-count` は 3.3 のとおり別に書く）。
+
+| `E-12` | 指標・表 | 分ける理由 |
+|---|---|---|
+| (a) 流入 | `SESSION-count`・`ORGANIC-share`・表 `REFERRER-sessions`・`ORGANIC-landing` | **`CVR-total` の分母（`SESSION-count`）を守る。** (b) が `truncated` になっても (a) は `ok` のまま使える |
+| (b) ページ | `PAGEVIEW-count`・表 `PAGE-views` | `PAGEVIEW-count` は全件が取れなければ書かない（5.1）。ページの全件は `limit: 1000` で最大 5 回（5,000 行）まで `nextOffset` で取り、取り切れなければ (b) だけを `truncated` にする |
+| (c) CWV（PostHog） | `CWV-lcp-p75`・`CWV-inp-p75`・`CWV-cls-p75`（`target_ref: "E-07 site=comegin.com"`） | PostHog が落ちても (a)(b) に影響させない |
+
+- **期間は 3 件とも、Mautic とも同じ**（直近 35 日、終端は 3 日前の終わり〈JST〉）。PostHog の HogQL は `toDate(toTimeZone(timestamp, 'Asia/Tokyo'))` で JST の日付にそろえる。**`CVR-total` は GA4 と Mautic の `fetch.range` が同じときだけ計算する**（3.3）。
+- **GA4 が OpenSEO に接続されていない（`ga4_not_connected`）・接続が失効したときは `auth_failed`**（再試行しない。人間が OpenSEO の画面で接続し直す）。`empty_but_ok` にしない（`agent/seo-auditor` の GSC の未接続を `auth_failed` にしているのと同じ。6 節）。`ok`/`empty_but_ok` 以外なので、提案の根拠にも `CVR-total` の分母にも使われない。
+- **`comegin.com` のプロジェクトを特定できない（0 件・2 件以上）、または接続先のプロパティに `comegin.com` の Web ストリームが無いときは `permission_denied`**（対象を特定できない。`seo-auditor` のプロジェクトの扱いと同じ）。
+- **`ORGANIC-share` は `Organic Search` の行が無いときは書かない**（0 にしない。5.1 の「省かれた行は不明」）。
+- **欠測の徴候（GA4 が 0 で PostHog が非 0、またはその逆。[07 の 2.2](07-failure-and-degradation.md)）は、(c) の標本数と (a) の `SESSION-count` で判定し、(a) と (c) の両方の本文に書く。**
 
 ### 5.2 `empty_but_ok` が正常である期間
 
-**`I-05` が通るまで、Umami には 1 件もデータが無い**（`list_websites` が空を返す。`docs/README.md` の現況）。この期間の応答は `empty_but_ok` になる。
+**`I-05` が通るまで（本番のタグの設置と同意の実装が済むまで）、GA4 には 1 件もデータが無い。** この期間の応答は `empty_but_ok` になる。
 
-**この `empty_but_ok` を「セッション数が 0 に減った」と読まない。** 区別の手段は 2 つ。
+**この `empty_but_ok` を「セッション数が 0 に減った」と読まない。** 区別の手段は 3 つ。
 
-- **サイトが登録されているか**を先に確認する。登録が 0 件なら、それは観測の対象が存在しないのであって、セッションが 0 なのではない。
+- **`get_google_analytics_measurement_health` を先に呼ぶ。** タグが届いていない（計測の対象が存在しない）のか、届いているがセッションが 0 なのかを分ける。
 - **`E-12` に `range` を必ず書く**（DD-01 の 4.3）。対象期間が分かれば、後から「この期間はそもそも計測していなかった」と判定できる。
+- **終端を 3 日前にする**（5.1）。反映の遅れの範囲を観測に含めると、直近の日が必ず少なく見える。
 
 **この区別が AA-04 の暴走条件 #3 の実装にあたる。**
 
-### 5.3 訪問者の実績は本番の Umami から読む（ADR-15）
+### 5.3 読むのは本番のプロパティだけ（ADR-25）
 
-**訪問者のブラウザが送る `I-05` は本番（AWS）の Umami に届く。** 開発環境の Umami に来るのは、開発中の `astro dev` や preview からの送信だけである。**`agent/analytics-reporter` は本番の登録（`umami-prod`）で読む。**
+**GA4 のプロパティは本番の 1 つだけを作り、OpenSEO に接続するのもそれだけである。** 開発環境では `PUBLIC_GA4_MEASUREMENT_ID` を設定せず、タグを出さない（DD-02 の 2 節。ユーザーの決定）。したがって**開発中のアクセスが GA4 に混ざる経路は無く**、旧版（Umami）の「開発環境の値を `evidence` に使わない」は、プロパティを 1 つにすることで構造的に守られる。
 
-- **開発環境の Umami の値を `evidence` に使わない。** 開発中のアクセスを訪問者の行動と読むことになる（暴走条件 #3 と同じ形の誤認）。同日の ADR-14 では接続先が開発環境だけで `SESSION-count` と `CVR` が成立しなかったが、ADR-15 で解消した。
+- （旧版。ADR-25 で効力を失った）**5.3 訪問者の実績は本番の Umami から読む（ADR-15）。** 訪問者のブラウザが送る `I-05` は本番（AWS）の Umami に届き、開発環境の Umami には開発中の送信だけが来るため、`agent/analytics-reporter` は `umami-prod` で読む、としていた。
+- **OpenSEO はオンプレのローカルだけで動く**（6 節）。開発機が止まっている間は GA4 を読めない（[07 の 3.4](07-failure-and-degradation.md) の取り戻しの対象。GA4 は期間を指定して過去を読める）。
 
 ## 6. `I-22` エージェント → OpenSEO（OpenSEO の MCP）
 
 | 項目 | 値 |
 |---|---|
-| 発信元 → 受信先 | `agent/seo-auditor` / `agent/keyword-researcher` / `agent/knowledge-scout` → OpenSEO の MCP（**リポジトリ管理外**。`http://127.0.0.1:3001/mcp`）→ GSC（`I-15`）／ DataForSEO（`I-23`）／ OpenSEO の DB |
+| 発信元 → 受信先 | `agent/seo-auditor` / `agent/keyword-researcher` / `agent/knowledge-scout`（**2026-10-06 ADR-25: `agent/analytics-reporter` が GA4 の読み取りで加わった。5 節**）→ OpenSEO の MCP（**リポジトリ管理外**。`http://127.0.0.1:3001/mcp`）→ GSC（`I-15`）／ DataForSEO（`I-23`）／ **GA4 の Data API（ADR-25）**／ OpenSEO の DB |
 | 種別 | `MCP`（Streamable HTTP。stdio は無い） |
 | 経路 | **ホスト内**（ループバック。**トンネルを張らない**。TA-04 の 7 節のエンドポイント 13） |
 | トリガー | エージェントのツール呼び出し（日次の観測バッチ、週次のキーワード調査。**定期のものは監視アプリの定期実行が起動する**。ADR-17） |
@@ -308,14 +351,17 @@ flowchart LR
     SA["agent/seo-auditor<br/>参照のみ"] -->|"HTTP"| OS["OpenSEO MCP<br/>127.0.0.1:3001"]
     KR["agent/keyword-researcher<br/>調査と保存"] -->|"HTTP"| OS
     KS["agent/knowledge-scout<br/>競合の調査"] -->|"HTTP"| OS
+    AR["agent/analytics-reporter<br/>GA4 の参照のみ"] -->|"HTTP"| OS
     OS --> GSC["Search Console"]
     OS --> DFS["DataForSEO"]
+    OS --> GA4["GA4"]
 ```
 
 図は To-Be を描いている。**As-Is では 3 本のエージェントがいずれも未定義**で、OpenSEO の MCP はホスト版に繋がっている。`OpenSEO → DataForSEO` だけが成立している。
 
 - **図の 3 本の線は同じ MCP サーバに入る。** サーバの側からは 3 本を区別できない（無認証のため、呼び出し元の名前も分からない）。**ログで誰が費用を発生させたかを辿れるのは、エージェント側の stderr（相関 ID つき。DD-01 の 9.1）だけ**である。**ADR-18 の後は、監視アプリの実行記録（`E-15` の正本）にも残せる**（相関 ID ごとに、どのエージェントが起動されたか）。ただしツールの呼び出し（引数・回数）まで残すかは、`E-15` に何を残すかの未決定に掛かる（TA-07 の 9 節。8 節）。**（2026-09-19）ADR-18 の追加の決定 4 で、`E-15` には要約と ID だけを残し、ツールの結果は残さないと決まった。** 呼び出しの引数（調べたキーワード・ドメイン）は残さない。**費用の発生した調査系の呼び出しの回数は、要約の一部として残す**（この層の判断。回数はツールの結果でも個人情報でもなく、決定 4 の趣旨に反しない。エージェントの自己申告に頼らず、監視アプリが Claude Agent SDK の経過から数える形を推奨する。8 節）。
 - **3 本以外のエージェントの定義には OpenSEO のツールを 1 つも書かない。** 書かなければ、Claude Code の上ではツールが存在しないように見える。
+- **（2026-10-06）ADR-25 で `agent/analytics-reporter` が加わり、共有するのは 4 本になった**（図の `AR`）。`agent/analytics-reporter` に許すのは GA4 の参照の 5 本と `list_projects`・`get_project_context` だけ（5 節）で、**`get_google_analytics_*` を持つのは `agent/analytics-reporter` だけ**である（AA-03 の 2.4）。費用の出るツールは持たせない。上の「3 本」は ADR-25 の前の記述である。
 
 ### 6.3 GSC の取得仕様
 
@@ -353,7 +399,7 @@ AA-03 の 2.1 の権限表を、**プロセスの起動という形**に落と�
 | `agent/quality-checker` | **なし**（ファイル読み取りのみ） | — | — |
 | `agent/design-implementer` | **なし** | — | — |
 | `agent/seo-auditor` | **OpenSEO（HTTP。参照のみ）**と `.lighthouse/` | — | —（**GSC の資格情報は OpenSEO の中にあり、エージェントは持たない**） |
-| `agent/analytics-reporter` | `mautic-mcp` / Umami MCP / PostHog | `TRANSPORT=stdio` `MAUTIC_ACCESS_LEVEL=read_only` | Mautic の**参照専用ロール** |
+| `agent/analytics-reporter` | `mautic-mcp` / **OpenSEO（HTTP。GA4 の参照のみ）** / PostHog（**2026-10-06 ADR-25: Umami MCP を外し、OpenSEO の GA4 のツールに替えた。5 節**） | `TRANSPORT=stdio` `MAUTIC_ACCESS_LEVEL=read_only` | Mautic の**参照専用ロール**。GA4 は OpenSEO の中の OAuth（`analytics.readonly`）で、**エージェントは GA4 の資格情報を持たない** |
 | `agent/lead-ops` | `mautic-mcp` | `TRANSPORT=stdio` `MAUTIC_ACCESS_LEVEL=read_write` | Mautic の**コンタクト更新ロール** |
 | `agent/conversation-triage` | `chatwoot-mcp` | `TRANSPORT=stdio` `CHATWOOT_ACCESS_LEVEL=read_write` | Chatwoot の**専用エージェントユーザー**のトークン。**本番は社内メモと送信を分けてから接続する**（ADR-17。2.3） |
 | `agent/ops-watcher` | **なし**（PostHog） | — | PostHog の API キー |
@@ -375,7 +421,7 @@ AA-03 の 2.1 の権限表を、**プロセスの起動という形**に落と�
 - **Mautic のロールで個票 API だけを落とせるか未確認。** 3.1 の「上流のロール側で落とす」が成立するかはロールの粒度に依存する。成立しなければ、AA-03 の未決定事項（集計限定を権限で表現できない）はそのまま残る。判断者 `R1` `R3`。
 - **`dedup_dropped` のしきい値 1 割に根拠が無い。** 二重送信が常態化している徴候とする値だが、実データが無い。
 - **`agent/analytics-reporter` が PostHog をどう呼ぶか決めていない。** 6 節の接続表では MCP ではなく PostHog として書いたが、PostHog の MCP を使うのか API を直接叩くのかは決めていない。**直接叩く場合、ADR-02 が MCP を挟むと決めた 4 つの利点（`sanitize()`・応答サイズ・権限の境界・危険な API の除外）がこの経路には及ばない。**
-- **管理外の MCP（`strapi-mcp` / Umami MCP）のバージョン変更を検知する手段が無い。** ADR-07 でリスクを受容したが、受容したリスクが変化したときに気づく仕組みが無い（ツールの定義が変わっても、このリポジトリからは分からない）。**ただし本番の Strapi は `backend/strapi-system` からイメージをビルドする**（TA-06 の 3.2）ため、`strapi-prod` の MCP の版はこのリポジトリの依存関係の更新でしか変わらない。気づく機会はデプロイの手順（TA-06 の 8 節）に置ける。
+- **管理外の MCP（`strapi-mcp` / OpenSEO。**2026-10-06 ADR-25: Umami MCP は廃止して外れ、GA4 の読み取りで OpenSEO への依存が増えた**）のバージョン変更を検知する手段が無い。** ADR-07 でリスクを受容したが、受容したリスクが変化したときに気づく仕組みが無い（ツールの定義が変わっても、このリポジトリからは分からない）。**ただし本番の Strapi は `backend/strapi-system` からイメージをビルドする**（TA-06 の 3.2）ため、`strapi-prod` の MCP の版はこのリポジトリの依存関係の更新でしか変わらない。気づく機会はデプロイの手順（TA-06 の 8 節）に置ける。
 - **調査系のタイムアウト 90 秒に根拠が無い**（6 節）。DataForSEO の集計にかかる時間を計測していない。短すぎると、課金された要求を結果の受け取り前に捨てることになる。
 - **（2026-09-19 に ADR-15 で解決）本番の観測値を読む経路。** 本番用の MCP の登録で読む（5.3）。
 - **（2026-09-19 に ADR-15 で解決）`agent/conversation-triage` と `agent/lead-ops` の本番への接続。** 本番用の登録で読み書きする（`read_write` まで）。
@@ -389,3 +435,6 @@ AA-03 の 2.1 の権限表を、**プロセスの起動という形**に落と�
 - **（2026-09-19 に ADR-17 で決定。確認は残る）本番の Strapi の Admin トークンから公開（`publishedAt`）の権限を外すか**（4.1。ADR-16 は削除の権限だけを明示した）。**外す**（下書きまで。公開は `R2` が管理画面で行う）。**外せるか**（Strapi 5 の権限の粒度）は実装時に確かめる（上の「フィールド単位の制限」と同じ項目。TA-07 の 9 節）。外せない場合、本番でも `agent/content-writer` の境界は約束にとどまる。判断者 `R1`。
 - **エージェント → n8n（MCP）の連携点が AA-02 のカタログに無い**（7 節）。`n8n-prod` は本番のワークフローを書き換えられる経路であり（有効化は人間）、AA-04 の 3.3.1 が「戻せない適用先」の筆頭に挙げた n8n への作用になる。カタログに番号を与えるか、監視アプリ → Claude Code と同じく採番しない扱いにするかは AA の判断（判断者 `R1`）。
 - **OpenSEO の MCP に誰が費用を発生させたかをサーバ側で記録できない**（6.2）。無認証のため呼び出し元を区別できず、エージェント側の stderr が唯一の記録になる。`E-15` の正本が決まらない限り、この記録も永続化されない（DD-01 の 10 節と同じ根）。**（2026-09-19 に ADR-18 で一部解決）`E-15` の正本は監視アプリの実行記録になり、どの起動がどのエージェントを動かしたかは残る。** 残るのは、OpenSEO のツールの呼び出し（引数・回数）まで `E-15` に残すかで、上位層の「記録する範囲」の未決定に掛かる（TA-07 の 9 節。DD-01 の 10 節）。調査系の引数には個人情報は含まれないため、この経路に限れば残しても DA-05 の懸念は小さい（この層の見立て）。**（2026-09-19）ADR-18 の追加の決定 4 で、`E-15` には要約と ID だけを残すと決まった。** 引数は残さない。**呼び出しの回数は要約の一部として残す**のがこの層の判断である（6.2）。残るのは、**回数を監視アプリが Claude Agent SDK の経過から数えられるか**（TA-07 の 9 節の「Claude Agent SDK の仕様の確認」と同じ根。数えられなければ回数もエージェントの自己申告になる）と、**回数を `E-15` の属性として持つか、要約の文の中に書くか**（型の変更にあたり DA の判断。判断者 `R3`）である。判断者 `R1`。
+- **（2026-10-06。ADR-25 で新たに生じた）GA4 の読み取りに振る連携点の番号。** 5 節は旧 `I-17`（Umami の MCP）の番号を GA4 の読み取りに付け替えて書いたが、経路は `I-22`（OpenSEO）と同じホスト内で、`I-15`（OpenSEO → GSC）と同じ形の「OpenSEO → GA4」の区間もある。**`I-17` を付け替えるか、`I-22` に含めて OpenSEO → GA4 に新しい番号を振るかは AA-02 のカタログに合わせる。** 判断者 `R1`。
+- **（2026-10-06。ADR-25 で新たに生じた）CVR の偏りの補正**（3.3）。分母（GA4 のセッション）は同意した訪問者だけ、分子（Mautic のフォーム送信）は全員のため、同意率が下がると CVR が見かけ上上がる。consent-api の記録から同意率を出して補正するか、注記にとどめるかを決めていない（DA-02）。判断者 `R1` `R3`。
+- **（2026-10-06。ADR-25 で新たに生じた）GA4 の BigQuery エクスポートを使うか。** OpenSEO の GA4 のツールはカスタムイベントの値を読めず（ADR-25 の帰結 7）、しきい値で伏せられた行も取り戻せない。BigQuery のエクスポートなら行単位で読めるが、費用と、エージェントに渡す読み取りの経路（新しい MCP の登録）が増える。判断者 `R1`。

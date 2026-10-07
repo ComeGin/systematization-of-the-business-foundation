@@ -17,6 +17,7 @@ MCP クライアント ──(stdio。HTTP のときは Bearer: MCP_AUTH_TOKEN)�
 ## ツール
 
 32 ツール（`CHATWOOT_ACCESS_LEVEL=full` のとき）。秘匿情報らしいキー（`secret` / `token` / `password` / `hmac` を含むキー）の値は伏せ字にし、1,000 文字を超える文字列は `include_long_text=true` を指定しない限り省略する。
+コンタクト・会話の `custom_attributes`（キーを運用者が自由に決める）も同じ扱いにする。`include_long_text` を持つのは `chatwoot_list_messages` だけなので、1,000 文字を超えるカスタム属性の値は全文では読めない。
 
 ### アクセスレベル（`CHATWOOT_ACCESS_LEVEL`）
 
@@ -112,6 +113,8 @@ claude mcp add --transport http chatwoot http://127.0.0.1:3102/mcp \
 ```
 
 HTTP で使う場合は `.env` に `TRANSPORT=http` と `MCP_AUTH_TOKEN`（32 文字以上）を設定する。
+stdio では `MCP_AUTH_TOKEN` は不要で、`.env.example` のまま空にしておけば未設定と同じに扱う（`MCP_ALLOWED_HOSTS` も、空なら未設定と同じ）。
+ポートが使用中などで待ち受けられないときは `[chatwoot-mcp-server] failed to listen on 127.0.0.1:3102 (EADDRINUSE)` を出して終了するので、`PORT` を変える。
 
 ## 動作確認
 

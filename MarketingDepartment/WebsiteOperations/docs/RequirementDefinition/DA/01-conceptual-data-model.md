@@ -23,7 +23,7 @@ erDiagram
         string keyword_id PK "E-01"
         string phrase "検索語句"
         int monthly_volume "推定検索ボリューム。OpenSEO 経由の DataForSEO"
-        string status "候補 / 採用 / 見送り"
+        string adoption_status "候補 / 採用 / 見送り"
     }
     SearchIntent {
         string intent_code PK "E-02。latent / semi_explicit / explicit"
@@ -70,7 +70,7 @@ erDiagram
     Person }o--o{ Experiment : "割付"
 
     Session {
-        string session_id PK "E-07。Umami が発行する匿名 ID"
+        string session_id PK "E-07。GA4 のセッション。集計値だけを読む（ADR-25）"
         string referrer "参照元"
         string landing_path "ランディングページ"
         datetime started_at "開始日時"
@@ -161,13 +161,13 @@ erDiagram
 
 | ID | エンティティ | 主要属性 | 正本（System of Record） | 格納形式 | 状態 |
 |---|---|---|---|---|---|
-| `E-01` | `Keyword` | `phrase` / `monthly_volume` / `status` / `intent_code` | Strapi（`api::keyword.keyword`） | コンテンツタイプ | 未着手 |
+| `E-01` | `Keyword` | `phrase` / `monthly_volume` / `adoption_status` / `intent_code` | Strapi（`api::keyword.keyword`） | コンテンツタイプ | 未着手 |
 | `E-02` | `SearchIntent` | `intent_code` / `label` / `default_cta` | `E-01` の属性（enum） | 列挙値 | 未着手 |
 | `E-03` | `ContentPlan` | `title_draft` / `outline` / `plan_state` / `assignee_role` | Strapi（`api::content-plan.content-plan`） | コンテンツタイプ | 未着手 |
 | `E-04` | `Content` | `documentId` / `title` / `locale` / `publishedAt` | Strapi（`api::article.article`） | コンテンツタイプ | 実装済み |
 | `E-05` | `Page` | `url_path` / `canonical_url` / `built_at` | Astro のビルド成果物（`frontend/verdant-virgo/dist/`） | 静的ファイル + `sitemap` | 実装済み |
 | `E-06` | `CTA` | `cta_type` / 表示文言・配置 / `mautic_form_id` | 表示定義は Strapi のコンポーネント、受付定義は Mautic のフォーム | 分割保持 | 未着手 |
-| `E-07` | `Session` | `session_id` / `referrer` / `landing_path` / `started_at` | Umami | PostgreSQL（`middleware/umami-master`） | 未配線 |
+| `E-07` | `Session` | `session_id` / `referrer` / `landing_path` / `started_at`（**エージェントが読めるのはチャネル別・参照元別・ページ別の集計値だけ**。個々のセッションは読まない） | **GA4**（SaaS。Google LLC・米国。本番のプロパティ 1 つ）〔**2026-10-06 ADR-25: Umami から変えた**。旧版は Umami〈PostgreSQL。`middleware/umami-master`〉〕 | クラウド（Google のサーバー） | 未配線 |
 | `E-08` | `Person` | `distinct_id` / `first_seen` / プロパティ | PostHog（SaaS。project 610214） | クラウド | 未配線 |
 | `E-09` | `Contact` | `email` / `points` / `dnc_status` / カスタムフィールド | Mautic | MySQL（`backend/mautic-system`） | 未配線 |
 | `E-10` | `Conversation` | `display_id` / `status` / `inbox_id` / ラベル | Chatwoot | PostgreSQL（`backend/chatwoot-system`） | 未配線 |
@@ -176,13 +176,13 @@ erDiagram
 | `E-13` | `ImprovementProposal` | 後述の 12 項目 | Git（`docs/proposals/` の Markdown。PR で承認） | Markdown + YAML frontmatter | 未着手 |
 | `E-14` | `ApprovalRecord` | `approver` / `decision` / `decided_at` / `comment` | `E-13` に従属（PR のレビュー承認） | Git / GitHub | 未着手 |
 | `E-15` | `AgentRun` | `agent_name` / `trigger` / `started_at` / `outcome` / **`summary`（要約）/ `target_ids`（対象の ID）**。**ツールの結果は属性に持たない**（ADR-18 の追加の決定） | **監視アプリ（`frontend/next-js`。ローカル）の実行記録**（ADR-18。**ADR-16 の「正本はクラウド」の唯一の例外**）。当初は n8n の実行履歴としていた（下の注記） | 監視アプリのローカルの DB（種類は未決定。TA-07 の 3.6）。**S3 に追記専用で写す**（写しは正本ではない。TA-06 の 4.7） | 未着手 |
-| **`E-16`** | **`Booking`** | `booking_uid` / `starts_at` / `duration` / `status`（確定 / 変更 / キャンセル）/ `invitee_email`（**個人情報**）/ `cta_id` | **本番の Cal.com**（セルフホスト。RDS for PostgreSQL の `calcom` データベース。TA-06 の 3.1・4.1） | **製品の DB** | 未着手（**2026-10-01 に追加**。4.1） |
+| **`E-16`** | **`Booking`** | `booking_uid` / `starts_at` / `duration` / `status`（確定 / 変更 / キャンセル）/ `invitee_email`（**個人情報**）/ `cta_id` | **本番の Cal.com**（セルフホスト。RDS for PostgreSQL の `calcom` データベース。TA-06 の 3.1・4.1）**〔2026-10-06 ADR-24: SaaS の Cal.com〈cal.com。米国〉に変わった。RDS の `calcom` は作らない〕** | **製品の DB** | 未着手（**2026-10-01 に追加**。4.1） |
 | `E-17` | `MiningOptIn`（2026-10-03 に追加） | `user_id` / `contact_ref`（`E-09` への参照）/ `consent_version` / `consented_at` / `revoked_at` / `max_threads` | `points-api` の DB（RDS for PostgreSQL の `points`。本番: AWS） | テーブル（**削除できる**。削除請求に応じるため） | 未着手 |
 | `E-18` | `MiningContribution`（2026-10-03 に追加） | `user_id`（unMineable の worker 名）/ `date` / `hashrate` / `accepted_shares` | `points-api` の日次スナップショット（発生源は unMineable の `/v1/workers`） | テーブル | 未着手 |
 | `E-19` | `PointTransaction`（2026-10-03 に追加） | `tx_id` / `kind`（`grant` / `redeem` / `reversal`）/ `user_id` / `amount` / `basis`（`E-18` の期間、発注書番号、または打ち消す `tx_id`）/ `approved_by` / `idempotency_key` / `correlation_id` / `chain_tx_hash`。**状態は出来事の列（`events[]`）から求める** | `points-api` の DB（**追記だけ**） | テーブル（INSERT だけ。出来事も行として追記） | 未着手 |
 | `E-20` | `MiningPayout`（2026-10-03 に追加） | `payout_uuid`（unMineable）/ `chain_tx_hash` / `amount_pol` / `jpy_at_receipt` / `conversion`（換金の tx hash・約定・円の金額） | **チェーン上の ComeGin のウォレットへの入金**（unMineable の `/v1/payments` と突き合わせる） | チェーン（換金の記録は `points-api` の DB） | 未着手 |
 
-- **正本の「Strapi」「Mautic」「Chatwoot」「Umami」は本番（AWS）のインスタンスを指す**（`R1` の 2026-09-19 の決定。AA-05 の ADR-16）。**正本のデータを持つシステムはすべてクラウドに置く**、が ADR-16 の配置の基準である（例外は `E-15` だけ。ADR-18。下の注記）。オンプレの Strapi・Mautic・Chatwoot・Umami は**開発環境**であり、そのデータは正本でも複製先でもない（開発環境の Strapi は試験用で、記事を開発と本番の間で移さない。TA-07 の 6 節）。`E-01` `E-03` `E-04` の正本は本番の Strapi（RDS for PostgreSQL、メディアは S3）で、エージェントの MCP（`strapi-prod`）での書き込みがそのまま正本の更新になる。**ただしエージェントが書けるのは下書きまでで、`E-04` の `publishedAt` を設定する（公開する）のは `R2` が本番の管理画面で行う**（ADR-17）。公開サイトへの反映はその後の配信で行う（TA-07 の 7 節）。`E-06`（Mautic のフォーム）はエージェントが MCP で本番に書き込む。格納形式の列のパス（`backend/...`・`middleware/...`）は開発環境のものである。
+- **正本の「Strapi」「Mautic」「Chatwoot」「Umami」は本番（AWS）のインスタンスを指す**（`R1` の 2026-09-19 の決定。AA-05 の ADR-16）。**（2026-10-06 の注記）ADR-25 で Umami をやめ、`E-07` の正本は GA4（SaaS。本番のプロパティだけ。開発環境には GA4 を置かない）になった。以下の Umami の記述は ADR-25 より前のもの。****正本のデータを持つシステムはすべてクラウドに置く**、が ADR-16 の配置の基準である（例外は `E-15` だけ。ADR-18。下の注記）。オンプレの Strapi・Mautic・Chatwoot・Umami は**開発環境**であり、そのデータは正本でも複製先でもない（開発環境の Strapi は試験用で、記事を開発と本番の間で移さない。TA-07 の 6 節）。`E-01` `E-03` `E-04` の正本は本番の Strapi（RDS for PostgreSQL、メディアは S3）で、エージェントの MCP（`strapi-prod`）での書き込みがそのまま正本の更新になる。**ただしエージェントが書けるのは下書きまでで、`E-04` の `publishedAt` を設定する（公開する）のは `R2` が本番の管理画面で行う**（ADR-17）。公開サイトへの反映はその後の配信で行う（TA-07 の 7 節）。`E-06`（Mautic のフォーム）はエージェントが MCP で本番に書き込む。格納形式の列のパス（`backend/...`・`middleware/...`）は開発環境のものである。
 - **`E-04` の正本の所在の経緯。** ADR-14 で本番の Strapi（AWS）とし、同日の ADR-15 でオンプレの Strapi に戻し（記事は HTML に焼き込まれて配信されるため、本番に Strapi を置く理由が無いとした）、さらに同日の ADR-16 で本番の Strapi に戻した（正本が開発機 1 台にしか無く、開発機の故障がそのまま記事の喪失になるため）。
 - **`E-15` の正本の所在の経緯。** 当初は n8n の実行履歴を正本とし、ADR-16 で本番の n8n の実行履歴（RDS for PostgreSQL の `n8n` データベース）を指すことにした。**ADR-17 で、エージェントを使う定期処理の起動が n8n から監視アプリに移った**ため、n8n の実行履歴に残るのは n8n 自身のワークフロー（Webhook と決定論的な定期処理）だけになり、エージェントの実行は 1 件も記録されなくなった。エージェントの起動元は手動・定期とも監視アプリに一本化され、監視アプリの実行記録を正本にする条件が揃った。**ADR-18（`R1` の 2026-09-19 の決定）で、監視アプリの実行記録を `E-15` の正本にした。** **n8n の実行履歴は `E-15` の正本ではない**（エージェントの実行が残らない）。
 - **`E-15` の正本はローカルにある。** 監視アプリはローカルに置いたまま、実行記録もローカルに保存する（ADR-16 の基準「正本のデータを持つものはクラウド」の**唯一の例外**。監視アプリをクラウドに置く案は採らない。ADR-18）。記録は**監視アプリのサーバー側だけが書き**、エージェント（Claude Code）には書かせない（エージェントが自分の実行の記録を書き換えられないようにする。AA-04 の暴走条件 #7）。**1 回の起動（手動の指示・定期実行）を 1 件**とし、相関 ID（ULID。DD-01 の 3 節）で `E-13`・`E-14`・本番への書き込みと結ぶ（TA-07 の 3.6）。
@@ -209,16 +209,17 @@ erDiagram
 
 | 検討した案 | 採否 | 理由 |
 |---|---|---|
-| **`E-16` として新しく立てる** | **採用** | 正本が明確（本番の Cal.com）で、他の型と関連を結べる。**セルフホストにしたため正本が自分たちのクラウドにあり、ADR-16 の基準（正本のデータを持つシステムはクラウド）を満たす** |
+| **`E-16` として新しく立てる** | **採用** | 正本が明確（本番の Cal.com）で、他の型と関連を結べる。**セルフホストにしたため正本が自分たちのクラウドにあり、ADR-16 の基準（正本のデータを持つシステムはクラウド）を満たす**（**2026-10-06 ADR-24 で、この理由は成り立たなくなった。正本は SaaS にあり、ADR-16・ADR-21 の基準の例外としてユーザーが決めた。TA-01 の 8 節**） |
 | `E-09 Contact` の属性で持つ | 不採用 | **1 人が複数回予約しうる**（変更・再予約・2 回目の面談）。属性にすると最後の 1 件しか残らず、`status` の遷移も持てない |
 | 型を立てずに未決のまま残す | 不採用 | **`I-25` の payload（AA-02 のカタログ）と、`form_submitted` → `booking_scheduled` の歩留まり（DA-02 の 4.4）が、どちらも参照先の無い記述になる。** `CAP-15` の監査ログで実際に起きた「型が無いので仕組みを設計できない」と同じ行き止まりを繰り返さない |
 
-- **正本は本番の Cal.com**（RDS for PostgreSQL の `calcom` データベース）。**Google Calendar の予定は複製先であって正本ではない**（Cal.com が予定を作る。予定を直接消しても予約の記録は Cal.com に残る）。Mautic にも写さない（写すなら `E-09` のカスタムフィールドだが、1 対多を持てないため採らない）。
+- **正本は本番の Cal.com**（RDS for PostgreSQL の `calcom` データベース）。**（2026-10-06 ADR-24: 正本は SaaS の Cal.com〈米国〉。RDS の `calcom` は作らない。以下は ADR-19 の記述）** **Google Calendar の予定は複製先であって正本ではない**（Cal.com が予定を作る。予定を直接消しても予約の記録は Cal.com に残る）。Mautic にも写さない（写すなら `E-09` のカスタムフィールドだが、1 対多を持てないため採らない）。
 - **`E-09` との関連は email で結ぶ**（小文字化して突合する。`I-19` と `I-08` と同じ規則。DD-02 の 5.3）。**予約だけが先に成立することは無い**（`I-08` のフォームの送信が先にあり、`E-09` が必ず存在する。DD-02 の 7.2）。
 - **`invitee_email` は実名情報である。** `E-09` `E-10` と同じ区分として扱い、**DA-05 の個人情報の区分・保持期間・削除請求の対象に加える必要がある**（7 節。本ファイルでは DA-05 を変更していない）。
 - **`cta_id` を持つのは、どの入口からの予約かを残すためである**（いまは完了画面の `booking_thanks_embed` だけだが、将来ほかの画面に予約の入口を置いたときに分けられる。`E-06` を参照する）。
 - **`E-16` を KPI にするかは DA-02 の判断**（`form_submitted` → `booking_scheduled` の歩留まり。DA-02 の 6 節）。型があることと指標にすることは別である。
 
+- **（2026-10-06 の注記）`umami` は ADR-25 で廃止した。** 流入の観測の出所は GA4 になった。**なお、実装（`backend/control-plane/src/constants/audit-sources.ts`・`.claude/agents/analytics-reporter.md`）は GA4・Mautic・PostHog の集計をまとめて `source: analytics` に入れており、下の 9 値（`posthog` / `umami` / `mautic` を分ける）と ADR-25 より前から食い違っている**（7 節の未決定事項）。
 - **`E-12` の `source` は 9 値とする**（2026-09-18 に 3 値を追加）。`lighthouse` / `gsc` / `posthog` / `umami` / `mautic` / `chatwoot` に、OpenSEO の追加で `serp` / `site_audit` / `market` を足し、GSC を OpenSEO 経由に変えた。**`source` はデータの出所を表し、取得経路を表さない**（GSC を OpenSEO 経由で取っても `source: gsc` のまま。経路は `ref` に書く）。
 
 | `source` | 出所 | 取得経路 | 中身 |
@@ -229,7 +230,7 @@ erDiagram
 | `market` | DataForSEO | OpenSEO の MCP | 検索ボリューム・競合ドメインの順位キーワード・被リンク数 |
 
 - **OpenSEO の中のデータは正本にしない。** 保存済みキーワードは `E-01` の候補の作業場、プロジェクトコンテキストは OpenSEO の作業用の記憶であり、いずれも複製先にも正本にも数えない（AA-05 の ADR-09）。`E-12` として取り込んだ時点の値と `ref`（再取得できる問い合わせ）だけを残す。
-- `E-12` の `source` に `posthog` / `umami` / `mautic` / `chatwoot` を含めるのは、監査結果を「Lighthouse の結果」に限定せず、あらゆる観測の共通の入れ物にするため（`E-13` の根拠参照先を 1 種類の型に統一できる）。
+- `E-12` の `source` に `posthog` / `umami`（**ADR-25 で廃止**） / `mautic` / `chatwoot` を含めるのは、監査結果を「Lighthouse の結果」に限定せず、あらゆる観測の共通の入れ物にするため（`E-13` の根拠参照先を 1 種類の型に統一できる）。
 
 ### 4.2 `E-17`〜`E-20` を立てた理由（2026-10-03 の決定）
 
@@ -297,10 +298,10 @@ evidence:
     source: lighthouse
     ref: .lighthouse/lhr-1757900000000.json
     summary: "/blog/saas-kpi の SEO スコアが 0.96 で、しきい値 1.0 を下回る"
-  - audit_id: AUD-2026-0915-umami-0012
-    source: umami
-    ref: "websiteId=<id>&startAt=2026-08-01&endAt=2026-08-31"
-    summary: "同ページのセッション数 1,284 / CV 3 件（CVR 0.23%、サイト中央値の 1/4）"
+  - audit_id: AUD-2026-0915-analytics-0012
+    source: analytics
+    ref: "openseo get_google_analytics_page_performance startDate=2026-08-01&endDate=2026-08-31&channel=all"
+    summary: "同ページの views 1,284 / CV 3 件（集計値どうしの比 0.23%、サイト中央値の 1/4。GA4 は同意した訪問者だけ）"
 target:
   entity: E-04
   identifier: "documentId=abcdef123456"
@@ -396,5 +397,6 @@ flowchart LR
 - **開発環境のデータの寿命と扱い**（ADR-15・ADR-16）。開発環境の Strapi・Mautic・Chatwoot に溜まる検証用のデータをいつ消すかが未定。Strapi は ADR-15 でオンプレの Strapi が正本になったため一度この項目の対象外にしたが、**ADR-16 で本番の Strapi が正本になり、開発環境の Strapi は試験用に戻ったため、再び対象に入る**。今の開発環境の Strapi にある記事（6 件。すべてスキャフォールドのサンプルで `draft`）を本番に移さないことは決まっている（TA-07 の 6 節）。判断者 `R1`。
 - **（2026-10-01 に反映済み）`E-16 Booking` を他の層に反映する。** 本ファイルで新しく立てた型のため、他のファイルの `E-01`〜`E-15` という書き方が古くなっていた。**DA-04 の System of Record 表**（正本と同期方向の行）と **DA-05 の個人情報の区分・保持期間・削除請求**に反映し、`docs/README.md` の「ID の採番と正本」にも採番の範囲を書いた（**用語集は作らないと決まった**。同日のユーザーの決定）。**残るのは `invitee_email`（実名情報）の保持期間と、Cal.com の予約を削除請求の対象に含めるか**で、どちらも DA-05 の 5 節にある。判断者 `R1`。
 - **`E-16` の保持期間**（4.1）。面談の予約は商談の記録であり、`E-09`（24 か月。DA-05 の 2 節）と揃えるか、面談の実施後に短く切るかを決めていない。**Google Calendar 側の予定の保持は Cal.com の保持と別である**（予定を消しても予約の記録は残る）ため、両方を決める必要がある。判断者 `R1` `R3`。
+- **（2026-10-06 に追加）`E-12` の `source` の値が実装と食い違っている**（4.1 の注記）。本ファイルは出所ごとに `posthog` / `umami` / `mautic` を分けるが、実装は `analytics-reporter` の観測をまとめて `analytics` にしている。ADR-25 で `umami` が無くなったのを機に、**本ファイルを実装に合わせて `analytics` にするか、実装を出所ごと（`ga4` / `posthog` / `mautic`）に分けるか**を決める。判断者 `R1`。
 - `E-03 ContentPlan` の承認状態を Strapi の draft / publish で表すか、独立した `plan_state` フィールドで表すか。draft / publish は 2 値しかなく「差し戻し」を表現できないため、`plan_state` を別に持つ案が有力だが、二重管理になる懸念がある。Strapi のコンテンツタイプを実装する際に確定させる。
 - **（2026-10-03 に追加）`E-19` の出来事（event）の保存の形。** 同じテーブルに状態の行を追記するか、取引と出来事の 2 テーブルに分けるか。どちらでも「UPDATE・DELETE を許さない」は守れる（DD-08 で決める）。

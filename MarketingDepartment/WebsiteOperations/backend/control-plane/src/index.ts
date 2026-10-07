@@ -119,12 +119,13 @@ class ControlPlaneImpl implements ControlPlane {
   }
 
   async stop(): Promise<void> {
-    if (!this.started) return;
+    // runNow は start() の前でも受け付けるため、実行中の打ち切りは started に関わらず行う（契約の「実行中のエージェントを打ち切り」）
+    const wasStarted = this.started;
     this.started = false;
     for (const timer of this.timers.splice(0)) clearInterval(timer);
     this.scheduler.stop();
     await this.engine.stopAll();
-    logLine("INFO", "control-plane", "停止");
+    if (wasStarted) logLine("INFO", "control-plane", "停止");
   }
 
   /** 前回のプロセスが落ちて running のまま残った run を、failure に確定する（持ち主が他で生きていれば触らない）。 */

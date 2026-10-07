@@ -14,7 +14,7 @@ docs/audits/<source>/<audit_id>.md
 | `gsc` | `agent/seo-auditor` | Search Console の実績（OpenSEO 経由） |
 | `serp` | `agent/seo-auditor` | 順位計測（OpenSEO のランク追跡） |
 | `site_audit` | `agent/seo-auditor` | サイト監査（OpenSEO） |
-| `analytics` | `agent/analytics-reporter` | Umami・PostHog・Mautic の集計値（個票を含めない） |
+| `analytics` | `agent/analytics-reporter` | GA4（OpenSEO 経由。流入・ページ・参照元）・PostHog（実測の Core Web Vitals・記事のイベント）・Mautic（CV）の集計値（個票を含めない）。**2026-10-06 ADR-25: 旧版は Umami・PostHog・Mautic** |
 | `conversations` | `agent/conversation-triage` | 問い合わせの一次切り分けの集計 |
 | `ops` | `agent/ops-watcher` | Error Tracking と死活 |
 | `quality` | `agent/quality-checker` | 機械チェックの結果 |

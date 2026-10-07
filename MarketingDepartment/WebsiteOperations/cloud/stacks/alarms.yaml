@@ -25,15 +25,9 @@ Parameters:
   ChatwootWebTargetGroupFullName:
     Type: String
     Description: edge.yaml の ChatwootWebTargetGroupFullName（targetgroup/<名前>/<ID>）
-  UmamiTargetGroupFullName:
-    Type: String
-    Description: edge.yaml の UmamiTargetGroupFullName（targetgroup/<名前>/<ID>）
   AdminAuthTargetGroupFullName:
     Type: String
     Description: edge.yaml の AdminAuthTargetGroupFullName（targetgroup/<名前>/<ID>）
-  CalcomTargetGroupFullName:
-    Type: String
-    Description: edge.yaml の CalcomTargetGroupFullName（targetgroup/<名前>/<ID>）
   ConsentApiTargetGroupFullName:
     Type: String
     Description: edge.yaml の ConsentApiTargetGroupFullName（targetgroup/<名前>/<ID>）
@@ -262,46 +256,7 @@ Resources:
           Expression: desired - running
           ReturnData: true
 
-  UmamiRunningTaskAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub 'comegin-${EnvName}-umami-running-tasks'
-      AlarmDescription: umami の実行中のタスク数が希望数を下回っている。
-      ComparisonOperator: GreaterThanThreshold
-      Threshold: 0
-      EvaluationPeriods: !Ref EcsEvaluationMinutes
-      DatapointsToAlarm: !Ref EcsEvaluationMinutes
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions: [!Ref OpsAlertTopicArn]
-      OKActions: [!Ref OpsAlertTopicArn]
-      Metrics:
-        - Id: desired
-          ReturnData: false
-          MetricStat:
-            Metric:
-              Namespace: ECS/ContainerInsights
-              MetricName: DesiredTaskCount
-              Dimensions:
-                - { Name: ClusterName, Value: !Ref ClusterName }
-                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-umami' }
-            Period: 60
-            Stat: Average
-        - Id: running
-          ReturnData: false
-          MetricStat:
-            Metric:
-              Namespace: ECS/ContainerInsights
-              MetricName: RunningTaskCount
-              Dimensions:
-                - { Name: ClusterName, Value: !Ref ClusterName }
-                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-umami' }
-            Period: 60
-            Stat: Average
-        - Id: shortfall
-          Label: DesiredTaskCount minus RunningTaskCount
-          Expression: desired - running
-          ReturnData: true
+
 
   AdminAuthRunningTaskAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -337,47 +292,6 @@ Resources:
               Dimensions:
                 - { Name: ClusterName, Value: !Ref ClusterName }
                 - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-admin-auth' }
-            Period: 60
-            Stat: Average
-        - Id: shortfall
-          Label: DesiredTaskCount minus RunningTaskCount
-          Expression: desired - running
-          ReturnData: true
-
-  CalcomRunningTaskAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub 'comegin-${EnvName}-calcom-running-tasks'
-      AlarmDescription: calcom の実行中のタスク数が希望数を下回っている。
-      ComparisonOperator: GreaterThanThreshold
-      Threshold: 0
-      EvaluationPeriods: !Ref EcsEvaluationMinutes
-      DatapointsToAlarm: !Ref EcsEvaluationMinutes
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions: [!Ref OpsAlertTopicArn]
-      OKActions: [!Ref OpsAlertTopicArn]
-      Metrics:
-        - Id: desired
-          ReturnData: false
-          MetricStat:
-            Metric:
-              Namespace: ECS/ContainerInsights
-              MetricName: DesiredTaskCount
-              Dimensions:
-                - { Name: ClusterName, Value: !Ref ClusterName }
-                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-calcom' }
-            Period: 60
-            Stat: Average
-        - Id: running
-          ReturnData: false
-          MetricStat:
-            Metric:
-              Namespace: ECS/ContainerInsights
-              MetricName: RunningTaskCount
-              Dimensions:
-                - { Name: ClusterName, Value: !Ref ClusterName }
-                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-calcom' }
             Period: 60
             Stat: Average
         - Id: shortfall
@@ -469,27 +383,6 @@ Resources:
       AlarmActions: [!Ref OpsAlertTopicArn]
       OKActions: [!Ref OpsAlertTopicArn]
 
-  UmamiUnhealthyHostAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub 'comegin-${EnvName}-umami-unhealthy-hosts'
-      AlarmDescription: umami のターゲットグループに unhealthy のターゲットがある。
-      Namespace: AWS/ApplicationELB
-      MetricName: UnHealthyHostCount
-      Dimensions:
-        - { Name: TargetGroup, Value: !Ref UmamiTargetGroupFullName }
-        - { Name: LoadBalancer, Value: !Ref AlbFullName }
-      Statistic: Maximum
-      Period: 60
-      EvaluationPeriods: 3
-      DatapointsToAlarm: 3
-      Threshold: 0
-      ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions: [!Ref OpsAlertTopicArn]
-      OKActions: [!Ref OpsAlertTopicArn]
-
   AdminAuthUnhealthyHostAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -499,27 +392,6 @@ Resources:
       MetricName: UnHealthyHostCount
       Dimensions:
         - { Name: TargetGroup, Value: !Ref AdminAuthTargetGroupFullName }
-        - { Name: LoadBalancer, Value: !Ref AlbFullName }
-      Statistic: Maximum
-      Period: 60
-      EvaluationPeriods: 3
-      DatapointsToAlarm: 3
-      Threshold: 0
-      ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions: [!Ref OpsAlertTopicArn]
-      OKActions: [!Ref OpsAlertTopicArn]
-
-  CalcomUnhealthyHostAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub 'comegin-${EnvName}-calcom-unhealthy-hosts'
-      AlarmDescription: calcom のターゲットグループに unhealthy のターゲットがある。
-      Namespace: AWS/ApplicationELB
-      MetricName: UnHealthyHostCount
-      Dimensions:
-        - { Name: TargetGroup, Value: !Ref CalcomTargetGroupFullName }
         - { Name: LoadBalancer, Value: !Ref AlbFullName }
       Statistic: Maximum
       Period: 60

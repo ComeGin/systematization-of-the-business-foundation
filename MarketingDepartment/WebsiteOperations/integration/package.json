@@ -1,0 +1,21 @@
+{
+  "name": "comegin-integration-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "オンプレの開発スタック（127.0.0.1）を横断する結合テスト。AWS・PostHog・GitHub・Google・Agent SDK はモックする",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "5.0.1"
+  }
+}

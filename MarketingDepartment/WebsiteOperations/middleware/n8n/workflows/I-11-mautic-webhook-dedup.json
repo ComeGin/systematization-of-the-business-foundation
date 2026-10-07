@@ -163,7 +163,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Mautic からの Webhook').first().json.body ?? {};\nconst seen = new Set();\nconst out = [];\n\nfor (const [eventType, events] of Object.entries(body)) {\n  // トップレベルの timestamp などの配列でない値は読み飛ばす\n  if (!Array.isArray(events)) continue;\n\n  for (const ev of events) {\n    const contactId = ev?.contact?.id ?? ev?.submission?.lead?.id ?? null;\n    // 取り扱うのはコンタクトに紐づくイベントだけ（会社のイベントなどは対象外）\n    if (contactId === null) continue;\n\n    const parsed = Date.parse(ev?.timestamp ?? body.timestamp ?? '');\n    // timestamp が読めないときは受信時刻で代用する（その場合は重複排除が効かない）\n    const timestampSec = Math.floor((Number.isNaN(parsed) ? Date.now() : parsed) / 1000);\n\n    const dedupKey = contactId + '|' + eventType + '|' + timestampSec;\n    if (seen.has(dedupKey)) continue;\n    seen.add(dedupKey);\n\n    // BA-04: 通知するのは「無料相談フォームの送信」と「MQL への到達」だけ。無料 DL は通知しない\n    let kind = '';\n    if (eventType === 'mautic.form_on_submit' && ev?.submission?.form?.alias === 'consult') {\n      kind = 'demo-requested';\n    } else if (eventType === 'mautic.lead_list_change' && ev?.action === 'added' && (ev?.segment?.alias ?? ev?.segment?.name) === 'mql') {\n      kind = 'mql';\n    }\n\n    out.push({\n      json: {\n        dedupKey,\n        contactId,\n        eventType,\n        timestampSec,\n        kind,\n        topic: kind ? 'comegin-lead-alert' : '',\n        company: ev?.submission?.lead?.fields?.core?.company?.value ?? ev?.contact?.fields?.core?.company?.value ?? '',\n        formAlias: ev?.submission?.form?.alias ?? '',\n      },\n    });\n  }\n}\n\nreturn out;"
+        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Mautic からの Webhook').first().json.body ?? {};\nconst seen = new Set();\n\n// 本文から決まる短い値（cyrb53。暗号用ではなく、同じイベントを同じ値にするためのもの。Code ノードでは crypto を使わない方針）\nconst digest = (text) => {\n  let h1 = 0xdeadbeef;\n  let h2 = 0x41c6ce57;\n  for (let i = 0; i < text.length; i++) {\n    const ch = text.charCodeAt(i);\n    h1 = Math.imul(h1 ^ ch, 2654435761);\n    h2 = Math.imul(h2 ^ ch, 1597334677);\n  }\n  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);\n  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);\n  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);\n};\nconst out = [];\n\nfor (const [eventType, events] of Object.entries(body)) {\n  // トップレベルの timestamp などの配列でない値は読み飛ばす\n  if (!Array.isArray(events)) continue;\n\n  for (const ev of events) {\n    const contactId = ev?.contact?.id ?? ev?.submission?.lead?.id ?? null;\n    // 取り扱うのはコンタクトに紐づくイベントだけ（会社のイベントなどは対象外）\n    if (contactId === null) continue;\n\n    const parsed = Date.parse(ev?.timestamp ?? body.timestamp ?? '');\n    const hasTime = !Number.isNaN(parsed);\n    // 通知の受付時刻。timestamp が読めないときは受信時刻で代用する\n    const timestampSec = Math.floor((hasTime ? parsed : Date.now()) / 1000);\n\n    // 冪等キーは本文から決まる値だけで作る。timestamp が読めないときは秒の代わりにイベントの中身のハッシュ（h + 16 進）を使う\n    // （受信時刻を入れると、秒をまたいだ再送が別のキーになり、重複と見なせない。2026-10-07 に直した）\n    const dedupKey = contactId + '|' + eventType + '|' + (hasTime ? String(timestampSec) : 'h' + digest(JSON.stringify(ev)));\n    if (seen.has(dedupKey)) continue;\n    seen.add(dedupKey);\n\n    // BA-04: 通知するのは「無料相談フォームの送信」と「MQL への到達」だけ。無料 DL は通知しない\n    let kind = '';\n    if (eventType === 'mautic.form_on_submit' && ev?.submission?.form?.alias === 'consult') {\n      kind = 'demo-requested';\n    } else if (eventType === 'mautic.lead_list_change' && ev?.action === 'added' && (ev?.segment?.alias ?? ev?.segment?.name) === 'mql') {\n      kind = 'mql';\n    }\n\n    out.push({\n      json: {\n        dedupKey,\n        contactId,\n        eventType,\n        timestampSec,\n        kind,\n        topic: kind ? 'comegin-lead-alert' : '',\n        company: ev?.submission?.lead?.fields?.core?.company?.value ?? ev?.contact?.fields?.core?.company?.value ?? '',\n        formAlias: ev?.submission?.form?.alias ?? '',\n      },\n    });\n  }\n}\n\nreturn out;"
       },
       "id": "3eba7379-2a3f-5469-924d-3a0ebf6aee7f",
       "name": "イベント分割とキー生成",
@@ -173,7 +173,7 @@
         1344,
         0
       ],
-      "notes": "Mautic は 1 回の送信に複数イベントを入れる（{ \"<種別>\": [ ... ] }）。1 件ずつに分け、冪等キー = contact_id + イベント種別 + timestamp（秒）を作る。同じ送信の中の重複もここで除く。氏名・メールは出力に含めない。"
+      "notes": "Mautic は 1 回の送信に複数イベントを入れる（{ \"<種別>\": [ ... ] }）。1 件ずつに分け、冪等キー = contact_id + イベント種別 + timestamp（秒。読めないときはイベントの中身のハッシュ）を作る。同じ送信の中の重複もここで除く。氏名・メールは出力に含めない。"
     },
     {
       "parameters": {
@@ -321,7 +321,8 @@
             "company": "={{ $('イベント分割とキー生成').item.json.company }}",
             "sourcePath": "",
             "receivedAtSec": "={{ $('イベント分割とキー生成').item.json.timestampSec }}",
-            "state": ""
+            "state": "",
+            "detail": ""
           },
           "matchingColumns": [],
           "schema": [
@@ -391,6 +392,15 @@
             {
               "id": "state",
               "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
               "required": false,
               "defaultMatch": false,
               "display": true,

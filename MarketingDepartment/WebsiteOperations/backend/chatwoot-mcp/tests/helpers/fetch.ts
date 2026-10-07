@@ -54,6 +54,28 @@ export function installFetch(responder: Responder) {
 }
 
 /**
+ * fetch を reject させる（通信失敗・タイムアウトの再現）。実ネットワークには繋がない。
+ * 呼び出しの回数は fn.mock.calls で確かめる
+ */
+export function installFetchFailure(error: unknown) {
+  const fn = vi.fn(async (_input: string | URL, _init?: RequestInit): Promise<Response> => {
+    throw error;
+  });
+  vi.stubGlobal("fetch", fn);
+  return { fn };
+}
+
+/** undici の fetch が接続できなかったときに投げる形（TypeError: fetch failed） */
+export function networkError(): TypeError {
+  return new TypeError("fetch failed");
+}
+
+/** AbortSignal.timeout() が発火したときに fetch が投げる形（DOMException の TimeoutError） */
+export function timeoutError(): DOMException {
+  return new DOMException("The operation was aborted due to timeout", "TimeoutError");
+}
+
+/**
  * 「METHOD パス」→ 応答 の表から responder を作る。表にない要求は 404 にする（想定外の呼び出しを見逃さないため）。
  * 値に関数を渡すと、呼び出しごとに応答を組み立てられる。
  */

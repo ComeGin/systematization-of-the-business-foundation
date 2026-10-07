@@ -1,5 +1,8 @@
 import * as z from "zod/v4";
 
+/** .env.example のまま空にした変数（`MCP_AUTH_TOKEN=` など）は未設定として扱う */
+const emptyAsUndefined = (value: unknown) => (typeof value === "string" && value.trim() === "" ? undefined : value);
+
 const EnvSchema = z
   .object({
     MAUTIC_BASE_URL: z.url().transform((url) => url.replace(/\/+$/, "")),
@@ -11,12 +14,16 @@ const EnvSchema = z
     HOST: z.string().min(1).default("127.0.0.1"),
     PORT: z.coerce.number().int().min(1).max(65_535).default(3100),
     // MCP クライアント → 本サーバの認証に使う固定トークン（HTTP のときのみ必須）
-    MCP_AUTH_TOKEN: z.string().min(32, "32 文字以上にしてください").optional(),
-    // ngrok などで公開する場合に許可するホスト名（カンマ区切り）
+    MCP_AUTH_TOKEN: z.preprocess(emptyAsUndefined, z.string().min(32, "32 文字以上にしてください").optional()),
+    // ngrok などで公開する場合に許可するホスト名（カンマ区切り）。
+    // 空（空白とカンマだけを含む）は未設定と同じにする（[] だと Host ヘッダーの検証がすべての要求を 403 にする）
     MCP_ALLOWED_HOSTS: z
       .string()
       .optional()
-      .transform((value) => value?.split(",").map((host) => host.trim()).filter(Boolean)),
+      .transform((value) => {
+        const hosts = value?.split(",").map((host) => host.trim()).filter(Boolean);
+        return hosts?.length ? hosts : undefined;
+      }),
   })
   .refine((env) => env.TRANSPORT === "stdio" || env.MCP_AUTH_TOKEN, {
     message: "TRANSPORT=http の場合は必須です",

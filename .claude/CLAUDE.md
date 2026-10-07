@@ -12,14 +12,14 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 
 ## 自作コードと vendor 取り込みの区別（最重要）
 
-追跡ファイル約 8,700 のうち **8,500 は上流プロジェクトをそのまま取り込んだもの**。自作コードは約 160 ファイルしかない。
+追跡ファイル約 9,000 のうち **8,200 は上流プロジェクトをそのまま取り込んだもの**（2026-10-06 に `middleware/umami-master` を削除した後の数）。
 探索・grep・リファクタの対象を間違えないよう、まずここを確認する。
 
 | 種別 | ディレクトリ | 扱い |
 |---|---|---|
-| 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/umami-master`（Umami v3.4.0、2,026 ファイル）、`middleware/open-seo-main`（OpenSEO 1,399 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
+| 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/open-seo-main`（OpenSEO 1,399 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。**Umami は ADR-25（2026-10-06）で廃止した**（`middleware/umami-master`・`middleware/umami` は削除済み。アクセス解析の正本は GA4、PostHog は AB テスト・例外の監視・記事のイベント・実測の Core Web Vitals）。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
 | 自作（MCP サーバ） | `backend/chatwoot-mcp`、`backend/mautic-mcp` | このリポジトリの主要な自作コード |
-| 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n` | 公式イメージを動かすための compose と環境変数のテンプレートだけ |
+| 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n`、`middleware/ga4`（2026-10-06。ADR-25） | 公式イメージを動かすための compose と環境変数のテンプレートだけ。`middleware/ga4` は SaaS（GA4）の設定の記録と setup だけで、動かすものは無い（本番のプロパティだけ。開発ではタグを出さない） |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |
 | 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | 本番は ALB 配下の ECS on Fargate。consent-api は DB を持たず Valkey だけ、admin-auth は Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にする |
 | 自作（管制。2026-10-04 着手） | `backend/control-plane`（ライブラリ）＋ `frontend/next-js`（監視アプリ） | `E-15` の記録（作業ツリーの外の SQLite）・定期実行・Agent SDK でのエージェント起動・`I-13` の起票。**control-plane は next-js が取り込んで 1 プロセスで動かす**。境界の型は `backend/control-plane/src/contract.ts` |
@@ -33,15 +33,15 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 
 | ポート | 用途 |
 |---|---|
-| 3000 | Umami（`umami-master/docker-compose.yml` は上流のまま。ループバック限定になっていない） |
+| 3000 | （空き。以前は Umami。ADR-25〈2026-10-06〉で Umami を廃止） |
 | 3001 | OpenSEO（UI と MCP の `/mcp`。上流の compose のまま `127.0.0.1` にバインド。`AUTH_MODE=local_noauth` で無認証のため、トンネルを張らない） |
 | 3100 | Chatwoot 本体（`CHATWOOT_PORT`）／ **mautic-mcp の HTTP 既定値と衝突する**。両方 HTTP で動かすならどちらかの `PORT` を変える |
 | 3102 | chatwoot-mcp（HTTP 時） |
 | 3103 | admin-auth（Better Auth の OIDC Provider。本番は `auth.comegin.com`。設計は `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13・`TA/06-aws-runtime.md` の 5.2） |
 | 3104 | consent-api（Cookie 同意の記録。ALB 配下の ECS on Fargate。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
-| 3105 | Cal.com（面談の予約。**セルフホスト**。公開サイトの完了画面に埋め込む。Google Calendar と連携し、予約が成立すると訪問者を予定に招待する＝氏名・メール・日時が Google LLC（米国）に渡る。設計は同 7 節と `RequirementDefinition/AA/02-integration-architecture.md` の `I-25`） |
+| 3105 | （空き。以前は Cal.com のセルフホスト用。**ADR-24〈2026-10-06〉で Cal.com は SaaS〈cal.com〉を公開サイトの完了画面に埋め込む形にした**ため使わない。予約の氏名・メール・日時は Cal.com, Inc.〈米国〉と Google LLC〈米国〉に渡る。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/02-public-path-flows.md` の 7 節と `RequirementDefinition/AA/05-application-decisions.md` の ADR-24） |
 | 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/08-monetization-flows.md`） |
-| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は Umami と衝突するため 3200 を使う。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
+| 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は以前 Umami と衝突していたため 3200 を使う〈Umami の廃止後も変えない〉。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
 | 1337 | Strapi（開発環境） |
 | 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |
@@ -116,16 +116,13 @@ docker compose up -d
 dev/serve.sh
 dev/reset.sh --help    # DB を消して再インストールする破壊的スクリプト
 
-# middleware/umami-master（MCP を有効にする上書きを付ける。上流の compose だけで up すると /mcp が 404 に戻る）
-docker compose -f docker-compose.yml -f dev/setup/compose.mcp.yml up -d
-
-# middleware/host-relay（開発環境だけ。コンテナ〈n8n・Chatwoot〉から、ホストの 127.0.0.1 の Mautic・MailHog・n8n に届くようにする中継）
+# middleware/host-relay（開発環境だけ。コンテナ〈n8n・Chatwoot〉から、ホストの 127.0.0.1 の Mautic・MailHog・n8n・Chatwoot・OpenSEO〈health だけ〉に届くようにする中継）
 docker compose up -d
 ```
 
 **開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
 
-**コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678 だけで待ち受け、`127.0.0.1` に転送する。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
+**コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678・3100・3001 だけで待ち受け、`127.0.0.1` に転送する。3001〈OpenSEO〉は無認証で費用の出る `/mcp` を持つため、`GET /api/health` だけを通す。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
 
 ## MCP サーバの共通設計
 

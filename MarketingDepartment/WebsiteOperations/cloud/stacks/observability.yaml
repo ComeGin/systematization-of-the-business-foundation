@@ -15,6 +15,14 @@ Parameters:
   HeartbeatMetricName:
     Type: String
     Default: Heartbeat
+  N8nHeartbeatNamespace:
+    Type: String
+    Default: ComeGin/OnpremN8n
+    Description: n8n のスケジュール実行が生存信号を送る名前空間。監視アプリの名前空間（HeartbeatNamespace）とは分ける。IAM の条件（iam.yaml）と一致させる。
+  N8nHeartbeatMetricName:
+    Type: String
+    Default: ScheduleHeartbeat
+    Description: n8n が送るメトリクス名。値は 1、ディメンションなし（付けるとアラームに合わず、欠損になる）。
   HeartbeatPeriodSeconds:
     Type: Number
     Default: 300
@@ -162,6 +170,33 @@ Resources:
       OKActions:
         - !Ref OpsAlertTopic
 
+  # n8n のスケジュール実行そのものの生存信号（TA-05 の 4 節の項目 3。ADR-21 でオンプレの n8n）。
+  # n8n 自身は監視できない（止まれば監視も止まる）ので、n8n は信号を「送る」だけにして、判定は CloudWatch が行う。
+  # 形は OnpremHeartbeatAlarm と同じ（5 分 × 3 期間、欠損は違反、復旧も通知）。期間・期間数・通知のスイッチも共有する。
+  # 名前空間を分けるのは、n8n が監視アプリの生存（ComeGin/Onprem）を偽れないようにするため（TA-04 の 1 節）。
+  # 作成直後と、n8n の ops_settings.heartbeatEnabled が false のあいだは信号が無いので ALARM になる。
+  # 開発機を止めるときは OnpremHeartbeatAlarm と一緒に DisableAlarmActions する（README の 4.15）。
+  # 出典（ハートビートの監視には欠損を breaching にする）: https://repost.aws/knowledge-center/cloudwatch-alarm-invoke-issues
+  OnpremN8nScheduleHeartbeatAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-onprem-n8n-schedule-heartbeat'
+      AlarmDescription: オンプレの n8n のスケジュール実行の生存信号が途絶えた。n8n の定期処理（問い合わせの棚卸しなど）が止まっている可能性がある。
+      Namespace: !Ref N8nHeartbeatNamespace
+      MetricName: !Ref N8nHeartbeatMetricName
+      Statistic: Sum
+      Period: !Ref HeartbeatPeriodSeconds
+      EvaluationPeriods: !Ref HeartbeatEvaluationPeriods
+      DatapointsToAlarm: !Ref HeartbeatEvaluationPeriods
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      ActionsEnabled: !Ref HeartbeatAlarmActionsEnabled
+      AlarmActions:
+        - !Ref OpsAlertTopic
+      OKActions:
+        - !Ref OpsAlertTopic
+
 Outputs:
   LeadAlertTopicArn:
     Value: !Ref LeadAlertTopic
@@ -175,3 +210,9 @@ Outputs:
     Value: !Ref HeartbeatNamespace
   HeartbeatAlarmName:
     Value: !Ref OnpremHeartbeatAlarm
+  N8nHeartbeatNamespace:
+    Value: !Ref N8nHeartbeatNamespace
+  N8nHeartbeatMetricName:
+    Value: !Ref N8nHeartbeatMetricName
+  N8nScheduleHeartbeatAlarmName:
+    Value: !Ref OnpremN8nScheduleHeartbeatAlarm

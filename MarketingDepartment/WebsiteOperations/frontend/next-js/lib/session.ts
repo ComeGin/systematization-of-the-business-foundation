@@ -1,13 +1,29 @@
 // セッションの確認。Route Handler と Server Component の両方で、必ずここを通す（ログイン必須）。
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { ensureAuthSchema, getAuth } from "./auth";
+import { ensureAuthSchema, getAuth, isAdminEmail } from "./auth";
 
+/**
+ * ログイン中のセッション。無ければ null。
+ * 許可リストは要求ごとに確かめる。外された人（ドメイン外を含む）のセッションはその場で失効させ、未ログインと同じ null を返す
+ * （ユーザーとセッションの作成時の検査〈lib/auth.ts の databaseHooks〉だけでは、作成済みのセッションが使うたびに延長されて残り続けるため）。
+ */
 export async function getSession() {
   // 先に headers() を読む。next build の静的化の試行で動的な要求と判定させ、ビルド中に DB を開かないようにする
   const requestHeaders = await headers();
   await ensureAuthSchema();
-  return getAuth().api.getSession({ headers: requestHeaders });
+  const auth = getAuth();
+  const session = await auth.api.getSession({ headers: requestHeaders });
+  if (!session || isAdminEmail(session.user.email)) return session;
+  // メールアドレスは記録しない（auth.ts の拒否と同じ）
+  console.error("[auth] session revoked: email is not on the allowlist");
+  try {
+    await (await auth.$context).internalAdapter.deleteSession(session.session.token);
+  } catch {
+    // 失効に失敗しても通さない（次の要求でもう一度ここに来る）
+    console.error("[auth] failed to revoke the session");
+  }
+  return null;
 }
 
 /** ページ用。ログインしていなければ /login へ。 */

@@ -19,7 +19,8 @@ const MODULES = [
   "middleware/host-relay/setup/index.mjs",
   "backend/chatwoot-system/setup/index.mjs",
   "backend/mautic-system/dev/setup/index.mjs",
-  "middleware/umami-master/dev/setup/index.mjs",
+  "middleware/ga4/setup/index.mjs",
+  "middleware/open-seo-main/dev/setup/index.mjs",
   "backend/strapi-system/setup/index.mjs",
   "middleware/n8n/setup/index.mjs",
   "backend/consent-api/setup/index.mjs",
@@ -49,15 +50,24 @@ const HELP = `バックエンド全体の設定スクリプト
 
 function parseArgs(argv) {
   const a = { target: null, check: false, only: null, from: null, list: false, show: null, config: null, help: false };
+  // 値を取るオプションの値。無い・空・次のオプション（-- で始まる）なら止める。
+  // 値が無いまま進むと、--show・--only・--from が「指定なし」と同じになり、全モジュールの apply が走ってしまうため
+  const value = (name, i) => {
+    const v = argv[i]?.trim();
+    if (!v || v.startsWith("-")) throw new Error(`${name} の後に値が要る（--help を参照）`);
+    return v;
+  };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
     if (v === "--target") a.target = argv[++i];
     else if (v === "--check") a.check = true;
-    else if (v === "--only") a.only = argv[++i]?.split(",").map((s) => s.trim());
-    else if (v === "--from") a.from = argv[++i];
+    else if (v === "--only") {
+      a.only = value(v, ++i).split(",").map((s) => s.trim());
+      if (a.only.includes("")) throw new Error(`--only の id に空のものがある: ${argv[i]}（--list を参照）`);
+    } else if (v === "--from") a.from = value(v, ++i);
     else if (v === "--list") a.list = true;
-    else if (v === "--show") a.show = argv[++i];
-    else if (v === "--config") a.config = argv[++i];
+    else if (v === "--show") a.show = value(v, ++i);
+    else if (v === "--config") a.config = value(v, ++i);
     else if (v === "-h" || v === "--help") a.help = true;
     else throw new Error(`不明な引数: ${v}（--help を参照）`);
   }
@@ -104,7 +114,12 @@ async function main() {
   console.log(`対象: ${args.target}／設定: ${existsSync(confFile) ? confFile : `${confFile}（まだ無い。setup.conf.example を参照）`}／状態: ${state.file}`);
 
   let selected = modules.filter((m) => !m.missing && m.applies);
-  if (args.only) selected = selected.filter((m) => args.only.includes(m.mod.meta.id));
+  if (args.only) {
+    // --from と同じく、無い id（打ち間違い・この target では動かないもの）は、何も実行せずに止める
+    const unknown = args.only.filter((id) => !selected.some((m) => m.mod.meta.id === id));
+    if (unknown.length) throw new Error(`--only の ${unknown.join(", ")} が見つからない（--list を参照）`);
+    selected = selected.filter((m) => args.only.includes(m.mod.meta.id));
+  }
   if (args.from) {
     const idx = selected.findIndex((m) => m.mod.meta.id === args.from);
     if (idx < 0) throw new Error(`--from の ${args.from} が見つからない（--list を参照）`);

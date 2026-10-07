@@ -658,6 +658,11 @@ export interface ApiKeywordKeyword extends Struct.CollectionTypeSchema {
     draftAndPublish: false;
   };
   attributes: {
+    adoption_status: Schema.Attribute.Enumeration<
+      ['candidate', 'adopted', 'skipped']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'candidate'>;
     articles: Schema.Attribute.Relation<'manyToMany', 'api::article.article'>;
     content_plans: Schema.Attribute.Relation<
       'oneToMany',
@@ -686,9 +691,6 @@ export interface ApiKeywordKeyword extends Struct.CollectionTypeSchema {
       Schema.Attribute.Required &
       Schema.Attribute.Unique;
     publishedAt: Schema.Attribute.DateTime;
-    status: Schema.Attribute.Enumeration<['candidate', 'adopted', 'skipped']> &
-      Schema.Attribute.Required &
-      Schema.Attribute.DefaultTo<'candidate'>;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;

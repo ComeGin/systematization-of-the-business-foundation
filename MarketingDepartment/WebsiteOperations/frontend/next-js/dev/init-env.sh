@@ -103,7 +103,7 @@ echo "==> ログイン用の秘密値を生成（値は表示しません）"
 ensure BETTER_AUTH_SECRET "$(rand_alnum 48)" XXXX
 
 echo "==> 開発用の既定値"
-# 以前の既定（Next.js の 3000 は Umami と衝突する）を 3200 に直す
+# 以前の既定（Next.js の 3000。以前は Umami と衝突していた）を 3200 に直す
 ensure BETTER_AUTH_URL "http://127.0.0.1:3200" "http://localhost:3000"
 ensure CONTROL_SCHEDULER_ENABLED "false"
 
