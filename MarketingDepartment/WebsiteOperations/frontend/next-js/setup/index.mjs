@@ -179,11 +179,17 @@ export async function apply(ctx) {
   if (!main) {
     throw new Error(
       "CONTROL_MAIN_CHECKOUT が無い。承認済み main の別チェックアウト（絶対パス）が要る。エージェント定義と ops/ はここから読む（ADR-18）。" +
-        "例: git fetch origin && git worktree add --detach ~/ComeGin/main-checkout origin/main（origin/main に ops/mcp-registry.yaml がまだ無いときは、origin/main の代わりにそれを含むブランチ）を人が実行し、~/.config/comegin/setup/dev.conf に CONTROL_MAIN_CHECKOUT=<そのパス> と書いて再実行する（setup/manual-steps.md の 6 節）",
+        "例: git fetch origin && git worktree add --detach ~/ComeGin/main-checkout origin/main を人が実行し（ローカルの main ではなく origin/main。ローカルの main は遅れていることがある）、~/.config/comegin/setup/dev.conf に CONTROL_MAIN_CHECKOUT=<そのパス> と書いて再実行する（setup/manual-steps.md の 6 節）",
     );
   }
   if (!main.startsWith("/")) throw new Error("CONTROL_MAIN_CHECKOUT は絶対パスにする");
-  if (!existsSync(join(main, REGISTRY))) throw new Error(`CONTROL_MAIN_CHECKOUT（${main}）に ${REGISTRY} が無い。main のチェックアウトか確かめる`);
+  if (!existsSync(join(main, REGISTRY))) {
+    // よくある原因: ローカルの main（遅れていることがある）から作った。git の状態は人が変える（setup は git を書き換えない）
+    throw new Error(
+      `CONTROL_MAIN_CHECKOUT（${main}）に ${REGISTRY} が無い。古いコミット（ローカルの main など）を指していないか確かめる。` +
+        `直し方: git fetch origin && git -C ${main} checkout --detach origin/main を人が実行してから、続きから実行する（setup/manual-steps.md の 6 節）`,
+    );
+  }
   const worktree = env.CONTROL_WORKTREE || ctx.value("CONTROL_WORKTREE") || ctx.REPO;
   if (realpathSync(main) === realpathSync(worktree)) {
     ctx.warn("CONTROL_MAIN_CHECKOUT と CONTROL_WORKTREE が同じ場所。作業ツリーで書き換えた定義が次の実行に効いてしまう（ADR-18 の分離が働かない）。別のチェックアウトにする");

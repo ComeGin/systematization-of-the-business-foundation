@@ -154,13 +154,16 @@ n8n の MCP（`http://127.0.0.1:5678/mcp-server/http`）のアクセストーク
 cd ~/ComeGin/systematization-of-the-business-foundation
 git fetch origin
 
-# いまのブランチ（13-feature-develop-backend）が main に入るまでは、origin/main に ops/mcp-registry.yaml がまだ無い。
-# それまでの開発の確認では、ブランチのコミットから作る（読むだけのチェックアウトなので detached でよい）
-git worktree add --detach ~/ComeGin/main-checkout 13-feature-develop-backend
+# まだ無ければ作る。ローカルの main ではなく origin/main から（ローカルの main は遅れていることがある。読むだけなので detached でよい）
+git worktree add --detach ~/ComeGin/main-checkout origin/main
 
-# main にマージした後は、origin/main に合わせる（以後、承認のたびにこれで更新する）
+# 既にあるなら origin/main に合わせる（以後、PR が main にマージされるたびにこれで更新する）
 git -C ~/ComeGin/main-checkout checkout --detach origin/main
 ```
+
+**「CONTROL_MAIN_CHECKOUT に MarketingDepartment/WebsiteOperations/ops/mcp-registry.yaml が無い」で止まったとき**は、チェックアウトが古いコミットを指している（2026-10-07 の例: ローカルの `main` が `Initial commit` のままで、そこから作っていた）。`git -C ~/ComeGin/main-checkout log --oneline -1` で確かめ、上の `checkout --detach origin/main` で合わせてから `--from next-js` で続ける。
+
+**注意**: このチェックアウトに入るのは `origin/main` にマージ済みの内容だけ。作業中のブランチの変更（例: ADR-25 の `analytics-reporter` の GA4 化と、登録表から `umami`・`umami-prod` を消したこと）は、PR が main にマージされるまで監視アプリの実行に効かない（ADR-18 の意図どおり）。
 
 `dev.conf` に `CONTROL_MAIN_CHECKOUT=/home/<ユーザー>/ComeGin/main-checkout`（絶対パス）を書いて再実行する。
 作業ツリーと同じ場所を指すと、スクリプトが警告を出す（分離が働かない）。**コミットしていない変更はこのチェックアウトに入らない**。
