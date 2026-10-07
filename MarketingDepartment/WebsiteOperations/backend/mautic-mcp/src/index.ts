@@ -74,7 +74,14 @@ async function runHttp(config: Config & { MCP_AUTH_TOKEN: string }): Promise<voi
 
   app.all("/mcp", auth, (req, res) => void node(req, res, req.body));
 
-  const httpServer = app.listen(config.PORT, config.HOST, () => {
+  // Express 5 は待ち受けの失敗（EADDRINUSE など）でもコールバックを error 付きで呼ぶ。
+  // 既定の 3100 は Chatwoot 本体と衝突しうるため、失敗を「listening」と見誤らないよう理由を出して終了する
+  const httpServer = app.listen(config.PORT, config.HOST, (error?: Error) => {
+    if (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? error.message;
+      console.error(`[${SERVER_NAME}] failed to listen on ${config.HOST}:${config.PORT} (${code})`);
+      process.exit(1);
+    }
     console.error(`[${SERVER_NAME}] listening on http://${config.HOST}:${config.PORT}/mcp (${startupInfo})`);
   });
 

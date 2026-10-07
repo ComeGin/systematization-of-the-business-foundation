@@ -223,7 +223,13 @@ Examples:
         return errorText("Error: snoozed_until can only be used with status='snoozed'.");
       }
       if (params.status !== undefined) {
-        const snoozedUntil = params.snoozed_until ? tz.toUnix(params.snoozed_until) : undefined;
+        let snoozedUntil: number | undefined;
+        try {
+          snoozedUntil = params.snoozed_until ? tz.toUnix(params.snoozed_until) : undefined;
+        } catch (error) {
+          // 2026-02-30 のような存在しない日付（RangeError）。何も変更する前に、isError の結果として返す
+          return errorResult(error);
+        }
         steps.push(["status", () => client.request("POST", `${base}/toggle_status`, { status: params.status, snoozed_until: snoozedUntil })]);
       }
       if (params.priority !== undefined) {
@@ -300,13 +306,25 @@ Examples:
       annotations: CREATE_ANNOTATIONS,
     },
     async ({ message, response_format, ...body }) => {
+      let created: ApiRecord | null;
       try {
-        const created = await client.request<ChatwootConversation>("POST", "/conversations", {
+        created = await client.request<ApiRecord | null>("POST", "/conversations", {
           ...body,
           ...(message ? { message: { content: message } } : {}),
         });
-        // 作成レスポンスは内部 ID（id）を含む形のため、表示番号で取り直す
-        const displayId = (created as unknown as ApiRecord).display_id ?? created.id;
+      } catch (error) {
+        return errorResult(error, "Check inbox_id (chatwoot_list_records resource='inboxes') and contact_id (chatwoot_list_contacts).");
+      }
+      // ここから先の失敗は「作成済み」と分かる文面にする。再試行で会話が二重にでき、message 付きなら顧客に同じ文面が二度届くため
+      // 作成レスポンスは内部 ID（id）を含む形のため、表示番号で取り直す
+      const displayId = created?.display_id ?? created?.id;
+      if (typeof displayId !== "number" && typeof displayId !== "string") {
+        return errorText(
+          "Error: Chatwoot accepted the request, but the response did not include the new conversation's number. " +
+            "The conversation was probably created; do not create it again. Find it with chatwoot_list_conversations (or the contact's conversations).",
+        );
+      }
+      try {
         const conversation = toConversationSummary(await client.get<ChatwootConversation>(`/conversations/${String(displayId)}`), tz);
         return formattedResult(
           { conversation },
@@ -315,7 +333,10 @@ Examples:
           "",
         );
       } catch (error) {
-        return errorResult(error, "Check inbox_id (chatwoot_list_records resource='inboxes') and contact_id (chatwoot_list_contacts).");
+        return errorText(
+          `Created conversation #${String(displayId)}, but re-reading it failed: ${describeError(error)} ` +
+            `Do not create it again; check it with chatwoot_get_conversation conversation_id=${String(displayId)}.`,
+        );
       }
     },
   );

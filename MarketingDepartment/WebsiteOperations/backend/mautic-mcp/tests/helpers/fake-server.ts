@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { vi } from "vitest";
 
-import type { MauticClient } from "../../src/services/mautic-client.js";
+import { MauticApiError, MauticNetworkError, type MauticClient } from "../../src/services/mautic-client.js";
 
 type ToolConfig = {
   title?: string;
@@ -46,3 +46,19 @@ export function createFakeClient() {
   const mocks = { get: vi.fn(), getList: vi.fn(), write: vi.fn() };
   return { client: mocks as unknown as MauticClient, ...mocks };
 }
+
+/**
+ * ツールのテストで共通に使う、上流（Mautic）側の異常。MauticClient が投げうる例外と、モデルに返す文面の一部の組。
+ * [説明, 投げる例外, 結果のテキストに含まれるべき文字列]
+ */
+export const SERVER_ERRORS: [label: string, error: unknown, expected: string][] = [
+  ["トークン取得の失敗（認証情報の誤り）", new MauticApiError(401, "Failed to obtain Mautic access token: invalid_client"), "cannot be fixed by retrying"],
+  ["再取得後も 401", new MauticApiError(401, "expired"), "rejected the access token even after refreshing it"],
+  ["403", new MauticApiError(403, "no access"), "Permission denied (no access)"],
+  ["429", new MauticApiError(429, "slow down"), "Rate limit exceeded"],
+  ["5xx", new MauticApiError(503, "SQLSTATE[HY000]"), "Mautic server error (503)"],
+  ["通信失敗（fetch の reject）", new MauticNetworkError(new TypeError("fetch failed")), "Could not reach Mautic (network error)"],
+  ["想定外の形の応答（整形中の TypeError）", new TypeError("Cannot read properties of undefined (reading 'id')"), "Unexpected response shape from Mautic"],
+  ["タイムアウト", new DOMException("The operation was aborted due to timeout", "TimeoutError"), "did not respond within 30s"],
+  ["JSON でない応答", new SyntaxError("Unexpected token '<'"), "non-JSON response"],
+];

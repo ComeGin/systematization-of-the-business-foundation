@@ -9,5 +9,8 @@ export default defineConfig({
     restoreMocks: true,
     unstubEnvs: true,
     unstubGlobals: true,
+    // 並列実行の負荷で初回の変換・import が既定の 5 秒を超えることがあるため、全パッケージでそろえて長めにする
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

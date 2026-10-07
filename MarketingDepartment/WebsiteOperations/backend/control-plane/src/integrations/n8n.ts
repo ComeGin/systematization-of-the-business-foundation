@@ -44,7 +44,8 @@ export class N8nClient {
       requireSuccess(result, "n8n: ワークフローの一覧");
       if (!Array.isArray(result.data?.data)) throw new IntegrationError("invalid_response", "n8n: 一覧の形が想定と違う");
       for (const item of result.data.data) {
-        const row = item as { id?: unknown; name?: unknown; isArchived?: unknown };
+        // null・文字列などのオブジェクトでない要素も、id・name の無い要素として扱う（TypeError にしない）
+        const row = (typeof item === "object" && item !== null ? item : {}) as { id?: unknown; name?: unknown; isArchived?: unknown };
         if (typeof row.id !== "string" || typeof row.name !== "string") {
           throw new IntegrationError("invalid_response", "n8n: 一覧の要素に id または name が無い");
         }

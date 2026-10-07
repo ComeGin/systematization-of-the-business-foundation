@@ -143,7 +143,7 @@
               "id": "detail",
               "name": "detail",
               "type": "string",
-              "value": "={{ (() => {\n  const u = $('未割り当ての会話を取る').first().json.data?.payload ?? [];\n  const nums = u.map(c => c.waiting_since).filter(s => s > 0);\n  const hours = nums.length ? Math.floor((Date.now() / 1000 - Math.min(...nums)) / 3600) : 0;\n  const total = Number($('未割り当ての会話を取る').first().json.data?.meta?.unassigned_count ?? 0);\n  const ids = u.slice(0, 10).map(c => '#' + c.id).join(' ');\n  return '未割り当て ' + total + ' 件／最も長い待ち ' + hours + ' 時間／未割り当ての会話 ' + (ids || 'なし') + (total > 10 ? ' ほか' : '');\n})() }}"
+              "value": "={{ (() => {\n  // payload が配列でない応答（オブジェクトなど）は 0 件として扱う。取得の成否は ok の式が判定する\n  const p = $('未割り当ての会話を取る').first().json.data?.payload;\n  const u = Array.isArray(p) ? p : [];\n  const nums = u.map(c => c.waiting_since).filter(s => s > 0);\n  const hours = nums.length ? Math.floor((Date.now() / 1000 - Math.min(...nums)) / 3600) : 0;\n  const total = Number($('未割り当ての会話を取る').first().json.data?.meta?.unassigned_count ?? 0);\n  const ids = u.slice(0, 10).map(c => '#' + c.id).join(' ');\n  return '未割り当て ' + total + ' 件／最も長い待ち ' + hours + ' 時間／未割り当ての会話 ' + (ids || 'なし') + (total > 10 ? ' ほか' : '');\n})() }}"
             }
           ]
         },

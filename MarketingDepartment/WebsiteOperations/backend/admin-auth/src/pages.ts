@@ -116,7 +116,8 @@ export function consentPage(): Page {
 }
 
 export function errorPage(code: string | null): Page {
-  const message = (code && ERROR_MESSAGES[code]) || DEFAULT_ERROR_MESSAGE;
+  // 自前のキーだけを見る（constructor・__proto__・toString などプロトタイプのプロパティを文言にしない）
+  const message = (code && Object.hasOwn(ERROR_MESSAGES, code) && ERROR_MESSAGES[code]) || DEFAULT_ERROR_MESSAGE;
   return layout(
     "ログインできません",
     `<h1>ログインできません</h1>

@@ -21,7 +21,7 @@ export const DateTimeSchema = z
   .string()
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/, "Use YYYY-MM-DD or an ISO 8601 date-time")
-  .describe("Date (YYYY-MM-DD, in the server's configured time zone) or ISO 8601 date-time");
+  .describe("Date (YYYY-MM-DD) or ISO 8601 date-time. A date, or a date-time without an offset, is read in the server's configured time zone");
 
 export const LabelsSchema = z.array(z.string().trim().min(1).max(255)).max(100);
 

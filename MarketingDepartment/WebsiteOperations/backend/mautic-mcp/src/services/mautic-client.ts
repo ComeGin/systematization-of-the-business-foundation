@@ -29,6 +29,18 @@ export class MauticApiError extends Error {
 }
 
 /**
+ * fetch 自身が投げた通信失敗（接続できない・名前解決できないなど）。
+ * ツール側で応答を整形している最中の TypeError（想定外の形の応答）と区別するため、fetch の TypeError だけをこれに包み直す。
+ * 元のエラーの文面は URL などを含みうるため message には入れず、cause にだけ持つ
+ */
+export class MauticNetworkError extends Error {
+  constructor(cause: unknown) {
+    super("Could not reach Mautic", { cause });
+    this.name = "MauticNetworkError";
+  }
+}
+
+/**
  * OAuth2 client_credentials でトークンを取得・キャッシュし、Mautic REST API を呼び出すクライアント。
  * プロセス内で 1 インスタンスを共有する前提（MCP のリクエストごとに作り直さない）。
  */
@@ -71,18 +83,21 @@ export class MauticClient {
       response = await this.#send(method, url, body);
     }
     if (!response.ok) throw await toApiError(response);
-    return response.text();
+    // 本文の受信中に接続が切れた場合も fetch と同じく TypeError になるため、通信失敗として扱う
+    return network(response.text());
   }
 
   async #send(method: string, url: URL, body?: unknown): Promise<Response> {
     const headers: Record<string, string> = { Authorization: `Bearer ${await this.#accessToken()}`, Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
-    return fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
+    return network(
+      fetch(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+      }),
+    );
   }
 
   async #accessToken(): Promise<string> {
@@ -97,24 +112,41 @@ export class MauticClient {
   }
 
   async #fetchToken(): Promise<string> {
-    const response = await fetch(`${this.#options.baseUrl}/oauth/v2/token`, {
-      method: "POST",
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: this.#options.clientId,
-        client_secret: this.#options.clientSecret,
+    const response = await network(
+      fetch(`${this.#options.baseUrl}/oauth/v2/token`, {
+        method: "POST",
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: this.#options.clientId,
+          client_secret: this.#options.clientSecret,
+        }),
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
       }),
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
+    );
     if (!response.ok) {
       const error = await toApiError(response);
       // トークン取得失敗は API 呼び出しの 401 と区別できるよう専用メッセージにする
       throw new MauticApiError(error.status, `Failed to obtain Mautic access token: ${error.message}`);
     }
 
-    const token = (await response.json()) as MauticTokenResponse;
-    this.#token = { value: token.access_token, expiresAt: Date.now() / 1000 + token.expires_in };
-    return token.access_token;
+    const token = (await network(response.json())) as Partial<MauticTokenResponse> | null;
+    const accessToken = token?.access_token;
+    const expiresIn = token?.expires_in;
+    // 形の違う成功応答のまま「Bearer undefined」で API を呼ばないよう、トークン取得の失敗にする
+    if (typeof accessToken !== "string" || accessToken === "" || typeof expiresIn !== "number" || !Number.isFinite(expiresIn)) {
+      throw new MauticApiError(response.status, "Failed to obtain Mautic access token: the token response has no access_token or numeric expires_in");
+    }
+    this.#token = { value: accessToken, expiresAt: Date.now() / 1000 + expiresIn };
+    return accessToken;
+  }
+}
+
+/** fetch（本文の受信を含む）が投げた TypeError を MauticNetworkError にする。タイムアウト（DOMException）や JSON の SyntaxError はそのまま投げる */
+async function network<T>(promise: Promise<T>): Promise<T> {
+  try {
+    return await promise;
+  } catch (error) {
+    throw error instanceof TypeError ? new MauticNetworkError(error) : error;
   }
 }
 
@@ -182,8 +214,15 @@ export function describeError(error: unknown, notFoundHint = "Verify the ID firs
   if (error instanceof SyntaxError) {
     return "Error: Mautic returned a non-JSON response. The endpoint may be unavailable in this Mautic version or behind a proxy error page.";
   }
-  if (error instanceof TypeError) {
+  if (error instanceof MauticNetworkError) {
     return "Error: Could not reach Mautic (network error). Check that Mautic and its public URL (ngrok) are running.";
+  }
+  // fetch の TypeError は MauticNetworkError に包み直してあるため、ここに来るのは応答の整形中の TypeError（contact がないなど）
+  if (error instanceof TypeError) {
+    return (
+      `Error: Unexpected response shape from Mautic (${error.message}). The request reached Mautic, but the response lacked expected fields ` +
+      "(the Mautic version may differ). Check the current state with the matching get or list tool before retrying a write."
+    );
   }
   return `Error: Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
 }

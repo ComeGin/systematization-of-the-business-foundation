@@ -1,8 +1,11 @@
 import * as z from "zod/v4";
 
+// 既定値のある変数は、空・空白だけなら未設定と同じに扱う（環境変数ファイルの空欄で起動が止まらないように）
+const blankAsUnset = (value: unknown) => (typeof value === "string" && value.trim() === "" ? undefined : value);
+
 const EnvSchema = z.object({
-  HOST: z.string().min(1).default("0.0.0.0"),
-  PORT: z.coerce.number().int().min(1).max(65_535).default(3104),
+  HOST: z.preprocess(blankAsUnset, z.string().min(1).default("0.0.0.0")),
+  PORT: z.preprocess(blankAsUnset, z.coerce.number().int().min(1).max(65_535).default(3104)),
   // 開発は redis://valkey:6379、本番（ElastiCache の TLS）は rediss://
   VALKEY_URL: z.string().regex(/^rediss?:\/\/.+/, "redis:// または rediss:// で始まる URL にしてください"),
   // AUTH トークン。空なら認証なし（開発のみ）
@@ -10,7 +13,7 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((value) => value || undefined),
-  VALKEY_KEY_PREFIX: z.string().min(1).max(64).default("consent:"),
+  VALKEY_KEY_PREFIX: z.preprocess(blankAsUnset, z.string().min(1).max(64).default("consent:")),
   // CORS で許すオリジン。パスが付いていてもオリジンだけに正規化する
   SITE_URL: z
     // スキームは url() の protocol で検査する（refine は url() の失敗後も動き、中の new URL() が例外を投げるため使わない）

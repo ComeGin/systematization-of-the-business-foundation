@@ -21,201 +21,258 @@ afterEach(() => {
 });
 
 describe("ノードの前提", () => {
-  it("Run Once for All Items の JavaScript で、本文は Webhook ノードから直接読む", () => {
-    expect(CODE.parameters).toMatchObject({ mode: "runOnceForAllItems", language: "javaScript" });
-    expect(referencedNodeNames(CODE.parameters.jsCode)).toEqual([WEBHOOK]);
+  describe("正常系", () => {
+    it("Run Once for All Items の JavaScript で、本文は Webhook ノードから直接読む", () => {
+      expect(CODE.parameters).toMatchObject({ mode: "runOnceForAllItems", language: "javaScript" });
+      expect(referencedNodeNames(CODE.parameters.jsCode)).toEqual([WEBHOOK]);
+    });
   });
 });
 
 describe("フォーム送信（mautic.form_on_submit）", () => {
-  it("README の確認用の本文から、1 件のイベントと冪等キー（contact_id|種別|秒）を作る", async () => {
-    const out = await run({ "mautic.form_on_submit": [{ submission: { id: 1, lead: { id: 1 }, form: { alias: "consult" } }, timestamp: TS }] });
-    expect(out).toEqual([
-      {
-        dedupKey: `1|mautic.form_on_submit|${SEC}`,
-        contactId: 1,
-        eventType: "mautic.form_on_submit",
-        timestampSec: SEC,
-        kind: "demo-requested",
-        topic: "comegin-lead-alert",
-        company: "",
-        formAlias: "consult",
-      },
-    ]);
+  describe("正常系", () => {
+    it("README の確認用の本文から、1 件のイベントと冪等キー（contact_id|種別|秒）を作る", async () => {
+      const out = await run({ "mautic.form_on_submit": [{ submission: { id: 1, lead: { id: 1 }, form: { alias: "consult" } }, timestamp: TS }] });
+      expect(out).toEqual([
+        {
+          dedupKey: `1|mautic.form_on_submit|${SEC}`,
+          contactId: 1,
+          eventType: "mautic.form_on_submit",
+          timestampSec: SEC,
+          kind: "demo-requested",
+          topic: "comegin-lead-alert",
+          company: "",
+          formAlias: "consult",
+        },
+      ]);
+    });
+
+    it("無料相談（consult）は demo-requested として通知の対象にし、会社名を submission.lead から取る", async () => {
+      const [ev] = await run({ "mautic.form_on_submit": [formSubmit(42, "consult")] });
+      expect(ev).toMatchObject({ contactId: 42, kind: "demo-requested", topic: "comegin-lead-alert", company: "株式会社テスト" });
+    });
+
+    it("無料 DL（source_dl / source-dl）などほかのフォームは、記録はするが通知しない（kind・topic が空）", async () => {
+      const out = await run({ "mautic.form_on_submit": [formSubmit(42, "source_dl"), formSubmit(43, "source-dl")] });
+      expect(out.map((e) => [e.contactId, e.kind, e.topic, e.formAlias])).toEqual([
+        [42, "", "", "source_dl"],
+        [43, "", "", "source-dl"],
+      ]);
+    });
   });
 
-  it("無料相談（consult）は demo-requested として通知の対象にし、会社名を submission.lead から取る", async () => {
-    const [ev] = await run({ "mautic.form_on_submit": [formSubmit(42, "consult")] });
-    expect(ev).toMatchObject({ contactId: 42, kind: "demo-requested", topic: "comegin-lead-alert", company: "株式会社テスト" });
-  });
+  describe("異常系", () => {
+    it("入力: コンタクトに紐づかない送信（lead が null）は読み飛ばす", async () => {
+      expect(await run({ "mautic.form_on_submit": [formSubmit(null, "consult")] })).toEqual([]);
+    });
 
-  it("無料 DL（source_dl / source-dl）などほかのフォームは、記録はするが通知しない（kind・topic が空）", async () => {
-    const out = await run({ "mautic.form_on_submit": [formSubmit(42, "source_dl"), formSubmit(43, "source-dl")] });
-    expect(out.map((e) => [e.contactId, e.kind, e.topic, e.formAlias])).toEqual([
-      [42, "", "", "source_dl"],
-      [43, "", "", "source-dl"],
-    ]);
-  });
-
-  it("コンタクトに紐づかない送信（lead が null）は読み飛ばす", async () => {
-    expect(await run({ "mautic.form_on_submit": [formSubmit(null, "consult")] })).toEqual([]);
+    it("空入力: フォームの alias が無い送信は、記録はするが通知しない（formAlias は空文字）", async () => {
+      const [ev] = await run({ "mautic.form_on_submit": [{ submission: { id: 1, lead: { id: 9 } }, timestamp: TS }] });
+      expect(ev).toMatchObject({ contactId: 9, kind: "", topic: "", formAlias: "" });
+    });
   });
 });
 
 describe("セグメント変更（mautic.lead_list_change）", () => {
   const listChange = (action, segment) => ({ contact: contact(7, "Acme"), segment, action, timestamp: TS });
 
-  it("mql に追加されたら mql として通知の対象にし、会社名を contact から取る", async () => {
-    const [ev] = await run({ "mautic.lead_list_change": [listChange("added", { id: 3, name: "MQL", alias: "mql" })] });
-    expect(ev).toMatchObject({ contactId: 7, eventType: "mautic.lead_list_change", kind: "mql", topic: "comegin-lead-alert", company: "Acme", formAlias: "" });
+  describe("正常系", () => {
+    it("mql に追加されたら mql として通知の対象にし、会社名を contact から取る", async () => {
+      const [ev] = await run({ "mautic.lead_list_change": [listChange("added", { id: 3, name: "MQL", alias: "mql" })] });
+      expect(ev).toMatchObject({ contactId: 7, eventType: "mautic.lead_list_change", kind: "mql", topic: "comegin-lead-alert", company: "Acme", formAlias: "" });
+    });
+
+    it("alias が無いときは name で mql を判定する", async () => {
+      const [ev] = await run({ "mautic.lead_list_change": [listChange("added", { id: 3, name: "mql" })] });
+      expect(ev.kind).toBe("mql");
+    });
+
+    it("mql から外れた（removed）ときは通知しない", async () => {
+      const [ev] = await run({ "mautic.lead_list_change": [listChange("removed", { id: 3, alias: "mql" })] });
+      expect(ev.kind).toBe("");
+    });
+
+    it("ほかのセグメントへの追加は通知しない", async () => {
+      const [ev] = await run({ "mautic.lead_list_change": [listChange("added", { id: 4, alias: "newsletter" })] });
+      expect(ev.kind).toBe("");
+    });
   });
 
-  it("alias が無いときは name で mql を判定する", async () => {
-    const [ev] = await run({ "mautic.lead_list_change": [listChange("added", { id: 3, name: "mql" })] });
-    expect(ev.kind).toBe("mql");
-  });
-
-  it("mql から外れた（removed）ときは通知しない", async () => {
-    const [ev] = await run({ "mautic.lead_list_change": [listChange("removed", { id: 3, alias: "mql" })] });
-    expect(ev.kind).toBe("");
-  });
-
-  it("ほかのセグメントへの追加は通知しない", async () => {
-    const [ev] = await run({ "mautic.lead_list_change": [listChange("added", { id: 4, alias: "newsletter" })] });
-    expect(ev.kind).toBe("");
+  describe("異常系", () => {
+    it("空入力: segment・action が無いセグメント変更は、記録はするが通知しない", async () => {
+      const [ev] = await run({ "mautic.lead_list_change": [{ contact: contact(7), timestamp: TS }] });
+      expect(ev).toMatchObject({ contactId: 7, kind: "", topic: "" });
+    });
   });
 });
 
 describe("コンタクトの作成・更新・ポイント変更", () => {
-  it("contact.id をコンタクト ID とし、通知の対象にはしない", async () => {
-    const out = await run({
-      "mautic.lead_post_save_new": [{ contact: contact(1), timestamp: TS }],
-      "mautic.lead_post_save_update": [{ contact: contact(2), timestamp: TS }],
-      "mautic.lead_points_change": [{ contact: contact(3), points: { old_points: 0, new_points: 10 }, timestamp: TS }],
+  describe("正常系", () => {
+    it("contact.id をコンタクト ID とし、通知の対象にはしない", async () => {
+      const out = await run({
+        "mautic.lead_post_save_new": [{ contact: contact(1), timestamp: TS }],
+        "mautic.lead_post_save_update": [{ contact: contact(2), timestamp: TS }],
+        "mautic.lead_points_change": [{ contact: contact(3), points: { old_points: 0, new_points: 10 }, timestamp: TS }],
+      });
+      expect(out.map((e) => [e.contactId, e.eventType, e.kind])).toEqual([
+        [1, "mautic.lead_post_save_new", ""],
+        [2, "mautic.lead_post_save_update", ""],
+        [3, "mautic.lead_points_change", ""],
+      ]);
     });
-    expect(out.map((e) => [e.contactId, e.eventType, e.kind])).toEqual([
-      [1, "mautic.lead_post_save_new", ""],
-      [2, "mautic.lead_post_save_update", ""],
-      [3, "mautic.lead_points_change", ""],
-    ]);
-  });
 
-  it("会社名が無ければ空文字にする", async () => {
-    const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: { id: 2 }, timestamp: TS }] });
-    expect(ev.company).toBe("");
+    it("空入力: 会社名が無ければ空文字にする", async () => {
+      const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: { id: 2 }, timestamp: TS }] });
+      expect(ev.company).toBe("");
+    });
   });
 });
 
 describe("イベントの分割", () => {
-  it("1 つの種別に複数のイベントがあれば、1 件ずつに分ける", async () => {
-    const out = await run({ "mautic.lead_post_save_update": [1, 2, 3].map((id) => ({ contact: contact(id), timestamp: TS })) });
-    expect(out.map((e) => e.contactId)).toEqual([1, 2, 3]);
-  });
-
-  it("1 回のフォーム送信で同じ秒に出る複数の種別は、別のキーにする（form_on_submit を重複と見なさない）", async () => {
-    const out = await run({
-      "mautic.lead_post_save_update": [{ contact: contact(5), timestamp: TS }],
-      "mautic.lead_points_change": [{ contact: contact(5), timestamp: TS }],
-      "mautic.lead_list_change": [{ contact: contact(5), segment: { alias: "other" }, action: "added", timestamp: TS }],
-      "mautic.form_on_submit": [formSubmit(5, "consult")],
+  describe("正常系", () => {
+    it("1 つの種別に複数のイベントがあれば、1 件ずつに分ける", async () => {
+      const out = await run({ "mautic.lead_post_save_update": [1, 2, 3].map((id) => ({ contact: contact(id), timestamp: TS })) });
+      expect(out.map((e) => e.contactId)).toEqual([1, 2, 3]);
     });
-    expect(new Set(out.map((e) => e.dedupKey)).size).toBe(4);
-    expect(out.find((e) => e.eventType === "mautic.form_on_submit").kind).toBe("demo-requested");
-  });
 
-  it("会社のイベントなど、コンタクトに紐づかないものは読み飛ばす", async () => {
-    const out = await run({
-      "mautic.company_post_save": [{ company: { id: 9, fields: {} }, timestamp: TS }],
-      "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: TS }],
+    it("1 回のフォーム送信で同じ秒に出る複数の種別は、別のキーにする（form_on_submit を重複と見なさない）", async () => {
+      const out = await run({
+        "mautic.lead_post_save_update": [{ contact: contact(5), timestamp: TS }],
+        "mautic.lead_points_change": [{ contact: contact(5), timestamp: TS }],
+        "mautic.lead_list_change": [{ contact: contact(5), segment: { alias: "other" }, action: "added", timestamp: TS }],
+        "mautic.form_on_submit": [formSubmit(5, "consult")],
+      });
+      expect(new Set(out.map((e) => e.dedupKey)).size).toBe(4);
+      expect(out.find((e) => e.eventType === "mautic.form_on_submit").kind).toBe("demo-requested");
     });
-    expect(out.map((e) => e.eventType)).toEqual(["mautic.lead_post_save_update"]);
+
+    it("空入力: 種別の配列が空（[]）なら、その種別からは何も出さない", async () => {
+      const out = await run({ "mautic.lead_post_save_new": [], "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: TS }] });
+      expect(out.map((e) => e.eventType)).toEqual(["mautic.lead_post_save_update"]);
+    });
   });
 
-  it("配列でない値（トップレベルの timestamp や単体のオブジェクト）は読み飛ばす", async () => {
-    const out = await run({ timestamp: TS, "mautic.lead_post_save_update": { contact: contact(1), timestamp: TS } });
-    expect(out).toEqual([]);
-  });
+  describe("異常系", () => {
+    it("入力: 会社のイベントなど、コンタクトに紐づかないものは読み飛ばす", async () => {
+      const out = await run({
+        "mautic.company_post_save": [{ company: { id: 9, fields: {} }, timestamp: TS }],
+        "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: TS }],
+      });
+      expect(out.map((e) => e.eventType)).toEqual(["mautic.lead_post_save_update"]);
+    });
 
-  it("配列の中の null や空のオブジェクトは読み飛ばす", async () => {
-    const out = await run({ "mautic.lead_post_save_update": [null, {}, { contact: {} }, { contact: contact(1), timestamp: TS }] });
-    expect(out.map((e) => e.contactId)).toEqual([1]);
-  });
+    it("入力: 配列でない値（トップレベルの timestamp や単体のオブジェクト）は読み飛ばす", async () => {
+      const out = await run({ timestamp: TS, "mautic.lead_post_save_update": { contact: contact(1), timestamp: TS } });
+      expect(out).toEqual([]);
+    });
 
-  it("本文が空・無いときは何も出さない", async () => {
-    expect(await run({})).toEqual([]);
-    expect(await run(undefined)).toEqual([]);
+    it("入力: 配列の中の null や空のオブジェクトは読み飛ばす", async () => {
+      const out = await run({ "mautic.lead_post_save_update": [null, {}, { contact: {} }, { contact: contact(1), timestamp: TS }] });
+      expect(out.map((e) => e.contactId)).toEqual([1]);
+    });
+
+    it("入力: 本文が JSON のオブジェクトでない（文字列・数）ときは何も出さず、例外にしない", async () => {
+      expect(await run("mautic.form_on_submit")).toEqual([]);
+      expect(await run(42)).toEqual([]);
+    });
+
+    it("空入力: 本文が空・無いときは何も出さない", async () => {
+      expect(await run({})).toEqual([]);
+      expect(await run(undefined)).toEqual([]);
+    });
+
+    it("空入力: 本文が null のときも何も出さない", async () => {
+      expect(await run(null)).toEqual([]);
+    });
   });
 });
 
 describe("重複排除のキー", () => {
-  it("同じ本文の再送は、同じキーになる（Data Table で弾ける）", async () => {
-    const body = { "mautic.form_on_submit": [formSubmit(1, "consult")] };
-    expect((await run(body)).map((e) => e.dedupKey)).toEqual((await run(structuredClone(body))).map((e) => e.dedupKey));
-  });
-
-  it("1 つの本文の中で同じコンタクト・種別・秒が重なれば、1 件にまとめる", async () => {
-    const out = await run({
-      "mautic.lead_post_save_update": [
-        { contact: contact(1), timestamp: "2026-10-04T10:00:00.100+09:00" },
-        { contact: contact(1), timestamp: "2026-10-04T10:00:00.900+09:00" },
-      ],
+  describe("正常系", () => {
+    it("同じ本文の再送は、同じキーになる（Data Table で弾ける）", async () => {
+      const body = { "mautic.form_on_submit": [formSubmit(1, "consult")] };
+      expect((await run(body)).map((e) => e.dedupKey)).toEqual((await run(structuredClone(body))).map((e) => e.dedupKey));
     });
-    expect(out).toHaveLength(1);
-    expect(out[0].timestampSec).toBe(SEC);
-  });
 
-  it("秒が違えば別のキーにする（別の時刻の意思表示は別の行動）", async () => {
-    const out = await run({
-      "mautic.lead_post_save_update": [
-        { contact: contact(1), timestamp: "2026-10-04T10:00:00+09:00" },
-        { contact: contact(1), timestamp: "2026-10-04T10:00:01+09:00" },
-      ],
+    it("1 つの本文の中で同じコンタクト・種別・秒が重なれば、1 件にまとめる", async () => {
+      const out = await run({
+        "mautic.lead_post_save_update": [
+          { contact: contact(1), timestamp: "2026-10-04T10:00:00.100+09:00" },
+          { contact: contact(1), timestamp: "2026-10-04T10:00:00.900+09:00" },
+        ],
+      });
+      expect(out).toHaveLength(1);
+      expect(out[0].timestampSec).toBe(SEC);
     });
-    expect(out.map((e) => e.timestampSec)).toEqual([SEC, SEC + 1]);
-  });
 
-  it("タイムゾーンの表記が違っても、同じ時刻なら同じ秒になる", async () => {
-    const [a] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "2026-10-04T10:00:00+09:00" }] });
-    const [b] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "2026-10-04T01:00:00+00:00" }] });
-    expect(a.dedupKey).toBe(b.dedupKey);
-  });
-
-  it("イベントに timestamp が無ければ、本文のトップレベルの timestamp を使う", async () => {
-    const [ev] = await run({ timestamp: TS, "mautic.lead_post_save_update": [{ contact: contact(1) }] });
-    expect(ev.timestampSec).toBe(SEC);
-  });
-
-  it("どちらの timestamp も読めなければ、受信時刻（秒）で代用する", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-05T12:34:56.789Z"));
-    const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "not-a-date" }] });
-    expect(ev.timestampSec).toBe(Date.parse("2026-10-05T12:34:56Z") / 1000);
-    expect(ev.dedupKey).toBe(`1|mautic.lead_post_save_update|${ev.timestampSec}`);
-  });
-
-  it("キーと記録する列には、email や氏名などの個人情報を入れない", async () => {
-    const [ev] = await run({
-      "mautic.form_on_submit": [{ submission: { id: 1, lead: { id: 1, fields: { core: { email: { value: "a@example.com" }, firstname: { value: "太郎" } } } }, form: { alias: "consult" } }, timestamp: TS }],
+    it("秒が違えば別のキーにする（別の時刻の意思表示は別の行動）", async () => {
+      const out = await run({
+        "mautic.lead_post_save_update": [
+          { contact: contact(1), timestamp: "2026-10-04T10:00:00+09:00" },
+          { contact: contact(1), timestamp: "2026-10-04T10:00:01+09:00" },
+        ],
+      });
+      expect(out.map((e) => e.timestampSec)).toEqual([SEC, SEC + 1]);
     });
-    expect(JSON.stringify(ev)).not.toContain("a@example.com");
-    expect(JSON.stringify(ev)).not.toContain("太郎");
+
+    it("タイムゾーンの表記が違っても、同じ時刻なら同じ秒になる", async () => {
+      const [a] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "2026-10-04T10:00:00+09:00" }] });
+      const [b] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "2026-10-04T01:00:00+00:00" }] });
+      expect(a.dedupKey).toBe(b.dedupKey);
+    });
+
+    it("空入力: イベントに timestamp が無ければ、本文のトップレベルの timestamp を使う", async () => {
+      const [ev] = await run({ timestamp: TS, "mautic.lead_post_save_update": [{ contact: contact(1) }] });
+      expect(ev.timestampSec).toBe(SEC);
+    });
+
+    it("キーと記録する列には、email や氏名などの個人情報を入れない", async () => {
+      const [ev] = await run({
+        "mautic.form_on_submit": [{ submission: { id: 1, lead: { id: 1, fields: { core: { email: { value: "a@example.com" }, firstname: { value: "太郎" } } } }, form: { alias: "consult" } }, timestamp: TS }],
+      });
+      expect(JSON.stringify(ev)).not.toContain("a@example.com");
+      expect(JSON.stringify(ev)).not.toContain("太郎");
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: どちらの timestamp も読めなければ、受信時刻（秒）で代用する", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-05T12:34:56.789Z"));
+      const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1), timestamp: "not-a-date" }] });
+      expect(ev.timestampSec).toBe(Date.parse("2026-10-05T12:34:56Z") / 1000);
+      expect(ev.dedupKey).toBe(`1|mautic.lead_post_save_update|${ev.timestampSec}`);
+    });
+
+    it("空入力: どこにも timestamp が無ければ、受信時刻（秒）で代用する", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-05T00:00:00Z"));
+      const [ev] = await run({ "mautic.lead_post_save_update": [{ contact: contact(1) }] });
+      expect(ev.timestampSec).toBe(Date.parse("2026-10-05T00:00:00Z") / 1000);
+    });
   });
 });
 
 describe("後続のノードとのつながり", () => {
-  it("冪等キーの記録（dedup_mautic への insert）が使う $json の項目は、すべて Code ノードの出力にある", async () => {
-    const [ev] = await run({ "mautic.form_on_submit": [formSubmit(1, "consult")] });
-    const insert = getNode(wf, "冪等キーを記録");
-    const used = Object.values(insert.parameters.columns.value).flatMap((v) => [...String(v).matchAll(/\$json\.(\w+)/g)].map((m) => m[1]));
-    expect(used.length).toBeGreaterThan(0);
-    for (const key of used) expect(ev, key).toHaveProperty(key);
-  });
+  describe("正常系", () => {
+    it("冪等キーの記録（dedup_mautic への insert）が使う $json の項目は、すべて Code ノードの出力にある", async () => {
+      const [ev] = await run({ "mautic.form_on_submit": [formSubmit(1, "consult")] });
+      const insert = getNode(wf, "冪等キーを記録");
+      const used = Object.values(insert.parameters.columns.value).flatMap((v) => [...String(v).matchAll(/\$json\.(\w+)/g)].map((m) => m[1]));
+      expect(used.length).toBeGreaterThan(0);
+      for (const key of used) expect(ev, key).toHaveProperty(key);
+    });
 
-  it("I-21 の呼び出しに渡す項目（kind・contactId・company・timestampSec）は Code ノードの出力にある", async () => {
-    const [ev] = await run({ "mautic.form_on_submit": [formSubmit(1, "consult")] });
-    const call = getNode(wf, "I-21 通知を呼ぶ");
-    const used = Object.values(call.parameters.workflowInputs.value).flatMap((v) => [...String(v).matchAll(/\('イベント分割とキー生成'\)\.item\.json\.(\w+)/g)].map((m) => m[1]));
-    expect(new Set(used)).toEqual(new Set(["kind", "contactId", "company", "timestampSec"]));
-    for (const key of used) expect(ev, key).toHaveProperty(key);
+    it("I-21 の呼び出しに渡す項目（kind・contactId・company・timestampSec）は Code ノードの出力にある", async () => {
+      const [ev] = await run({ "mautic.form_on_submit": [formSubmit(1, "consult")] });
+      const call = getNode(wf, "I-21 通知を呼ぶ");
+      const used = Object.values(call.parameters.workflowInputs.value).flatMap((v) => [...String(v).matchAll(/\('イベント分割とキー生成'\)\.item\.json\.(\w+)/g)].map((m) => m[1]));
+      expect(new Set(used)).toEqual(new Set(["kind", "contactId", "company", "timestampSec"]));
+      for (const key of used) expect(ev, key).toHaveProperty(key);
+    });
+
+    it("I-21 に渡す detail は空（lead の通知には内訳を付けない。個人情報を載せない）", () => {
+      expect(getNode(wf, "I-21 通知を呼ぶ").parameters.workflowInputs.value.detail).toBe("");
+    });
   });
 });

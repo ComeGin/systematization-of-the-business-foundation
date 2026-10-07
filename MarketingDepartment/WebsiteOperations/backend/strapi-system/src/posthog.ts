@@ -1,7 +1,10 @@
 import { PostHog } from 'posthog-node';
 
-const projectToken = process.env.POSTHOG_PROJECT_TOKEN;
-const host = process.env.POSTHOG_HOST;
+// 前後の空白を外し、空白だけ（引用符つきの '   ' など）の値は未設定として扱う
+const readEnv = (name: string) => process.env[name]?.trim() || undefined;
+
+const projectToken = readEnv('POSTHOG_PROJECT_TOKEN');
+const host = readEnv('POSTHOG_HOST');
 
 const requireInDevelopment = (value: string | undefined, variableName: string) => {
   if (!value && process.env.NODE_ENV !== 'production') {

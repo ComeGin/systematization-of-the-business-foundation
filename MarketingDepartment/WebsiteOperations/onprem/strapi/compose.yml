@@ -51,7 +51,8 @@ services:
       UPLOAD_S3_REGION: ${UPLOAD_S3_REGION:-ap-northeast-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?.env に AWS_ACCESS_KEY_ID（IAM ユーザー onprem-strapi-media のキー。人が入れる）を設定してください}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?.env に AWS_SECRET_ACCESS_KEY を設定してください}
-      # イメージは NODE_ENV=production のため、PostHog の設定が無いと起動しない（src/posthog.ts）
+      # イメージは NODE_ENV=production のため、src/posthog.ts は設定が無くても例外にせず黙って送らない
+      # （例外にするのは本番以外だけ）。本番でイベントを落とさないよう、トークンの未設定はここの ${...:?} で起動前に止める
       POSTHOG_PROJECT_TOKEN: ${POSTHOG_PROJECT_TOKEN:?.env に POSTHOG_PROJECT_TOKEN（本番のプロジェクトのトークン）を設定してください}
       POSTHOG_HOST: ${POSTHOG_HOST:-https://us.i.posthog.com}
     security_opt:

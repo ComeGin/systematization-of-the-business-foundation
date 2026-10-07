@@ -82,7 +82,8 @@ export async function check(ctx) {
   notes.push(`GET /healthz: ${up ? "200" : "応答なし（apply で compose up）"}`);
   if (!up) return { ok: false, notes };
   const settings = await ctx.http("n8n", `${BASE}/rest/settings`).catch(() => null);
-  const ownerOk = settings && settings.data?.userManagement?.showSetupOnFirstLoad === false;
+  // 設定が読めない（null）ときも boolean の false にする（契約: check の ok は boolean）
+  const ownerOk = settings?.data?.userManagement?.showSetupOnFirstLoad === false;
   notes.push(`オーナー: ${ownerOk ? "作成済み" : "まだ（apply で作る）"}`);
   const apiOk = await apiKeyWorks(ctx, ctx.value("N8N_API_KEY"));
   notes.push(`N8N_API_KEY: ${apiOk ? "使える" : ctx.value("N8N_API_KEY") ? "使えない（apply で作り直す）" : "まだ"}`);

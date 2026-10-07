@@ -5,7 +5,7 @@
 //   (a) 成果物なし: success で終わったエージェントの run があるのに、そのエージェントが書くはずの
 //       docs/audits/<source>/ に当日分（AUD-<西暦>-<月日>-<source>-*）が 1 件も無い。
 //   (b) 未起動: スケジューラが有効で、定義が enabled のジョブの起動時刻を過ぎている（猶予 10 分）のに、
-//       そのジョブの run が（skipped を含めて）1 件も無い。
+//       その起動の窓（起動時刻の 1 分前から次の起動時刻の 1 分前まで）に、そのジョブの run が（skipped・手動を含めて）1 件も無い。
 // 検出しないもの（README に記載）: 開発機・監視アプリ自身の停止（ハートビートの役目）、成果物の中身の正しさ。
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,6 +17,8 @@ import { TIMEZONE, auditDayKey, jstDayStart, toIsoJst } from "../time.js";
 
 /** 起動時刻からこの時間を過ぎても run が無ければ「未起動」とみなす */
 const GRACE_MS = 10 * 60 * 1000;
+/** 起動時刻のこの時間前からの run も、その起動として数える */
+const SLACK_MS = 60 * 1000;
 
 async function hasTodaysAudit(worktree: string, source: string, dayKey: string): Promise<boolean> {
   try {
@@ -63,9 +65,19 @@ export const silenceCheck: BuiltinHandler = async ({ ctx, runId }) => {
         expected.push(next);
         next = cron.nextRun(next);
       }
+      // 手動の run（trigger=manual）も、そのジョブの起動として数える
       const jobRuns = todaysRuns.filter((run) => run.jobId === job.id);
       for (const fireAt of expected) {
-        const ran = jobRuns.some((run) => Date.parse(run.startedAt) >= fireAt.getTime() - 60_000);
+        // その起動の窓 = [起動時刻 − 余裕, 次の起動時刻 − 余裕)。上限が無いと、後の起動の run が前の起動の欠落を隠す。
+        // 余裕は 1 分（少し早い手動の run を数える）だが、間隔の半分を超えない（毎分のジョブで、数秒遅れの run が次の窓に入らないように）
+        const nextAt = cron.nextRun(fireAt)?.getTime() ?? Number.POSITIVE_INFINITY;
+        const slack = Math.min(SLACK_MS, (nextAt - fireAt.getTime()) / 2);
+        const from = fireAt.getTime() - slack;
+        const until = nextAt - slack;
+        const ran = jobRuns.some((run) => {
+          const startedAt = Date.parse(run.startedAt);
+          return startedAt >= from && startedAt < until;
+        });
         if (!ran) {
           findings.push(`未起動: ${job.id}（${toIsoJst(fireAt).slice(11, 16)}）`);
           targets.push(`job:${job.id}`);

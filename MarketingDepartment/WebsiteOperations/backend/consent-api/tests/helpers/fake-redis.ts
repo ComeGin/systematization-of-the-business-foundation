@@ -6,7 +6,9 @@ type Failable = "exec" | "exists" | "xlen" | "xadd" | "xrevrange";
 /**
  * ConsentStore が使うコマンド（pipeline の exists/xlen・xadd・xrevrange）だけを持つ Valkey の偽物。
  * Stream は Map に持つ。fail に入れたコマンドはその Error で失敗する。
- * 実装していないコマンド（expire・xtrim など）に触れると unexpected に名前を残し、呼べば例外にする
+ * 実装していないコマンド（expire・xtrim など）に触れると unexpected に名前を残し、呼べば例外にする。
+ * 遅延や Error でない値での失敗を再現したいときは、テストの中で xadd・xrevrange をインスタンスごとに上書きする
+ * （restoreMocks が true のため vi.fn の実装には頼らない）
  */
 export class FakeRedis {
   readonly streams = new Map<string, Entry[]>();
@@ -15,6 +17,8 @@ export class FakeRedis {
   fail: Partial<Record<Failable, Error>> = {};
   /** pipeline().exec() が null を返す状態（ioredis では接続が無いときなどに起こる） */
   execReturnsNull = false;
+  /** pipeline().exec() が返す結果を差し替える（件数が足りない・形が違うなど、想定外の応答を再現する） */
+  execResult: Array<[Error | null, unknown]> | undefined = undefined;
   private seq = 0;
 
   /** Redis 型として渡すための入口。未実装のコマンドへのアクセスを記録する */
@@ -55,6 +59,7 @@ export class FakeRedis {
       exec: async (): Promise<Array<[Error | null, unknown]> | null> => {
         if (this.fail.exec) throw this.fail.exec;
         if (this.execReturnsNull) return null;
+        if (this.execResult) return this.execResult;
         return ops.map(({ name, run }) => {
           const error = this.fail[name];
           return error ? [error, null] : [null, run()];

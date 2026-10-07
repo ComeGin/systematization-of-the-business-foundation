@@ -112,6 +112,8 @@ claude mcp add --transport http chatwoot http://127.0.0.1:3102/mcp \
 ```
 
 HTTP で使う場合は `.env` に `TRANSPORT=http` と `MCP_AUTH_TOKEN`（32 文字以上）を設定する。
+stdio では `MCP_AUTH_TOKEN` は不要で、`.env.example` のまま空にしておけば未設定と同じに扱う（`MCP_ALLOWED_HOSTS` も、空なら未設定と同じ）。
+ポートが使用中などで待ち受けられないときは `[chatwoot-mcp-server] failed to listen on 127.0.0.1:3102 (EADDRINUSE)` を出して終了するので、`PORT` を変える。
 
 ## 動作確認
 

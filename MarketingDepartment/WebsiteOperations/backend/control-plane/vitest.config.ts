@@ -9,5 +9,8 @@ export default defineConfig({
     restoreMocks: true,
     unstubEnvs: true,
     unstubGlobals: true,
+    // vi.resetModules() のあとの import の初回の変換が、並列実行の負荷で既定の 5 秒を超えることがあるため（全パッケージで同じ値）
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

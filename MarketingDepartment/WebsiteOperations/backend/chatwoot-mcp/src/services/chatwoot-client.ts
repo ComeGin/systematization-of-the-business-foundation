@@ -28,6 +28,18 @@ export class ChatwootApiError extends Error {
 }
 
 /**
+ * fetch 自身が投げた通信失敗（接続できない・名前解決できないなど）。
+ * ツール側で応答を整形している最中の TypeError（想定外の形の応答）と区別するため、fetch の TypeError だけをこれに包み直す。
+ * 元のエラーの文面は URL などを含みうるため message には入れず、cause にだけ持つ
+ */
+export class ChatwootNetworkError extends Error {
+  constructor(cause: unknown) {
+    super("Could not reach Chatwoot", { cause });
+    this.name = "ChatwootNetworkError";
+  }
+}
+
+/**
  * Chatwoot Application API のクライアント。
  * 認証はユーザーのアクセストークン（api_access_token ヘッダー）。権限はトークンを発行したユーザーのロールで決まる。
  */
@@ -54,16 +66,28 @@ export class ChatwootClient {
     const headers: Record<string, string> = { api_access_token: this.#options.accessToken, Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
 
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
+    const response = await network(
+      fetch(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+      }),
+    );
     if (!response.ok) throw await toApiError(response);
 
-    const text = await response.text();
+    // 本文の受信中に接続が切れた場合も fetch と同じく TypeError になるため、通信失敗として扱う
+    const text = await network(response.text());
     return (text.trim() === "" ? null : JSON.parse(text)) as T;
+  }
+}
+
+/** fetch（本文の受信を含む）が投げた TypeError を ChatwootNetworkError にする。タイムアウト（DOMException）などはそのまま投げる */
+async function network<T>(promise: Promise<T>): Promise<T> {
+  try {
+    return await promise;
+  } catch (error) {
+    throw error instanceof TypeError ? new ChatwootNetworkError(error) : error;
   }
 }
 
@@ -139,8 +163,15 @@ export function describeError(error: unknown, notFoundHint = "Verify the ID firs
   if (error instanceof SyntaxError) {
     return "Error: Chatwoot returned a non-JSON response. The endpoint may be unavailable in this Chatwoot version or behind a proxy error page.";
   }
-  if (error instanceof TypeError) {
+  if (error instanceof ChatwootNetworkError) {
     return "Error: Could not reach Chatwoot (network error). Check that the Chatwoot containers are running and CHATWOOT_BASE_URL is correct.";
+  }
+  // fetch の TypeError は ChatwootNetworkError に包み直してあるため、ここに来るのは応答の整形中の TypeError（payload がないなど）
+  if (error instanceof TypeError) {
+    return (
+      `Error: Unexpected response shape from Chatwoot (${error.message}). The request reached Chatwoot, but the response lacked expected fields ` +
+      "(the Chatwoot version may differ). Check the current state with the matching get or list tool before retrying a write."
+    );
   }
   return `Error: Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
 }
