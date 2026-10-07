@@ -35,7 +35,7 @@ export function GoogleSignIn({ configured, error }: { configured: boolean; error
     <Container
       header={
         <Header variant="h2" description="comegin.com の Google アカウントで、許可された人だけがログインできます">
-          ログイン
+          Google（Workspace）
         </Header>
       }
     >
