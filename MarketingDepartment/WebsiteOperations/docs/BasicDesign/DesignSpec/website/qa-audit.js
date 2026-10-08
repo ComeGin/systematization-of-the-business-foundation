@@ -1,7 +1,30 @@
 /* =============================================================================
- * Web サイト Figma の検査スクリプト（qa-audit）— 改訂 2 版
+ * Web サイト Figma の検査スクリプト（qa-audit）— 改訂 3 版
  *
  * ■ 改訂の経緯
+ *   3 版 2026-10-08: **ブランドガイドライン 1.3 と創業計画書（GTM）の反映**に合わせて追加。
+ *     計画書は `docs/superpowers/plans/2026-10-08-website-figma-gl13-gtm.md`（リポジトリ直下から）
+ *     - 正本の表記をブランドガイドライン 1.3（`~/ComeGin/comegin/documents/ブランドガイドライン.md`）に。
+ *       トークンとロゴは 1.2 から変わっていないので、色・書体・寸法の検査は変えていない
+ *     - T8 **旧文言の検出**（LEGACY_COPY）。改行と空白を取り除いてから探す
+ *       （タグラインは「福祉の言葉と、／技術の言葉を。」と改行が入っているため）。
+ *       TEXT・隠れた componentProperties・dev annotation・部品の既定値まで見る
+ *     - T9 **新文言の完全一致**（NEW_COPY）。改行を除き空白を 1 つに詰めたうえでの一致を
+ *       「完全一致」、空白だけが違うものを「空白違い」として分ける
+ *     - S10 **状態フレームの網羅**（STATE_FRAMES）。`10 Top` の本体と複製 5 フレームで
+ *       T8・T9 の結果が同じかをフレームごとに集計する（複製は instance ではないので、
+ *       本体だけ直すと複製に旧文言が残る）
+ *     - **G-B の後（同日）**: LEGACY_COPY を ia-copy の最終版 36 項目に差し替え（業務理念とビジョンは
+ *       新版でも残るので旧文言にしない）。「75.4」は 15 Blog の 7-3 にだけ D/M で計 2 件あることを確かめる
+ *       （KEEP_ONLY）。新文言に場所の指定と事業内容を追加（業務理念は 10 Top の h1 ではなく 1-4a の h2）。
+ *       T10 折り返しの位置（推定）と F1/F2 FormField の検査を追加
+ *     - **同日の追加（lead の依頼）**: T5' 区間ごとの和欧混植（違反.和文にPoppins）。TEXT プロパティの値が
+ *       数字や欧文で始まると和文の区間まで Poppins になり、ノード単位の Noto漏れでは拾えなかった
+ *       （builder-sales の 3 ページで 19 件）。逆向きの「欧文・数字の区間が Noto Sans JP」は参考
+ *       （欧文にNoto区間）に出す。S9 は 3 列（本文幅 318px）の下限を 19 字にした（§0.3）。
+ *       再検査用に OUTPUT='compact'（違反を D/M に分けて数える）を追加
+ *     - 2 版の自己テストが `isVisibleSurface` / `isolationGap` を定義より前に呼んでいて、
+ *       `const` の TDZ で**実行の冒頭で例外になっていた**。2 つを function 宣言に変えた
  *   初版 2026-09-20: 18 項目。アクセント色 emerald・欧文 Inter の前提で書いた
  *   2 版 2026-10-01: **ブランドガイドライン 1.2 の全面適用**に合わせて全面改訂。
  *     - 許可フォントを Poppins / Noto Sans JP / JetBrains Mono に差し替え
@@ -25,13 +48,23 @@
  *   2. このファイルの中身をまるごと `use_figma` の `code` に貼って実行する
  *      （`figma:figma-use` スキルを先に読み込むこと。`skillNames` に "figma-use" を渡す）
  *   3. 戻り値の JSON を読む。`自己テスト合格: true` を先に確かめる。false なら結果を信用しない
+ *   ※ **3 版でファイルが `use_figma` の `code` の上限（50,000 字）を超えた**（約 7.5 万字）。
+ *      コメントを落としてから貼る。esbuild の `--minify --charset=utf8` で約 3.4 万字になる
+ *      （全体を `async function(){ … }` で包んで縮め、包みを外す。`figma` を引数にしないこと。
+ *      引数にすると名前が縮められて `figma` が未定義になる）。
+ *      縮めると `String.fromCharCode(0x2028)` が `"\u2028"` に畳まれる。**貼る前に元に戻す**
+ *      （`\uXXXX` は送信経路で生の文字に戻され、U+2028 が行終端になって構文エラーになる）
+ *   ※ 戻り値は 20,480 バイトが上限。既定（OUTPUT = 'summary'）は件数と T8/T9/S10 と違反の例だけを返す。
+ *      違反の全件は OUTPUT にキー（'違反.コントラスト' など）を入れて取り直す
  *   ※ 複数ページを見るときは、1 回の `use_figma` につき 1 ページ。
  *      `setCurrentPageAsync` は 1 回だけ呼ぶこと（スキルの Page Rules）。
  *      並行して見たいときは、ページごとに別の `use_figma` 呼び出しを同じメッセージで並べる。
  *
  * ■ 前提
  *   fileKey : JRYPLER6E0liA7cUurIhSo
- *   正本    : 色・寸法・書体 = `Assets/tokens/tokens.json` / 規定 = ブランドガイドライン 1.2
+ *   正本    : 色・寸法・書体 = `~/ComeGin/comegin/assets/tokens/`（1.2 から変更なし）
+ *             規定 = ブランドガイドライン 1.3（`~/ComeGin/comegin/documents/ブランドガイドライン.md`）
+ *             業務理念 = 創業計画書（`~/ComeGin/comegin/documents/創業計画書.md` 第1項）
  *             コピー・CTA・計測 = `01-content-spec.md` / 部品 = `02-component-map.md`
  *   ページ ID :
  *     0:1  00 Cover            4:2  01 Sitemap         4:3  02 Foundations
@@ -65,9 +98,15 @@
  *     T2 単位・助数詞の密着      (違反.単位の空き)          §6.4-4
  *     T3 和欧間の四分アキ        (違反.四分アキ欠落 / 違反.句読点後の空白)  §6.4-2
  *     T4 一文 60 字             (違反.一文60字超)          §6.4-9（法務 2 ページと同意バナーは 80 字）
- *     T5 和欧混植               (違反.Poppins漏れ / 違反.Noto漏れ)
+ *     T5 和欧混植               (違反.Poppins漏れ / 違反.Noto漏れ / 違反.和文にPoppins / 参考の 欧文にNoto区間)
  *     T6 コピー一致             (コピーの欠落)             EXPECTED との突き合わせ
  *     T7 プレースホルダ          (違反.プレースホルダ)       kit 既定の文言
+ *     T8 旧文言（GL 1.3 で廃止）  (違反.旧文言 / 旧文言の件数)  LEGACY_COPY。改行・空白を除いて探す
+ *     T9 新文言の完全一致        (新文言)                   NEW_COPY。そのページの決めた場所にあるべき文字列
+ *     T10 折り返しの位置         (折り返しの疑い)            数字と単位の間・末尾 1 字・2 字語の途中。推定なので要目視
+ *   部品の使い方
+ *     F1 FormField の入れ忘れ    (違反.FormField入れ忘れ)    Select・Radio に既定値「メールアドレス」が見えている
+ *     F2 必須と任意の同時表示     (違反.FormField必須と任意)  Show optional=true なのに「必須」も見えている
  *   見えない場所
  *     H1 隠れた旧文言            (違反.隠れた旧文言)        componentProperties を全 instance 走査
  *     H2 閉じた Accordion       (閉じたFAQ)               State=Closed の Answer の値
@@ -81,7 +120,8 @@
  *     S6 複製と本体の一致        (複製の照合)              CLONE_PAIRS
  *     S7 placeholder 残り       (違反.placeholder残り)    作りかけのシマー
  *     S8 Device スタイル         (違反.Deviceスタイル)      Mobile への JP/Desktop/* の混入
- *     S9 段組みの字数            (違反.段組みの字数)
+ *     S9 段組みの字数            (違反.段組みの字数)       3 列（本文幅 318px）は 19 字、ほかは 20 字が下限
+ *     S10 状態フレームの網羅      (フレーム別の文言 / 状態フレームの網羅)  STATE_FRAMES
  *   視覚（文字切れ・重なり・はみ出し）はこのスクリプトの対象外。
  *   返ったフレーム ID を `get_screenshot` で見る。
  *
@@ -91,12 +131,16 @@
  *                          `kit内側` フラグが立っているものは許容。自前フレームだけが本物
  *     - 違反.Deviceスタイル: Body・Small・Caption は D/M で値が完全同値。
  *                          値が違う Display・H1〜H4・Body L が出たときだけ本物の違反
- *     - 違反.段組みの字数  : `IconCard` を 3 列で使う箇所は約 19.3 字（許容済み）
+ *     - 違反.段組みの字数  : `IconCard` を 3 列で使う箇所（本文幅 318px・約 19.3〜19.9 字）は
+ *                          下限を 19 字にして違反から外した（§0.3）。ほかの狭い段は件数に出る
  *     - 違反.未バインド塗り: `Pagination Number Button - Nova` の不可視の塗り 4 件（15 Blog）
  *   ダミーの `【要記入】`『要確認』は**残っているのが正**。消えていたら逆に指摘する。
  *   ほかの項目は 0 が正常。0 でなければ直す。
  *
  * ■ 過去に踏んだ落とし穴（このスクリプトで塞いである）
+ *   - 複数ページを 1 回で回そうとして `page.loadAsync()` で読むと、instance の中身が読み込まれず
+ *     **走査するノードが黙って減る**（2026-10-08。12 Pricing で 798 → 156 ノード、11 Services の
+ *     Device スタイル 11 件が 0 件に見えた）。1 回の `use_figma` で 1 ページ、`setCurrentPageAsync` で開く
  *   - 色の検査は 4 本必要。1 本では移行漏れが残る → C1 / C2 / C3 / C4
  *   - ライブラリ変数を名前で絞ると `alpha/*` を落とす → C3 は remote === true で数える
  *   - **「変数を削除した」は「参照が消えた」ではない。** Figma は削除済み変数を、参照が
@@ -124,12 +168,18 @@
 const PAGE_ID = '4:5';          // ← 検査するページの ID（上の一覧から選ぶ）
 const IS_MOBILE_FRAME = /Mobile|\/ M$|390/;  // Mobile フレームの判定（S8 で使う）
 const CAP = 40;                 // 一覧に載せる件数の上限（件数自体は全件数える）
+// 戻り値の形。'summary'（既定。件数・T8/T9/S10・違反の例 2 件ずつ）／ 'full' ／
+// 'compact'（再検査用。違反を D/M に分けて数え、例は 2 件）／
+// キーの指定（'違反.コントラスト' など。そのキーだけを返す）。どれも OUTPUT_LIMIT に収める
+const OUTPUT = 'summary';
+const OUTPUT_LIMIT = 19000;     // `use_figma` の戻り値の上限は 20,480 バイト。余裕を残す
 
 // 一文 80 字まで許す画面（D-3 の例外）。法務 2 ページと Cookie 同意バナー
 const LONG_SENTENCE_OK = /Legal|法務|privacy|tokushoho|プライバシー|特定商取引|Cookie|同意/i;
 
 // ---------------------------------------------------------------------------
-// 正本の値（`Assets/tokens/tokens.json` と ブランドガイドライン 1.2 から写す）
+// 正本の値（`~/ComeGin/comegin/assets/tokens/` と ブランドガイドライン 1.3 から写す。
+// 色・書体・寸法は 1.2 から変わっていない）
 // ---------------------------------------------------------------------------
 const ALLOWED_FONTS = ['Poppins', 'Noto Sans JP', 'JetBrains Mono'];
 
@@ -221,6 +271,99 @@ const OLD_PHRASES = [
 ];
 
 // ---------------------------------------------------------------------------
+// T8: G-B（2026-10-08）の後に Figma から消えるべき旧文言。**ia-copy の最終版（36 項目）を写した。**
+// 1 項目は [文言, 理由, 一致の仕方]。一致の仕方を省くと「含む」、'exact' は TEXT 全体と一致したときだけ、
+// 関数は squash 済みの文字列を受け取って真偽を返す。
+// 判定は改行と空白をすべて取り除いた文字列どうしで行う（squash）。
+// タグラインは「福祉の言葉と、／技術の言葉を。」と改行が入っているため、生の文字列では一致しない。
+// **次は旧文言にしない**（新版でも残る）: 業務理念「社内に IT がいなくても、1人分の予算で実現する業務改善。」
+// （1-4a の h2 とフッター）、ビジョン（会社概要の h1）、「ソースコードを無料 DL」「ソースコード無料 DL」
+// 「ソースコード無料配布」（据え置き）
+// ---------------------------------------------------------------------------
+const ITEMS_3_6 = '3-6 の旧工程（キックオフ〜保守・拡大の 5 段に変えた。B-4）';
+const LEGACY_COPY = [
+  ['福祉の言葉と、技術の言葉を。', '旧タグライン → 「現場の言葉と、技術の言葉を。」（GL 1.3 §2.4）'],
+  ['1人分の予算で実現する、4つの方法', '1-4a の旧見出し。実現方法は 5 つ（B-1）'],
+  ['プロダクトを、順次無料で提供', '1-4a の旧カード 4（B-1）'],
+  ['マーケティングから事業管理までを目指す事業経営基盤を、順次無料で公開します。', '1-4a の旧カード 4 の本文（B-1）'],
+  ['サーバの余った処理能力で暗号資産の採掘にご協力いただくと', '1-4a の旧カード 3（「任意で」に改稿。B-1）'],
+  ['福祉事業者が稼ぐ力を、技術で底上げする。', '会社概要の旧 h1 → ビジョン（D-A）'],
+  ['福祉 × IT', '旧事業内容 → 「現場の業務改善／システム開発・IT コンサルティング」（A-6）'],
+  ['数字は省庁・公的機関・公益法人の公表資料に限って引用し', '旧バリュー 2 → 「公的研究機関」「上場企業の開示資料」を含む（A-4）'],
+  ['無料配布中', '旧 Badge（G-A）。**完全一致だけ**。「ソースコード無料配布」の Badge は残る', 'exact'],
+  ['自分の手で立ち上げたい方へ、ソースコードと構築の手順をお渡しします', '旧 DL ブロック（G-A）'],
+  ['ソースコードと構築の手順を無料配布中', '旧 DL ブロック（G-A）'],
+  ['お渡しするのは、ComeGin が自分の事業で使っている基盤一式です。', '旧 DL ブロック（G-A）'],
+  ['環境構築のソースコードを無料で配布しています', '旧文（G-A。公開に変わった）'],
+  ['ソースコード一式を無料でお渡しします。', '旧文（G-A）'],
+  ['記事で紹介している仕組みのソースコードと構築の手順を、無料でお渡しします', '旧 DL ブロック（G-A）'],
+  ['この記事で紹介する仕組みのソースコードと構築の手順を、無料でお渡しします', '旧 DL ブロック（G-A）'],
+  ['ソースコードを受け取る', '旧ボタン → 「構築の手順書を受け取る」（G-A。部品の既定値も含む）'],
+  ['ダウンロードのリンクをメールでお送りします。', '旧文（G-A）'],
+  ['ソースコードのダウンロードのリンクを、ご入力のメールアドレスにお送りしました。', '旧完了文（G-A）'],
+  ['はい。環境構築に使うソースコードは無料で配布しています。', '旧 FAQ 回答（G-A）'],
+  ['いいえ。ご希望の方だけが有効にでき、いつでも止められます。', '旧 FAQ 回答（B-1 の採掘）'],
+  ['どこが詰まっているかから、お聞かせください', '旧文（B-3 無料の業務棚卸し）'],
+  ['整理できていない段階でもかまいません。相談は無料です。', '旧文（B-3）'],
+  ['オンラインでお話を伺い、合うサービスと進め方をご提案します。', '旧文（B-3）'],
+  ['オンラインでお話を伺う（30分程度）', '旧ステップ（B-3）'],
+  ['業務と目的を伺い、作るものと作らないものを決めます。', ITEMS_3_6],
+  ['画面、データ、外部サービスとのつなぎ方を設計します。', ITEMS_3_6],
+  ['設計にもとづいて実装します。', ITEMS_3_6],
+  ['要件どおりに動くかを確かめます。', ITEMS_3_6],
+  ['本番環境に反映し、公開します。', ITEMS_3_6],
+  ['リリース後の不具合の対応と、改善の相談を受けます。', ITEMS_3_6],
+  ['介護ソフトは 75.4% の事業所に入っていますが、業務負担の軽減に効果があったとする事業所は 49.4% です。', 'ブログ 7-3 の旧導入文（D-C。75.4% は例として別の文で残る）'],
+  ['この差がどこで生まれるのかを、課題の整理、手法の比較、導入の進め方の 3つの段階に分けてお届けします。', 'ブログ 7-3 の旧導入文（D-C）'],
+  ['非公開リポジトリ', 'D-B 公開リポジトリに切り替え'],
+  ['ComeGin は、要件定義から運用保守までを、それより低い予算でお引き受けします。', '1-4c カード 1 の G-B 前の案'],
+  ['IT の困りごとを相談する先が（文頭。「情報セキュリティなど」が付かない形）', '50.8% の旧文（D-C）',
+    s => { const k = squash('IT の困りごとを相談する先が'); const i = s.indexOf(k); return i >= 0 && !s.slice(0, i).endsWith(squash('情報セキュリティなど')); }],
+  // ia-copy 版の 36 項目の外。ADR-25 の繰り越し（C-1〜C-3）。注記に残ったものを拾う
+  ['Umami', 'ADR-25 Umami は廃止（ia-copy 版の外。C-1〜C-3 の繰り越し）'],
+];
+// 1 つの squash 済み文字列が旧文言の 1 項目に当たるか
+function legacyHit(entry, s) {
+  const [w, , how] = entry;
+  if (typeof how === 'function') return how(s);
+  return how === 'exact' ? s === squash(w) : s.includes(squash(w));
+}
+
+// T8 の補助: **例として残す**文言。消えてはいけないが、決めた場所の外に出てもいけない。
+// 「75.4」は 15 Blog の 7-3 にだけ 1 か所（Desktop / Mobile で計 2）残す（D-C。リードの回答 2026-10-08）
+const KEEP_ONLY = [
+  { 語: '75.4', ページ: '4:10', 件数: 2, 場所: /7-3/, 理由: 'D-C 介護の数字は「もっとも鋭く現れる例」として 7-3 にだけ残す' },
+];
+
+// ---------------------------------------------------------------------------
+// T9: そのページに**あるべき**文字列（ブランドガイドライン 1.3 §2.2〜2.4・創業計画書 第1項・A-6）。
+// 改行の位置は Desktop と Mobile で違う（D-A）ので、改行を取り除き、空白を 1 つに詰めてから比べる。
+// 創業計画書の原文は「社内にITがいなくても」と和欧間を空けていないが、
+// Web は `01-content-spec.md` §0.2（和欧間の四分アキ）に従って空ける。
+// **場所**を指定したものは、祖先のレイヤー名がそれに合うノードだけを数える。
+// 業務理念はフッターにも同じ文があるので、場所を見ないと 1-4a に無くても合格してしまう
+// ---------------------------------------------------------------------------
+const NEW_COPY = [
+  { 名前: 'タグライン', 文言: '現場の言葉と、技術の言葉を。', ページ: ['4:5'], 場所: /1-3/, 出典: 'GL 1.3 §2.4（句点まで 1 セット）' },
+  { 名前: 'ミッション（トップ h1）', 文言: '社内に IT がいなくても、1人分の予算で業務を変える。', ページ: ['4:5'], 場所: /1-3/, 出典: 'GL 1.3 §2.2・D-A' },
+  { 名前: '業務理念（1-4a の h2）', 文言: '社内に IT がいなくても、1人分の予算で実現する業務改善。', ページ: ['4:5'], 場所: /1-4a/, 出典: '創業計画書 第1項・D-A' },
+  { 名前: 'ビジョン（会社概要 h1）', 文言: '障がいの有無にかかわらず、働く者に等しく賃金が渡る社会。', ページ: ['4:8'], 出典: 'GL 1.3 §2.3・D-A' },
+  { 名前: '事業内容（会社情報）', 文言: '現場の業務改善／システム開発・IT コンサルティング', ページ: ['4:8'], 場所: /5-6/, 出典: 'GL 1.3 §3.4・A-6（「／」の前後に空白なし）' },
+];
+
+// S10: 状態フレーム。**複製（instance ではない）**なので、本体と同じ結果になるかをフレームごとに見る。
+// ID は計画書「Figma の現状」の表。ページ ID → [ノード ID, 説明] の並び
+const STATE_FRAMES = {
+  '4:5': [
+    ['42:2', 'Desktop 本体'],
+    ['110:3222', 'Desktop Cookie 表示中の中'],
+    ['42:5742', 'Mobile 本体'],
+    ['110:3306', 'Mobile メニュー表示中の中'],
+    ['110:3388', 'Mobile Cookie 表示中の中'],
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // T6: コピー一致で突き合わせる期待値（01-content-spec.md から写す。空なら検査しない）
 // ---------------------------------------------------------------------------
 const EXPECTED = [
@@ -272,7 +415,8 @@ const SPEC_REF = /§\s*\d|\d+[.-]\d+\s*(?:節|章|を参照|に記載|のとお�
 
 // T2: 数字と単位・助数詞の間に空白がある形（§6.4-4 違反）
 //     「23,000 円」「1 日」「3 つ」「代表 1 名」など
-const UNIT_GAP = /[0-9０-９][ 　]+(円|日|名|件|社|枚|回|つ|個|人|種|章|部|本|位|行|列|段|点|箇所|段階|%|％|か月|ヶ月|か年|月|年|分|秒|時間|営業日|営業時間|ページ|文字|字|列目|行目)/;
+// 万・千・億も単位として見る（「516.6 万円」を素通りしていた。2026-10-08）
+const UNIT_GAP = /[0-9０-９][ 　]+(万|千|億|円|日|名|件|社|枚|回|つ|個|人|種|章|部|本|位|行|列|段|点|箇所|段階|%|％|か月|ヶ月|か年|月|年|分|秒|時間|営業日|営業時間|ページ|文字|字|列目|行目)/;
 
 // T3: 和欧間の四分アキ（半角スペース）が無い形。**英字だけを見る。**
 //     数字と和文の間は「密着の規則が優先」（§0.2）なので対象にしない
@@ -305,6 +449,160 @@ const NUM_LEAD_MISS = /([ぁ-んァ-ヶ一-龥])([0-9])/;                       
 const IS_ADDRESS = /[都道府県][^\s]{0,20}[市区郡]/;
 // T3: 句読点の直後に空白が入った形（置換の副作用）
 const PUNCT_SPACE = /[、。）」] /;
+
+// T8 / T9 の文字列の正規化。
+//   oneLine: 改行（\n・行区切り U+2028・段落区切り U+2029）を取り除き、残りの空白を 1 つに詰める。
+//            JS の \s は U+3000（全角空白）・U+00A0・U+2028・U+2029 を含む。
+//            **\uXXXX のエスケープを書かない。** use_figma に貼ると送信経路でエスケープが
+//            生の文字に戻され、正規表現の中の U+2028 が行終端として解釈されて構文エラーになる（2026-10-08）
+//            **T9 の「完全一致」はこれで比べる**（Desktop と Mobile で改行の位置が違うため）
+//   squash : 空白も改行もすべて取り除く。T8 の旧文言の検出と、T9 の「空白違い」の判定に使う
+function oneLine(s) {
+  return String(s).split(/\r\n|[\r\n]|\p{Zl}|\p{Zp}/u).join('').replace(/\s+/g, ' ').trim();
+}
+function squash(s) {
+  return String(s).replace(/\s+/g, '');
+}
+// T9: 1 つの文字列が新文言とどう合うか。完全一致 > 空白違い > 部分一致 > なし
+function matchNewCopy(text, want) {
+  const a = oneLine(text), w = oneLine(want);
+  if (a === w) return '完全一致';
+  if (squash(a) === squash(w)) return '空白違い';
+  if (squash(a).includes(squash(w))) return '部分一致';
+  return 'なし';
+}
+const MATCH_RANK = { 完全一致: 3, 空白違い: 2, 部分一致: 1, なし: 0 };
+// 行区切り（U+2028）は改行位置を決めるために入れるもので、文言の一部ではない（2026-10-08 に 10 Top・
+// 11 Services の多くのテキストに入った）。表記の検査・字数・照合の前に取り除く。
+// 取り除かないと、数字と単位の間に入ったときに密着の検査を素通りし、一文の字数にも数えてしまう
+const stripLS = s => String(s).replace(/\p{Zl}/gu, '');
+// 行区切りの直前・直後の空白（行頭・行末に空白が出る）
+const LS_SPACE = /[^\S\r\n\p{Zl}\p{Zp}]\p{Zl}|\p{Zl}[^\S\r\n\p{Zl}\p{Zp}]/u;
+// 一文の字数に URL を数えない（URL は仕様どおり書く。リードの判断 2026-10-08）
+const URL_RUN = /https?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+/g;
+const lenNoUrl = s => s.replace(URL_RUN, '').length;
+// T5' 区間ごとの和欧混植（lead の依頼 2026-10-08）。TEXT プロパティの値が数字や欧文で始まると、
+// 和文の区間まで Poppins になる（builder-sales の 3 ページで 19 件）。ノード単位の Noto漏れ
+// （Noto Sans JP の区間が 1 つも無い）では拾えないので、文字スタイルの区間ごとに見る
+const JP_GLYPH = /[ぁ-ゖァ-ヺー一-龥々〆\u3000-\u303F\uFF01-\uFF60]/;  // 和文の字と全角記号
+const jpInPoppins = segs => segs.filter(x => x.fontName.family === 'Poppins' && JP_GLYPH.test(x.characters)).map(x => x.characters);
+// 逆向き（欧文・数字の区間が Noto Sans JP）。違反には数えず参考に出す（lead の方針で 03-handoff に回す）
+const latinInNoto = segs => segs.filter(x => x.fontName.family === 'Noto Sans JP' && LATIN.test(x.characters)).map(x => x.characters);
+// S9 の下限。§0.3 で「3 列（本文幅 318px）は約 19.3 字を下限として許容」（lead の判断 2026-10-08）
+const COL3_BODY_W = 318;
+const minPerLine = w => (Math.abs(w - COL3_BODY_W) <= 2 ? 19 : 20);
+
+// ---------------------------------------------------------------------------
+// T10: 折り返しの位置（リードの方針 2026-10-08）。**見た目の行は Plugin API で取れない**ので、
+// 字幅から推定する。和文（U+2E80 以降・全角）は 1em、欧文は Poppins の平均字幅の概算、
+// 字間（letterSpacing）を足す。行区切り（U+2028）と改行は強制改行として扱う。
+// 行末の「、」「。」は**ぶら下げ**（幅を超えても前の行に残す。Figma の組み方を実物で確かめた）、
+// それ以外の禁則（行頭に来ない約物・行末に来ない括弧）は追い出し、欧文の語は途中で割らないものとして近似する。
+// 欧文の字幅は 10 Top の幅が自動の 1 行テキスト 117 本の実寸から最小二乗で求めた（平均誤差 0.07em。2026-10-08）。
+// 推定なので**違反ではなく「疑い」**として返し、ID をスクリーンショットで目視して確定する。
+//   (1) 数字と単位の間の改行          「516.6／万円」「285万／円」
+//   (2) 末尾 1 字だけの行             「使い続けられま／す」
+//   (3) 2 字の漢字語の途中の改行      「ご希／望の」（前後が漢字でない 2 字の漢字の間）
+//   (3') カタカナ語の途中の改行        「サー／バ」
+// ---------------------------------------------------------------------------
+const HANG = /[、。，．]/;   // 行末にぶら下げる約物
+const LINE_START_NG = /[、。，．）」』】〕〉》・ー々ゝゞぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ！？：；…‥!?%),.:;]/;
+const LINE_END_NG = /[（「『【〔〈《(]/;
+const LATIN_RUN = /[A-Za-z0-9.,%+\-_/@#&']/;
+const HARD_BREAK = /[\r\n\p{Zl}\p{Zp}]/u;   // 改行と行区切り（U+2028）・段落区切り（U+2029）
+const KANJI = /[一-龥々]/;
+const KATAKANA = /[ァ-ヶー]/;
+const UNIT_HEAD = /^[円万千億日名件社枚回つ個人種年月週分秒時%％倍割点段か]/;
+// 字幅（em）。和文・全角は 1em（実測 0.994〜1.002）。欧文は Poppins の実測からの較正値
+function glyphEm(ch) {
+  const c = ch.charCodeAt(0);
+  if (c >= 0x2E80 || (c >= 0xFF00 && c <= 0xFFEF)) return 1;
+  if (/[ilj|!'.,:;]/.test(ch)) return 0.32;
+  if (/[ftr]/.test(ch)) return 0.36;
+  if (/[mw]/.test(ch)) return 0.92;
+  if (/[a-z]/.test(ch)) return 0.67;
+  if (/[IJ]/.test(ch)) return 0.3;
+  if (/[MW]/.test(ch)) return 0.86;
+  if (/[A-Z]/.test(ch)) return 0.68;
+  if (/[0-9]/.test(ch)) return 0.62;
+  if (ch === ' ') return 0.26;
+  return 0.55;
+}
+// 見た目の行に割る。widthOf(i) は i 文字目の幅（px）。戻り値は [{ s, 末尾: 強制改行の直前の行か }]
+function wrapLines(text, widthOf, maxW) {
+  const lines = [];
+  let start = 0, w = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (HARD_BREAK.test(ch)) {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      lines.push({ s: text.slice(start, i), 末尾: true }); start = i + 1; w = 0; continue;
+    }
+    w += widthOf(i);
+    if (w <= maxW + 0.5 || i === start) continue;
+    if (HANG.test(ch)) continue;   // ぶら下げ。次の文字で改行する
+    let b = i;   // b 文字目から次の行
+    if (LINE_START_NG.test(text[b]) && b - 1 > start) b--;
+    if (LINE_END_NG.test(text[b - 1]) && b - 1 > start) b--;
+    if (LATIN_RUN.test(text[b - 1]) && LATIN_RUN.test(text[b])) {
+      let j = b; while (j > start && LATIN_RUN.test(text[j - 1])) j--;
+      if (j > start) b = j;
+    }
+    lines.push({ s: text.slice(start, b), 末尾: false });
+    start = b; w = 0;
+    for (let k = start; k <= i; k++) w += widthOf(k);
+  }
+  lines.push({ s: text.slice(start), 末尾: true });
+  return lines;
+}
+// 隣り合う見た目の行の境目を調べる。戻り値は [種類, 「前／後」]
+function breakSuspects(lines) {
+  const out = [];
+  for (let k = 0; k < lines.length; k++) {
+    const cur = lines[k];
+    // (2) 自動で折り返した段落の最後の行が 1 字（句読点・閉じ括弧を除く）
+    if (cur.末尾 && k > 0 && !lines[k - 1].末尾) {
+      const core = cur.s.replace(/[。、！？」』）\s]+$/, '');
+      if ([...core].length <= 1 && core) out.push(['末尾 1 字だけの行', lines[k - 1].s.slice(-6) + '／' + cur.s]);
+    }
+    if (cur.末尾 || k + 1 >= lines.length) continue;
+    const a = cur.s.replace(/\s+$/, ''), b = lines[k + 1].s.replace(/^\s+/, '');
+    if (!a || !b) continue;
+    const pair = a.slice(-6) + '／' + b.slice(0, 6);
+    // (1) 数字と単位
+    if ((/[0-9０-９][.,]?$/.test(a) && UNIT_HEAD.test(b)) || (/[0-9][万千億]$/.test(a) && /^[円人件]/.test(b))) {
+      out.push(['数字と単位の間の改行', pair]);
+    }
+    // (3) 前後が漢字でない 2 字の漢字語の間
+    const a1 = a.slice(-1), a0 = a.slice(-2, -1), b1 = b[0], b2 = b[1] || '';
+    if (KANJI.test(a1) && KANJI.test(b1) && !KANJI.test(a0) && !KANJI.test(b2)) out.push(['2 字の漢字語の途中の改行', pair]);
+    // (3') カタカナ語の途中
+    if (KATAKANA.test(a1) && KATAKANA.test(b1)) out.push(['カタカナ語の途中の改行', pair]);
+  }
+  return out;
+}
+// TEXT ノードの見た目の行を推定する（自動で幅が決まる WIDTH_AND_HEIGHT は折り返さないので対象外）。
+// scale は字幅に掛ける係数（境目の判定がぶれないかを見るため）
+function visualLines(n, scale = 1) {
+  if (n.type !== 'TEXT' || n.textAutoResize === 'WIDTH_AND_HEIGHT' || !(n.width > 0)) return null;
+  const segs = n.getStyledTextSegments(['fontSize', 'letterSpacing']);
+  const at = new Array(n.characters.length);
+  for (const g of segs) {
+    const ls = g.letterSpacing && g.letterSpacing.unit === 'PERCENT' ? g.fontSize * g.letterSpacing.value / 100
+      : (g.letterSpacing ? g.letterSpacing.value : 0);
+    for (let i = g.start; i < g.end; i++) at[i] = (glyphEm(n.characters[i]) * g.fontSize + ls) * scale;
+  }
+  return wrapLines(n.characters, i => at[i] || 0, n.width);
+}
+// 字幅を ±1.5% ずらしても同じ疑いが出るものだけを返す。
+// 推定と実物の差が 1px 未満の境目（10 Top 1-4c の「無／償」は 0.6px 差で実物では起きていなかった）を落とすため
+function stableSuspects(n) {
+  const base = visualLines(n);
+  if (!base) return [];
+  const key = x => x[0] + x[1];
+  const others = [0.985, 1.015].map(k => new Set(breakSuspects(visualLines(n, k)).map(key)));
+  return breakSuspects(base).filter(x => others.every(o => o.has(key(x))));
+}
 
 // ---------------------------------------------------------------------------
 // 判定器の自己テスト（既知の正例・負例で毎回検算する）
@@ -446,6 +744,80 @@ t('② 除外の誤作動', NUM_LEAD_MISS.test(scrubExempt('この3つだけ')),
   t('項目34 改行 6 行', lines('あ\nい\nう\nえ\nお\nか', 400, 14), 6, '**各行が 1 行。改行を足し算しない**');
   t('項目34 改行の二重計上', lines('あ\nい', 400, 14) === 2, true, '旧式だと ceil(2/28)+1 = 2 でたまたま合うが、長い行で崩れる');
   t('項目34 和欧混在', lines('大阪府大阪市城東区蒲生4-19-3 ロイヤルアシュリー蒲生502', 400, 14), 1, '和 22 ＋ 半角 16×0.5 ＝ 30 / 28.6 → 2 行…ではなく 1 行（実測で確かめた値）');
+}
+// T8: 旧文言の検出（改行・空白を取り除いて探す）
+{
+  const hit = s => LEGACY_COPY.filter(e => legacyHit(e, squash(s))).map(([w]) => w);
+  t('T8 旧タグライン（改行あり）', hit('福祉の言葉と、\n技術の言葉を。').includes('福祉の言葉と、技術の言葉を。'), true, '**改行で割れていても拾う**');
+  t('T8 新タグラインは旧文言でない', hit('現場の言葉と、\n技術の言葉を。').length, 0, '誤爆しない');
+  t('T8 「福祉×IT」', hit('福祉×IT ／ システム開発').includes('福祉 × IT'), true, '空白の有無に関わらず拾う');
+  t('T8 新しい事業内容', hit('現場の業務改善／システム開発・IT コンサルティング').length, 0, '正');
+  t('T8 旧 1-4a 見出し（4 つ）', hit('1人分の予算で実現する、4 つの方法').length, 1, '密着していない形も拾う');
+  t('T8 業務理念は旧文言でない', hit('社内に IT がいなくても、\n1人分の予算で実現する業務改善。').length, 0, '**1-4a の h2 とフッターに残る**');
+  t('T8 ビジョンは旧文言でない', hit('障がいの有無にかかわらず、働く者に等しく賃金が渡る社会。').length, 0, '会社概要の h1 に残る');
+  t('T8 公的研究機関', hit('数字は省庁・公的研究機関・公益法人の公表資料と、上場企業の開示資料に限って引用し').length, 0, '**書き換え後は通る**');
+  t('T8 旧バリュー 2', hit('数字は省庁・公的機関・公益法人の公表資料に限って引用し、出典と年度を添えます。').length, 1, '旧文言');
+  t('T8 Badge「無料配布中」', hit('無料配布中').includes('無料配布中'), true, '完全一致で拾う');
+  t('T8 Badge「ソースコード無料配布」', hit('ソースコード無料配布').length, 0, '**残る Badge。部分一致で拾わない**');
+  t('T8 「ソースコードを受け取る」', hit('ソースコードを受け取る').length, 1, '旧ボタン');
+  t('T8 「構築の手順書を受け取る」', hit('構築の手順書を受け取る').length, 0, '新ボタン');
+  t('T8 50.8% 旧文', hit('IT の困りごとを相談する先が特にない企業は 50.8%').length, 1, '文頭が「IT の困りごと」');
+  t('T8 50.8% 新文', hit('情報セキュリティなど IT の困りごとを相談する先が特にない企業は 50.8%').length, 0, '「情報セキュリティなど」が付けば通る');
+  t('T8 75.4% の旧導入文（改行あり）', hit('介護ソフトは 75.4% の事業所に入っていますが、\n業務負担の軽減に効果があったとする事業所は 49.4% です。').length, 1, '改行で割れていても拾う');
+  t('T8 Umami', hit('Umami（アクセス解析）').includes('Umami'), true, 'ADR-25');
+}
+// T9: 新文言の完全一致（改行は無視し、空白の違いは別に分ける）
+{
+  const m = '社内に IT がいなくても、1人分の予算で業務を変える。';
+  t('T9 Desktop の改行', matchNewCopy('社内に IT がいなくても、\n1人分の予算で業務を変える。', m), '完全一致', '改行は文字として入っていても一致');
+  t('T9 Mobile の改行', matchNewCopy('社内に IT がいなくても、\n1人分の予算で\n業務を変える。', m), '完全一致', '同上');
+  t('T9 行区切り U+2028', matchNewCopy('社内に IT がいなくても、' + String.fromCharCode(0x2028) + '1人分の予算で業務を変える。', m), '完全一致', 'Figma の soft break');
+  t('T9 四分アキ欠落', matchNewCopy('社内にITがいなくても、1人分の予算で業務を変える。', m), '空白違い', '**完全一致にしない**（創業計画書の原文の形）');
+  t('T9 業務理念はミッションでない', matchNewCopy('社内に IT がいなくても、1人分の予算で実現する業務改善。', m), 'なし', '似ているが別の文');
+  t('T9 句点なし', matchNewCopy('現場の言葉と、技術の言葉を', '現場の言葉と、技術の言葉を。'), 'なし', '**タグラインは句点まで 1 セット**');
+  t('T9 本文の中にある', matchNewCopy('ミッションは「障がいの有無にかかわらず、働く者に等しく賃金が渡る社会。」です。', '障がいの有無にかかわらず、働く者に等しく賃金が渡る社会。'), '部分一致', '見出しではなく本文に入っている形');
+  t('T9 旧タグライン', matchNewCopy('福祉の言葉と、\n技術の言葉を。', '現場の言葉と、技術の言葉を。'), 'なし', '正');
+}
+// T10: 折り返しの推定（字幅 10px の和文で検算する）
+{
+  const wr = (s, max) => wrapLines(s, i => glyphEm(s[i]) * 10, max).map(x => x.s);
+  const kinds = (s, max) => breakSuspects(wrapLines(s, i => glyphEm(s[i]) * 10, max)).map(x => x[0]);
+  t('T10 和文の折り返し', wr('あいうえお', 30).join('|'), 'あいう|えお', '1em ずつ');
+  t('T10 句点のぶら下げ', wr('あいう。え', 30).join('|'), 'あいう。|え', '「。」は前の行に残す（Figma の組み方）');
+  t('T10 行頭禁則（追い出し）', wr('あいうっえ', 30).join('|'), 'あい|うっえ', '小さい「っ」を行頭に置かない');
+  t('T10 欧文の語は割らない', wr('あいITX', 30).join('|'), 'あい|ITX', 'IT の途中で割らない');
+  t('T10 行区切りは強制改行', wr('あい' + String.fromCharCode(0x2028) + 'うえ', 100).join('|'), 'あい|うえ', 'U+2028');
+  t('T10 数字と単位', kinds('年516.6万円です', 40).includes('数字と単位の間の改行'), true, '「516.6／万円」');
+  t('T10 万と円', kinds('約285万円です', 40).includes('数字と単位の間の改行'), true, '「285万／円」');
+  t('T10 末尾 1 字', kinds('使い続けられます', 70).includes('末尾 1 字だけの行'), true, '「使い続けられま／す」');
+  t('T10 末尾 1 字（強制改行で割った形は対象外）', kinds('使い続けられま' + String.fromCharCode(0x2028) + 'す', 100).length, 0, '意図した改行');
+  t('T10 2 字の漢字語', kinds('ご希望の方だけ', 20).includes('2 字の漢字語の途中の改行'), true, '「ご希／望の」');
+  t('T10 長い熟語の境目は対象外', kinds('業務改善です', 20).includes('2 字の漢字語の途中の改行'), false, '「業務／改善」は 2 字語の途中ではない');
+  t('T10 カタカナ語', kinds('のサーバです', 30).includes('カタカナ語の途中の改行'), true, '「のサー／バ」');
+  t('T10 何も無い', kinds('あいう' + String.fromCharCode(0x2028) + 'えお', 100).length, 0, '強制改行だけ');
+}
+// 行区切り（U+2028）と URL の扱い
+{
+  const LS = String.fromCharCode(0x2028);
+  t('LS 単位の密着は取り除いてから', UNIT_GAP.test(stripLS('516.6 ' + LS + '万円')), true, '行区切りを挟んでも空白は空白');
+  t('LS 取り除くと密着', UNIT_GAP.test(stripLS('516.6' + LS + '万円')), false, '行区切りだけなら密着');
+  t('LS 和欧間', KERN_MISS.test(stripLS('AI ' + LS + 'エージェント')), false, '空白が残っていれば通る');
+  t('LS 前後の空白', LS_SPACE.test('業務を ' + LS + '変える'), true, '行末に空白が出る');
+  t('LS 前後の空白なし', LS_SPACE.test('業務を' + LS + '変える'), false, '正');
+  t('LS 改行は対象外', LS_SPACE.test('業務を \n変える'), false, '行区切りだけを見る');
+  t('URL を字数から除く', lenNoUrl('ポリシー（https://policies.google.com/privacy?hl=ja）をご覧ください。'), 14, '全角括弧の手前で URL が終わる');
+  t('URL が無い文', lenNoUrl('あいうえお。'), 6, '変わらない');
+}
+// T5' 区間ごとの和欧混植と S9 の下限
+{
+  const seg = (family, characters) => ({ fontName: { family }, characters });
+  t("T5' 和文に Poppins", jpInPoppins([seg('Poppins', '31,250円／回')]).length, 1, 'TEXT プロパティが数字で始まる形');
+  t("T5' 数字だけ Poppins", jpInPoppins([seg('Poppins', '31,250'), seg('Noto Sans JP', '円／回')]).length, 0, '正しい当て方');
+  t("T5' 全角記号だけでも和文", jpInPoppins([seg('Poppins', '（')]).length, 1, 'Poppins に字形が無い');
+  t("T5' 欧文に Noto", latinInNoto([seg('Noto Sans JP', 'ComeGin は')]).length, 1, '参考に出す');
+  t("T5' 和文だけの Noto", latinInNoto([seg('Noto Sans JP', '受託開発')]).length, 0, '正');
+  t('S9 3 列は 19 字', minPerLine(318), 19, '§0.3 の許容');
+  t('S9 ほかは 20 字', minPerLine(238), 20, '目次など');
 }
 // 項目 16 の文の切り方（改行でも切る）
 {
@@ -592,16 +964,18 @@ const sentences = s => s.split(/(?<=。)|\n/).map(x => x.trim()).filter(Boolean)
 // 数えるのは次の 2 つだけ。
 //  1. **兄弟との実距離**（絶対座標。重なっていない方向だけ）
 //  2. **親自身が見える面のときの padding**（塗りか線がある＝枠や罫線として見える）
-const isVisibleSurface = n => {
+// **function 宣言にしてある。** 自己テストがこの定義より前で呼ぶため、
+// `const` にすると TDZ で実行の冒頭に例外になる（2 版がそうなっていた。2026-10-08）
+function isVisibleSurface(n) {
   if (!n) return false;
   const f = Array.isArray(n.fills)
     && n.fills.some(p => p.visible !== false && (p.opacity === undefined || p.opacity > 0.02));
   const s = Array.isArray(n.strokes) && n.strokes.length > 0
     && n.strokes.some(p => p.visible !== false);
   return f || s;
-};
+}
 
-const isolationGap = n => {
+function isolationGap(n) {
   const p = n.parent;
   const b = n.absoluteBoundingBox;
   if (!p || !b || !('children' in p)) return null;
@@ -624,10 +998,85 @@ const isolationGap = n => {
     min = min === null ? pad : Math.min(min, pad);
   }
   return min;
-};
+}
 
 // 8pt グリッド（4px を半ステップとして許容）
 const offGrid = v => typeof v === 'number' && v > 0 && Math.abs(v % 4) > 0.01;
+
+// T8 / T9 / S10: 1 つの部分木の文言を数える。ページ全体・トップレベルのフレーム・状態フレームの
+// どれにも同じ関数を当てるので、**数え方がフレームによって変わらない。**
+//   旧文言（T8）: TEXT（非表示のレイヤーを含む）／ 隠れた componentProperties（instance の中の
+//                 TEXT に出ていない値だけ。出ている値は TEXT で数えたので二重に数えない）／ 注記
+//   新文言（T9）: **見えている TEXT だけ**で判定する（非表示のレイヤーにあっても画面には無い）。
+//                 場所を指定したものは、祖先のレイヤー名が合うノードだけを数える
+//   例として残す: KEEP_ONLY の語を含む TEXT を、場所に合うかどうかと一緒に集める
+const hiddenUnder = (n, stop) => {
+  for (let p = n; p && p !== stop.parent && p.type !== 'PAGE'; p = p.parent) if (p.visible === false) return true;
+  return false;
+};
+// 祖先のレイヤー名を全部つないだもの（pathOf は 4 段で切るので、場所の判定には使わない）
+const ancestry = n => { const a = []; for (let p = n; p && p.type !== 'PAGE'; p = p.parent) a.unshift(p.name); return a.join('/'); };
+function scanCopy(root, newCopy) {
+  const nodes = ('findAll' in root) ? [root, ...root.findAll(() => true)] : [root];
+  const r = { 旧文言: {}, 所在: [], 新文言: {}, 例: [] };
+  for (const [w] of LEGACY_COPY) r.旧文言[w] = { TEXT: 0, 隠れprop: 0, 注記: 0 };
+  for (const c of newCopy) r.新文言[c.名前] = { 判定: 'なし', ids: [], 非表示にだけある: false, 場所外: 0 };
+  for (const n of nodes) {
+    if (n.type === 'TEXT') {
+      const s = squash(n.characters);
+      if (!s) continue;
+      const hidden = hiddenUnder(n, root);
+      for (const e of LEGACY_COPY) {
+        if (!legacyHit(e, s)) continue;
+        r.旧文言[e[0]].TEXT++;
+        r.所在.push(n.id + ' TEXT 「' + e[0] + '」' + (hidden ? ' ★非表示' : '') + ' ← 「'
+          + oneLine(n.characters).slice(0, 40) + '」 ' + pathOf(n) + ' / ' + e[1]);
+      }
+      for (const k of KEEP_ONLY) {
+        if (s.includes(squash(k.語))) r.例.push({ 語: k.語, id: n.id, 場所に合う: k.場所.test(ancestry(n)), 非表示: hidden });
+      }
+      for (const c of newCopy) {
+        const m = matchNewCopy(n.characters, c.文言);
+        if (m === 'なし') continue;
+        const cur = r.新文言[c.名前];
+        if (c.場所 && !c.場所.test(ancestry(n))) { cur.場所外++; continue; }
+        if (hidden) { cur.非表示にだけある = cur.非表示にだけある || cur.判定 === 'なし'; continue; }
+        if (MATCH_RANK[m] > MATCH_RANK[cur.判定]) { cur.判定 = m; cur.ids = []; cur.非表示にだけある = false; }
+        if (m === cur.判定) cur.ids.push(n.id);
+      }
+    }
+    if (n.type === 'INSTANCE' && n.componentProperties) {
+      let shown = null;   // instance の中の TEXT（遅延して 1 回だけ集める）
+      for (const [k, v] of Object.entries(n.componentProperties)) {
+        if (v.type !== 'TEXT' || typeof v.value !== 'string') continue;
+        const s = squash(v.value);
+        for (const e of LEGACY_COPY) {
+          if (!legacyHit(e, s)) continue;
+          if (shown === null) shown = n.findAllWithCriteria({ types: ['TEXT'] }).map(x => squash(x.characters));
+          if (shown.some(x => legacyHit(e, x))) continue;
+          r.旧文言[e[0]].隠れprop++;
+          r.所在.push(n.id + ' prop ' + k.split('#')[0] + ' 「' + e[0] + '」 ★画面に出ていない ' + pathOf(n) + ' / ' + e[1]);
+        }
+      }
+    }
+    if (n.annotations && n.annotations.length) {
+      const s = squash(annText(n));
+      for (const e of LEGACY_COPY) {
+        if (e[2] === 'exact' || !legacyHit(e, s)) continue;   // 完全一致の項目は注記の文の中では見ない
+        r.旧文言[e[0]].注記++;
+        r.所在.push(n.id + ' 注記 「' + e[0] + '」 ' + pathOf(n) + ' / ' + e[1]);
+      }
+    }
+  }
+  return r;
+}
+// S10 の比較に使う要約（旧文言の件数と新文言の判定だけ）
+const copySummary = r => ({
+  旧文言: Object.fromEntries(Object.entries(r.旧文言)
+    .map(([w, c]) => [w, c.TEXT + c.隠れprop + c.注記]).filter(([, c]) => c > 0)),
+  新文言: Object.fromEntries(Object.entries(r.新文言)
+    .map(([k, v]) => [k, v.判定 + (v.非表示にだけある ? '（非表示にだけある）' : '')])),
+});
 
 // ---------------------------------------------------------------------------
 // 本体
@@ -662,7 +1111,9 @@ const out = {
     タイプスケール外: [], '8ptグリッド': [],
     // コピーと表記
     禁止表現: [], 単位の空き: [], 四分アキ欠落: [], 数字の手前の空き欠落: [], 句読点後の空白: [], 一文60字超: [],
-    Poppins漏れ: [], Noto漏れ: [], プレースホルダ: [],
+    Poppins漏れ: [], Noto漏れ: [], 和文にPoppins: [], プレースホルダ: [],
+    // T8: GL 1.3・創業計画書（2026-10-08）で使わなくなった文言。見えない場所も含む
+    旧文言: [],
     // 見えない場所
     隠れた旧文言: [], 注記の旧値: [],
     // 画面に出てはいけないもの（§0.1）
@@ -672,12 +1123,24 @@ const out = {
     // 構造
     ヘッダー高さ: [], コントラスト: [], 壊れたinstance: [], 壊れたバインド: [],
     placeholder残り: [], Deviceスタイル: [], 段組みの字数: [],
+    // F1 / F2: FormField（20:2828）の Select・Radio の入れ忘れと、必須・任意の同時表示
+    FormField入れ忘れ: [], FormField必須と任意: [],
+    行区切りの前後の空白: [],
   },
-  ページ直下の非フレーム: [], 部品の既定値: [], 格納高さの疑い: [],
+  ページ直下の非フレーム: [], 部品の既定値: [], 格納高さの疑い: [], 折り返しの疑い: [],
+  // 判断のうえ違反から外したもの（件数は「件数」に出す）
+  既知の例外: { Deviceスタイル: [], URL: [] },
+  // 欧文・数字の区間が Noto Sans JP（参考。違反には数えない）
+  欧文にNoto区間: [],
   ダミー: [], 注記: [], cta_id: [], cta_type: [], ボタン: [], ロゴ: [], フォーカス: [],
   閉じたFAQ: [], 青の面積: {}, 幅の分布: {}, カナリア: [], コピーの欠落: [],
+  // T8 / T9 / S10
+  旧文言の件数: {}, 新文言: [], フレーム別の文言: [], 状態フレームの網羅: null, 例として残す文言: [],
   件数: {},
 };
+// T9 はそのページにあるべきものだけ
+const pageNewCopy = NEW_COPY.filter(c => c.ページ.includes(page.id));
+const copyRuns = [];   // トップレベルの子ごとの scanCopy の結果（ページ全体はこの合計）
 
 const seenText = [];
 const ctaIdSet = new Set(), ctaTypeSet = new Set();
@@ -692,6 +1155,8 @@ let defCount = 0, defTextCount = 0;
 // C3 の寸法のうち kit instance のぶん（許容事項）。自作ノードのぶんと分けて数える
 let remoteDimKit = 0;
 
+// 一覧を D/M に振り分けるための表（OUTPUT='compact'）
+const mobileOf = new Map();
 for (const root of page.children) {
   // **`root.type === 'FRAME'` で絞る。** ページ直下のラベル TEXT（「404 / Mobile」など）は
   // 名前に Mobile を含むので、絞らないとラベル自身を Mobile フレーム扱いして誤検出する
@@ -712,9 +1177,19 @@ for (const root of page.children) {
   } else {
     out.ページ直下の非フレーム.push(root.id + ' ' + root.type + ' 「' + root.name + '」');
   }
+  // T8 / T9: トップレベルの子ごとに数える（ページ直下の裸の TEXT も含めて合計がページ全体になる）
+  {
+    const run = scanCopy(root, pageNewCopy);
+    copyRuns.push(run);
+    if (root.type === 'FRAME') {
+      const sm = copySummary(run);
+      out.フレーム別の文言.push({ id: root.id, name: root.name, 旧文言計: Object.values(sm.旧文言).reduce((a, b) => a + b, 0), ...sm });
+    }
+  }
 
   for (const n of nodes) {
     nodeTotal++;
+    mobileOf.set(n.id, isMobile);
 
     // --- S7: 作りかけのシマー -------------------------------------------------
     if (n.placeholder) out.違反.placeholder残り.push(n.id + ' ' + n.name);
@@ -915,6 +1390,30 @@ for (const root of page.children) {
       }
     }
 
+    // --- F1 / F2: FormField（2026-10-08 に Type=Select・Radio を追加）-----------
+    // Label の既定値が「メールアドレス」のままなので、Select・Radio の instance で
+    // 「メールアドレス」が**見えている**ものは値の入れ忘れ（Label・Helper・Error のどれでも）。
+    // Show optional=true のときに「必須」の Badge も見えていたら、必須と任意が両方出ている
+    if (n.type === 'INSTANCE' && mcSet === 'FormField') {
+      const pv = Object.fromEntries(Object.entries(n.componentProperties || {}).map(([k, v]) => [k.split('#')[0], v.value]));
+      const shown = n.findAllWithCriteria({ types: ['TEXT'] }).filter(x => !hiddenUnder(x, n));
+      if (/^(Select|Radio)$/.test(pv.Type)) {
+        for (const x of shown) {
+          if (x.characters.includes('メールアドレス')) {
+            out.違反.FormField入れ忘れ.push(n.id + ' Type=' + pv.Type + ' ' + x.name + '=「' + oneLine(x.characters).slice(0, 30)
+              + '」（既定値のまま） ' + pathOf(n));
+          }
+        }
+      }
+      if (pv['Show optional'] === true) {
+        const req = shown.some(x => x.characters.trim() === '必須');
+        if (pv['Show required'] === true || req) {
+          out.違反.FormField必須と任意.push(n.id + ' Type=' + pv.Type + ' Label=「' + String(pv.Label || '').slice(0, 20)
+            + '」 Show required=' + pv['Show required'] + ' 「必須」が見えている=' + req + ' ' + pathOf(n));
+        }
+      }
+    }
+
     // --- H1 の補助: カナリアの生値 -------------------------------------------
     if (CANARY_IDS.includes(n.id)) {
       out.カナリア.push({
@@ -985,6 +1484,7 @@ for (const root of page.children) {
     if (!chars.trim()) continue;      // 空・空白のみは中身のある TEXT に数えない（kit Input の当て木）
     textNonEmpty++;
     seenText.push(chars);
+    const flat = stripLS(chars);   // 表記の検査はこちらに当てる（表示用の抜粋は chars のまま）
 
     // --- T7: kit 既定のプレースホルダ文言 ------------------------------------
     if (KIT_PLACEHOLDER_WORDS.has(chars.trim().toLowerCase()) || /lorem ipsum/i.test(chars)) {
@@ -1012,7 +1512,9 @@ for (const root of page.children) {
     // ×「料金ページ（/pricing）に記載のとおりです。」 ○「料金ページに記載のとおりです。」
     {
       const m = URL_IN_COPY.exec(chars);
-      if (m) out.違反.URLやパス.push(n.id + ' 「' + m[0].trim() + '」 ← 「' + chars.slice(0, 44) + '」 ' + pathOf(n));
+      // 法務 2 ページの URL（オプトアウトのアドオン・事業者のポリシー）は §4.10 の仕様どおりなので既知の例外
+      if (m) (longOK ? out.既知の例外.URL : out.違反.URLやパス)
+        .push(n.id + ' 「' + m[0].trim() + '」 ← 「' + chars.slice(0, 44) + '」 ' + pathOf(n));
     }
 
     // --- 項目 32: 画面に出る文に仕様書のセクション番号を書かない（同 §0.1）-------
@@ -1024,37 +1526,56 @@ for (const root of page.children) {
 
     // --- T1: 禁止表現 --------------------------------------------------------
     for (const [w, why] of BANNED) {
-      if (chars.includes(w)) out.違反.禁止表現.push(n.id + ' 「' + w + '」 ' + why + ' ← 「' + chars.slice(0, 44) + '」 ' + pathOf(n));
+      if (flat.includes(w)) out.違反.禁止表現.push(n.id + ' 「' + w + '」 ' + why + ' ← 「' + chars.slice(0, 44) + '」 ' + pathOf(n));
     }
     for (const [re, why] of BANNED_RE) {
-      if (re.test(chars)) out.違反.禁止表現.push(n.id + ' ' + why + ' ← 「' + chars.slice(0, 44) + '」 ' + pathOf(n));
+      if (re.test(flat)) out.違反.禁止表現.push(n.id + ' ' + why + ' ← 「' + chars.slice(0, 44) + '」 ' + pathOf(n));
     }
 
     // --- T2 / T3: 単位の密着・四分アキ・句読点の直後の空白 --------------------
     // ③ 数字と後ろの単位・助数詞の密着
-    if (UNIT_GAP.test(chars)) out.違反.単位の空き.push(n.id + ' 「' + chars.slice(0, 46) + '」 ' + pathOf(n));
+    if (UNIT_GAP.test(flat)) out.違反.単位の空き.push(n.id + ' 「' + chars.slice(0, 46) + '」 ' + pathOf(n));
     // ①② は日付・元号・住所・条番号を取り除いてから当てる
     {
-      const c2 = scrubExempt(chars);
+      const c2 = scrubExempt(flat);
       const m1 = KERN_MISS.exec(c2);
       if (m1) out.違反.四分アキ欠落.push(n.id + ' 「…' + c2.slice(Math.max(0, m1.index - 6), m1.index + 10) + '…」 ' + pathOf(n));
       const m2 = IS_ADDRESS.test(chars) ? null : NUM_LEAD_MISS.exec(c2);
       if (m2) out.違反.数字の手前の空き欠落.push(n.id + ' 「…' + c2.slice(Math.max(0, m2.index - 8), m2.index + 8) + '…」 ' + pathOf(n));
     }
-    if (PUNCT_SPACE.test(chars)) out.違反.句読点後の空白.push(n.id + ' 「' + chars.slice(0, 46) + '」 ' + pathOf(n));
+    if (LS_SPACE.test(chars)) out.違反.行区切りの前後の空白.push(n.id + ' 「' + oneLine(chars).slice(0, 40) + '」 ' + pathOf(n));
+    if (PUNCT_SPACE.test(flat)) out.違反.句読点後の空白.push(n.id + ' 「' + chars.slice(0, 46) + '」 ' + pathOf(n));
 
     // --- T4: 一文 60 字（法務 2 ページと同意バナーは 80 字。D-3）--------------
     {
       const limit = longOK || /CookieBanner/.test(pathOf(n)) ? 80 : 60;
-      for (const s of sentences(chars)) {
-        if (s.length > limit) out.違反.一文60字超.push(n.id + ' ' + s.length + '字（上限 ' + limit + '）「' + s.slice(0, 50) + '…」 ' + pathOf(n));
+      for (const s of sentences(flat)) {
+        const len = lenNoUrl(s);
+        if (len > limit) out.違反.一文60字超.push(n.id + ' ' + len + '字' + (len !== s.length ? '（URL を除く）' : '')
+          + '（上限 ' + limit + '）「' + s.slice(0, 50) + '…」 ' + pathOf(n));
       }
     }
 
     // --- S8: Mobile への Desktop 用スタイルの混入 ----------------------------
     const sName = typeof n.textStyleId === 'string' ? (styleNames[n.textStyleId] || '') : '(mixed)';
-    if (isMobile && /\/Desktop\//.test(sName)) {
-      out.違反.Deviceスタイル.push(n.id + ' ' + sName + ' 「' + chars.slice(0, 18) + '」');
+    // **Device の軸を持たない部品**（ServiceCard・Steps・FAQItem など）の中の文字は、D と M で値が同じなので
+    // 既知の例外として別に数える（リードの判断 2026-10-08。部品に軸を足すのはこの改訂の範囲外）。
+    // ページに直接置いた文字と、Device の軸がある部品（ContactForm・SourceDownloadBlock・SiteFooter）の中は違反
+    // 和文と欧文で文字スタイルを分けた TEXT は textStyleId が mixed になるので、区間ごとに見る
+    // （mixed を飛ばしていて、10 Top の CookieBanner の上書きと既知の例外 40 件を取りこぼした。2026-10-08）
+    const dName = sName === '(mixed)'
+      ? (n.getStyledTextSegments(['textStyleId']).map(s => styleNames[s.textStyleId] || '').find(x => /\/Desktop\//.test(x)) || '')
+      : sName;
+    if (isMobile && /\/Desktop\//.test(dName)) {
+      const sName = dName;
+      let inInst = false, hasAxis = false;
+      for (let p = n.parent; p && p.type !== 'PAGE'; p = p.parent) {
+        if (p.type !== 'INSTANCE') continue;
+        inInst = true;
+        if (Object.keys(p.componentProperties || {}).some(k => /^Device/.test(k))) hasAxis = true;
+      }
+      (inInst && !hasAxis ? out.既知の例外.Deviceスタイル : out.違反.Deviceスタイル)
+        .push(n.id + ' ' + sName + ' 「' + chars.slice(0, 18) + '」 ' + pathOf(n));
     }
 
     const segs = n.getStyledTextSegments(['fontName', 'fontSize', 'fills', 'textDecoration']);
@@ -1073,6 +1594,12 @@ for (const root of page.children) {
     if (JP.test(chars) && !families.has('Noto Sans JP')) {
       out.違反.Noto漏れ.push(n.id + ' 「' + chars.slice(0, 24) + '」 (' + [...families].join(',') + ') ' + pathOf(n));
     }
+    {
+      const jp = jpInPoppins(segs);
+      if (jp.length) out.違反.和文にPoppins.push(n.id + ' 「' + jp.join('｜').slice(0, 20) + '」 ← 「' + chars.slice(0, 24) + '」 ' + pathOf(n));
+      const lt = hasMono ? [] : latinInNoto(segs);
+      if (lt.length) out.欧文にNoto区間.push(n.id + ' 「' + lt.join('｜').slice(0, 20) + '」 ← 「' + chars.slice(0, 24) + '」 ' + pathOf(n));
+    }
 
     // --- B8: タイプスケール（§6.3 の 9 段階以外）-----------------------------
     for (const s of new Set(segs.map(x => x.fontSize))) {
@@ -1087,7 +1614,7 @@ for (const root of page.children) {
       // 段組みの規則は **Desktop の多列**にだけ掛かる。Mobile は 1 列なので対象外
       // （03 Components で Mobile variant と部品単体の既定幅を誤検知した）
       const mobileCtx = isMobile || /Device=Mobile/.test(pathOf(n));
-      if (!mobileCtx && fs <= 18 && n.height > fs * 1.8 && perLine < 20) {
+      if (!mobileCtx && fs <= 18 && n.height > fs * 1.8 && perLine < minPerLine(n.width)) {
         out.違反.段組みの字数.push(
           n.id + ' 幅' + Math.round(n.width) + ' ' + fs + 'px 字間' + Math.round(ls * 100) + '% = 約'
           + (Math.round(perLine * 10) / 10) + '字/行 「' + chars.slice(0, 16) + '」 ' + pathOf(n));
@@ -1133,6 +1660,13 @@ for (const root of page.children) {
       if (estLines >= 2 && n.height < lh * (estLines - 0.5)) {
         out.格納高さの疑い.push(n.id + ' 高さ' + Math.round(n.height) + ' < 推定' + estLines + '行×'
           + Math.round(lh) + ' 「' + chars.slice(0, 20) + '」 ' + pathOf(n));
+      }
+    }
+
+    // --- T10: 折り返しの位置（推定。違反ではなく目視の確認対象）-------------
+    {
+      for (const [kind, pair] of stableSuspects(n)) {
+        out.折り返しの疑い.push(n.id + ' ' + kind + ' 「' + pair + '」 幅' + Math.round(n.width) + ' ' + pathOf(n));
       }
     }
 
@@ -1191,6 +1725,9 @@ for (const root of page.children) {
   }
 }
 
+// T8 の部品の既定値ぶん（`03 Components` のときだけ数が入る）
+const legacyDefaults = {};
+
 // --- 項目 33: 部品の既定値（`componentPropertyDefinitions`）------------------
 // **ノードを辿る走査では原理的に到達できない。** instance を 1 つも置かなくても存在するため。
 // この穴で `ServiceCard / Note` の既定値に禁止語「弊社」が 1 件生き残っていた（2026-10-01）。
@@ -1212,11 +1749,19 @@ if (page.id === '4:4') {
       const where = s.name + ' / ' + key.split('#')[0] + ' = 「' + v.slice(0, 60) + '」';
       for (const [w, why] of BANNED) if (v.includes(w)) out.違反.既定値の違反.push('禁止表現「' + w + '」 ' + why + ' ← ' + where);
       if (UNIT_GAP.test(v)) out.違反.既定値の違反.push('単位・助数詞の空き ← ' + where);
-      if (KERN_MISS.test(v)) out.違反.既定値の違反.push('和欧間の四分アキ欠落 ← ' + where);
+      // 日付・元号・番地の例外は画面の TEXT と同じく scrubExempt で落としてから当てる
+      // （`BlogCard / Date = 「YYYY年M月D日」` を誤検知していた。2026-10-08）
+      if (KERN_MISS.test(scrubExempt(v))) out.違反.既定値の違反.push('和欧間の四分アキ欠落 ← ' + where);
       if (PUNCT_SPACE.test(v)) out.違反.既定値の違反.push('句読点の直後の空白 ← ' + where);
       if (URL_IN_COPY.test(v)) out.違反.既定値の違反.push('URL・パス ← ' + where);
       if (SPEC_REF.test(v)) out.違反.既定値の違反.push('仕様書のセクション番号 ← ' + where);
       for (const w of OLD_PHRASES) if (v.includes(w)) out.違反.既定値の違反.push('旧文言「' + w + '」 ← ' + where);
+      // T8: 既定値の旧文言。instance の値を上書きしていれば画面には出ないが、新しく置いた instance に出る
+      for (const e of LEGACY_COPY) {
+        if (!legacyHit(e, squash(v))) continue;
+        legacyDefaults[e[0]] = (legacyDefaults[e[0]] || 0) + 1;
+        out.違反.旧文言.push('既定値 「' + e[0] + '」 ← ' + where + ' / ' + e[1]);
+      }
       if (KIT_PLACEHOLDER_WORDS.has(v.trim().toLowerCase())) out.違反.既定値の違反.push('kit 既定のプレースホルダ ← ' + where);
       out.部品の既定値.push(where);
     }
@@ -1225,6 +1770,62 @@ if (page.id === '4:4') {
 
 // --- T6: コピー一致 -----------------------------------------------------------
 if (EXPECTED.length) out.コピーの欠落 = EXPECTED.filter(e => !seenText.some(g => g === e || g.includes(e)));
+
+// --- T8: 旧文言（ページ全体 ＝ トップレベルの子ごとの合計）--------------------
+for (const [w] of LEGACY_COPY) {
+  const c = { TEXT: 0, 隠れprop: 0, 注記: 0, 既定値: legacyDefaults[w] || 0 };
+  for (const run of copyRuns) for (const k of ['TEXT', '隠れprop', '注記']) c[k] += run.旧文言[w][k];
+  out.旧文言の件数[w] = c;
+}
+for (const run of copyRuns) out.違反.旧文言.push(...run.所在);
+
+// --- T9: 新文言（ページ全体で最もよく合ったもの）------------------------------
+for (const c of pageNewCopy) {
+  let best = { 判定: 'なし', ids: [], 非表示にだけある: false };
+  for (const run of copyRuns) {
+    const v = run.新文言[c.名前];
+    if (MATCH_RANK[v.判定] > MATCH_RANK[best.判定]) best = { 判定: v.判定, ids: [...v.ids], 非表示にだけある: false };
+    else if (v.判定 === best.判定 && v.判定 !== 'なし') best.ids.push(...v.ids);
+    if (best.判定 === 'なし' && v.非表示にだけある) best.非表示にだけある = true;
+  }
+  out.新文言.push({
+    名前: c.名前, 文言: c.文言, 出典: c.出典, 判定: best.判定, 合格: best.判定 === '完全一致',
+    該当ノード: best.ids.slice(0, CAP), 非表示にだけある: best.非表示にだけある,
+    // 場所の外（業務理念ならフッターなど）で一致した数。判定には入れない
+    場所外: copyRuns.reduce((a, run) => a + run.新文言[c.名前].場所外, 0),
+  });
+}
+
+// --- S10: 状態フレームの網羅（本体と複製で T8・T9 の結果が同じか）--------------
+if (STATE_FRAMES[page.id]) {
+  const rows = [];
+  for (const [id, note] of STATE_FRAMES[page.id]) {
+    const node = await figma.getNodeByIdAsync(id);
+    if (!node) { rows.push({ id, 説明: note, err: 'ノードが無い' }); continue; }
+    const sm = copySummary(scanCopy(node, pageNewCopy));
+    rows.push({ id, 説明: note, name: node.name, 旧文言計: Object.values(sm.旧文言).reduce((a, b) => a + b, 0), ...sm });
+  }
+  // 比べるのは旧文言の件数と新文言の判定。Desktop と Mobile も同じになるのが正
+  const sig = r => JSON.stringify([r.旧文言 || null, r.新文言 || null, r.err || null]);
+  const base = rows[0] ? sig(rows[0]) : '';
+  out.状態フレームの網羅 = {
+    フレーム: rows,
+    同じ結果: rows.every(r => sig(r) === base),
+    食い違い: rows.filter(r => sig(r) !== base).map(r => r.id + ' ' + r.説明 + ' が ' + rows[0].id + ' ' + rows[0].説明 + ' と違う'),
+  };
+}
+
+// --- T8 の補助: 例として残す文言（KEEP_ONLY）。決めたページの決めた場所に決めた数だけあるか --
+// 決めたページ以外では 0 件、決めたページでは件数が一致し、すべて場所に合うのが正
+for (const k of KEEP_ONLY) {
+  const hits = copyRuns.flatMap(run => run.例.filter(x => x.語 === k.語));
+  const want = page.id === k.ページ ? k.件数 : 0;
+  const ok = hits.length === want && hits.every(x => x.場所に合う && !x.非表示);
+  out.例として残す文言.push({ 語: k.語, 件数: hits.length, 期待: want, 合格: ok, 理由: k.理由,
+    場所に合わない: hits.filter(x => !x.場所に合う || x.非表示).map(x => x.id + (x.非表示 ? '（非表示）' : '')) });
+  if (!ok) out.違反.旧文言.push('例として残す「' + k.語 + '」が ' + hits.length + ' 件（期待 ' + want + ' 件・'
+    + (page.id === k.ページ ? '場所 ' + k.場所 : 'このページには置かない') + '）');
+}
 
 // --- S6: 複製と本体の一致（**既にあるノード同士を比べる。**
 //          同じ実行の中で `clone()` を作ってから比較しない: 複製直後のノードは
@@ -1266,6 +1867,10 @@ out.件数 = {
   'ライブラリ変数_寸法_kit内側（許容）': remoteDimKit,
   '8ptグリッド_kit内側（許容）': kitGridCount,
   '格納高さの疑い（要確認・違反ではない）': out.格納高さの疑い.length,
+  '折り返しの疑い（推定・要目視）': out.折り返しの疑い.length,
+  '既知の例外_Deviceスタイル（Device の軸のない部品）': out.既知の例外.Deviceスタイル.length,
+  '既知の例外_URL（法務ページ）': out.既知の例外.URL.length,
+  '参考_欧文にNoto区間（03-handoff に回す）': out.欧文にNoto区間.length,
   // 項目 30 の母数。「下線漏れ 0 件」が本当に 0 件か、リンクに届いていないのかを分ける
   'リンク（role/text-link）のセグメント': linkSegTotal,
   'うち下線あり': linkUnderlined,
@@ -1274,6 +1879,8 @@ out.件数 = {
   部品のプロパティ定義: defCount, 'うち TEXT の既定値': defTextCount,
 };
 for (const k of Object.keys(out.違反)) out.件数['違反_' + k] = out.違反[k].length;
+out.件数['新文言（完全一致 / 対象）'] = out.新文言.filter(x => x.合格).length + ' / ' + out.新文言.length;
+if (out.状態フレームの網羅) out.件数.状態フレームが同じ結果 = out.状態フレームの網羅.同じ結果;
 out.件数.注記 = out.注記.length;
 out.件数.ボタン = out.ボタン.length;
 out.件数.ダミー = out.ダミー.length;
@@ -1281,8 +1888,80 @@ out.件数.ロゴ = out.ロゴ.length;
 
 // 一覧は上限まで切る（件数は上で全件数えてある）
 for (const k of Object.keys(out.違反)) out.違反[k] = out.違反[k].slice(0, CAP);
-for (const k of ['注記', 'ボタン', 'ダミー', '閉じたFAQ', 'フォーカス', 'ロゴ', 'ページ直下の非フレーム', '部品の既定値', '格納高さの疑い']) {
+for (const k of ['注記', 'ボタン', 'ダミー', '閉じたFAQ', 'フォーカス', 'ロゴ', 'ページ直下の非フレーム', '部品の既定値', '格納高さの疑い', '折り返しの疑い', '欧文にNoto区間']) {
   out[k] = out[k].slice(0, CAP);
 }
 
-return out;
+// --- 戻り値（`use_figma` の上限 20,480 バイトに収める）---------------------------
+// 全部を返すと 10 Top で 72KB になり、**上限を超えて何も返らない**（2026-10-08）。
+// OUTPUT で返すものを選ぶ。どの形でも最後に fitOutput() で上限まで縮める
+const byteLen = o => [...JSON.stringify(o)].reduce((a, ch) => a + (ch.charCodeAt(0) < 0x80 ? 1 : ch.charCodeAt(0) < 0x800 ? 2 : 3), 0);
+function fitOutput(o) {
+  if (byteLen(o) <= OUTPUT_LIMIT) return o;
+  // 配列を短くしていく（件数は `件数` に全件ある）。それでも収まらなければ文字列を切る
+  for (const cap of [20, 10, 5, 3, 1]) {
+    const walk = v => Array.isArray(v) ? v.slice(0, cap).map(walk)
+      : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)])) : v;
+    const o2 = walk(o);
+    o2.省略 = '一覧を各 ' + cap + ' 件までに切った（件数は「件数」にある）';
+    if (byteLen(o2) <= OUTPUT_LIMIT) return o2;
+  }
+  const cut = v => typeof v === 'string' ? v.slice(0, 60) : Array.isArray(v) ? v.slice(0, 1).map(cut)
+    : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cut(x)])) : v;
+  const o3 = cut(o);
+  o3.省略 = '上限に収まらないため一覧を 1 件・文字列を 60 字に切った。OUTPUT でキーを絞って再実行する';
+  return o3;
+}
+let result;
+if (OUTPUT === 'full') {
+  result = out;
+} else if (OUTPUT === 'summary') {
+  // 0 件でない違反だけを、先頭 2 件の例つきで返す
+  const 違反の例 = {};
+  for (const [k, v] of Object.entries(out.違反)) if (v.length) 違反の例[k] = v.slice(0, 2).map(s => String(s).slice(0, 140));
+  result = {
+    走査時刻: out.走査時刻, ページ: out.ページ,
+    自己テスト合格: out.自己テスト合格, 自己テスト件数: out.自己テスト件数, 自己テスト: out.自己テスト,
+    件数: Object.fromEntries(Object.entries(out.件数).filter(([k, v]) => !/^違反_/.test(k) || v !== 0)),
+    旧文言の件数: Object.fromEntries(Object.entries(out.旧文言の件数)
+      .filter(([, c]) => c.TEXT + c.隠れprop + c.注記 + c.既定値 > 0)),
+    例として残す文言: out.例として残す文言,
+    新文言: out.新文言.map(x => ({ 名前: x.名前, 判定: x.判定, 該当ノード: x.該当ノード.slice(0, 6), 非表示にだけある: x.非表示にだけある, 場所外: x.場所外 })),
+    状態フレームの網羅: out.状態フレームの網羅,
+    フレーム別の文言: out.フレーム別の文言,
+    旧文言の所在: out.違反.旧文言.slice(0, 12),
+    折り返しの疑い: out.折り返しの疑い.slice(0, 15),
+    違反の例,
+  };
+} else if (OUTPUT === 'compact') {
+  // 再検査用。1 ページ数 KB に収める。違反は D/M に分けて数える
+  const idOf = s => (/(?:^|[ @])(I?\d+:\d+(?:;\d+:\d+)*)/.exec(String(s)) || [])[1];
+  const dm = v => {
+    let d = 0, m = 0;
+    for (const s of v) (mobileOf.get(idOf(s)) ? m++ : d++);
+    return 'D' + d + '/M' + m;
+  };
+  const 違反 = {};
+  for (const [k, v] of Object.entries(out.違反)) {
+    if (v.length) 違反[k] = { 件数: out.件数['違反_' + k] + '（' + dm(v) + '）', 例: v.slice(0, 2).map(s => String(s).slice(0, 110)) };
+  }
+  result = {
+    走査時刻: out.走査時刻, ページ: out.ページ,
+    違反,
+    旧文言の所在: out.違反.旧文言.slice(0, 4).map(s => String(s).slice(0, 110)),
+    新文言: out.新文言.map(x => x.名前 + '=' + x.判定 + (x.非表示にだけある ? '（非表示）' : '')),
+    状態フレームが同じ結果: out.状態フレームの網羅 ? out.状態フレームの網羅.同じ結果 : null,
+    例として残す文言: out.例として残す文言.map(x => x.語 + ' ' + x.件数 + '/' + x.期待 + (x.合格 ? ' 合格' : ' 不合格')),
+    和文にPoppins: out.件数['違反_和文にPoppins'],
+    欧文にNoto区間: out.欧文にNoto区間.length + '（' + dm(out.欧文にNoto区間) + '）',
+    欧文にNoto区間の例: out.欧文にNoto区間.slice(0, 3).map(s => String(s).slice(0, 100)),
+    既知の例外: 'Device ' + out.既知の例外.Deviceスタイル.length + ' / URL ' + out.既知の例外.URL.length,
+    折り返しの疑い: out.折り返しの疑い.length + '（' + dm(out.折り返しの疑い) + '）',
+    折り返しの例: out.折り返しの疑い.filter(s => !/カタカナ語|2 字の漢字語/.test(s)).slice(0, 4).map(s => String(s).slice(0, 100)),
+  };
+} else {
+  // キーを 1 つ指定して全件を見る（例: '違反.コントラスト'、'閉じたFAQ'）
+  result = { 走査時刻: out.走査時刻, ページ: out.ページ, 自己テスト合格: out.自己テスト合格, キー: OUTPUT,
+    値: OUTPUT.split('.').reduce((v, k) => (v == null ? v : v[k]), out) };
+}
+return fitOutput(result);
