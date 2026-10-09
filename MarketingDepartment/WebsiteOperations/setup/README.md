@@ -92,6 +92,7 @@ Mautic と Chatwoot は、私設アドレスへの Webhook を既定で送らな
 |---|---|---|
 | Mautic | `config/local.php` の `webhook_allowed_private_addresses` に `127.0.0.1`（`MAUTIC_WEBHOOK_TARGET` のホスト）を足す（`dev/allow-webhook-private-addresses.php`。キャッシュも捨てる） | 同じ項目（設定 > Webhook 設定）に **`10.99.0.2` だけ**を入れる。範囲（`10.0.0.0/8` など）では許可しない |
 | Mautic の自動停止 | `disable_auto_unpublish` を `true`（`dev/disable-webhook-auto-unpublish.php`）。開発は I-11 が未公開（404）なのが既定なので、失敗で「n8n I-11」が止まらないようにする | **`false` のまま**（失敗が続いた Webhook は止まる）。止まったら n8n の provision を実行し直して公開に戻す（非公開の「n8n I-11」を公開にする） |
+| Mautic の CORS（Webhook ではないが同じ `local.php` を書く） | `cors_valid_domains` に公開サイトの開発のオリジン（`http://localhost:4321`・`http://localhost:4322`・`https://comegin-astro-dev.ngrok.app`。`dev.conf` の `MAUTIC_CORS_VALID_DOMAINS` で変えられる）を足す（`dev/allow-cors-domains.php`）。無いとフォームの応答を読めず、画面は「送信できませんでした」になる | 同じ項目（設定 > システム設定 > CORS 設定）に**本番の公開サイトのオリジンだけ**を入れる。「ドメインを制限する」は Yes のまま |
 | Chatwoot | `.env` の `SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true`（`dev/init-env.sh`）。rails と sidekiq を作り直して反映する | 宛先ごとの許可が無く、私設アドレス全体を開ける切り替えしか無い。**本番でも `true` が要る**ので、Chatwoot のタスクのセキュリティグループの出口を、必要な私設アドレス（RDS・ElastiCache と `10.99.0.2:5680`）だけに絞る |
 
 許可が無いと、Mautic は webhook_logs に `Access to private addresses is not allowed.` を、Chatwoot は Sidekiq のログに `has no public ip addresses` を残すだけで、n8n には何も届かない（Chatwoot は再送しない）。

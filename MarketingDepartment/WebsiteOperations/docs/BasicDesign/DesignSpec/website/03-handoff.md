@@ -641,7 +641,7 @@ Agent teams（foundation・integrations・builder-sales・builder-site・qa-revi
 
 | 対象 | 内容 |
 |---|---|
-| **Mautic（必須）** | **公開サイトのオリジンからの CORS を許可する。** フォームは urlencoded の単純なリクエストなのでプリフライトが起きず、CORS が無くても POST は届いて登録される。応答が読めないので画面は「送信できませんでした」を出し、押し直すと二重に登録される（CV の数え方〈DD-02 5.4〉で畳まれるが、Mautic のコンタクトは増える） |
+| **Mautic（必須）** | **公開サイトのオリジンからの CORS を許可する**（設定 > システム設定 > CORS 設定の「有効なドメイン」＝ `cors_valid_domains` に本番のオリジンだけ。「ドメインを制限する」は Yes のまま）。フォームは `X-Requested-With: XMLHttpRequest` を付けて送る（Mautic の `CORSMiddleware` は、この見出しが付いた要求の応答にだけ CORS の見出しを付けるため）。そのためプリフライトが起き、許可が無いと POST 自体が送られず、画面は「送信できませんでした」を出す（2026-10-09 に開発の ngrok で発生し修正。開発の設定は `backend/mautic-system/dev/allow-cors-domains.php` を setup が流す） |
 | Mautic | フォーム 2 つ（alias `consult`・`source_dl`）と、alias の項目: company・employee_range・has_it_department・lastname・firstname・email・message・privacy_consent_at・privacy_consent_version・email_optin・page_url・cta_id・service_interest・distinct_id（hidden を含む）。`privacy_consent_at` は JST の ISO 8601、`email_optin` は `1`／`0`。採番した ID を `MAUTIC_FORM_ID_*` に入れる |
 | Cal.com | 無料相談のイベント（説明文・所要時間。C14）を作り `PUBLIC_CALCOM_LINK` に入れる。無料プランで足りるか、データの置き場 |
 | Chatwoot | 本番の Web サイトの受信箱の `website_token`、初回メッセージ（§8.3） |

@@ -1,13 +1,14 @@
 // Mautic のフォームへの送信（I-08。DD-02 の 5 節）。
 // 受け口: POST ${PUBLIC_MAUTIC_BASE}/form/submit?formId=<id>&ajax=1
-//   本文は application/x-www-form-urlencoded の mauticform[...]（CORS のプリフライトが起きない形）。
+//   本文は application/x-www-form-urlencoded の mauticform[...]。
 //   ajax=1 と mauticform[messenger]=1 で、Mautic は JSON {success, validationErrors?, errorMessage?} を返す
 //   （backend/mautic-system の FormBundle/Controller/PublicController.php の createSubmitContext・buildMessengerResponse）。
 // 同期・タイムアウト 10 秒・自動の再送なし。失敗は呼び出し側が利用者に明示する。
-// 応答を読むには Mautic 側で公開サイトのオリジンからの CORS を許す必要がある（読めないと network に分類される）。
-// ⚠ urlencoded の単純なリクエストはプリフライトが起きないので、CORS が無くても POST 自体は Mautic に届いて処理される。
-//   その場合、画面は「送信できませんでした」を出し、利用者が押し直すと二重に登録される（失敗時は二重送信の記録を消すため。
-//   DD-02 の 5.2）。二重登録は CV の数え方（mautic_form_id ＋ lower(email) ＋ 日付で畳む。5.4）で吸収する。
+// 応答を読むには Mautic 側で公開サイトのオリジンからの CORS を許す必要がある（cors_valid_domains。読めないと network に分類される）。
+// X-Requested-With: XMLHttpRequest は必須。Mautic の app/middlewares/CORSMiddleware.php は、この見出しが付いた要求の応答にだけ
+//   Access-Control-Allow-Origin を付ける（無いと CORS を許可していても応答を読めない）。
+//   この見出しでプリフライト（OPTIONS）が起きるので、CORS の許可が無いオリジンからは POST 自体が送られない
+//   （届いたのに「送信できませんでした」になり、押し直しで二重に登録される、ということが起きない）。
 //   CORS の許可は公開の前に必須（03-handoff の申し送り）。
 
 export type SubmitErrorKind = "timeout" | "network" | "http_4xx" | "http_5xx";
@@ -41,6 +42,7 @@ export async function submitToMautic(
       `${base}/form/submit?formId=${formId}&ajax=1`,
       {
         method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
         body,
         credentials: "omit",
         signal: controller.signal,

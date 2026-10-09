@@ -1,4 +1,4 @@
-// Mautic（開発環境）の設定。MySQL・PHP ビルトインサーバーの起動 → 未インストールならインストール → Webhook の設定（私設アドレスの許可・自動停止の無効化）
+// Mautic（開発環境）の設定。MySQL・PHP ビルトインサーバーの起動 → 未インストールならインストール → Webhook の設定（私設アドレスの許可・自動停止の無効化）と公開サイトからの CORS の許可
 // → API 資格情報（画面で作る）→ カスタム項目・フォーム・セグメント。
 //
 // 方針（setup/lib/core.mjs の契約）:
@@ -29,6 +29,8 @@ const SITE_URL = "http://localhost:8000"; // dev/reset.sh の SITE_URL の既定
 const MAILHOG = { host: "127.0.0.1", port: "1025" }; // 同梱の MailHog（dev/reset.sh の既定値）
 // n8n の I-11 の受け口（middleware/n8n/provision の MAUTIC_WEBHOOK_TARGET の開発の既定値。dev.conf で変えたらそれに合わせる）
 const DEFAULT_WEBHOOK_TARGET = "http://127.0.0.1:5678/webhook/mautic-event";
+// 公開サイト（frontend/verdant-virgo）の開発のオリジン: dev サーバー・Lighthouse の preview・ngrok（astro.config.mjs の allowedHosts）。dev.conf の MAUTIC_CORS_VALID_DOMAINS で足せる
+const DEFAULT_CORS_VALID_DOMAINS = "http://localhost:4321,http://localhost:4322,https://comegin-astro-dev.ngrok.app";
 
 const root = (ctx) => join(ctx.W, DIR);
 const composeFile = (ctx) => join(root(ctx), "docker/compose.yaml");
@@ -143,7 +145,11 @@ async function ensureWebhookConfig(ctx) {
   // 2. 失敗しても Webhook を自動で非公開にしない（開発では I-11 が未公開〈404〉なのが既定で、止められると通しの確認ができない）。本番は false のまま
   const keptNow = await writeConfig(ctx, "dev/disable-webhook-auto-unpublish.php");
   ctx.log(keptNow ? "送信に失敗した Webhook を自動で非公開にしないようにした（disable_auto_unpublish）" : "送信に失敗した Webhook は自動で非公開にならない（設定済み）");
-  if (!allowedNow && !keptNow) return;
+  // 3. 公開サイト（Astro）のオリジンからのフォーム送信の CORS（app/middlewares/CORSMiddleware.php）。無いと画面は応答を読めず「送信できませんでした」になる
+  const origins = ctx.value("MAUTIC_CORS_VALID_DOMAINS") || DEFAULT_CORS_VALID_DOMAINS;
+  const corsNow = await writeConfig(ctx, "dev/allow-cors-domains.php", { MAUTIC_CORS_VALID_DOMAINS: origins });
+  ctx.log(corsNow ? `公開サイトのオリジン ${origins} からの CORS を許可した（cors_valid_domains）` : `公開サイトのオリジン ${origins} からの CORS は許可済み`);
+  if (!allowedNow && !keptNow && !corsNow) return;
 
   // パラメーターは Symfony のコンテナのキャッシュに焼き込まれるので、捨てて次の要求で作り直させる（ensureInstalled と同じ）
   for (const dir of ["var/cache/prod", "var/cache/dev"]) rmSync(join(root(ctx), dir), { recursive: true, force: true });
