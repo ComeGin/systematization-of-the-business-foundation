@@ -2,6 +2,8 @@
 
 Figma でのデザインを `frontend/verdant-virgo`（Astro ＋ shadcn/ui `base-nova` ＋ Tailwind v4）に実装するときの申し送り。
 
+**2026-10-09 に `frontend/verdant-virgo` へ全画面を実装した。** 実装の状況・Figma と違えた点・公開の前にやることは末尾の §11 にある（計画は `docs/superpowers/plans/2026-10-09-website-implementation.md`）。§0〜§10 は実装の前に書いた申し送りで、§11 と食い違う場合は §11 が実装の実態。
+
 **2026-10-01 にブランドガイドラインを全面適用した。** 以下はその後の状態。
 
 | 正本 | 置き場所 |
@@ -556,3 +558,130 @@ Figma 側の実数（2026-10-01 に `design-system` が実測して確定）。
 - **`clone()` で複製した variant は、TEXT・BOOLEAN のプロパティ参照が外れる。** Label を変えても表示が変わらない。複製したら参照を付け直す
 - **`Steps` の段数を切り替えると、隠れていた段の既定値（旧工程の文）が画面に出ない本文として残る。** 見た目の確認では見つからず、非表示まで走査する検査で見つかった。段数の variant の既定値も H-16 の印にする
 - **`qa-audit.js` は約 7.5 万字あり `use_figma` の上限 5 万字を超える。** 縮小版（約 4.2 万字）を貼る。`\uXXXX` は送信経路で生の文字に戻されて構文エラーになるので、本体では使わない
+
+## 11. 2026-10-09 の実装（`frontend/verdant-virgo`）
+
+Agent teams（foundation・integrations・builder-sales・builder-site・qa-reviewer）で全画面とフロント側の連携を実装した。計画は `docs/superpowers/plans/2026-10-09-website-implementation.md`。構成と環境変数は `frontend/verdant-virgo/README.md`。
+
+### 11.1 実装したもの
+
+| 対象 | 内容 |
+|---|---|
+| 画面 | トップ、サービス一覧・詳細 4 件（`/services/[slug]`。Figma にあるのは受託開発だけで、残り 3 件は §4.3+ の文言で同じ型）、料金、会社概要、無料相談・完了、404、法務 2 件、ブログ一覧（`/blog/page/<n>`・`/blog/category/<slug>`〈＋`/page/<n>`〉）、記事 |
+| 状態 | Cookie バナー表示中、Mobile メニュー表示中、無料相談の入力エラー・送信中・送信失敗（エラー応答・10 秒の無応答）・二重送信・完了、予約枠の読み込み失敗、無料 DL ブロックの 5 状態 |
+| 連携（フロント側） | consent-api への記録と Cookie `comegin_consent`、同意の後だけの GA4（Consent Mode v2 basic）・PostHog・Chatwoot、`cta_viewed`／`cta_clicked`／`form_*`／`booking_*`、Mautic への送信（`/form/submit?formId=…&ajax=1`、urlencoded、10 秒・再送なし・二重送信の防止）、Cal.com（SaaS）の埋め込み、Strapi の記事のビルド時取得 |
+| 文言 | `src/modules/site-content/` と `src/modules/legal/` に §2〜§8 から一字一句写した。各担当が仕様書と完全一致で照合し、仕様書に無いものは 11.4 の一覧だけ |
+
+### 11.2 計画の決定（P-1〜P-8）と、その後に変えたもの
+
+| # | 決定 | 実装の状態 |
+|---|---|---|
+| P-1 | 静的出力（SSG）。adapter なし | そのまま |
+| P-2 | 文言の正本は仕様書。和欧間は仕様書の半角スペース、`text-autospace` は使わない（H-17 の後者） | そのまま |
+| P-3 | 指定改行（H-19）だけ `<br>` を端末別に。ほかは `word-break: auto-phrase` | **範囲を広げた**。見出し・表のセル・ボタンに加え、カード・FAQ・CTA バナー・ページ導入・無料 DL・Cookie バナーなど短い文の本文、法務とブログの表のセル・目次・箇条書きにも `phrase` を当てた（語の途中・末尾 1 字の改行が実測で目立ったため）。記事本文と法務の長い段落には当てない。`phrase` でも切れる語は `keepTogether`（marketing-ui）で 1 語として扱う |
+| P-4 | 静的な部品は `.astro`、操作のある部品だけ React island | **Cookie バナーは island をやめた**（静的 HTML ＋描画の前に同期で Cookie を読むインラインのスクリプト）。LCP を遅らせていたため。**Mobile メニューも island をやめ、ネイティブの `<dialog>`（`showModal()`。JS は数百バイトの外部 script 1 本）にした**（Mobile で React 一式を最初から読んでいたことが performance の最後の原因だったため）。無料 DL のフォームは `client:visible`（水和まで送信ボタンは押せない）、計測・チャットは load の後の空き時間 |
+| P-5 | 書体は `@fontsource` で自前配信 | **ユーザー判断で変更**: ビルド時に `dist` で使っている字だけの Noto Sans JP を 400・500・700 の各 1 ファイルで作り、分割フォントと差し替える（`src/modules/brand/integration.ts`。`subset-font`）。dev は分割フォントのまま。OFL の全文を `dist/_astro/` に同梱 |
+| P-6 | ダークモードは作らない | そのまま |
+| P-7 | 二重送信は `sessionStorage`、キーは form id ＋ `lower(email)` ＋ JST の日付 | そのまま。無料 DL の二重送信は §5.2 に文言が無いため、送らずに成功の表示にした |
+| P-8 | `MAUTIC_FORM_ID_*` は `PUBLIC_` なしでビルド時に読む | そのまま |
+
+### 11.3 Figma・この文書と違えた点（どれも判断済み。直し忘れではない）
+
+| 項目 | 実装 | 理由 |
+|---|---|---|
+| ボタンの高さ | Small 32／Default 36／Large 40 | **§8 #5 の「28／32／36 で base-nova と完全一致」は古い。** 2026-10-09 に Figma の `CTAButton`（19:800）の 24 variant を測り直すと 32／36／40（ラベル 16px・行送り 24px のため）。`button.tsx` を Figma に合わせ、理由をコメントに残した |
+| Mobile の主 CTA・Cookie バナーのボタン | 実効 44px | H-13（タップ領域） |
+| 改行位置とページの高さ | Figma と行数が違う | U+2028 を持ち込まない（H-18）。高さの差の大半はこれ |
+| 本文の行長 | FAQ の回答、会社概要の 5-3・5-5a・5-5b、法務の表、記事本文は最大 720px | H-10 を Figma より優先（Figma は全幅） |
+| GitHub へのリンク 2 つ（無料 DL ブロック・フッター） | 出していない | 公開リポジトリの URL が `【要記入】`。§0.3 の F3-R「公開前の画面に『公開しています』と出さない」。`src/modules/site-content/nav.ts` の `SOURCE_REPO_URL` に URL を入れると 2 か所とも出る |
+| Mobile メニューの暗幕 | 黒の 50% | 部品の説明（31:669）は「kit alpha/black 50%」。Figma の画面の黒い塗りは、色を役割トークンへ付け替えたときに不透明度が移らなかった事故（§10 と同じ形）と判断 |
+| チェックボックスの角 | 2px | Figma で丸く見えるのは角丸の置き換えの副作用。丸いとラジオと見分けられない |
+| 料金 4-6 の「受託開発：バイブコーディングのみ」の契約の行 | `【要記入】`×3 | 仕様書（C12' 未決）が正。**Figma の Desktop（116:13248）だけが未決の値を埋めている**ので、Figma の訂正か C12' の確定が要る |
+| 料金カード 1 の罫線、受託開発の Mobile のプランのカードの区切り線 | 部品のとおり全カードにある | Figma 側のばらつきとして扱った |
+| 関連記事（3-8）のバッジ | 課題を知る／手法を比べる／導入を検討する の 3 種 | Figma の表示は 3 枚とも「課題を知る」だが、§4.3 の 3-8 は「7-4 と同じ中身」で 7-4 は 3 種 |
+| リンクを載せる表のセル | 白地 | `role/text-link` を `neutral.50` の地に載せると 4.22:1 で AA 未達（会社概要・特商法）。リンクの色は変えていない（H-15） |
+
+### 11.4 仕様書に無く、Figma や推定から採ったもの（01-content-spec への反映候補）
+
+**トップ・サービス・料金（builder-sales）**
+
+1. 3-7・4-8 の FAQ の見出し「よくある質問」（Figma 47:8610・45:7931）
+2. 料金 4-8 の Q3 の「要記入」マーカー（45:7951。回答の `【要記入】` が根拠。§8 #3 の「要確認バッジ」はこの 1 件で、文字は「要記入」）
+3. 1-8 のお客さまの声のバッジ「準備中」（42:3741）
+4. 3-8 の関連記事のバッジの並び（11.3）
+5. §4.3.1〜4.3.3 の「プラン」「進め方」「よくある質問」「関連する記事」の見出し（推定。Figma なし）
+6. 料金 4-6 の契約のカード（Mobile）で、ラベルと値を全角コロンで区切る形（118:1252）
+7. 料金 4-6 のお支払いの表は見出し行なし（46:7634）、Mobile だけ Small 14px（46:7540）
+8. カードが 1 枚だけのサービス詳細（環境構築・コンサル・業務提携）は、2 列の型の左の列に置く（推定）
+9. 3-8 のダミーのカードのリンク先は `/blog`（推定）
+10. 段落の組み方: 1-3・1-9 の本文は 1 文ずつ行を分け、1-7 のリード・3-3 の本文・1-1 の Desktop の本文は 1 段落につなぐ（Figma）
+
+**会社概要・無料相談・法務・ブログ（builder-site）**
+
+11. 完了画面の Badge「受付完了」と circle-check のアイコン（42:3939。語はパンくずから）
+12. 自動返信の文を、ヒーローの外・予約の上の白い面に置く（Figma）。`【要確認】` は仕様書どおり残した（Figma には無い）
+13. 会社概要 5-7 のメンバーのカードは、2 枚とも画像枠と「メンバー紹介（準備中）」（Figma）
+14. プライバシーポリシーの目次の見出し「目次」（8-4 と Figma）
+15. プライバシーポリシーの前文に見出し「前文」を出さない（Figma）
+16. ブログ一覧の 2 ページ目以降の SEO: title「ブログ（Nページ目）｜…」、description は 1 ページ目と同じ、canonical はページ自身、index（リード判断）
+17. カテゴリのタブはリンク。URL は `/blog/category/<slug>`（＋`/page/<n>`）、すべての記事の 2 ページ目以降は `/blog/page/<n>`（推定）
+18. カテゴリ別ページの SEO: title「ブログ（課題を知る）｜…」（2 ページ目以降は「（課題を知る・2ページ目）」）、description は一覧と同じ、canonical はページ自身、index（リード判断）
+19. 記事のメタ情報（公開日・更新日・著者）と法務の制定日・最終改定日は「／」でつながず間隔で並べる（「／」が仕様書に無い）
+20. 無料相談の「業務棚卸しの内容」のカードを 1 つの部品にした（§0.3 の申し送りどおり）
+21. 404 の「404」の書体は Poppins（仕様書は Inter。P-5 で Inter を使わないため）
+22. 会社概要の「無料相談フォーム」のリンクに `?from=/about`（DD-02 5.3。CTA ではないので `cta_id` なし）
+23. 法務で途中で折り返さない語: メールアドレス・アナリティクス・ウェブサイト・オンライン面談・お問い合わせ・適格請求書・発行事業者・所在する国
+
+**チャット（integrations。2026-10-09 にユーザーの報告で追加）**
+
+24. 未同意のまま「チャットで質問する」（`chat_contact_aside`）を押して出した同意バナーで「同意する」を選んだら、そのままチャットを開く。「同意しない」・別の経路（フッターの「Cookie 設定」）で出し直したとき・同意せずに閉じたときは開かない
+25. チャットを開けないとき（SDK の読み込みの失敗・設定なし・押してから 10 秒たっても準備ができない）は、押したボタンの直後に案内「チャットを表示できませんでした。kamegin4@comegin.com までメールでご連絡ください。」を出す（`role="status"`、メールは mailto のリンク）。文言は §5.1 の送信失敗の文に合わせた。§4.6 の 6-5（カード 2）か §5.1 に追記が要る
+
+### 11.5 公開の前にやること（この実装では行っていない）
+
+| 対象 | 内容 |
+|---|---|
+| **Mautic（必須）** | **公開サイトのオリジンからの CORS を許可する。** フォームは urlencoded の単純なリクエストなのでプリフライトが起きず、CORS が無くても POST は届いて登録される。応答が読めないので画面は「送信できませんでした」を出し、押し直すと二重に登録される（CV の数え方〈DD-02 5.4〉で畳まれるが、Mautic のコンタクトは増える） |
+| Mautic | フォーム 2 つ（alias `consult`・`source_dl`）と、alias の項目: company・employee_range・has_it_department・lastname・firstname・email・message・privacy_consent_at・privacy_consent_version・email_optin・page_url・cta_id・service_interest・distinct_id（hidden を含む）。`privacy_consent_at` は JST の ISO 8601、`email_optin` は `1`／`0`。採番した ID を `MAUTIC_FORM_ID_*` に入れる |
+| Cal.com | 無料相談のイベント（説明文・所要時間。C14）を作り `PUBLIC_CALCOM_LINK` に入れる。無料プランで足りるか、データの置き場 |
+| Chatwoot | 本番の Web サイトの受信箱の `website_token`、初回メッセージ（§8.3） |
+| GA4 | 本番のプロパティの測定 ID |
+| Strapi | 読み取り専用の API トークン（本番）、本番のカテゴリ 3 つ（slug は `know-the-issues`・`compare-methods`・`consider-adoption`）、非公開バケットの画像を取得できるかの確認。**開発の検証用の記事 10 件（slug が `verify-*`）は本番に持ち込まない** |
+| consent-api | 本番の `consent.comegin.com` のデプロイ。`COOKIE_DOMAIN` と `PUBLIC_CONSENT_COOKIE_DOMAIN`、`CONSENT_POLICY_VERSION` を両方で同じ値に。開発の consent-api は `SITE_URL` が ngrok だけなので、localhost からの記録は 403 になる |
+| **CSP** | サイト全体の CSP の設計がまだ無い。許可が要る配信元: GA4（DD-02 2.5）、PostHog（送信先と assets）、Chatwoot、consent-api、Cal.com（完了画面だけ。予約枠の中から Cal.com 自身の Sentry〈`*.ingest.us.sentry.io`〉と `lh3.googleusercontent.com` にも通信が出る）。**公開サイトにはインラインのスクリプトが 1 つある**（`src/modules/consent/components/ConsentBanner.astro` の同意バナーの表示判定。描画の前に同期で Cookie を読むため外部ファイルにできない）。このスクリプトのハッシュを `script-src` に足す（`'unsafe-inline'` は使わない） |
+| プライバシーポリシー | Cal.com の予約枠が Sentry と Google の画像に通信することを、外部送信の記載で考慮する |
+| ビルド | **本番の値の環境変数ファイルでビルドする**（開発の値のままだと canonical・sitemap・OGP・各受け口が開発の宛先になる）。`BUILD_TARGET=production` |
+| `【要記入】`・『要確認』 | 公開リポジトリの URL（`SOURCE_REPO_URL`）ほか、§7.3 の値。法務 2 ページの専門家の確認 |
+| 正本側 | `~/ComeGin/comegin/assets/tokens/tokens.css`（生成物）の `--color-role-surface-brand` が blue.500 のまま（H-7 の blue.600 に直っていない）。実装は `src/styles/theme.css` で上書きしている。生成元 `build_brand_tokens.py` を直すかどうか |
+| 01-content-spec | 11.4 の 25 件の反映 |
+| 計測・集計 | ビルドでは URL の末尾に `/` が付く（`/services/`）。canonical・sitemap・`?from=` の値はビルドの中では一貫しているが、dev（`/services`）とは値が違う。`page_url` で集計するときは末尾の `/` をそろえる |
+
+### 11.6 検査の結果
+
+| 検査 | 結果 |
+|---|---|
+| Figma との見比べ（全画面 D/M・状態） | 直さないと出せない指摘 0 件（qa-reviewer。11.3 の差は数えていない） |
+| HTML の検査（h1・title・description・canonical・noindex・lang・cta_id・`?cta=`／`?from=`・旧文言 49 件・U+2028） | 全画面 NG 0 |
+| 描画後の規則（AA コントラスト・blue.500 を文字に使わない・リンクの下線・フォーカスリング H-8・横スクロール・行長） | 違反 0 |
+| 同意の前後（同意前の外部への送信 0・同意後の読み込み・撤回・再表示・K4） | 合格（Desktop・Mobile） |
+| フォーム（§5.1 の文言・フォーカス・送信中・失敗・10 秒・二重送信・ペイロード DD-02 5.3・選択肢の外の値を捨てる） | 合格（送信は `page.route` で差し替え） |
+| `pnpm build` と `dist` の検査（sitemap に完了・404 が無い、Strapi／S3 の URL が残らない） | 合格 |
+| Lighthouse（トップ・`/blog/`・記事 1 本） | 合格（11.7） |
+
+### 11.7 Lighthouse
+
+**合格（2026-10-09 18:20〜18:23、本物のビルド、`pnpm lh` の 5 回の中央値）。** a11y・best-practices・SEO は 15 回すべて 1.0、CLS は 15 回すべて 0。
+
+| URL | performance | FCP | LCP | TBT |
+|---|---|---|---|---|
+| `/` | 1.0 | 1.4s | 1.5s | 43ms |
+| `/blog/` | 1.0 | 1.3s | 1.3s | 4ms |
+| 記事 1 本 | 0.98 | 1.3s | 2.3s | 0 |
+
+performance の推移（判定値）: 最初 0.56／0.58／0.59 → Cookie バナーの静的化と水和の時期 0.60／0.62／0.59 → 和文フォントのサブセット 0.70／0.85／0.70 → Mobile メニューから React を外す 1.0／1.0／0.98。
+
+- **効いた手**: ① 和文フォントのサブセット（744 ファイル・約 940KB → 3 ファイル・約 540KB）② Mobile メニューをネイティブの `<dialog>` にして React を読まない（11.2 の P-4 の後に変更。これが最後の決め手）③ Cookie バナーを静的 HTML にして LCP の候補を水和から切り離す ④ 使っていない partytown を外す
+- **効かなかった手**（入れていない）: フォントの preload、フォントを最初の描画の後に読む（`comeginFontSubset({ defer: true })`。実装はあり既定 off）、500 を外す、`word-break: auto-phrase` を外す（原因ではなかった）、`content-visibility`（悪化）
+- **計測環境の注意**: 同じ dist でも、機械の負荷で performance が 0.3〜0.9 の幅で動いた（Lighthouse の CPU のベンチマーク値が平常の 1,265〜1,711 から 41〜1,245 まで落ちた）。判定は、ほかの build・Lighthouse・ブラウザを止めた状態で回す。`lighthouserc.cjs` を 5 回の中央値に変えたのはこのため
+- **まだ残るぶれ**: 15 回のうち 5 回は 0.74〜0.77（FCP 4.0〜4.3s）で、和文フォントの読み込みが最初の描画より前に始まった回。中央値は余裕で通るが、5 回中 3 回が悪い形に当たると落ちる。CI で不安定なら、次の手は `defer: true`（静かな環境の比較では一貫した改善が無かったので、入れるなら CI で比べてから）
+- 計測 URL は `lighthouserc.cjs` が `dist/blog` から記事を 1 本選ぶ（slug を固定しない）

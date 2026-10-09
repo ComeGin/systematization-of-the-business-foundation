@@ -21,7 +21,9 @@
     "@astrojs/react": "^6.0.5",
     "@astrojs/sitemap": "^3.7.4",
     "@base-ui/react": "^1.8.0",
-    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/noto-sans-jp": "^5.3.0",
+    "@fontsource/poppins": "^5.3.0",
     "@gsap/react": "^2.1.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
@@ -31,6 +33,8 @@
     "cn": "^0.3.0",
     "gsap": "^3.15.0",
     "lucide-react": "^1.46.0",
+    "marked": "^18.1.0",
+    "posthog-js": "^1.438.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.3",
@@ -40,8 +44,12 @@
     "esbuild": true
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@expo-google-fonts/noto-sans-jp": "^0.4.4",
     "@lhci/cli": "^0.15.1",
     "shadcn": "^4.21.0",
+    "subset-font": "^2.9.0",
+    "typescript": "^6.0.3",
     "vite": "^8.3.0"
   }
 }
