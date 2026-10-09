@@ -35,6 +35,8 @@ builder がこの文書だけで部品・変数・スタイルを引けるよう
 
 部品は **28 個 / variant 合計 133**、ローカル変数 **92 件**、文字スタイル **55 件**、エフェクトスタイル **5 件**（2026-10-01 20:17 JST 実測）。
 
+**2026-10-08 の変更**: `FormField` に `Type=Select`・`Type=Radio` を 4 状態ずつ足したため、**variant 合計は 141**（COMPONENT_SET の中の variant 135 ＋ 単体 6）。部品数・変数・スタイルの数は変わらない（§7 の `FormField` の行）。
+
 **数え方**（次に数える人が同じ数を出せるように）:
 
 | 数値 | 数え方 |
@@ -399,7 +401,7 @@ X ＝ ワードマーク「C」のキャップハイト。全高に対する比�
 
 ---
 
-## 7. サイト部品（28 個 / variant 133）
+## 7. サイト部品（28 個 / variant 141。2026-10-08 に 133 から `FormField` の 8 variant を追加）
 
 すべて Figma ページ `03 Components`（ID `4:4`）。**同じファイル内なので import は不要**で、
 `const set = await figma.getNodeByIdAsync('<ノード ID>')` → variant を選んで `createInstance()`。別ファイルからは `figma.importComponentSetByKeyAsync('<key>')`。
@@ -413,28 +415,28 @@ variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].e
 | CTAButton | `19:800` | `fac92b941ede8d7f133a3096fec13badc8be01b9` | SET（**24**） | Size=Small/Default/Large、State=Default/Hover/**Focus**/Loading、Width=Hug/Full | なし（ラベルは中の TEXT「Label」を直接書き換える。`UI/Button` を当て直す） |
 | SiteHeader | `30:854` | `fb8fa1c8789cb08207f68abb0178e7a9779d2637` | SET（4） | Device=Desktop/Mobile、CTA=Primary/Outline | **`Logo#30:0` は削除**（文字ロゴを `Logo` 部品に置き換えたため）。現在地は exposed instance「Nav / 料金」などに `setProperties({State:'Hover & Active'})` |
 | MobileMenuSheet | `31:669` | `0acda40d8aac93e5e5a5875eede985f32613da72` | SET（2） | CTA=Primary/Outline | なし |
-| SiteFooter | `32:683` | `2448b08a1d851e44653b91389dc4f33923f8d952` | SET（2） | Device=Desktop/Mobile | **`Logo#32:6` は削除**。`Description#32:0`・`Copyright#32:3` |
+| SiteFooter | `32:683` | `2448b08a1d851e44653b91389dc4f33923f8d952` | SET（2） | Device=Desktop/Mobile | **`Logo#32:6` は削除**。`Description#32:0`・`Copyright#32:3`。**2026-10-08（G-A）: 列 3 の最後に「ソースコード（GitHub）」を追加**（Desktop `232:13778`／Mobile の行 `232:13779`・文字 `232:13780`。和文 `JP/UI/Text`・欧文 `Latin/UI/Text`、`role/text-link`＋下線）。Desktop の高さは 392 のまま、Mobile は 1055→1107 |
 | AnnouncementBanner | `28:509` | `108b0cdb31df7b5463ea1ac896b61e46a65cbb00` | SET（2） | Device=Desktop/Mobile | `Text#28:0`・`Short text#28:3` |
 | PageIntro | `29:712` | `b54aee6e44f805dd0e07c71b1c131f43a374883d` | SET（2） | Device=Desktop/Mobile | `Title#29:0`・`Body#29:3`／`Show badge#29:6`・`Show button#29:9`・`Show image#29:12`・`Show breadcrumb#29:15` |
 | SectionHeading | `21:383` | `cce2962d041362cd6dbc28933147ab85c30361d0` | SET（4） | Device=Desktop/Mobile、Align=Left/Center | `Title#21:19`・`Lead#21:24`／`Show lead#21:29`・`Show badge#21:34` |
 | ServiceCard | `23:476` | `0da4b8d729132de0de28942d5f57a92cdd60a139` | SET（2） | Price rows=1/2 | `Title#23:0`・`Body#23:3`・`Product 1#23:6`・`Price 1#23:9`・`Period 1#23:12`・`Product 2#23:15`・`Price 2#23:18`・`Period 2#23:21`・`Note#23:24`／`Show badge#23:27`・`Show note#23:30`・`Show sub link#23:33` |
 | PricingCard | `24:443` | `39cd29f7f8b8a9d0aadd41f94f3571f7c704eb7b` | COMPONENT | — | `Product#24:0`・`Description#24:1`・`Price#24:2`・`Period#24:3`・`Note#24:4`／`Show badge#24:5`・`Show description#24:6`・`Show note#24:7`・`Show sub link#24:8` |
-| StepItem | `22:240` | `ac50d7daa7aed9e4c65f948b415784e32b8de245` | SET（2） | Layout=Stacked/Inline | `Number#22:0`・`Title#22:3`・`Body#22:6`／**`Show body#128:0`**（既定 true。false で本文の行が消える。Stacked は 165→82px） |
+| StepItem | `22:240` | `ac50d7daa7aed9e4c65f948b415784e32b8de245` | SET（2） | Layout=Stacked/Inline | `Number#22:0`・`Title#22:3`・`Body#22:6`・**`Period#232:9`**（既定 `【要記入】期間`）／**`Show body#128:0`**（既定 true。false で本文の行が消える。Stacked は 165→82px）・**`Show period#232:6`**（既定 false。2026-10-08 追加。Title の直下に期間の行〈`JP/Desktop/Caption`・`role/text-muted`〉。サービス詳細 3-6 の 5 段階で使う。`Steps` の中では exposed instance〈`Step 1`〜〉から切り替える） |
 | Steps | `22:499` | `5c3b919a167c84b5ce50c70bbbc1df69c892a70f` | SET（6） | Direction=Horizontal/Vertical、Count=4/5/6 | なし（中の「Step 1」… が StepItem の exposed instance）。**variant ごとに既定の文言が入っている**（下記 7.2） |
 | FAQItem | `39:2162` | `aa446a2066498ef3f9b4f756d33837ed3841098c` | SET（2） | State=Closed/Open | `Answer#39:0`／`Show marker#50:0` |
 | CTABanner | `27:502` | `aa958d4c3db370c83b5bc0b1e032947876a1d9fd` | SET（4） | Type=Standard/Inline、Device=Desktop/Mobile | `Title#27:0`・`Body#27:5`／`Show body#27:10` |
-| SourceDownloadBlock | `35:1578` | `8337e7fd91811468a95143ad7060f47c640fcf7a` | SET（20） | Emphasis=Subtle/Strong、State=Default/Error/Loading/Failed/Success、Device=Desktop/Mobile | `Title#35:0`・`Body#35:21` |
-| ContactForm | `36:2481` | `fb2b148716e5a0290a339aa794b5606dce646904` | SET（7） | State=Default/Error/Loading/Failed/Duplicate（Desktop）、Device=Desktop/Mobile | なし（各項目は FormField の instance）。**ボタン下の注記の既定値は 01-content-spec §5.1 の確定文言**（2026-10-01 に 7 variant を差し替え。旧「通常【要記入】営業日以内に…」は残っていない） |
+| SourceDownloadBlock | `35:1578` | `8337e7fd91811468a95143ad7060f47c640fcf7a` | SET（20） | Emphasis=Subtle/Strong、State=Default/Error/Loading/Failed/Success、Device=Desktop/Mobile | `Title#35:0`・`Body#35:21`（**どちらも既定値は `【要記入】`**。Title は 2026-10-08 に変更）。**2026-10-08（G-A）: 本文の下に「ソースコードを見る（GitHub）」のリンクを全 20 variant に追加**（`Link / ソースコードを見る（GitHub）`。kit `Button - Nova` Variant=Link・`Lucide / external-link`。Success でも残る）。ボタン「構築の手順書を受け取る」、注記・成功の本文は 01-content-spec §5.2 の現行文。下の 7.6 |
+| ContactForm | `36:2481` | `fb2b148716e5a0290a339aa794b5606dce646904` | SET（7） | State=Default/Error/Loading/Failed/Duplicate（Desktop）、Device=Desktop/Mobile | なし（各項目は FormField の instance）。**ボタン下の注記の既定値は 01-content-spec §5.1 の確定文言**（2026-10-01 に 7 variant を差し替え。旧「通常【要記入】営業日以内に…」は残っていない）。**2026-10-08: 会社名の後に任意 2 項目を追加**（計画書 B-5）— `Field / 従業員数`（FormField `Type=Select`）・`Field / 社内の IT の担当部署`（`Type=Radio`）。どちらも `Show required`=false・`Show optional`=true。**Error の variant でも Default のまま**（任意なので空でもエラーにしない）、Loading では `Disabled`。Desktop は既存項目と同じ `maxWidth` 640。variant の高さは Default/Desktop 671→835 など各 +164px。Mobile の段を下げ、下の `CookieBanner`・`IconCard` を 383px 下げた |
 | **BookingEmbed**（新規） | `108:8011` | `d957b37bdc9ce084bd43fe235620e4ff6b37a9e3` | SET（4） | Device=Desktop/Mobile、State=Default/Error | なし（文言は 01-content-spec §4.6 の 6'-2 で確定。下記 7.3） |
-| FormField | `20:2828` | `886f9ad9fbb4623284ac08fee2b1f9785352a5f3` | SET（**12**） | Type=Input/Textarea/Name、State=Default/Error/Disabled/**Focus** | `Label#20:0`・`Helper#20:10`・`Error#20:20`／`Show required#20:30` |
+| FormField | `20:2828` | `886f9ad9fbb4623284ac08fee2b1f9785352a5f3` | SET（**20**。2026-10-08 に 12 から追加） | Type=Input/Textarea/Name/**Select/Radio**、State=Default/Error/Disabled/**Focus** | `Label#20:0`・`Helper#20:10`・`Error#20:20`／`Show required#20:30`・**`Show optional#224:24`**（既定 false。2026-10-08 追加）。下の 7.5 |
 | ConsentCheckbox | `21:299` | `11f35dd56c6accf911d33f4bdeb04aedb6152ea8` | SET（**4**） | State=Default/Checked/Error/**Focus** | `Link#21:0`・`Label#21:4`・`Error#21:8`／`Show required#21:12` |
 | CheckboxField | `21:334` | `76203a7407c60ea369248a1caa9e80364a16dae7` | SET（2） | State=Default/Checked | `Label#21:16` |
-| IconCard | `42:2936` | `8e25a72dc952e791997a95bab64263fb783d3b09` | SET（2） | Device=Desktop/Mobile | `Title#42:0`・`Body#42:3`・`Link#42:89`／`Show icon#42:9`・`Show avatar#47:3`・`Show image#42:92`・`Show button#42:95`・`Show link#42:98`／INSTANCE_SWAP `Icon#42:6` |
+| IconCard | `42:2936` | `8e25a72dc952e791997a95bab64263fb783d3b09` | SET（2） | Device=Desktop/Mobile | `Title#42:0`・`Body#42:3`・`Link#42:89`・**`Caption#232:3`**（既定 `【要記入】注記`）／`Show icon#42:9`・`Show avatar#47:3`・`Show image#42:92`・`Show button#42:95`・`Show link#42:98`・**`Show caption#232:0`**（既定 false。2026-10-08 追加。Body の直下〈Link・Button より上〉に出典の欄。`JP/Desktop|Mobile/Caption`・`role/text-muted`・幅 FILL・高さ追従で、改行で複数行にできる。トップ 1-4c のカード 1 で使う）／INSTANCE_SWAP `Icon#42:6` |
 | BlogCard | `26:457` | `f5ee307c4e70821d589f2645c1489946ea972300` | COMPONENT | — | `Title#26:0`・`Excerpt#26:1`・`Date#26:2` |
 | LogoCloud（ダミー） | `25:485` | `e0a6130533e7d9c5469a8dc7e0e4ebbb7bb5fce3` | SET（2） | Device=Desktop/Mobile | なし |
 | TestimonialCard（ダミー） | `25:445` | `b1a0347ebab9668d5d338ff73ab5da6142fe8e99` | COMPONENT | — | `Title#25:3`・`Body#25:4` |
 | StatCard（ダミー） | `25:441` | `a62cdb041e1a98c43631a3ede44a86203a05fc4e` | COMPONENT | — | `Label#25:0`・`Value#25:1`（必ず「—」）・`Caption#25:2`／**`Show caption#99:1`**（既定 true。false で出典・注記の行が消え、カード高が 135→113px） |
-| CookieBanner | `37:2137` | `a76ad9a28c761e529a31953b3215de07e5a9554d` | SET（2） | Device=Desktop/Mobile | `Title#37:0`・`Body#37:3`・`Link#37:6` |
+| CookieBanner | `37:2137` | `a76ad9a28c761e529a31953b3215de07e5a9554d` | SET（2） | Device=Desktop/Mobile | `Title#37:0`・`Body#37:3`・`Link#37:6`。**`Body` の既定値は 2026-10-08 に 01-content-spec §8.1 の現行文（ADR-25。Google アナリティクスと PostHog）に差し替えた**（下の 7.5） |
 | ImagePlaceholder | `19:681` | `024f3fa2b80063f88a835f725cdce6fa95a2d7cc` | COMPONENT | — | `Label#19:1` |
 | ChatWidgetPlaceholder | `39:2163` | `881e16cde7562e31548e47a9235578ed2f6b6018` | COMPONENT | — | `Label#39:3` |
 
@@ -468,7 +470,7 @@ variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].e
 | variant | 既定の内容 |
 |---|---|
 | Count=5 | 事業経営基盤の PDCA（観測 / 提案 / 承認 / 反映 / 検証） |
-| Count=6 | 受託開発の流れ（要件定義 / 設計 / 開発 / テスト / リリース / 運用保守） |
+| Count=6 | **2026-10-08 に全段 `【要記入】見出し` / `【要記入】本文` に変えた**（旧: 受託開発の流れ〈要件定義 / 設計 / 開発 / テスト / リリース / 運用保守〉。B-4 で 3-6 が 5 段の別の工程になり、正しい場所が無くなったため。使っているのは 14 Contact の「ご相談の流れ」7 件で、全段の見出しを instance 側で持っており、変更後も印は出ていないことを実測した） |
 | Count=4 | Count=5 の先頭 4 段 |
 
 **1 段でも使わないなら、Body に半角スペースを入れるのではなく `Count` を 1 つ小さい variant に変える。** 空の段が残ると矢印と折り返し位置がずれる。
@@ -580,7 +582,7 @@ variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].e
 | 部品 / プロパティ | 既定値 | 依存 |
 |---|---|---|
 | `PageIntro / Title#29:0` | 受託開発：バイブコーディングから要件定義〜運用保守まで | 2 |
-| `FAQItem / Answer#39:0` | はい。環境構築に使うソースコードは無料で配布しています。… | 5 |
+| ~~`FAQItem / Answer#39:0`~~ | ~~はい。環境構築に使うソースコードは無料で配布しています。…~~ → **2026-10-08 に `【要記入】本文` に変更**（G-A で Q1 の回答が変わり、旧文が正しい場所が無くなった。変更前に全ページで旧文に頼っている instance が 0 件、変更後に印が出ている instance が 0 件であることを実測） | 5 |
 | `ServiceCard / Title#23:0` | 環境構築 | 7 |
 | `ServiceCard / Product 1#23:6` | 本プロジェクトの環境構築 | 7 |
 | `ServiceCard / Product 2#23:15` | 受託開発：要件定義〜運用保守 | 28 |
@@ -588,7 +590,7 @@ variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].e
 | `PricingCard / Note#24:4` | ソースコードは無料で配布 | 2 |
 | `StepItem / Title#22:3` ／ `Body#22:6` | 観測 ／ 検索順位、流入、問い合わせ、表示速度などの… | 5 ずつ |
 | `StatCard / Label#25:0` | 導入社数 | 5 |
-| `SourceDownloadBlock / Title#35:0` | 環境構築のソースコードを無料で配布しています | 4 |
+| ~~`SourceDownloadBlock / Title#35:0`~~ | ~~環境構築のソースコードを無料で配布しています~~ → **2026-10-08 に `【要記入】見出し` に変更**（下の 7.6。G-A で全ページの見出しが変わり、既定値が正しい場所が無くなったため） | 4 |
 
 据え置いた理由（lead 判断・2026-10-01）:
 
@@ -625,6 +627,154 @@ variant の選び方: `set.children.find(c => ['Device=Desktop','CTA=Primary'].e
 **部品の用途が 1 つでも、文言が 1 つとは限らない。** 分類は既定値の文面ではなく、**instance の実値を突き合わせて**決める。
 
 **実装側にも同じ罠が移る。** Astro のコンポーネントの既定 props に特定セクションのコピーを入れない（`03-handoff.md`）。
+
+#### 2026-10-08 の追加と変更（design-system）
+
+**TEXT 型プロパティは増えていない（53 件のまま）。** 足したのは BOOLEAN の `FormField / Show optional#224:24` 1 件で、プロパティの母数は 112 → **113**。既定値の 4 分類は、T2 の時点では変わらなかった。**G-B の後に `SourceDownloadBlock / Title#35:0` を据え置きから印に移したので、印 18 / そのまま 21 / 据え置き 10 / 項目種別で正しい 4**（§7.6）。**さらに builder-sales の依頼で TEXT を 2 件足した**（`IconCard / Caption#232:3` ＝ `【要記入】注記`、`StepItem / Period#232:9` ＝ `【要記入】期間`。どちらも印。BOOLEAN の `Show caption#232:0`・`Show period#232:6` は既定 false）。**最新: TEXT 55 件（印 23 / そのまま 19 / 据え置き 9 / 項目種別で正しい 4）、プロパティの母数 117。**（qa-reviewer の 13:31 の走査を受けて `FAQItem / Answer` を据え置きから印に移した。`AnnouncementBanner` の `Text`・`Short text` も lead の指示で `【要記入】本文` にした。10 Top の 5 件は、既定値が旧文だった時点から新しい文を表示していた＝明示値を持っていたので、変更後も表示は変わらないことを実測した）
+
+| 部品 / 対象 | 既定値 | 扱い | 理由 |
+|---|---|---|---|
+| `CookieBanner / Body#37:3`（「どこに置いても正しい」21 件の 1 つ） | **変更**。旧「サイトの改善のため、同意いただいた場合に限り、行動分析ツール（PostHog）で…アクセス数の集計（Umami）は Cookie を使わず…」→ 01-content-spec §8.1 の現行文 | そのまま（完成した文を既定値に置く） | この部品の本文は全画面で 1 つ。**ただし旧既定値は 2026-10-01 の K3（チャットを足した版）よりさらに前の文だった**。10 Top の 2 instance は 10-01 版を上書きで持っていたため、既定値が古いことに気づけなかった。下の 7.5 の「上書きが残っている instance」 |
+| `FormField` `Type=Select` の中の TEXT「選択してください」 | 新規（TEXT プロパティではない。variant の中の文字） | そのまま | 01-content-spec §5.1 のプレースホルダで、Select を置くすべての場所で正しい |
+| `FormField` `Type=Radio` の中の TEXT「ある」「ない」「わからない」 | 新規（同上） | **判断して残した**（lead の確認待ち） | 使用は 14 Contact の 1 用途だけで、その用途では正しい。文ではなく 3 択の答えで、別の 3 択に使うなら必ず書き換える（description に明記）。`【要記入】…` の 7 語に「選択肢」は無く、印にすると検査に乗らないため |
+| `FormField / Label#20:0` の既定値「メールアドレス」 | 既存のまま | 既存のまま | **`Type=Select`・`Type=Radio` を置いて Label を入れ忘れると「メールアドレス」が出る。** variant セットの既定値はセットで 1 つなので Type ごとに変えられない。置いたら必ず Label を上書きする |
+
+### 7.5 `FormField` の Select・Radio と「任意」の表示（2026-10-08 追加）
+
+計画書 B-5（創業計画書の GTM）で無料相談フォームに任意 2 項目を足したため、`FormField` を広げた。
+
+| 追加 | 中身 |
+|---|---|
+| `Type=Select` × State 4（`224:14074` Default / `224:14101` Error / `224:14127` Disabled / `224:14153` Focus） | kit の **`Select & Combobox - Nova`**（Size=Large・1 Line。Input の Size=Large と同じ 36px）。State は Default→`Placeholder`、Error→`Error`、Disabled→`Disabled`、Focus→`Focus`。プレースホルダ「選択してください」（`JP/UI/Text`・`role/text-muted`）。**開いた状態（選択肢の一覧）は描かない**。選択肢は 01-content-spec §5.1 を正とする |
+| `Type=Radio` × State 4（`224:14179` / `224:14209` / `224:14238` / `224:14268`） | kit の **`Radio Group - Nova`**（Checked?=False・Layout=Inline・Weight=Normal）を 3 個、横並びの `Options`（間隔 `space/6`、折り返しあり・行間 `space/2`）に入れた。ラベル「ある」「ない」「わからない」（`JP/UI/Text`・`role/text-body`）。Disabled は kit の `Disabled=True`、Focus は 1 個目の `Radio - Nova` を `State=Focus` |
+| BOOLEAN `Show optional#224:24`（既定 false）と `Label row/Optional` | 全 20 variant の「必須」の右に「任意」の Badge を置いた。**作り方は「必須」と同じ**（kit `Badge` Secondary・地 `role/surface-subtle`・角丸 `radius/full`・`JP/UI/Small`）で、**文字色だけ `role/text-muted`** にして重みを下げた（必須は `role/text-heading`）。既定 false なので既存の instance の見た目は変わらない |
+
+- **任意の項目は `Show required`=false・`Show optional`=true。** 両方 true にしない。
+- **「任意」の表示規則（01-content-spec §5.1。2026-10-08 に ia-copy が規定）**: 入力欄（Input・Select・Radio Group・Textarea）は、必須なら「必須」、任意なら「任意」の Badge をラベルの右に付ける。**選んだ variant は kit `Badge` の `Variant=Secondary`（「必須」と同じ）で、文字色を `role/text-muted` に落とした**もの。**例外: 無料 DL フォームの任意のチェックボックス（お知らせメール。`CheckboxField`）には「任意」を付けない**（`CheckboxField` に `Show optional` は無い）。
+- `Type=Select`・`Type=Radio` は **Helper を既定で非表示**（Name と同じ）。
+- **Radio の Error に Invalid の見た目は無い**（kit の `Radio - Nova` に Error の状態が無い。`Error Focus` はフォーカス時のもの）。Error 文だけで示す。いまの用途は任意項目なので Error は使わない。
+- 色は既存の Input の当て方に合わせた。kit の色変数（`general/input`・`general/destructive`・`general/muted foreground`・`alpha/*`）を **枠 `role/border`、エラー枠 `semantic/danger`、矢印 `role/text-muted`、フォーカス時の地 `role/surface`、Radio のフォーカスの輪 `role/focus-ring`** に当て直し、Focus のエフェクトは Input と同じ `focus/ring` スタイル。**`FormField`・`ContactForm`・`CookieBanner` の中の kit 色変数の参照は 0 件**（2026-10-08 実測）。
+- `Label row/Optional` の上下余白は「必須」と同じ 2px（kit の変数のまま）。§9.4 の据え置きと同じ扱い。
+- **`clone()` で variant を複製すると、中の層のコンポーネントプロパティ参照（`componentPropertyReferences`）が外れる。** 今回 8 variant で踏み、Label・Required・Helper・Error の参照を付け直した。**既存の Focus 3 variant（`85:13024`・`85:13044`・`85:13057`）も参照が外れたままだった**（2026-10-01 の追加時のものと思われる。`Label` を `setProperties` で変えても表示が「メールアドレス」のまま、`Show required` も効かない）。あわせて **`Type=Input, State=Focus` はフォーカスリングが描画されていなかった**（エフェクトは付いている）。どちらも同日に直した（下の「Focus の variant の修正」）。
+
+#### 上書きが残っている instance（2026-10-08 時点・builder の担当ページ）
+
+| ページ | instance | 状態 | 直し方 |
+|---|---|---|---|
+| 10 Top | `42:4936`（`42:4860` 1-13 Cookie バナー表示中 / Desktop）・`44:5515`（`44:5441` 同 / Mobile） | `Body#37:3` を 2026-10-01 版（「行動分析ツール（PostHog）で…」「アクセス数の集計（Umami）は…」）で上書きしている。**部品の既定値を直しても追従しない** | **対応済み（2026-10-08・builder-sales）**。§8.1 の本文に差し替え、和欧の文字スタイルも当て直した。10 Top の「Umami」は 0 件 |
+
+10 Top 以外のページに `CookieBanner` の instance は無い（2026-10-08 に全 11 ページで実測）。
+
+#### Focus の variant の修正（2026-10-08・lead の指示。H-8 フォーカスリングを消さない）
+
+**2026-10-01 に足した State=Focus の variant 10 件（§1 の表）のうち、リングが描画されていたのは 0 件だった。** 原因は 2 つ。
+
+1. **DROP_SHADOW の spread は、clipsContent が有効なフレームか、矩形・楕円にしか効かない**（Figma の仕様）。`focus/ring` スタイルは spread 2px（白）＋ 4px（`role/focus-ring`）でリングを描くため、条件を外れると何も出ない
+   - `FormField` の Input・Textarea・姓（Focus）: clip は有効だが**塗りが空**で、影が文字の形からしか作られなかった → 地に `role/surface` を当てた（入力エラー時の Input と同じ）。姓・名の親 `Name inputs`（`85:13061`）は clip でリングを切っていたので clip を外した
+   - `ConsentCheckbox` Focus（`85:13079`）: checkbox の外枠（`85:13081`）が **clip なし**で spread が無視されていた → リングを見えている丸の矩形 `Background` に移し（kit の Radio と同じ作り）、地に `role/surface`。親の `Row` の clip を外した。**この variant はセットの枠の外（y=113、セットの高さ 96）にあって見えなかった**ので、セットを 157px に広げた
+   - `CTAButton` Focus 6 variant: 中の kit `Button` が **clip なし** → `clipsContent` を有効にした（ラベルは枠内に収まっている）
+2. **`clone()` で作った variant のプロパティ参照が外れていた。** `FormField` Focus 3 件（`85:13024`・`85:13044`・`85:13057`）と `ConsentCheckbox` Focus（`85:13079`。Link・Label・Show required・Error）。**この 4 variant を使う instance はファイル全体で 0 件**（全 11 ページで実測）だったので、消える上書きは無く、そのまま付け直した
+
+**確認**: この 10 variant と、今回足した Select・Radio の Focus 2 件を余白のある一時フレームに置いて撮影し、リングが出ること、Label などの上書きが効くことを確かめた（一時フレームは削除済み）。**部品の枠ちょうどで撮影するとリングは写らない**（リングは枠の外に描かれる）。確認するときは余白のあるフレームに置く。
+
+**`03 Components` の配置**: `FormField` が 2026-10-01 の Focus 追加の時点から `CTAButton`・`ConsentCheckbox`・`CheckboxField` と重なっており、今回の 8 variant でさらに `SectionHeading` とも重なったため、左の列（x < 4000）の 23 部品を前の部品の下端から 160px 空くように**下へだけ**動かした。部品の中身・ID・instance は変わらない。ページ内の重なりは 0 件。
+
+#### 判断済み（2026-10-08・lead）
+
+- `Type=Radio` の既定のラベル「ある」「ない」「わからない」は残す
+- `FormField / Label#20:0` の既定値「メールアドレス」は残す。Select・Radio の `FormField` で Label が「メールアドレス」のままのものは qa-reviewer の検出項目にする
+
+### 7.6 `SourceDownloadBlock` と `SiteFooter` の G-A 改訂（2026-10-08・G-B 承認後）
+
+01-content-spec の §4.1 1-9・§4.2 2-7・§5.2・§1.4・§6.3.1 の現行文で反映した。
+
+| 部品 | 変えたもの |
+|---|---|
+| `SourceDownloadBlock`（全 20 variant） | ① 本文の下（`Text` フレームの末尾）にリンク `Link / ソースコードを見る（GitHub）` を追加（`33:652` の `232:11511` を元に複製）。kit `Button - Nova` の `Size=Default, Variant=Link`、`Show right icon`=true・右アイコン `Lucide / external-link`、左右の余白 0（本文と左端をそろえる）。文字は `JP/UI/Label`＋「GitHub」だけ `Latin/UI/Label`（IconCard の `Link` と同じ段）、`role/text-link`＋下線、アイコンの塗りも `role/text-link`。**CTA ではない**（`cta_id` を付けない）。**Success でも残る**（`Text` フレームは Success でも消えない）。Mobile は見出し → 本文 → リンク → フォームの順になり、高さが 14px 伸びた ② ボタン「ソースコードを受け取る」→「構築の手順書を受け取る」（Loading の「送信中…」以外の 14 variant）③ ボタン下の注記「メールアドレスだけで受け取れます。構築の手順書を、メールでお送りします。」（16 variant）④ 成功の本文 §5.2 の現行文（4 variant）⑤ `Title#35:0` の既定値を `【要記入】見出し` に |
+| `SiteFooter`（D/M） | 列 3「ComeGin について」の最後に「ソースコード（GitHub）」（体言止め。§1.4）。既存の「ソースコード無料 DL」を複製して書き換えたので、書式（`JP/UI/Text`＋`Latin/UI/Text`、`role/text-link`、下線）は同じ。外部リンクのアイコンは付けない（§1.4 に指定が無い） |
+
+- **リンクの文言は全ページ共通なので、TEXT プロパティにせず部品に固定で持つ**（§7.4 の「どこに置いても正しい」）。表示・非表示の BOOLEAN も足していない（§6.3.1 で、置くすべてのブロックに出す。8-6 の記事中の小型版は別部品の `CTABanner` で、そちらには置かない）。
+- **`Title#35:0` を印にした理由**（H-16）: 既定値「環境構築のソースコードを無料で配布しています」は旧 2-7 の見出しで、G-A で全ページの見出しが「公開しています」の文に変わったため、**既定値が正しい場所が 1 つも無くなった**。2026-10-01 に「依存 4 件のため据え置き」とした 4 件（11 Services・12 Pricing）は、変更の直後に `【要記入】見出し` が出ることを実測した（＝既定値に依存していた。上書きを持っていなかった）。**見えていた文が正しい文から印に変わったのではなく、古い文から印に変わった**ので、§7.4 の「順序」の規則（正しい文を先に明示値にしてから既定値を変える）には当たらない。
+
+#### instance の追従（2026-10-08 に builder の 7 ページで実測）
+
+**部品で変えたもの（リンク・ボタン・注記・成功文、フッターのリンク）は全 instance が追従した。** 追従しないのは instance が上書きで持っている見出しと本文だけで、これは builder が 01-content-spec の文に差し替える。
+
+| ページ | instance | 見出し | 本文 | 差し替えに使う節 |
+|---|---|---|---|---|
+| 10 Top | `42:3791`（`42:2`）・`110:3294`（`42:4860`）・`42:6844`（`42:5742`）・`110:3376`（`44:5338`）・`110:3458`（`44:5441`） | 旧文「自分の手で立ち上げたい方へ、ソースコードと構築の手順をお渡しします」 | 旧文「お渡しするのは、…」 | §4.1 1-9（本文は 3 文） |
+| 11 Services | `46:8608`（`46:8030`）・`46:9326`（`46:8876`） | **`【要記入】見出し`**（既定値に依存していた） | 旧文「この基盤をご自身の手で…」 | §4.2 2-7 |
+| 12 Pricing | `45:7876`（`44:6574`）・`46:7392`（`46:486`） | **`【要記入】見出し`** | 旧文 | §4.2 2-7（4-7 は 2-7 を参照） |
+| 15 Blog | `42:5599`（`42:4374`）・`42:6112`（`42:5786`）・`44:5121`（`42:6400`）・`44:7169`（`44:6472`） | 旧文「記事で紹介している仕組みのソースコードと構築の手順を、無料でお渡しします」 | 旧文「読むだけで終わらせたくない方へ。メールアドレスだけで受け取れます。」 | §4.7 7-5（8-8 の強調版も同じ文） |
+| 13 About・14 Contact・16 System | なし | — | — | — |
+
+- 見出し・本文に欧文が入る（1-9 の本文の「ComeGin」「23,000円・1日」など）ので、差し替えたら和欧の文字スタイルを当て直す（§8.2 の `applyMixed`）。
+- **`SiteFooter / Description#32:0` の既定値を §1.4 の現行文にした**（旧「観測・改善提案・人の承認・反映・検証を回し続ける、再帰的自己改善型の事業経営基盤。」）。全ページで同じ文なので H-16 の「最も多く使う正しい値」に当たる（lead 判断）。手順: 32 instance の表示値を実測 → **32 件とも §1.4 と一字一句一致** → 既定値を変更（部品側は「IT」「1」に `Latin/Desktop/Small` を当てた）→ 再実測で **32 件とも表示が変わっていない**ことを確かめた。**instance は 32 件とも Description を上書きで持っていて、文字スタイルが全体 `JP/*/Small` のまま（「IT」が Noto Sans JP）**。文言は正しいので追従の必要は無いが、和欧の当て直しは instance 側（builder）で要る。
+- `SiteFooter` の instance は 32 件（10 Top 5・11 Services 4・12 Pricing 2・13 About 2・14 Contact 9・15 Blog 4・16 System 6）で、**全件にリンクが出ている**。Mobile のフッターが 52px 伸びたが、ページのフレームで切れているものは無い（10 Top の状態フレーム 3 件はビューポートの大きさで切り取る作りで、元から切れている）。
+
+#### qa-reviewer の指摘への対応（2026-10-08）
+
+| 指摘 | 原因 | 対応 |
+|---|---|---|
+| `ContactForm` のライブラリ変数の色 48 件・パレット外 3 件 | **走査の時点の差**。48 件は、T2 の途中で Select・Radio の kit 色変数を当て直す前の状態を数えたものと見られる。当て直した後は、`03 Components` の `ContactForm` も `14 Contact` の 7 instance も 0 件（`qa-audit.js` と同じ `remote === true` で実測）。パレット外 3 件の実体は `CheckboxField` の Badge の文字（#171717）と `Steps` の矢印（#737373）で、ContactForm ではなかった | 0 件を確認。CheckboxField・Steps・FAQItem に残っていた kit の色は、再走査の時点で 0 件だった |
+| 「社内の IT の担当部署」の「IT」に Poppins が無い | ContactForm の 7 variant で Label を `setProperties` で入れたため、全体が `JP/UI/Label` になっていた | 7 か所の「IT」に `Latin/UI/Label` を当てた。IconCard の既定の Link「ソースコードを無料 DL」の「DL」も同様に直した |
+| リンク「ソースコードを見る（GitHub）」が kit の `alpha/white` を参照 | kit の `Button - Nova` Link のルートの塗り（ほぼ透明の白）が残っていた | 20 variant のリンクのルートの塗りを外した（`fills=[]`）。15 Blog などの instance は部品に追従する |
+| SiteFooter のロゴの余白 12px < アイソレーション X 16.52px | 列 1 の `itemSpacing` が `space/3`（12px） | 列 1（Desktop `32:633`・Mobile `32:659`）の間隔を `space/5`（24px）にした（`space/4` は 16px で X に届かない）。Mobile のフッターは 1107→1119 |
+| SiteFooter の説明文の「IT」に Poppins が無い | 部品側は直した（上）。instance 32 件は説明文を上書きで持っていて、全体が和文のまま | instance 側は builder の担当 |
+
+**確認**: `qa-audit.js` の判定（C1 パレット外・C3 ライブラリ変数の色・T5 Poppins 漏れ・B7 ロゴのアイソレーションの `isolationGap`）をそのまま抜き出して `03 Components` で回し、**4 項目とも 0 件**（ノード 3,250）。**スクリプト全体は回せていない**。コメントを落として 49,910 字まで縮めたが、`use_figma` に一字一句違えずに貼るのは確実でないため（縮める手順は `qa-audit.js` の冒頭の注記を参照。esbuild が手元に無かった）。
+
+#### 文字スタイル・改行・フッターの再実測（2026-10-08・lead の指示 3 点と builder からの依頼）
+
+**部品で直したもの**
+
+| 対象 | 変更 |
+|---|---|
+| `ContactForm`・`SourceDownloadBlock`・`SiteFooter` の **Device=Mobile の 13 variant** | 中の文字（入れ子の FormField・ConsentCheckbox・CheckboxField を含む）の `JP|Latin/Desktop/*` を `/Mobile/` に当て替えた（28 ノード）。Body・Small・Caption は D/M で値が同じなので見た目は変わらない。リンクの下線 57 か所が残っていることを確かめた |
+| `ChatWidgetPlaceholder`（`39:2164`） | 「チャット」を `JP/Desktop/Caption` → `JP/UI/Small`（Device に依らない段。12px、太さは Regular → Medium）。この部品には Device の軸が無いため |
+| `SourceDownloadBlock` の注記（16 variant） | 「メールアドレスだけで受け取れます。」と「構築の手順書を、…」の間に U+2028（末尾 1 字だけの行を解消） |
+| `SourceDownloadBlock` のお知らせメールのラベル（入れ子の `CheckboxField`、16 variant の上書き） | 「…受け取る」と「（いつでも配信を停止できます）」の間に U+2028（語の途中の改行を解消）。「ComeGin」に `Latin/UI/Text` |
+| `SiteFooter / Description#32:0` の既定値 | 「社内に IT がいなくても、」「1人分の予算で実現する業務改善。」「システム開発と IT コンサルティング。」の 3 行に U+2028 で分けた（「業務改／善」の割れを解消）。Desktop の高さは 392 のまま、Mobile は 1144 |
+| `ContactForm` の Error summary（State=Error, Device=Mobile の `36:2473`） | 「入力内容に誤りがあります。」の後に U+2028（「…くださ／い。」の末尾 1 字だけの行を解消。builder-site が 14 Contact の `I47:10878;36:2473` で先に上書きしていた値と同じ）。Desktop（`36:1721`、幅 640）は 1 行に収まるので変えていない |
+| `ServiceCard` の Body | **部品側は正常**（既定値 `【要記入】本文`・`JP/Desktop/Small`）。和文が Poppins になっているのは instance の上書き（下） |
+
+**Device スタイルの件数（`qa-audit.js` の S8 と同じ判定。ルートが Mobile のフレームで、文字全体に `/Desktop/` のスタイル）**: `03 Components` は**構造上 0 件**（S8 はルートが FRAME のときだけ数えるため、部品のセットは対象外）。`14 Contact` は **2 件**（`ChatWidgetPlaceholder` だけ。ContactForm の Mobile の分は 0 になった。ChatWidgetPlaceholder は今回直したので次の走査では 0 のはず）。ほかのページで残っているのは **Device の軸を持たない部品**で、部品側では D/M を分けられない: 10 Top 72（ServiceCard 36・Steps 9・TestimonialCard 9・StatCard 9・FAQItem 3・ChatWidgetPlaceholder 3・SiteFooter 3〈説明文の instance の上書き〉）、11 Services 16（ServiceCard 12・PricingCard 4）、12 Pricing 12（PricingCard）、15 Blog 1（IconCard）。**値は D/M で同じ**なので、qa で許容とするか、部品に Device の軸を足すか（既存 instance の切り替えが要る）は lead の判断。
+
+**instance の上書きで追従しないもの（builder の担当）**
+
+| 対象 | ページと instance |
+|---|---|
+| フッターの説明文（U+2028 の 3 行版に追従していない） | 10 Top `42:6964`・`110:3386`・`110:3468`／13 About `45:6873`・`46:7321`／14 Contact `42:2892`・`42:3678`・`42:4089`・`42:4249`・`47:9416`・`47:9732`・`47:9984`・`47:10885`・`47:11552`／15 Blog `42:5716`・`42:6207`・`44:5312`・`44:7303`／16 System `46:7608`・`46:7677`・`46:8004`・`46:8522`・`46:8850`・`46:9079`（24 件。11 Services 4・12 Pricing 2・10 Top 2 は追従済み）。**2026-10-08: builder-site が 13 About・14 Contact・15 Blog・16 System の 21 件を 3 行版に差し替え済み**（Mobile は `JP|Latin/Mobile/Small`）。10 Top の 3 件も builder-sales が同じ値・`Mobile/Small` にしてあった。**全件対応済み** |
+| 無料 DL のお知らせメールのラベル | 10 Top `42:3791`・`110:3294`・`42:6844`・`110:3376`・`110:3458`／11 Services `46:8608`・`46:9326`／12 Pricing `45:7876`・`46:7392`（9 件。15 Blog の 4 件は追従済み）。**2026-10-08: builder-sales が 9 件とも部品と同じ値（U+2028 入り、ComeGin は `Latin/UI/Text`）にした。対応済み** |
+| ServiceCard の本文で和文に Poppins | 10 Top `42:6572`・`42:6613`（`42:5742`）・`110:3358`・`110:3359`（`44:5338`）・`110:3440`・`110:3441`（`44:5441`）／11 Services `46:8186`・`46:8236`（`46:8030`）・`46:9157`・`46:9200`（`46:8876`）（10 件。Desktop の 3 件は builder-sales が直し済み）。**2026-10-08: 10 Top の Mobile 6 件は対応済みだった。11 Services の 4 件も builder-sales が和欧を分け直した。対応済み** |
+
+**フッターの切れ・チャットとの重なり**: 32 instance で、ページのフレームの下端で切れているものは無い（10 Top の状態フレーム 3 件はビューポートで切り取る作りで元から切れている）。Mobile の 5 フレーム（10 Top 3・14 Contact 2）で `ChatWidgetPlaceholder` と © の行の**文字枠**が重なるが、チャットは右下固定（制約 MAX）で、© の文字の右端（x≈314）とボタンの左端（x=518）は離れている。**文字には掛かっていない**。
+
+#### ServiceCard・PricingCard の価格行の書体（2026-10-08・builder-sales の指摘）
+
+**部品側は正常**: 金額・期間の既定値は印（`【要記入】金額`・`【要記入】期間`）で、和文に Poppins は当たっていない（ServiceCard 2 variant・PricingCard とも実測）。**TEXT プロパティで入れた値は、範囲ごとの文字スタイルを部品から受け継がない**（§8.7）ので、部品を直しても instance の書体は変わらない。和文まで Poppins になっているのは、どれも**値が数字・欧文で始まる**文字（「7日」「31,250円／回」「4時間／回」「KPI の設計…」「7日間で…」）で、文字全体に 1 つのスタイルが当たった状態。instance 側で `applyMixed` を当て直す（builder-sales の担当）。
+
+| ページ | フレーム | instance と文字 |
+|---|---|---|
+| 10 Top | `42:2`・`42:4860`（Desktop） | `42:3202`・`110:3276` Period 1「7日」／`42:3250`・`110:3277` Price 1「31,250円／回」・Period 1「4時間／回」 |
+| 10 Top | `42:5742`・`44:5338`・`44:5441`（Mobile） | `42:6613`・`110:3359`・`110:3441` Price 1「31,250円／回」 |
+| 11 Services | `46:8030`・`46:8876` | `46:8186`・`46:9157` Body「7日間で…」・Period 1「7日」／`46:8236`・`46:9200` Body「KPI の設計…」・Price 1・Period 1 |
+| 11 Services | `46:9432`・`47:8950`（サービス詳細） | `47:961`・`47:9067` Period「7日」 |
+| 12 Pricing | `44:6574`・`46:486` | `44:7018`・`46:699` Period「7日」／`44:7093`・`46:777` Description「KPI の設計…」・Price「31,250円／回」・Period「4時間／回」 |
+
+#### qa-reviewer の 03 Components の走査（13:31）への対応（2026-10-08）
+
+旧文言 20 件を直した。**変える前に全 7 ページで、既定値に頼って表示されている instance が無いことを確かめ、変えた後に印が画面に出ていないことを実測した。**
+
+| 部品 | 変更 |
+|---|---|
+| `CTABanner` Type=Inline（D/M） | ボタン「ソースコードを受け取る」→「構築の手順書を受け取る」（G-A。15 Blog の 2 件は instance 側で先に直っていた） |
+| `AnnouncementBanner` | Badge「無料配布中」→「無料公開中」。`Text#28:0`・`Short text#28:3` の既定値を `【要記入】本文` に（いったん §4.1 1-1 の現行文にしたが、lead の指示で印にした）。10 Top の 5 件は明示値で新しい文を持っており、変更後も表示は変わらない |
+| `FAQItem` | `Answer#39:0` の既定値を `【要記入】本文` に（§7.4） |
+| `Steps` Count=6（Horizontal `22:318`・Vertical `22:447`） | 6 段の見出しと本文を印に（§7.2） |
+| `BookingEmbed` Device=Mobile の注記 2 行目（`108:7991`） | 「…お知らせするために、」の後に U+2028（「お名／前」の割れを解消） |
+
+**14:05 の再検査を受けて（2026-10-08）**: qa-reviewer の再検査で旧文言・既定値・折り返しの疑いは 0 件。builder-site から預かった 1 件（15 Blog の著者カード `I47:8932;47:11356;19:682` の「画像（準備中）」が Mobile で `JP/Desktop/Caption`）の原因は、**部品 `IconCard` の Mobile の variant の中の Avatar（`47:11356`、既定で非表示）が文字スタイルを上書きで持っていたこと**で、`I47:11356;19:682` を `JP/Mobile/Caption` にした。**`findAll()` は非表示の instance の中まで降りない**ため、先の Mobile の走査で取りこぼしていた。`children` を手で辿る走査で全部品の Mobile の variant（242 ノード）を見直し、もう 1 件（`CookieBanner` の Mobile の本文 `37:2124`。T2' で和文に `JP/Desktop/Small` を当てていた）を `JP/Mobile/Small` にした。**非表示の層まで見る走査では `findAll` ではなく `children` を辿る**（`qa-audit.js` の隠れた既定値の走査と同じ注意）。
 
 ## 8. レシピ
 
