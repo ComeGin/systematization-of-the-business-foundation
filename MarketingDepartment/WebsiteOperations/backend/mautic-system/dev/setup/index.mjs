@@ -1,4 +1,4 @@
-// Mautic（開発環境）の設定。MySQL・PHP ビルトインサーバーの起動 → 未インストールならインストール → Webhook の設定（私設アドレスの許可・自動停止の無効化）と公開サイトからの CORS の許可
+// Mautic（開発環境）の設定。MySQL・PHP ビルトインサーバーの起動 → 未インストールならインストール → Webhook の設定（私設アドレスの許可・自動停止の無効化）と公開サイトからの CORS の許可・Webhook のキュー化
 // → API 資格情報（画面で作る）→ カスタム項目・フォーム・セグメント。
 //
 // 方針（setup/lib/core.mjs の契約）:
@@ -149,7 +149,10 @@ async function ensureWebhookConfig(ctx) {
   const origins = ctx.value("MAUTIC_CORS_VALID_DOMAINS") || DEFAULT_CORS_VALID_DOMAINS;
   const corsNow = await writeConfig(ctx, "dev/allow-cors-domains.php", { MAUTIC_CORS_VALID_DOMAINS: origins });
   ctx.log(corsNow ? `公開サイトのオリジン ${origins} からの CORS を許可した（cors_valid_domains）` : `公開サイトのオリジン ${origins} からの CORS は許可済み`);
-  if (!allowedNow && !keptNow && !corsNow) return;
+  // 4. Webhook をキューに積み、dev/serve.sh の定期実行（mautic:webhooks:process）で送る。要求の中で n8n を待たない（dev/queue-webhooks.php）
+  const queuedNow = await writeConfig(ctx, "dev/queue-webhooks.php");
+  ctx.log(queuedNow ? "Webhook をキューに積んで後から送るようにした（queue_mode = command_process）" : "Webhook はキューに積んで後から送る（設定済み）");
+  if (!allowedNow && !keptNow && !corsNow && !queuedNow) return;
 
   // パラメーターは Symfony のコンテナのキャッシュに焼き込まれるので、捨てて次の要求で作り直させる（ensureInstalled と同じ）
   for (const dir of ["var/cache/prod", "var/cache/dev"]) rmSync(join(root(ctx), dir), { recursive: true, force: true });
@@ -265,6 +268,28 @@ const SEGMENT_MQL = {
   filters: [{ glue: "and", field: "points", object: "lead", type: "number", operator: "gte", properties: { filter: 50 } }],
 };
 
+// 無料相談の自動返信（01-content-spec.md の 6'-1a が文面の正本。C16 は 2026-10-11 に「送る」で解決）。
+// 入力の値（氏名・会社名・相談内容）は差し込まない。宛先は検証していない入力なので、差し込むと他人のアドレスへ任意の文を送らせる踏み台になる
+const CONSULT_AUTO_REPLY = {
+  stateKey: "MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY",
+  formStateKey: "MAUTIC_FORM_ID_CONSULT",
+  name: "consult_auto_reply",
+  subject: "【ComeGin】無料相談のお申し込みを受け付けました",
+  // 差出人のアドレスは環境ごとのメールの設定（mailer_from_email）のまま。名前だけ固定する（既定は "Mautic"）
+  fromName: "ComeGin",
+  replyToAddress: "kamegin4@comegin.com",
+  // 段落ごと。plainText は空行でつなぎ、customHtml は段落を <p> にする（固定の文なのでエスケープは要らない）
+  paragraphs: [
+    ["ComeGin の無料相談にお申し込みいただき、ありがとうございます。", "お申し込みを受け付けました。"],
+    ["担当者から 3営業日以内に、このメールアドレスへご連絡します。", "オンライン面談の日時は、お申し込みの後に表示された画面からお選びいただけます。"],
+    ["このメールにお心当たりがない場合は、お手数ですが破棄してください。", "ご不明な点は kamegin4@comegin.com までご連絡ください。"],
+    ["ComeGin"],
+  ],
+};
+const autoReplyPlainText = (def) => def.paragraphs.map((p) => p.join("\n")).join("\n\n");
+const autoReplyHtml = (def) =>
+  `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>${def.subject}</title></head><body style="font-family: sans-serif; line-height: 1.75; color: #1a2b3c;">${def.paragraphs.map((p) => `<p>${p.join("<br>")}</p>`).join("")}</body></html>`;
+
 async function ensureContactFields(ctx, token) {
   const existing = list(await api(ctx, token, "Mautic 項目一覧", "/fields/contact?limit=1000"), "fields").map((f) => f.alias);
   for (const f of CONTACT_FIELDS) {
@@ -289,6 +314,41 @@ async function ensureForms(ctx, token) {
     }
     ctx.state.set(def.stateKey, String(form.id));
   }
+}
+
+// 自動返信のメールを作り、フォーム consult の送信の後に送るアクション（email.send.lead）を付ける。
+// アクションの追加は PATCH（FormApiController は PUT のときだけ、要求に無い既存のアクションを消す）
+async function ensureAutoReply(ctx, token) {
+  const def = CONSULT_AUTO_REPLY;
+  const emails = list(await api(ctx, token, "Mautic メール一覧", `/emails?search=${encodeURIComponent(def.name)}&limit=100`), "emails");
+  let email = emails.find((e) => e.name === def.name);
+  // 文面の正本は仕様書なので、作成済みでも中身が違えば合わせる（画面で直した分は上書きされる）
+  const content = { subject: def.subject, fromName: def.fromName, replyToAddress: def.replyToAddress, customHtml: autoReplyHtml(def), plainText: autoReplyPlainText(def) };
+  if (!email) {
+    const body = await api(ctx, token, `Mautic メール作成（${def.name}）`, "/emails/new", {
+      method: "POST",
+      json: { name: def.name, emailType: "template", language: "ja", isPublished: true, ...content },
+    });
+    email = body.email;
+    ctx.log(`自動返信のメールを作った: ${def.name}（ID ${email.id}）`);
+  } else if (Object.entries(content).some(([k, v]) => (email[k] ?? "") !== v)) {
+    await api(ctx, token, `Mautic メール更新（${def.name}）`, `/emails/${email.id}/edit`, { method: "PATCH", json: content });
+    ctx.log(`自動返信のメールを仕様書の文面に合わせた: ${def.name}（ID ${email.id}）`);
+  }
+  ctx.state.set(def.stateKey, String(email.id));
+
+  const formId = ctx.state.get(def.formStateKey);
+  const { form } = await api(ctx, token, "Mautic フォーム取得（consult）", `/forms/${formId}`);
+  const attached = (form.actions ?? []).some((a) => a.type === "email.send.lead" && Number(a.properties?.email) === Number(email.id));
+  if (attached) {
+    ctx.log("フォーム consult の送信の後に自動返信を送る（設定済み）");
+    return;
+  }
+  await api(ctx, token, "Mautic フォームのアクション追加（consult）", `/forms/${formId}/edit`, {
+    method: "PATCH",
+    json: { actions: [{ name: "自動返信（受付確認）", type: "email.send.lead", order: 1, properties: { email: email.id } }] },
+  });
+  ctx.log(`フォーム consult の送信の後に自動返信（メール ID ${email.id}）を送るようにした`);
 }
 
 async function ensureSegment(ctx, token) {
@@ -359,6 +419,7 @@ export async function apply(ctx) {
 
   await ensureContactFields(ctx, token);
   await ensureForms(ctx, token);
+  await ensureAutoReply(ctx, token);
   await ensureSegment(ctx, token);
   ctx.log("終わった。フォームとセグメントの ID は状態に置いた（--show MAUTIC_FORM_ID_CONSULT など）");
 }
