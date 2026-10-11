@@ -39,7 +39,7 @@ export type RunStatus = "running" | "finished";
  */
 export interface RunRecord {
   runId: Ulid;
-  /** 定期実行の定義の id（W/ops/schedules/<id>.yaml）。手動の指示なら null。 */
+  /** 定期実行の定義の id（ops/schedules/<id>.yaml）。手動の指示なら null。 */
   jobId: string | null;
   /** kind=agent のときのエージェント名（agent/ を付けない）。builtin なら null。 */
   agentName: string | null;
@@ -67,7 +67,7 @@ export interface RunRecord {
   copiedAt: string | null;
 }
 
-/** エージェントを使わない、決まった処理（W/ops/schedules の builtin）。 */
+/** エージェントを使わない、決まった処理（ops/schedules の builtin）。 */
 export type BuiltinJob =
   | "heartbeat"
   | "i13-file"

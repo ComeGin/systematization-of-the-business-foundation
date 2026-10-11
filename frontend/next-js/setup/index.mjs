@@ -12,7 +12,7 @@ export const meta = { id: "next-js", title: "監視アプリ（環境変数・�
 
 const LOCAL_URL = "http://127.0.0.1:3200";
 const DEFAULT_HOSTED_DOMAIN = "comegin.com";
-const REGISTRY = "MarketingDepartment/WebsiteOperations/ops/mcp-registry.yaml";
+const REGISTRY = "ops/mcp-registry.yaml";
 
 // 設定（~/.config/comegin/setup/dev.conf）にあれば環境変数ファイルに書く任意の値。
 // CONTROL_SCHEDULER_ENABLED は開発で誤って定期実行しないよう、触らない（dev/init-env.sh が false にする）

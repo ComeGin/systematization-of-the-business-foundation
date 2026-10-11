@@ -10,27 +10,25 @@ import {
   PROPOSALS_DIR,
   SCHEDULES_DIR,
   VERDANT_VIRGO_DIR,
-  WEBSITE_OPERATIONS_DIR,
 } from "../../src/constants/paths.js";
 import { repositoryRoot } from "../helpers/store.js";
 
 // 定数表の検査（異常の起こりようが無いため正常系だけ）
 describe("パスの定数", () => {
   describe("正常系", () => {
-    it("W の下のパスは WEBSITE_OPERATIONS_DIR から組み立てる", () => {
-      expect(WEBSITE_OPERATIONS_DIR).toBe("MarketingDepartment/WebsiteOperations");
-      expect(PROPOSALS_DIR).toBe("MarketingDepartment/WebsiteOperations/docs/proposals");
-      expect(AUDITS_DIR).toBe("MarketingDepartment/WebsiteOperations/docs/audits");
-      expect(SCHEDULES_DIR).toBe("MarketingDepartment/WebsiteOperations/ops/schedules");
-      expect(MCP_REGISTRY_FILE).toBe("MarketingDepartment/WebsiteOperations/ops/mcp-registry.yaml");
-      expect(VERDANT_VIRGO_DIR).toBe("MarketingDepartment/WebsiteOperations/frontend/verdant-virgo");
+    it("docs・ops・frontend のパスはリポジトリ直下から組み立てる", () => {
+      expect(PROPOSALS_DIR).toBe("docs/proposals");
+      expect(AUDITS_DIR).toBe("docs/audits");
+      expect(SCHEDULES_DIR).toBe("ops/schedules");
+      expect(MCP_REGISTRY_FILE).toBe("ops/mcp-registry.yaml");
+      expect(VERDANT_VIRGO_DIR).toBe("frontend/verdant-virgo");
     });
 
-    it("n8n のワークフローの書き出し先は W/middleware/n8n/workflows", () => {
-      expect(N8N_WORKFLOWS_DIR).toBe("MarketingDepartment/WebsiteOperations/middleware/n8n/workflows");
+    it("n8n のワークフローの書き出し先は middleware/n8n/workflows", () => {
+      expect(N8N_WORKFLOWS_DIR).toBe("middleware/n8n/workflows");
     });
 
-    it("エージェント定義は W ではなくリポジトリ直下の .claude/agents", () => {
+    it("エージェント定義はリポジトリ直下の .claude/agents", () => {
       expect(AGENT_DEFINITIONS_DIR).toBe(".claude/agents");
     });
 

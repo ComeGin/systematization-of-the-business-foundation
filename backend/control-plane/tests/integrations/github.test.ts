@@ -114,14 +114,14 @@ describe("GitHubClient.fileExists", () => {
 });
 
 describe("GitHubClient.getFileText", () => {
-  const path = "MarketingDepartment/WebsiteOperations/middleware/n8n/workflows/I-11 x.json";
+  const path = "middleware/n8n/workflows/I-11 x.json";
 
   describe("正常系", () => {
     it("ref のファイルを Contents API で読み、base64 の本文を UTF-8 の文字列にする", async () => {
       fetchMock.mockResolvedValueOnce(json({ encoding: "base64", content: base64('{\n  "name": "日本語"\n}\n') }));
       expect(await new GitHubClient(config).getFileText(path, "release/2026-10")).toBe('{\n  "name": "日本語"\n}\n');
       expect(call().url).toBe(
-        `${REPO_API}/contents/MarketingDepartment/WebsiteOperations/middleware/n8n/workflows/I-11%20x.json?ref=release%2F2026-10`,
+        `${REPO_API}/contents/middleware/n8n/workflows/I-11%20x.json?ref=release%2F2026-10`,
       );
       expect(call().init.method).toBe("GET");
     });
@@ -272,8 +272,8 @@ describe("GitHubClient.commitFilesToNewBranch", () => {
     branch: "chore/n8n-export-20261007",
     baseSha: "base-sha",
     files: [
-      { path: "W/middleware/n8n/workflows/a.json", content: '{"name":"a"}\n' },
-      { path: "W/middleware/n8n/workflows/b.json", content: '{"name":"b"}\n' },
+      { path: "middleware/n8n/workflows/a.json", content: '{"name":"a"}\n' },
+      { path: "middleware/n8n/workflows/b.json", content: '{"name":"b"}\n' },
     ],
     message: "chore: n8n ワークフローの書き出し 2026-10-07",
   };

@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## このリポジトリの位置づけ
 
-SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクトリを切って構築するモノレポ。
-現在実装があるのは `MarketingDepartment/WebsiteOperations`（マーケティング部門 / Web サイト運用）のみで、
-`docs/{AA,BA,DA,TA}` と `cloud/` は空の枠。事業側のスキーム（役割分担・PDCA 運用）と採用ツールの一覧は `README.md` にある。
+SaaS 販売事業の「事業経営基盤」のうち、**マーケティング部門の Web サイト運用・SEO 対策**を対象とするモノレポ。
+2026-10-11 に `MarketingDepartment/WebsiteOperations/` の下にあったものをすべてリポジトリ直下へ移した（`backend/`・`frontend/`・`middleware/`・`docs/`・`cloud/`・`onprem/`・`ops/`・`setup/`・`integration/`）。
+**パスはすべてリポジトリのルートからの相対**で、古い文書（`docs/superpowers/` の計画・仕様など、移動前の記録）に残る `MarketingDepartment/WebsiteOperations/` は読み替える。
+事業側のスキーム（役割分担・PDCA 運用）と採用ツールの一覧は `README.md`、4 層（BA/DA/AA/TA）の設計は `docs/README.md` にある。
 
 ドキュメント・コードコメント・スクリプトのヘルプはすべて日本語で書かれている。新規に書くものも日本語に合わせる。
 
@@ -38,9 +39,9 @@ SaaS 販売事業の「事業経営基盤」を、部門ごとにディレクト
 | 3100 | Chatwoot 本体（`CHATWOOT_PORT`）／ **mautic-mcp の HTTP 既定値と衝突する**。両方 HTTP で動かすならどちらかの `PORT` を変える |
 | 3102 | chatwoot-mcp（HTTP 時） |
 | 3103 | admin-auth（Better Auth の OIDC Provider。本番は `auth.comegin.com`。設計は `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13・`TA/06-aws-runtime.md` の 5.2） |
-| 3104 | consent-api（Cookie 同意の記録。ALB 配下の ECS on Fargate。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
-| 3105 | （空き。以前は Cal.com のセルフホスト用。**ADR-24〈2026-10-06〉で Cal.com は SaaS〈cal.com〉を公開サイトの完了画面に埋め込む形にした**ため使わない。予約の氏名・メール・日時は Cal.com, Inc.〈米国〉と Google LLC〈米国〉に渡る。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/02-public-path-flows.md` の 7 節と `RequirementDefinition/AA/05-application-decisions.md` の ADR-24） |
-| 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `MarketingDepartment/WebsiteOperations/docs/DetailedDesign/08-monetization-flows.md`） |
+| 3104 | consent-api（Cookie 同意の記録。ALB 配下の ECS on Fargate。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
+| 3105 | （空き。以前は Cal.com のセルフホスト用。**ADR-24〈2026-10-06〉で Cal.com は SaaS〈cal.com〉を公開サイトの完了画面に埋め込む形にした**ため使わない。予約の氏名・メール・日時は Cal.com, Inc.〈米国〉と Google LLC〈米国〉に渡る。設計は `docs/DetailedDesign/02-public-path-flows.md` の 7 節と `RequirementDefinition/AA/05-application-decisions.md` の ADR-24） |
+| 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `docs/DetailedDesign/08-monetization-flows.md`） |
 | 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は以前 Umami と衝突していたため 3200 を使う〈Umami の廃止後も変えない〉。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
 | 1337 | Strapi（開発環境） |
 | 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |

@@ -17,8 +17,10 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const W = resolve(dirname(fileURLToPath(import.meta.url)), "../.."); // MarketingDepartment/WebsiteOperations
-export const REPO = resolve(W, "../..");
+// W はモジュールのパスの基点、REPO はリポジトリのルート。2026-10-11 に MarketingDepartment/WebsiteOperations の下から
+// リポジトリ直下へ移したため、今は同じ場所を指す（モジュールが ctx.W・ctx.REPO の両方を使うので両方残す）
+export const W = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+export const REPO = W;
 export const CONFIG_DIR = join(homedir(), ".config/comegin");
 const TIMEOUT_MS = 20_000;
 

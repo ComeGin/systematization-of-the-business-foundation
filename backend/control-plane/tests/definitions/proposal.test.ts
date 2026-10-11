@@ -161,7 +161,7 @@ describe("setDiffRef", () => {
   });
 });
 
-describe("実在のテンプレート（W/docs/proposals/_template.md）", () => {
+describe("実在のテンプレート（docs/proposals/_template.md）", () => {
   const root = repositoryRoot();
 
   describe("正常系", () => {

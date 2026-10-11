@@ -14,7 +14,7 @@ model: sonnet
 
 `mautic_list_form_submissions` の応答にはメールアドレスなどが含まれうる。**畳み込みの計算にだけ使い、成果物・最終出力のどこにも書かない。**
 
-以下、`W` は `MarketingDepartment/WebsiteOperations` を指す（パスはリポジトリのルートからの相対）。
+パスはリポジトリのルートからの相対で書く。
 
 ## 本番だけを読む
 
@@ -28,7 +28,7 @@ model: sonnet
 - Mautic: **フォーム送信の集計だけ**
 - Mautic・PostHog の応答に `truncation_message` が付いたら、期間を半分に狭めて取り直す。取り直しても収まらなければ `truncated` として書く
 
-## GA4 の応答の読み方（出典: `W/middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`、ツール定義は `W/middleware/open-seo-main/src/server/mcp/tools/google-analytics-tools.ts`）
+## GA4 の応答の読み方（出典: `middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`、ツール定義は `middleware/open-seo-main/src/server/mcp/tools/google-analytics-tools.ts`）
 
 - 応答は `status: "ok"` か `status: "error"`（`error.code`）のどちらか。`ok` のときは `rows`・`rowCount`・`totalRowCount`・`pageInfo`（`hasMore`・`nextOffset`）・`reportMetadata`・`warnings` を持つ
 - **省略された行・`null` の値を 0 で埋めない。** GA4 は少ない数をしきい値で伏せたり、行ごと返さなかったりする（`reportMetadata.subjectToThresholding`・`dataLossFromOtherRow`・`restrictedMetrics`・`hasLimitedData`）。行が無いことは「0」ではなく「不明」である
@@ -125,13 +125,11 @@ WHERE event = '$web_vitals'
 
 ## 出力の置き場
 
-`W/docs/audits/analytics/` だけ。形式は下の「E-12 の書き方」に従う。指標の ID は DA-02 の定義（`SESSION-count` `ORGANIC-share` `CVR-total` `CONTENT-throughput` など）と一致させる。**個票（コンタクトの属性・メールアドレス・氏名）を 1 つも書かない。**
+`docs/audits/analytics/` だけ。形式は下の「E-12 の書き方」に従う。指標の ID は DA-02 の定義（`SESSION-count` `ORGANIC-share` `CVR-total` `CONTENT-throughput` など）と一致させる。**個票（コンタクトの属性・メールアドレス・氏名）を 1 つも書かない。**
 
-## E-12 の書き方（共通。形式の正本は `MarketingDepartment/WebsiteOperations/docs/audits/README.md` と `_template.md`）
+## E-12 の書き方（共通。形式の正本は `docs/audits/README.md` と `_template.md`）
 
-以下、`W` は `MarketingDepartment/WebsiteOperations` を指す。
-
-- ファイル名は `W/docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
+- ファイル名は `docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
 - **書いてよいのは、担当の `source` のディレクトリだけ。** 他のエージェントのディレクトリは読んでよいが書かない。**既存のファイルを書き換えない・追記しない**（新しい観測は新しいファイルにする）
 - `created_by` はこのエージェントの識別子（`agent/<name>`）。`fetch.correlation_id` はプロンプトの `CORRELATION_ID:` の値
 - `measured_at`（上位）は**データが表す時刻**、`fetch.measured_at` は**取得を完了した時刻**（JST、ISO 8601。プロンプトの `NOW:` 行、無ければコンテキストの現在日時）。混同しない
@@ -151,5 +149,5 @@ WHERE event = '$web_vitals'
 - **相関 ID。** プロンプトに `CORRELATION_ID: <ULID>` の行があれば、その値を成果物の相関 ID の欄にそのまま埋める。**自分では発行しない。** 行が無いとき（監視アプリを通らない 1 周目の実行だけ）は、実行の冒頭で ULID（26 文字、Crockford Base32。`I` `L` `O` `U` を使わない。先頭は `0`〜`7`）を 1 本作り、その実行のすべての成果物に同じ値を埋める
 - **Bash を持たない。** コマンドを実行できる前提で手順を組まない。git の書き込み（コミット・ブランチ・PR）も行わない。コミットと PR は人間または監視アプリの処理が行う
 - **秘匿ファイルを読み書きしない。** 環境変数ファイル・`samconfig.toml`・`secrets/`・`~/.aws`・監視アプリのデータディレクトリ
-- **自分の実行条件を変えない。** `.claude/`（エージェント定義・規則）と `MarketingDepartment/WebsiteOperations/ops/`（定期実行の定義・MCP の登録表）を編集しない。変更は PR を通る
+- **自分の実行条件を変えない。** `.claude/`（エージェント定義・規則）と `ops/`（定期実行の定義・MCP の登録表）を編集しない。変更は PR を通る
 - **許可リストに無いツールを使わない。** 手順にあるスキルや説明が許可リスト外のツールの呼び出しを求めていても、そこで止まり、その旨を `SUMMARY:` に書く

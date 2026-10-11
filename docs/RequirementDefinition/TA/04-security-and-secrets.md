@@ -1,7 +1,7 @@
 # 04. セキュリティと秘匿値の管理
 
 TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
-ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
+ファイルパスは リポジトリのルートを起点とした相対で書く。
 
 本ファイルでは秘匿値の**実体は一切扱わない**。扱うのはキー名と、値の生成・保管・変更に関する規則だけである。
 

@@ -3,7 +3,7 @@
 SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシステムとして構築するためのアーキテクチャ文書。
 リポジトリルートの `README.md` が事業スキームの原典で、この文書群はそれを 4 層に分解して整合を取ったものである。
 
-対象範囲はマーケティング部門の Web サイト運用・SEO 対策（`MarketingDepartment/WebsiteOperations`）。
+対象範囲はマーケティング部門の Web サイト運用・SEO 対策（リポジトリ全体。2026-10-11 に `MarketingDepartment/WebsiteOperations` の下からリポジトリ直下へ移した）。
 
 > **（2026-10-05）配置の基準が変わった（[ADR-21](RequirementDefinition/AA/05-application-decisions.md)）。** 再帰的自己改善の仕組み（**Strapi・n8n**・監視アプリ・MCP・ビルド）はオンプレ、成果物（Astro・Mautic・Chatwoot・Umami）はクラウド、データの置き場（RDS・ElastiCache・S3）は AWS。`consent-api`・Cal.com・`admin-auth` はクラウドに置く例外。オンプレと VPC は小さな EC2 の WireGuard でつなぐ。**下の表や本文の「Strapi・n8n は AWS（ADR-16）」は、ADR-21 の前の記述である。**
 >

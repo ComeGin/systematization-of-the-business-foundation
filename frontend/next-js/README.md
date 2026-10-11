@@ -93,7 +93,7 @@ App layout（AppLayoutToolbar。TopNavigation・SideNavigation・パンくず）
 
 - `trustPolicyExclude` に 3 件（`eslint-import-resolver-typescript@3.10.1`・`semver@6.3.1`・`undici-types@6.21.0`。バージョンまで指定）を入れている。`eslint-config-next@16.3.5` の推移的依存で、既存のロックファイルにも含まれていた。2026-10-04 にユーザー判断で除外した。`eslint-config-next` を上げたら、まず除外を外して確かめる。`minimumReleaseAge` は緩めていない。
 - **TODO（2026-10-07 以降）:** Cloudscape は 7 日の期間に収まる版（`@cloudscape-design/components` 3.0.1387・`global-styles` 1.0.70）に固定している。ユーザーが追加した版（3.0.1391 / 1.0.71）へ上げ直す。
-- `control-plane` は `link:../../backend/control-plane`。`next.config.ts` の `turbopack.root` を W（`MarketingDepartment/WebsiteOperations`）にしているのは、Turbopack が root の外のファイルを解決しないため（link: の依存を読むには、プロジェクトと依存の親を root にする）。
+- `control-plane` は `link:../../backend/control-plane`。`next.config.ts` の `turbopack.root` をリポジトリのルート（`frontend` と `backend` の親）にしているのは、Turbopack が root の外のファイルを解決しないため（link: の依存を読むには、プロジェクトと依存の親を root にする）。
 
 ## 未決定・TODO
 

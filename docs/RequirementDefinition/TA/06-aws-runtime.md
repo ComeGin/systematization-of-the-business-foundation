@@ -3,7 +3,7 @@
 <!-- 2026-10-06 ADR-25: 表題から Umami を外した（旧: Strapi / Mautic / Chatwoot / Umami / n8n） -->
 
 TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
-ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
+ファイルパスは リポジトリのルートを起点とした相対で書く。
 
 AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS に置き、ローカルには道具だけを残す**と決めた（ADR-12 は訪問者のブラウザが直接触れるシステムを AWS に置いた。Strapi は ADR-14 で加え、ADR-15 で外し、ADR-16 で再び加えた。n8n は ADR-16 で加えた）。**例外は `E-15 AgentRun`（エージェントの実行記録）だけで、正本を監視アプリ（ローカル）に置く**（ADR-18。TA-07 の 3.6）。**ただし実行記録の写しは AWS の S3 に追記専用で置く**（ADR-18 の追加の決定。写しは正本ではなく、開発機を失ったときの復旧に使う。4.7）。Astro の配信は TA-02 が扱い、本ファイルは残りの 5 つ（Strapi・Mautic・Chatwoot・Umami・n8n）の本番の実行環境を扱う（**ADR-25 で Umami を外した。ADR-21 で Strapi・n8n の実行はオンプレに移った**）。オンプレの開発環境と監視アプリは TA-07 が扱う。
 

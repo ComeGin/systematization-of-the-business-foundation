@@ -25,9 +25,8 @@ export const itEmail = (label: string): string => `${RUN_ID}-${label}@example.co
 export const ADMIN_EMAIL = "it-admin@comegin.com";
 
 /** W の中の相対パス（control-plane の constants/paths.ts と同じ）。main のチェックアウトはリポジトリのルートの形で作る */
-export const W_DIR = "MarketingDepartment/WebsiteOperations";
-export const SCHEDULES_DIR = `${W_DIR}/ops/schedules`;
-export const PROPOSALS_DIR = `${W_DIR}/docs/proposals`;
+export const SCHEDULES_DIR = "ops/schedules";
+export const PROPOSALS_DIR = "docs/proposals";
 export const AGENTS_DIR = ".claude/agents";
 
 // テストが書き換える環境変数。最初に全部消してから入れる（シェルに残った本物の値を拾わない）

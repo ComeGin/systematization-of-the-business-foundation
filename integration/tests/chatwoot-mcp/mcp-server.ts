@@ -19,7 +19,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 export type McpName = "chatwoot" | "mautic";
 export type AccessLevel = "read_only" | "read_write" | "full";
 
-/** W/backend（このファイルは W/integration/tests/chatwoot-mcp にある） */
+/** backend（このファイルは integration/tests/chatwoot-mcp にある） */
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), "../../../backend");
 
 export const serverEntry = (name: McpName): string => join(BACKEND, `${name}-mcp`, "dist/index.js");

@@ -126,11 +126,11 @@ describe("checkPathAccess（読み書き共通）", () => {
 describe("checkWriteAccess（書き込み系だけの追加の拒否）", () => {
   describe("正常系", () => {
     it.each([
-      "MarketingDepartment/WebsiteOperations/docs/audits/gsc/AUD-2026-1004-gsc-0001.md",
-      "MarketingDepartment/WebsiteOperations/docs/proposals/PRP-2026-0001.md",
-      "MarketingDepartment/WebsiteOperations/frontend/verdant-virgo/src/components/Hero.astro",
-      "MarketingDepartment/WebsiteOperations/ops-notes/memo.md",
-      "MarketingDepartment/WebsiteOperations/cloudy/memo.md",
+      "docs/audits/gsc/AUD-2026-1004-gsc-0001.md",
+      "docs/proposals/PRP-2026-0001.md",
+      "frontend/verdant-virgo/src/components/Hero.astro",
+      "ops-notes/memo.md",
+      "cloudy/memo.md",
       "scripts/build.sh",
       "docs/dev-notes/run.sh",
       "frontend/verdant-virgo/src/config.json",
@@ -171,8 +171,8 @@ describe("checkWriteAccess（書き込み系だけの追加の拒否）", () => 
       ["backend/mautic-system/dev/serve.sh", "scripts cannot be written"],
       [".claude/agents/seo-auditor.md", "this directory is managed by humans and cannot be written by agents"],
       [".claude", "this directory is managed by humans and cannot be written by agents"],
-      ["MarketingDepartment/WebsiteOperations/ops/schedules/x.yaml", "this directory is managed by humans and cannot be written by agents"],
-      ["MarketingDepartment/WebsiteOperations/cloud/template.yaml", "this directory is managed by humans and cannot be written by agents"],
+      ["ops/schedules/x.yaml", "this directory is managed by humans and cannot be written by agents"],
+      ["cloud/template.yaml", "this directory is managed by humans and cannot be written by agents"],
     ])("入力: %s は書けない", (relative, reason) => {
       expect(checkWriteAccess(join(wt, relative), paths)).toBe(reason);
     });

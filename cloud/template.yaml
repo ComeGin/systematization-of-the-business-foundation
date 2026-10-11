@@ -655,7 +655,7 @@ Resources:
         WireguardInstanceId: !GetAtt WireguardStack.Outputs.InstanceId
 
 Outputs:
-  # 監視アプリの設定（W/frontend/next-js の .env）に人が写す値。
+  # 監視アプリの設定（frontend/next-js の .env）に人が写す値。
   RunLogBucketName:
     Description: 監視アプリの RUNLOG_BUCKET
     Value: !GetAtt RunLogArchiveStack.Outputs.RunLogBucketName

@@ -13,7 +13,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: spawnMock,
 }));
 
-const VV = "MarketingDepartment/WebsiteOperations/frontend/verdant-virgo";
+const VV = "frontend/verdant-virgo";
 
 class FakeChild extends EventEmitter {
   stderr = new EventEmitter();

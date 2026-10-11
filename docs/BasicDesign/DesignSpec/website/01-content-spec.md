@@ -141,7 +141,7 @@
 - **機械的な一括置換より、手で書き写したほうが壊れた。** 2026-10-01 に、この文書の 14 か所の壊れが Figma へ転記されて **55 instance** に広がった（`builder-site` 38・`builder-sales` 17）。`builder-sales` が切り分けたところ、**正規表現による置換（`(\d[,\d]*)\s+(単位)`）は数字の後ろの空きしか消さないので無傷で、壊れていたのは確定文言を手で転記した箇所だけ**だった。サービス一覧 2-3 が無事だったのは、置換を通ったためである。**置換を疑う前に、転記を疑う。**
 - **画面に出ない情報は、誰も確かめない。** 2026-10-01 までに 4 種類が実際に壊れた: **部品の既定値**（`CTABanner` の `Body` が消えた旧文言のまま）、**dev annotation**、**レイヤー名**、**パスの大文字小文字**（§7.1 の `Assets/logo/favicon/` を `assets/...` と書いていた）。
   - **パスの大文字小文字はとくに危ない。** Linux は大文字小文字を区別するので辿れないが、**ローカルの開発環境が macOS なら動いてしまう**（区別しない）。**Linux のビルドで初めて落ちる。**
-  - この文書で使う大文字始まりのパス: **`Assets/tokens/tokens.json`** / **`Assets/tokens/tokens.css`** / **`Assets/brand.css`** / **`Assets/logo/`**（`favicon/`・`png/` を含む）/ `MarketingDepartment/WebsiteOperations/...` / `RequirementDefinition/...` / `DetailedDesign/...`。**小文字始まりは `backend/` `middleware/` `frontend/` `dev/` `.claude/`。**
+  - この文書で使う大文字始まりのパス: **`Assets/tokens/tokens.json`** / **`Assets/tokens/tokens.css`** / **`Assets/brand.css`** / **`Assets/logo/`**（`favicon/`・`png/` を含む）/ `RequirementDefinition/...` / `DetailedDesign/...`。**小文字始まりは `backend/` `middleware/` `frontend/` `dev/` `.claude/`。**
 - **規則で塞げないものがある。** この 4 件のうち #2 は「和欧間の点検」という**別の目的の検査**が見つけた。`design-system` の例でも、単位スペースの検査が既定値の分類の誤りを見つけている。**検査を増やすこと自体に、狙っていない誤りを見つける効果がある。**
 
 ## 1. サイトマップとナビゲーション

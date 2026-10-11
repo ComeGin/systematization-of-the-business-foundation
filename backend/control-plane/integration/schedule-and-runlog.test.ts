@@ -102,7 +102,7 @@ describe("スケジューラによる定期実行 1 回分", () => {
 
     it("listJobs は main の定義だけを返し、作業ツリーの ops/schedules は読まない（ADR-18）", async () => {
       writeSchedule(fx, "it-daily-silence", DAILY_SILENCE);
-      writeAt(fx.worktree, "MarketingDepartment/WebsiteOperations/ops/schedules/it-unapproved.yaml", `id: it-unapproved\n${DAILY_SILENCE}`);
+      writeAt(fx.worktree, "ops/schedules/it-unapproved.yaml", `id: it-unapproved\n${DAILY_SILENCE}`);
       const plane = planes.create(fx.env({ CONTROL_SCHEDULER_ENABLED: "true" }));
       const jobs = await plane.listJobs();
       expect(jobs.map((job) => job.definition.id)).toEqual(["it-daily-silence"]);

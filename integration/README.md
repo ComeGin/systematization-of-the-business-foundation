@@ -7,7 +7,7 @@
 ## 実行
 
 ```bash
-cd MarketingDepartment/WebsiteOperations/integration
+cd integration
 pnpm install
 pnpm test                                   # 全スイート（ファイルは 1 つずつ順に走る）
 IT_SERVICES=chatwoot,mautic pnpm vitest run tests/chatwoot-mcp   # 疎通確認の対象を絞って 1 スイートだけ

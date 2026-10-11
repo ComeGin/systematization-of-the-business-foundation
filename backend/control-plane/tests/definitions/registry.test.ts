@@ -137,7 +137,7 @@ describe("loadMcpRegistry", () => {
   });
 });
 
-describe("実在の登録表（W/ops/mcp-registry.yaml）", () => {
+describe("実在の登録表（ops/mcp-registry.yaml）", () => {
   const root = repositoryRoot();
 
   describe("正常系", () => {

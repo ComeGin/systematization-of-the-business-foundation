@@ -1,7 +1,7 @@
 # 03. トリガーと CI/CD
 
 TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
-ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
+ファイルパスは リポジトリのルートを起点とした相対で書く。
 
 > **（2026-10-06）ADR-21 の反映。本ファイルの本文より、この注記を優先する。**
 > - **本番の n8n はオンプレ**（`onprem/n8n`。エディター・API・MCP は `127.0.0.1:5679`。データは RDS の `n8n`）。下の「本番の n8n は AWS」「VPC の中で届く」「ECS で本番デプロイ」は ADR-16 の記述である。**Webhook の受け口は WireGuard 越しのオンプレのリバースプロキシ `10.99.0.2:5680`**（AA-02 の注記、DD-04 の 4.4）。

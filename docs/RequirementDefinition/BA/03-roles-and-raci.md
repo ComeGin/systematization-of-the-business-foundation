@@ -33,7 +33,7 @@ README は事業スキームの原典であり、本タスクの書き込み対�
 ```diff
 -- 役割の明確化: Webマスター（全体の構築・管理）、コンテンツディレクター（SEO・記事作成）、データアナリスト（CVR改善）の3つの役割・責任範囲を定義。
 +- 役割の明確化: 以下の 4 つの役割・責任範囲を定義。詳細は
-+  `MarketingDepartment/WebsiteOperations/docs/BA/03-roles-and-raci.md` を参照。
++  `docs/RequirementDefinition/BA/03-roles-and-raci.md` を参照。
 +  - R1 Webマスター: 基盤の構築・運用、テクニカルSEO、表示速度改善、CTAデザインの実装。
 +  - R2 SEOディレクター: 全体戦略、キーワード選定、カスタマージャーニー設計、KPI管理、公開承認。
 +  - R3 データアナリスト: CVR改善、ABテスト設計、月次分析。

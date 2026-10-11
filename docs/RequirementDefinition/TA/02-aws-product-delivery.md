@@ -1,7 +1,7 @@
 # 02. 製品（Astro）の AWS 配信設計
 
 TA（Technology Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。
-ファイルパスは `MarketingDepartment/WebsiteOperations/` を起点とした相対で書く。
+ファイルパスは リポジトリのルートを起点とした相対で書く。
 
 **状態: 未着手（`cloud/` ディレクトリは空）。** 本ファイルの内容はすべて To-Be の設計であり、AWS 上に存在するリソースはホストゾーンを除いて 1 つも無い（2026-09-17 に実 API で確認。1 節を参照）。
 

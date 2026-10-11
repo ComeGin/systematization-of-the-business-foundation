@@ -4,7 +4,7 @@
 それ以外の操作に当たると、**手順を表示して止まる**（終了コード 3）。この文書は、その操作をまとめたもの。
 操作が終わったら、**同じコマンドを実行し直す**。済んだ手順は飛ばして、続きから進む。
 
-パスは `MarketingDepartment/WebsiteOperations/` からの相対。画面の表記は、各製品の開発環境の言語（Mautic・n8n は英語）に合わせてある。
+パスはリポジトリのルートからの相対。画面の表記は、各製品の開発環境の言語（Mautic・n8n は英語）に合わせてある。
 画面の表記は 2026-10-05 に各製品のソース（翻訳ファイル）で確かめた。版が上がって表記が変わっていたら、この文書を直す。
 
 ## 0. 早見表
@@ -161,7 +161,7 @@ git worktree add --detach ~/ComeGin/main-checkout origin/main
 git -C ~/ComeGin/main-checkout checkout --detach origin/main
 ```
 
-**「CONTROL_MAIN_CHECKOUT に MarketingDepartment/WebsiteOperations/ops/mcp-registry.yaml が無い」で止まったとき**は、チェックアウトが古いコミットを指している（2026-10-07 の例: ローカルの `main` が `Initial commit` のままで、そこから作っていた）。`git -C ~/ComeGin/main-checkout log --oneline -1` で確かめ、上の `checkout --detach origin/main` で合わせてから `--from next-js` で続ける。
+**「CONTROL_MAIN_CHECKOUT に ops/mcp-registry.yaml が無い」で止まったとき**は、チェックアウトが古いコミットを指している（2026-10-07 の例: ローカルの `main` が `Initial commit` のままで、そこから作っていた）。`git -C ~/ComeGin/main-checkout log --oneline -1` で確かめ、上の `checkout --detach origin/main` で合わせてから `--from next-js` で続ける。
 
 **注意**: このチェックアウトに入るのは `origin/main` にマージ済みの内容だけ。作業中のブランチの変更（例: ADR-25 の `analytics-reporter` の GA4 化と、登録表から `umami`・`umami-prod` を消したこと）は、PR が main にマージされるまで監視アプリの実行に効かない（ADR-18 の意図どおり）。
 

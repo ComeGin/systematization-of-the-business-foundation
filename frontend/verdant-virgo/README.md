@@ -2,7 +2,7 @@
 
 ComeGin の公開サイト。Astro 7 の静的出力（SSG）で、CloudFront から配信する前提。
 画面は Figma `JRYPLER6E0liA7cUurIhSo` の 10 画面（＋状態）を実装している。文言の正本は Figma ではなく
-`MarketingDepartment/WebsiteOperations/docs/BasicDesign/DesignSpec/website/01-content-spec.md`、
+`docs/BasicDesign/DesignSpec/website/01-content-spec.md`、
 実装への申し送りは同じディレクトリの `03-handoff.md`。実装の計画は `docs/superpowers/plans/2026-10-09-website-implementation.md`。
 
 ## コマンド

@@ -39,7 +39,7 @@ src/store/            SQLite（runs・leases・kv・miswrite_candidates）。マ
 src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts・paths.ts・audit-sources.ts
 ```
 
-`docs`・`ops` のパスは `MarketingDepartment/WebsiteOperations/` の下にある。断片は `src/constants/paths.ts` にまとめてあり、読み先は次のとおり。
+`docs`・`ops` のパスはリポジトリ直下にある。断片は `src/constants/paths.ts` にまとめてあり、読み先は次のとおり。
 
 | 読むもの | 読み先 | 理由 |
 |---|---|---|
@@ -100,7 +100,7 @@ TA-03 の 6 節の方針（n8n → Git の一方向。資格情報は ID の参�
 | 除去 | トップ: `id`・`versionId`・`activeVersionId`・`activeVersion`・`createdAt`・`updatedAt`・`pinData`（空の `{}` に直す）・`staticData`・`shared`・`triggerCount`・`isArchived`・`versionCounter`・`sourceWorkflowId`・`parentFolder`・`meta.instanceId`。ノード: `createdAt`・`updatedAt`。`settings` の `binaryMode`・`credentialResolverId`（派生の内部の設定）。`tags` は名前の配列にする。ノードの `credentials` はそのまま（`{ 種別: { id, name } }`。値は API が返さない） |
 | 残す | **`active` は本番の事実として残す**（本番で公開すれば `true` が Git に出る）。`name`・`nodes`・`connections`・`settings`・`description`・`nodeGroups` |
 | 整形 | インデント 2・末尾に改行。トップとノードのキーは固定の順（既存の `workflows/*.json` に合わせた画面の書き出しの順。ほかは末尾にアルファベット順）、**それ以外のオブジェクトのキーは再帰的にアルファベット順**。配列の順序は変えない（`nodes`・`connections` の中の配列を含む）。既存のファイルは、内容は同じでキー順だけが変わるため、**初回の PR は 1 度だけ再整形の差分が出る**（資格情報の `id` も、既存のファイルは持たないため差分になる） |
-| ファイル名 | 承認済み main の `W/middleware/n8n/workflows/*.json` の `name` と n8n のワークフロー名の完全一致（NFC）。無いものは名前から作る（`I-<数字>` で始まる名前はその番号を残し、残りを小文字の ASCII の kebab-case にする。空になれば `workflow-<id>`。衝突したら id を付ける） |
+| ファイル名 | 承認済み main の `middleware/n8n/workflows/*.json` の `name` と n8n のワークフロー名の完全一致（NFC）。無いものは名前から作る（`I-<数字>` で始まる名前はその番号を残し、残りを小文字の ASCII の kebab-case にする。空になれば `workflow-<id>`。衝突したら id を付ける） |
 | 比較 | 整形した文字列を、main の同名ファイルと**バイト単位で**比較する。差分があるものは GitHub の base の内容とも比べ、同じなら除く（main のチェックアウトが origin より遅れていても、マージ済みの内容で二重に PR を作らない）。差分が無ければ `success` で何もしない |
 | 消さない | **n8n に無い・名前が変わったワークフローの旧ファイルは消さない**（開発だけにあるものを消さないため）。本番で改名すると、新しい名前は**新規ファイル**として扱われ、旧ファイルが残る。人が旧ファイルを消す（仕様。`id` をファイルに残さない方針のため） |
 | 秘密値の検査 | GitHub に出る前に、ノードの値を検査する: キーが `secret`・`token`・`password`・`api_key`・`authorization` を含み値が固定の文字列、ヘッダーなどの `{ name, value }` の対で name がそれらを含み value が固定、または既知のトークンの形（`ghp_`・`github_pat_`・`AKIA`・`xox*-`・`sk-`・`Bearer` ＋ 20 文字以上・秘密鍵のヘッダー）。式（`{{ }}`）・空・URL は除く。**疑いのあるワークフローは PR から外し**、E-15 の要約には「ワークフロー名: 秘密値の疑い」だけを書く（値・キーの中身は書かない）。結果は `partial`。誤検知は人が n8n 側で式や資格情報に直すまで外れ続ける |
@@ -157,7 +157,7 @@ SDK `@anthropic-ai/claude-agent-sdk` のオプション名と挙動は、公式�
 | `allowedTools` / `disallowedTools` | 定義の `tools` / 定義の `disallowedTools` + `Bash`・`PowerShell` | エージェント定義の許可リストをそのまま使い、監視アプリの側で広げない。`Bash` を含む定義は起動しない（fail closed）。`init` のツール一覧に Bash 系があれば打ち切る |
 | `env` | `{PATH, HOME, ANTHROPIC_API_KEY}` | `env` は子プロセスの環境を丸ごと置き換える（`process.env` とマージされない）。AWS・GitHub・Better Auth の秘密値は渡らない。`init` の `apiKeySource` が `ANTHROPIC_API_KEY` でなければ打ち切る（ユーザーの OAuth ログインで動くのを防ぐ） |
 | `hooks.PreToolUse` | `src/runner/hooks.ts` | ファイルツールを `CONTROL_WORKTREE` の realpath の内側に閉じ込める。内側でも `.env`・`.env.*`（`.example`・`.sample`・`.template` を除く）・`samconfig.toml`・`secrets/`・`.git` を拒否。`CONTROL_DATA_DIR`・`CONTROL_MAIN_CHECKOUT`・`~/.aws`・`~/.config/comegin`・`CONTROL_AGENT_HOME` も拒否。`Glob`・`Grep` のパターンに `..` や外を指す絶対パスがあれば拒否。**限界:** `Grep` が作業ツリーの中を再帰的に読むときに秘匿ファイルを避けるのは、ripgrep が `.gitignore` を尊重することに頼る（直接のパス指定は必ず拒否する） |
-| `hooks.PreToolUse`（書き込み系の追加） | `src/constants/write-denylist.ts` | `Write`・`Edit`・`MultiEdit`・`NotebookEdit` は、作業ツリーの中でも次を拒否する。**理由:** これらは人や control-plane が後で実行する、または実行の条件を決めるため、書けるとエージェント自身の権限を広げる経路になる。`package.json`・`pnpm-lock.yaml`・`pnpm-workspace.yaml`・`.npmrc` ほかパッケージの設定、`node_modules/` の下すべて、`*rc.js|cjs|mjs`・`*.config.{js,cjs,mjs,ts}`、`dev/` の下の `*.sh`、`Dockerfile`・`compose*.yml`、`.envrc`、`.git/`・`.github/`・`.husky/`・`.claude/`・`MarketingDepartment/WebsiteOperations/{ops,cloud}/`。エージェントが書くのは `docs/audits`・`docs/proposals` と design-implementer の `frontend/verdant-virgo/src/` の下だけ |
+| `hooks.PreToolUse`（書き込み系の追加） | `src/constants/write-denylist.ts` | `Write`・`Edit`・`MultiEdit`・`NotebookEdit` は、作業ツリーの中でも次を拒否する。**理由:** これらは人や control-plane が後で実行する、または実行の条件を決めるため、書けるとエージェント自身の権限を広げる経路になる。`package.json`・`pnpm-lock.yaml`・`pnpm-workspace.yaml`・`.npmrc` ほかパッケージの設定、`node_modules/` の下すべて、`*rc.js|cjs|mjs`・`*.config.{js,cjs,mjs,ts}`、`dev/` の下の `*.sh`、`Dockerfile`・`compose*.yml`、`.envrc`、`.git/`・`.github/`・`.husky/`・`.claude/`・`{ops,cloud}/`。エージェントが書くのは `docs/audits`・`docs/proposals` と design-implementer の `frontend/verdant-virgo/src/` の下だけ |
 | `strictMcpConfig` | `true` | 渡した `mcpServers` だけを使い、`.mcp.json` やユーザー設定の MCP を無視する |
 | `mcpServers` | そのエージェントの `tools` に出る登録だけ | `mcp__<name>__<tool>` の `<name>` を登録表から引く。登録表に無い名前は起動前に `failure` にする |
 | `persistSession` | `false` | SDK 自身の会話履歴（MCP のツール結果を含む）が `~/.claude` に残ると、ADR-18 の「ツールの結果は残さない」に反する |

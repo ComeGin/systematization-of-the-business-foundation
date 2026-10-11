@@ -1,4 +1,4 @@
-// 定期実行の定義（W/ops/schedules/<job-id>.yaml）の読み込み。形式は固定シート 7 節。
+// 定期実行の定義（ops/schedules/<job-id>.yaml）の読み込み。形式は固定シート 7 節。
 // 読み先は承認済み main のチェックアウト（CONTROL_MAIN_CHECKOUT）。作業ツリーからは読まない（ADR-18）。
 import { readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";

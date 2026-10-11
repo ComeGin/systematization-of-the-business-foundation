@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ManualStepRequired, State, W, createContext, loadConfig, mask } from "./lib/core.mjs";
 
-// 呼ぶ順番（依存の順）。モジュールを足すときはここに 1 行足す。パスは W（MarketingDepartment/WebsiteOperations）からの相対
+// 呼ぶ順番（依存の順）。モジュールを足すときはここに 1 行足す。パスは W（リポジトリのルート）からの相対
 const MODULES = [
   "middleware/host-relay/setup/index.mjs",
   "backend/chatwoot-system/setup/index.mjs",

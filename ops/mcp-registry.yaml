@@ -20,7 +20,7 @@ servers:
     command: node
     args:
       - "--env-file-if-exists=${HOME}/.config/comegin/mcp/chatwoot-dev.env"
-      - "MarketingDepartment/WebsiteOperations/backend/chatwoot-mcp/dist/index.js"
+      - "backend/chatwoot-mcp/dist/index.js"
     access_level: read_write
     env_vars:
       TRANSPORT: stdio
@@ -31,7 +31,7 @@ servers:
     command: node
     args:
       - "--env-file-if-exists=${HOME}/.config/comegin/mcp/chatwoot-prod.env"
-      - "MarketingDepartment/WebsiteOperations/backend/chatwoot-mcp/dist/index.js"
+      - "backend/chatwoot-mcp/dist/index.js"
     access_level: read_write
     env_vars:
       TRANSPORT: stdio
@@ -47,7 +47,7 @@ servers:
     command: node
     args:
       - "--env-file-if-exists=${HOME}/.config/comegin/mcp/mautic-dev.env"
-      - "MarketingDepartment/WebsiteOperations/backend/mautic-mcp/dist/index.js"
+      - "backend/mautic-mcp/dist/index.js"
     access_level: read_write
     env_vars:
       TRANSPORT: stdio
@@ -58,7 +58,7 @@ servers:
     command: node
     args:
       - "--env-file-if-exists=${HOME}/.config/comegin/mcp/mautic-prod.env"
-      - "MarketingDepartment/WebsiteOperations/backend/mautic-mcp/dist/index.js"
+      - "backend/mautic-mcp/dist/index.js"
     access_level: read_write
     env_vars:
       TRANSPORT: stdio
@@ -69,7 +69,7 @@ servers:
     command: node
     args:
       - "--env-file-if-exists=${HOME}/.config/comegin/mcp/mautic-prod-ro.env"
-      - "MarketingDepartment/WebsiteOperations/backend/mautic-mcp/dist/index.js"
+      - "backend/mautic-mcp/dist/index.js"
     access_level: read_only
     env_vars:
       TRANSPORT: stdio

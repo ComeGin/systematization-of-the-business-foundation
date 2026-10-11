@@ -31,14 +31,14 @@ const build = (names: string[], reg: McpRegistry) =>
 describe("buildMcpServers（stdio）", () => {
   describe("正常系", () => {
     it("${HOME} を実ホームで展開し、存在する相対パスだけ main のチェックアウトから解決する", async () => {
-      writeAt(root, "main/MarketingDepartment/WebsiteOperations/backend/chatwoot-mcp/dist/index.js", "");
+      writeAt(root, "main/backend/chatwoot-mcp/dist/index.js", "");
       const servers = await build(
         ["chatwoot-prod"],
         registry({
           name: "chatwoot-prod",
           command: "node",
           args: [
-            "MarketingDepartment/WebsiteOperations/backend/chatwoot-mcp/dist/index.js",
+            "backend/chatwoot-mcp/dist/index.js",
             "--env-file-if-exists=${HOME}/.config/comegin/chatwoot-mcp.prod.env",
             "missing/dir/file.js",
             "stdio",
@@ -49,7 +49,7 @@ describe("buildMcpServers（stdio）", () => {
         type: "stdio",
         command: "node",
         args: [
-          join(root, "main/MarketingDepartment/WebsiteOperations/backend/chatwoot-mcp/dist/index.js"),
+          join(root, "main/backend/chatwoot-mcp/dist/index.js"),
           `--env-file-if-exists=${join(root, "home")}/.config/comegin/chatwoot-mcp.prod.env`,
           "missing/dir/file.js",
           "stdio",

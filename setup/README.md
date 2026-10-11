@@ -9,7 +9,7 @@
 ## 使い方
 
 ```bash
-cd MarketingDepartment/WebsiteOperations
+cd ~/ComeGin/systematization-of-the-business-foundation   # リポジトリのルート
 
 # 1. 設定ファイルを用意する（最初の 1 回。必須は ADMIN_EMAIL だけ）
 mkdir -p ~/.config/comegin/setup && chmod 700 ~/.config/comegin/setup

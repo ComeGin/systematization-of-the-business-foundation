@@ -1,6 +1,6 @@
 // 開発の Chatwoot（127.0.0.1:3100）。誤った書き込みの突き合わせ（builtin miswrite-check）が読む会話とメッセージを、テストの間だけ作る。
 // 値は設定スクリプトの状態ファイル（~/.config/comegin/setup/dev.state.json）から読む。秘密値は返すだけで、画面・例外の文に出さない。
-// W/integration/tests/helpers/chatwoot.ts と同じ考え方（next-js の tsconfig から .ts 付きの import を読めないため、ここに小さく持つ）。
+// integration/tests/helpers/chatwoot.ts と同じ考え方（next-js の tsconfig から .ts 付きの import を読めないため、ここに小さく持つ）。
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

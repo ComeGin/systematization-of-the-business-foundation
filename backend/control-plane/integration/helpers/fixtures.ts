@@ -7,12 +7,11 @@ import { type ControlPlane, createControlPlane } from "../../src/index.js";
 import type { RunRecord } from "../../src/contract.js";
 import { type ProposalOptions, proposalText, tempDir, writeAt } from "../../tests/helpers/runner.js";
 
-export const W_DIR = "MarketingDepartment/WebsiteOperations";
-export const SCHEDULES_DIR = `${W_DIR}/ops/schedules`;
-export const REGISTRY_FILE = `${W_DIR}/ops/mcp-registry.yaml`;
-export const PROPOSALS_DIR = `${W_DIR}/docs/proposals`;
-export const AUDITS_DIR = `${W_DIR}/docs/audits`;
-export const N8N_WORKFLOWS_DIR = `${W_DIR}/middleware/n8n/workflows`;
+export const SCHEDULES_DIR = "ops/schedules";
+export const REGISTRY_FILE = "ops/mcp-registry.yaml";
+export const PROPOSALS_DIR = "docs/proposals";
+export const AUDITS_DIR = "docs/audits";
+export const N8N_WORKFLOWS_DIR = "middleware/n8n/workflows";
 
 /** エージェントに渡すだけの値（Agent SDK はモックなので、どこにも送られない） */
 export const DUMMY_ANTHROPIC_KEY = "sk-ant-it-dummy-key-0000000000";
@@ -67,7 +66,7 @@ servers:
     command: node
     args:
       - "--env-file-if-exists=\${HOME}/.config/comegin/mcp/chatwoot-dev.env"
-      - "${W_DIR}/backend/chatwoot-mcp/dist/index.js"
+      - "backend/chatwoot-mcp/dist/index.js"
     env_vars:
       TRANSPORT: stdio
       CHATWOOT_ACCESS_LEVEL: read_write

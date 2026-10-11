@@ -1,4 +1,4 @@
-// MCP の登録表（W/ops/mcp-registry.yaml）の読み込み。形式は固定シート 5 節。
+// MCP の登録表（ops/mcp-registry.yaml）の読み込み。形式は固定シート 5 節。
 // 秘密値は書かれていない。env ファイルのパスと変数名だけを持つ。
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";

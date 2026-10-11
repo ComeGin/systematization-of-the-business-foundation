@@ -163,7 +163,7 @@ describe("loadSchedules", () => {
   });
 });
 
-describe("実在の定期実行の定義（W/ops/schedules）", () => {
+describe("実在の定期実行の定義（ops/schedules）", () => {
   const root = repositoryRoot();
 
   describe("正常系", () => {

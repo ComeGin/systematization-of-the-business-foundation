@@ -64,7 +64,7 @@ export async function apply(ctx) {
 
   // builtin lighthouse は承認済み main のチェックアウトの node_modules を前提にする（README の「lighthouse の実行」）
   const main = ctx.value("CONTROL_MAIN_CHECKOUT");
-  if (main && !existsSync(join(main, "MarketingDepartment/WebsiteOperations/frontend/verdant-virgo/node_modules"))) {
+  if (main && !existsSync(join(main, "frontend/verdant-virgo/node_modules"))) {
     ctx.warn(`${main} の frontend/verdant-virgo で pnpm install が済んでいない。builtin の lighthouse は dependencies not installed で skipped になる（定期実行を使うなら人が済ませる）`);
   }
 }

@@ -1,5 +1,5 @@
 // 本番の n8n のワークフローを Git に書き出す（builtin n8n-export。TA-03 の 6 節、固定シート 7 節）。
-// n8n の Public API で読み、揮発フィールドを除いて整形し、承認済み main の W/middleware/n8n/workflows/ と比べる。
+// n8n の Public API で読み、揮発フィールドを除いて整形し、承認済み main の middleware/n8n/workflows/ と比べる。
 // 差分があれば GitHub にブランチ・コミット・PR を作る（I-13 と同じ資格情報。API でコミットし、ローカルの Git の状態は変えない）。
 // **作業ツリー（CONTROL_WORKTREE）には何も書かない。** 読むのは CONTROL_MAIN_CHECKOUT だけ。
 // 反映は一方向（n8n → Git）。n8n に無いファイルも、main にあるファイルを消さない（開発だけにあるものを消さないため）。

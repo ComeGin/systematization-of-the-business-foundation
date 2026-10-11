@@ -71,9 +71,9 @@ function tempDir() {
 
 describe("パスの定数", () => {
   describe("正常系", () => {
-    it("W は MarketingDepartment/WebsiteOperations、REPO はその 2 つ上を指す", () => {
-      expect(core.W.endsWith(join("MarketingDepartment", "WebsiteOperations"))).toBe(true);
-      expect(join(core.REPO, "MarketingDepartment", "WebsiteOperations")).toBe(core.W);
+    it("W と REPO はどちらもリポジトリのルート（setup の 1 つ上）を指す", () => {
+      expect(existsSync(join(core.W, "setup", "setup.mjs"))).toBe(true);
+      expect(core.REPO).toBe(core.W);
     });
 
     it("CONFIG_DIR は import した時点の HOME の下の .config/comegin になる", () => {

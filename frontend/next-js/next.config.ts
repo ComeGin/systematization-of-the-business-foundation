@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 
-// next-js と backend/control-plane の親（W = MarketingDepartment/WebsiteOperations）。
+// next-js と backend/control-plane の共通の親（リポジトリのルート）。
 // Turbopack は root の外のファイルを解決しないため、link: で取り込んだ control-plane を読むには、両方の親を root にする。
 const root = path.join(__dirname, "../..");
 

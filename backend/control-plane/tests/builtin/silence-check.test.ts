@@ -7,7 +7,7 @@ import type { RunOutcome } from "../../src/contract.js";
 import type { ScheduleDefinition } from "../../src/definitions/schedules.js";
 import { makeConfig, makeCtx, makeJob, tempDir, writeAt } from "../helpers/runner.js";
 
-const AUDITS = "MarketingDepartment/WebsiteOperations/docs/audits";
+const AUDITS = "docs/audits";
 const RUN_ID = "01K6PZ3T8Q4M2N7R9S5V1W3X6Y";
 
 let worktree: string;

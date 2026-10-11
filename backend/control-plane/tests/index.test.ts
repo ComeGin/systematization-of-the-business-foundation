@@ -19,7 +19,7 @@ vi.mock("../src/integrations/aws.js", async (importOriginal) => ({
   putHeartbeat: aws.putHeartbeat,
 }));
 
-const SCHEDULES = "MarketingDepartment/WebsiteOperations/ops/schedules";
+const SCHEDULES = "ops/schedules";
 const AWS_ENV = { AWS_REGION: "ap-northeast-1", RUNLOG_BUCKET: "comegin-runlog" };
 const MISWRITE_ENV = {
   MISWRITE_CHATWOOT_BASE_URL: "https://chat.example.test",

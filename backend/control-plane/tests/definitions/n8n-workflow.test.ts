@@ -381,7 +381,7 @@ describe("assignFileNames", () => {
   });
 });
 
-describe("実在の書き出し（W/middleware/n8n/workflows）", () => {
+describe("実在の書き出し（middleware/n8n/workflows）", () => {
   const root = repositoryRoot();
 
   describe("正常系", () => {

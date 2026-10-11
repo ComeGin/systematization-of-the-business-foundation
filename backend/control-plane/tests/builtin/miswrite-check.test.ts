@@ -85,7 +85,7 @@ const input = (overrides: Partial<BuiltinInput> = {}): BuiltinInput => ({
   ...overrides,
 });
 
-const PROPOSALS = "MarketingDepartment/WebsiteOperations/docs/proposals";
+const PROPOSALS = "docs/proposals";
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });

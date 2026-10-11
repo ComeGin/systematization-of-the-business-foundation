@@ -24,7 +24,7 @@
   - 検索意図を「潜在（課題探求）」「準顕在（手法比較）」「顕在・指名（サービス比較・導入検討）」に分類。
 
   - キーワードの温度感に合わせてCTA（無料相談、ソースコードの無料ダウンロード）を出し分け、MA/SFAへ即時トスアップするフローを構築。
-    - 当初は「ホワイトペーパー、無料トライアル、デモ予約」の 3 種としていたが、**2026-10-01 に実態の 2 種へ改めた**（配布するのはホワイトペーパーではなく環境構築のソースコード、受けるのはデモではなく無料相談、**無料トライアルは提供していない**）。設計は `MarketingDepartment/WebsiteOperations/docs/RequirementDefinition/BA/04-business-processes.md` の「CTA 出し分けマトリクス」にある。
+    - 当初は「ホワイトペーパー、無料トライアル、デモ予約」の 3 種としていたが、**2026-10-01 に実態の 2 種へ改めた**（配布するのはホワイトペーパーではなく環境構築のソースコード、受けるのはデモではなく無料相談、**無料トライアルは提供していない**）。設計は `docs/RequirementDefinition/BA/04-business-processes.md` の「CTA 出し分けマトリクス」にある。
     - 無料トライアルを将来始める場合の設計（Mautic のステージ・セグメント・ポイント）は、同ファイルのトスアップ条件に「使わない」として残してある。
 
 - 定期的なPDCA運用:
@@ -64,4 +64,4 @@
 - **利用者**は、無料 DL したソースコードでこの基盤を自前のサーバに立てた事業者を指す。**採掘は利用者が明示的に同意したサーバでだけ動かし、既定では無効にする。** ComeGin の AWS（本番・デモアプリ）では採掘しない（AWS の規約が採掘を禁じているため）。
 - 採掘の成果（XMR）は unMineable が **POL（Polygon）** に変換して ComeGin のウォレット（thirdweb）へ払い出す。利用者には貢献量に比例した**譲渡できないポイント**を付与し、ComeGin への発注代金の値引きにだけ使えるようにする（暗号資産の交換・預かりを ComeGin が行わないため）。
 - 着手の前に、弁護士・税理士・AWS の規約の 3 つの確認を通す。
-- 設計: `MarketingDepartment/WebsiteOperations/docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-20、`docs/superpowers/specs/2026-10-03-monetization-design.md`
+- 設計: `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-20、`docs/superpowers/specs/2026-10-03-monetization-design.md`

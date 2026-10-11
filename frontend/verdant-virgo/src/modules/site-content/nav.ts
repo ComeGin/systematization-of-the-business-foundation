@@ -1,5 +1,5 @@
 // ヘッダー・Mobile のメニュー・フッターのリンクと文言。
-// 正本は MarketingDepartment/WebsiteOperations/docs/BasicDesign/DesignSpec/website/01-content-spec.md の §1.3・§1.4。
+// 正本は docs/BasicDesign/DesignSpec/website/01-content-spec.md の §1.3・§1.4。
 // 文言は一字一句写す（和欧間は半角スペース。H-17 は「文字としてのスペースを入れ、CSS の text-autospace は使わない」に決めた。計画書 P-2）。
 
 import type { CtaId } from './cta';

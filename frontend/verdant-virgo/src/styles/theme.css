@@ -3,7 +3,7 @@
  *
  * tokens.css は ~/ComeGin/comegin/assets/tokens/tokens.css の写し（生成物）なので直接直さない。
  * 生成物に無いもの・生成物が古いものは、ここで primitive を指して定義する。
- * 値の根拠は MarketingDepartment/WebsiteOperations/docs/BasicDesign/DesignSpec/website/
+ * 値の根拠は docs/BasicDesign/DesignSpec/website/
  * 02-component-map.md §2.2（役割トークン）と §9.1（kit 変数 → 役割トークンの対応表）。
  *
  * レイヤーに入れない（global.css から tokens.css の後に読む）。Tailwind の @layer theme より強く、

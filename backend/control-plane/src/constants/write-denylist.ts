@@ -3,7 +3,7 @@
 // 書けるとエージェント自身の権限を広げる経路になる（BA-05 の「エージェントが自分の実行条件を変える操作」）。
 // 読み取りは別（hooks.ts の checkPathAccess）。エージェントが書くのは docs/audits・docs/proposals と、
 // design-implementer の frontend/verdant-virgo/src の下だけで、これらが拒否されても困らない。
-import { WEBSITE_OPERATIONS_DIR } from "./paths.js";
+import { CLOUD_DIR, OPS_DIR } from "./paths.js";
 
 export const WRITE_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
@@ -14,8 +14,8 @@ export const WRITE_DENY_PREFIXES: readonly string[] = [
   ".github",
   ".husky",
   ".claude",
-  `${WEBSITE_OPERATIONS_DIR}/ops`,
-  `${WEBSITE_OPERATIONS_DIR}/cloud`,
+  OPS_DIR,
+  CLOUD_DIR,
 ];
 
 /** どこにあっても拒否するパスの断片（ディレクトリ名） */

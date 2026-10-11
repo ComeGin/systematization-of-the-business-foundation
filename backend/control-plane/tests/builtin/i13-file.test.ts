@@ -31,7 +31,7 @@ vi.mock("../../src/integrations/github.js", () => ({
   },
 }));
 
-const PROPOSALS = "MarketingDepartment/WebsiteOperations/docs/proposals";
+const PROPOSALS = "docs/proposals";
 const github = { token: "ghp_x", repository: "o/r", baseBranch: "main", issueNumber: 13, reviewer: "kamegin4-aws" };
 
 let worktree: string;

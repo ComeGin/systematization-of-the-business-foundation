@@ -168,7 +168,7 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 2. 画面の**左上の「+」ボタン**（Create）を押す。小さなメニューが出るので **Workflow** を選ぶ。
    - 何も置かれていない画面（「Add first step…」と出る）が開く。これが空のワークフロー。
 3. 画面の**右上の「⋯」**（点が 3 つ並んだボタン）を押す。メニューの **Import from File** を選ぶ。
-4. ファイルを選ぶ画面が開くので、このフォルダ（`MarketingDepartment/WebsiteOperations/middleware/n8n/workflows/`）の JSON を選ぶ。1 本目は `I-21-sns-notify.json`。
+4. ファイルを選ぶ画面が開くので、このフォルダ（`middleware/n8n/workflows/`）の JSON を選ぶ。1 本目は `I-21-sns-notify.json`。
 5. 画面にノード（箱）が線でつながって並ぶ。**左上のワークフローの名前**が `I-21 SNS 通知` に変わっていれば、取り込めている。
 6. 何も押さなくてよい。n8n は自動で保存する（**保存しただけでは本番では動かない**。動かすのは 9 節の公開）。
 7. 画面の左のメニューの **Overview** を押すと一覧に戻る。一覧に `I-21 SNS 通知` が増えている。

@@ -22,7 +22,7 @@ vi.mock("../src/builtin/index.js", async (importOriginal) => ({
   BUILTIN_HANDLERS: mocks.handlers,
 }));
 
-const PROPOSALS = "MarketingDepartment/WebsiteOperations/docs/proposals";
+const PROPOSALS = "docs/proposals";
 const BUILTINS: BuiltinJob[] = [
   "heartbeat",
   "i13-file",
@@ -448,7 +448,7 @@ describe("Engine.start のエージェントの起動", () => {
 
     it("サーバ: proposals の場所を読めなければ（ENOTDIR）、詳細を残さず failure にする", async () => {
       writeAgent("proposal-writer");
-      mkdirSync(join(root, "wt/MarketingDepartment/WebsiteOperations/docs"), { recursive: true });
+      mkdirSync(join(root, "wt/docs"), { recursive: true });
       writeFileSync(join(root, "wt", PROPOSALS), "not a directory");
       const { runId } = await engine.start({ trigger: "manual", adHoc: { agent: "proposal-writer", prompt: "p" } });
       const record = await finished(runId);

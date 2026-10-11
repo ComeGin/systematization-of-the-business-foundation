@@ -1,5 +1,5 @@
 // 開発スタック（127.0.0.1 の n8n・Chatwoot）の値と、Chatwoot のテストデータの作成。
-// 値は W/integration の共通ヘルパー（状態ファイル ~/.config/comegin/setup/dev.state.json）から実行時に読む。秘密値は画面に出さない。
+// 値は integration の共通ヘルパー（状態ファイル ~/.config/comegin/setup/dev.state.json）から実行時に読む。秘密値は画面に出さない。
 import { chatwootApi } from "../../../../integration/tests/helpers/chatwoot.ts";
 import { requireValue } from "../../../../integration/tests/helpers/env.ts";
 import { itEmail, itName } from "../../../../integration/tests/helpers/run-id.ts";

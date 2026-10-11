@@ -94,7 +94,7 @@ const lastOptions = (): Options => (queryMock.mock.calls.at(-1)![0] as { options
 const lastPrompt = (): string => (queryMock.mock.calls.at(-1)![0] as { prompt: string }).prompt;
 
 function writeRegistry(yaml: string) {
-  writeAt(join(root, "main"), "MarketingDepartment/WebsiteOperations/ops/mcp-registry.yaml", yaml);
+  writeAt(join(root, "main"), "ops/mcp-registry.yaml", yaml);
 }
 
 beforeEach(() => {
