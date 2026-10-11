@@ -40,8 +40,8 @@ node setup/setup.mjs --target dev
 
 | id | 場所 | 自動でやること | 止まって頼むこと（manual） |
 |---|---|---|---|
-| `host-relay` | `middleware/host-relay/setup/` | 中継の起動（172.17.0.1 の 8000・1025・5678） | なし |
-| `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・Webhook の私設アドレスへの送信の許可（下の「Webhook の送り先と SSRF 対策」）・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
+| `host-relay` | `middleware/host-relay/setup/` | 中継の起動（172.17.0.1 の 8000・1025・5678・3100・3001・3107） | なし |
+| `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・Webhook の私設アドレスへの送信の許可（下の「Webhook の送り先と SSRF 対策」）・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー・ラベル 3 つ（`faq-answered` ほか）・エージェントボット「FAQ ボット」と受信箱への接続。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
 | `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・Webhook の設定（送り先の私設アドレスの許可・失敗での自動停止の無効化）・カスタム項目 3 つ・フォーム `consult`・`source_dl`・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
 | `ga4` | `middleware/ga4/setup/`（dev・prod） | **dev**: 開発の Astro の環境変数に測定 ID が無いことの確認だけ（あれば失敗）。**prod**: `GA4_PROPERTY_ID`（数字）と `GA4_MEASUREMENT_ID`（`G-…`）の形式の確認（GA4 は SaaS。API は呼ばない。ADR-25） | prod だけ: 本番の GA4 プロパティの作成と設定（`ga4:property`） |
 | `openseo` | `middleware/open-seo-main/dev/setup/`（dev・prod） | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／**prod だけ**（dev は AWS に展開されていないので飛ばす）: Search Console と GA4 用の OAuth クライアント（GA4 は Analytics Admin API・Data API の有効化と `/api/ga4/oauth/callback` を含む）／Search Console の接続（画面）／GA4 の接続（画面。本番のプロパティだけ。ADR-25） |
@@ -50,6 +50,7 @@ node setup/setup.mjs --target dev
 | `consent-api` | `backend/consent-api/setup/` | 環境変数ファイル・起動（Valkey 付き）・`/healthz` | なし |
 | `admin-auth` | `backend/admin-auth/setup/` | init-env・起動・discovery と JWKS の確認。許可リストに `ADMIN_EMAIL` | なし（Google の資格情報は任意。無ければ警告だけ） |
 | `chatwoot-mcp` | `backend/chatwoot-mcp/setup/` | `pnpm install`・`pnpm build`・トークンの確認 → `chatwoot-dev.env` | なし |
+| `faq-bot` | `backend/faq-bot/setup/` | 状態のボットのトークンと secret を環境変数ファイルに写す・`pnpm install`・開発サーバーの死活の表示 | 開発サーバーの起動（別の端末で `pnpm dev`） |
 | `mautic-mcp` | `backend/mautic-mcp/setup/` | `pnpm install`・`pnpm build`・資格情報の確認 → `mautic-dev.env` | なし（資格情報が無ければ失敗。mautic を先に） |
 | `control-plane` | `backend/control-plane/setup/` | Node と pnpm の版の確認・`pnpm install`・`pnpm build`・E-15 の置き場（700） | なし |
 | `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・Google の資格情報と許可リスト（`CONTROL_ADMIN_EMAILS`）・`pnpm install`・Google ログインを始められるかの確認（認可 URL の `hd` とリダイレクト URI） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／**Google の OAuth クライアントの作成**／監視アプリの起動・起動し直し（別の端末で `pnpm dev`） |

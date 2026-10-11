@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 export const meta = { id: "host-relay", title: "開発環境の中継（コンテナ → ホストの 127.0.0.1）", targets: ["dev"], after: [] };
 
-const PORTS = [8000, 1025, 5678, 3100, 3001];
+const PORTS = [8000, 1025, 5678, 3100, 3001, 3107];
 
 async function listening(ctx) {
   const out = await ctx.run("ss", ["-ltn"]);
@@ -19,5 +19,5 @@ export async function apply(ctx) {
   await ctx.run("docker", ["compose", "up", "-d"], { cwd: join(ctx.W, "middleware/host-relay") });
   const up = await listening(ctx);
   if (up.length !== PORTS.length) throw new Error(`中継が待ち受けていない（${up.join(", ") || "なし"}）。docker0 のアドレスが 172.17.0.1 か確かめる（middleware/host-relay/README.md）`);
-  ctx.log("172.17.0.1 の 8000・1025・5678・3100・3001（OpenSEO は /api/health だけ）で待ち受けている");
+  ctx.log("172.17.0.1 の 8000・1025・5678・3100・3001（OpenSEO は /api/health だけ）・3107 で待ち受けている");
 }

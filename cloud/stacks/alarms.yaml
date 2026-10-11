@@ -40,6 +40,9 @@ Parameters:
   WireguardInstanceId:
     Type: String
     Description: wireguard.yaml の InstanceId（オンプレとの WireGuard の EC2）
+  FaqBotFunctionName:
+    Type: String
+    Description: services/faq-bot.yaml の FunctionName（ADR-26 の Lambda）
   ValkeyReplicationGroupId:
     Type: String
     Description: data.yaml の ValkeyReplicationGroupId（1 ノードなので、ノードの ID は <この値>-001）
@@ -339,6 +342,27 @@ Resources:
           Label: DesiredTaskCount minus RunningTaskCount
           Expression: desired - running
           ReturnData: true
+
+  # ---------------------------------------------------------------- Lambda: faq-bot の失敗（ADR-26。faq-bot の仕様 8 節）
+  # 失敗した会話は Chatwoot が担当者に回している（訪問者は置き去りにならない）。この通知で、ボットが答えていないことに気づく
+  FaqBotErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-faq-bot-errors'
+      AlarmDescription: faq-bot（Lambda）が失敗した。会話は Chatwoot が担当者に回している。
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - { Name: FunctionName, Value: !Ref FaqBotFunctionName }
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
 
   # ---------------------------------------------------------------- ALB: ターゲットが unhealthy（TA-05 の項目 12）
   MauticWebUnhealthyHostAlarm:

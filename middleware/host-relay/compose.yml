@@ -8,6 +8,7 @@
 #   n8n      → host.docker.internal:8000 → この中継 → 127.0.0.1:8000（Mautic。dev/serve.sh）
 #   n8n      → host.docker.internal:1025 → この中継 → 127.0.0.1:1025（Mautic の MailHog の SMTP）
 #   Chatwoot → host.docker.internal:5678 → この中継 → 127.0.0.1:5678（n8n の Webhook）
+#   Chatwoot → host.docker.internal:3107 → この中継 → 127.0.0.1:3107（faq-bot。エージェントボットの Webhook。I-31）
 #   n8n      → host.docker.internal:3100 → この中継 → 127.0.0.1:3100（Chatwoot の API。週次の問い合わせの棚卸し）
 #   n8n      → host.docker.internal:3001 → この中継（nginx） → 127.0.0.1:3001（OpenSEO。GET /api/health だけ。ops-monitor）
 #
@@ -41,6 +42,11 @@ services:
     <<: *relay
     # 週次の問い合わせの棚卸し（n8n）が Chatwoot の API を呼ぶ。Chatwoot 自体が api_access_token で守っている
     command: ['TCP-LISTEN:3100,bind=${RELAY_BIND:-172.17.0.1},fork,reuseaddr', 'TCP:127.0.0.1:3100']
+
+  faq-bot:
+    <<: *relay
+    # Chatwoot のエージェントボットの Webhook（I-31）を faq-bot の開発サーバー（backend/faq-bot の pnpm dev）へ。faq-bot が署名を検証する
+    command: ['TCP-LISTEN:3107,bind=${RELAY_BIND:-172.17.0.1},fork,reuseaddr', 'TCP:127.0.0.1:3107']
 
   # OpenSEO は認証なし（local_noauth）で、UI と /mcp も同じポートにある。socat でポートごと中継すると、
   # 同じホストのどのコンテナからも使えてしまうため、nginx で GET /api/health だけを通す（openseo-health.conf.template）

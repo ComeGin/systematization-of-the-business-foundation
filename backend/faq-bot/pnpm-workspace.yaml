@@ -1,0 +1,11 @@
+packages:
+  - '.'
+
+# サプライチェーン対策
+minimumReleaseAge: 10080 # 公開から 7 日未満のバージョンはインストールしない（分）
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+
+allowBuilds:
+  # tsx（開発時の実行）と bundle が使う esbuild のバイナリ取得を許可する
+  esbuild: true

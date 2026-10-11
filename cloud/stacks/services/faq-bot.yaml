@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  faq-bot: Chatwoot のエージェントボット（受信箱「Web サイト」の FAQ に答える）。ADR-26 により Lambda（VPC の外。関数 URL）。
+  仕様は docs/superpowers/specs/2026-10-11-faq-bot-design.md。環境変数名は backend/faq-bot/.env.example が正本。
+  届く先は Chatwoot の公開の API（https://<ChatHost>/api/v1/accounts/*）と公開サイトの faq.json だけで、VPC・NAT を使わない。
+  入口の守りは Chatwoot の HMAC 署名と時刻（関数 URL は AuthType NONE。Chatwoot は SigV4 で署名できないため）。
+  失敗は例外（Errors に数える）で、関数 URL は 502 を返し、Chatwoot は送り直さずに会話を担当者に回す（仕様 8 節）。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  SecretNamePrefix:
+    Type: String
+    Description: secrets.yaml の SecretNamePrefix（comegin/<EnvName>）
+  ChatwootBaseUrl:
+    Type: String
+    AllowedPattern: '^https://[^/]+$'
+    Description: Chatwoot の公開の URL（末尾の / なし。例 https://chat.comegin.com）
+  ChatwootAccountId:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: Chatwoot のアカウントの ID
+  FaqUrl:
+    Type: String
+    AllowedPattern: '^https://.+/faq\.json$'
+    Description: 公開サイトの faq.json（例 https://comegin.com/faq.json）
+  FaqMatchHigh:
+    Type: String
+    Default: '0.5'
+    Description: 答える 1 位のスコアの下限（仕様 7.2。仕様 11 節の評価で決めた値）
+  FaqMatchLow:
+    Type: String
+    Default: '0.25'
+    Description: 候補を出す 1 位のスコアの下限
+  FaqMatchMargin:
+    Type: String
+    Default: '0.1'
+    Description: 答えるときの 1 位と 2 位の差の下限
+  ReservedConcurrency:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: 予約同時実行数（費用と乱用の上限。超えると 429 になり、Chatwoot が送り直す）
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: ロググループの保持日数（cluster.yaml と同じ暫定値）
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/comegin-${EnvName}-faq-bot'
+      RetentionInDays: !Ref LogRetentionDays
+
+  FaqBotFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      # backend/faq-bot/Makefile の build-FaqBotFunction（pnpm と esbuild。npm を使わない）
+      BuildMethod: makefile
+    Properties:
+      FunctionName: !Sub 'comegin-${EnvName}-faq-bot'
+      Description: Chatwoot agent bot that answers website FAQs (ADR-26)
+      CodeUri: ../../../backend/faq-bot
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 256
+      # Chatwoot の Webhook の打ち切り（5 秒）より短くする（仕様 4.3）
+      Timeout: 4
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+      Environment:
+        Variables:
+          NODE_ENV: production
+          CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl
+          CHATWOOT_ACCOUNT_ID: !Ref ChatwootAccountId
+          FAQ_URL: !Ref FaqUrl
+          FAQ_MATCH_HIGH: !Ref FaqMatchHigh
+          FAQ_MATCH_LOW: !Ref FaqMatchLow
+          FAQ_MATCH_MARGIN: !Ref FaqMatchMargin
+          # トークンと secret は環境変数に置かず、コールドスタートで Secrets Manager から読む（src/lambda.ts）
+          SECRETS_PREFIX: !Sub '${SecretNamePrefix}/faq-bot'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: ReadOwnSecrets
+              Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/faq-bot/*'
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: BUFFERED
+
+  # SAM が作る lambda:InvokeFunctionUrl の許可に加え、関数 URL 経由に限った lambda:InvokeFunction を明示する。
+  # 新しい関数 URL で両方が要るかを公式文書で確定できなかった（2026-10-11）ため、要る場合に備える。関数 URL 以外からは呼べない
+  FunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FaqBotFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  FunctionName:
+    Value: !Ref FaqBotFunction
+  FunctionUrl:
+    Description: Chatwoot のエージェントボット「FAQ ボット」の outgoing_url に入れる（末尾に webhook を付ける）
+    Value: !GetAtt FaqBotFunctionUrl.FunctionUrl

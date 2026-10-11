@@ -31,6 +31,8 @@ Metadata:
         Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory, ConsentApiDesiredCount, ConsentApiCpu, ConsentApiMemory]
       - Label: { default: サービスの設定 }
         Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
+      - Label: { default: FAQ ボット（ADR-26。services/faq-bot.yaml） }
+        Parameters: [FaqBotChatwootAccountId, FaqMatchHigh, FaqMatchLow, FaqMatchMargin]
       - Label: { default: 通知と監視 }
         Parameters: [HeartbeatAlarmActionsEnabled]
       - Label: { default: E-15 の写し }
@@ -312,6 +314,23 @@ Parameters:
     Type: String
     Default: '2026-10-01'
     Description: 現行のプライバシーポリシー・Cookie 文面の版（consent-api が記録と Cookie に入れる）。
+  FaqBotChatwootAccountId:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: faq-bot が操作する Chatwoot のアカウントの ID
+  FaqMatchHigh:
+    Type: String
+    Default: '0.5'
+    Description: faq-bot が答える 1 位のスコアの下限（docs/superpowers/specs/2026-10-11-faq-bot-design.md の 7.2）
+  FaqMatchLow:
+    Type: String
+    Default: '0.25'
+    Description: faq-bot が候補を出す 1 位のスコアの下限
+  FaqMatchMargin:
+    Type: String
+    Default: '0.1'
+    Description: faq-bot が答えるときの 1 位と 2 位の差の下限
 
 Resources:
   NetworkStack:
@@ -635,6 +654,21 @@ Resources:
         CookieDomain: !Sub '.${DomainName}'
         ConsentPolicyVersion: !Ref ConsentPolicyVersion
 
+  # ---- faq-bot（ADR-26。Lambda。VPC の外）
+  FaqBotService:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: stacks/services/faq-bot.yaml
+      Parameters:
+        EnvName: !Ref EnvName
+        SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
+        ChatwootBaseUrl: !Sub 'https://${ChatHost}'
+        ChatwootAccountId: !Ref FaqBotChatwootAccountId
+        FaqUrl: !Sub 'https://${SiteHost}/faq.json'
+        FaqMatchHigh: !Ref FaqMatchHigh
+        FaqMatchLow: !Ref FaqMatchLow
+        FaqMatchMargin: !Ref FaqMatchMargin
+
   # ---- アラーム（T1-4）。すべて ops トピックへ直接発行する。
   AlarmsStack:
     Type: AWS::Serverless::Application
@@ -653,8 +687,13 @@ Resources:
         PostgresInstanceIdentifier: !GetAtt DataStack.Outputs.PostgresInstanceIdentifier
         ValkeyReplicationGroupId: !GetAtt DataStack.Outputs.ValkeyReplicationGroupId
         WireguardInstanceId: !GetAtt WireguardStack.Outputs.InstanceId
+        FaqBotFunctionName: !GetAtt FaqBotService.Outputs.FunctionName
 
 Outputs:
+  FaqBotFunctionUrl:
+    Description: Chatwoot のエージェントボット「FAQ ボット」の outgoing_url（この値の末尾に webhook を付ける。cloud/README.md）
+    Value: !GetAtt FaqBotService.Outputs.FunctionUrl
+
   # 監視アプリの設定（frontend/next-js の .env）に人が写す値。
   RunLogBucketName:
     Description: 監視アプリの RUNLOG_BUCKET

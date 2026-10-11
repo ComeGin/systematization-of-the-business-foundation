@@ -1,4 +1,4 @@
-// Chatwoot（開発環境）の設定。環境変数の用意 → DB の準備 → 起動 → Webhook の私設アドレスへの送信の許可 → 管理者・アカウント → エージェント専用ユーザー → Web サイトの受信箱。
+// Chatwoot（開発環境）の設定。環境変数の用意 → DB の準備 → 起動 → Webhook の私設アドレスへの送信の許可 → 管理者・アカウント → エージェント専用ユーザー → Web サイトの受信箱 → FAQ ボット（ラベル・エージェントボット・受信箱への接続）。
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - 使うのは Chatwoot の公式の API（Application API）と、製品のモデルを通した rails runner だけ。SQL は書かない・画面は操作しない
@@ -15,6 +15,8 @@
 //   /app/app/views/api/v1/models/_user.json.jbuilder（ログインとプロフィールの応答に access_token が入る）
 //   /app/app/views/api/v1/models/_inbox.json.jbuilder（受信箱の応答に website_token が入る）
 //   /app/lib/tasks/db_enhancements.rake（db:chatwoot_prepare）
+//   /app/app/controllers/api/v1/accounts/agent_bots_controller.rb・views/api/v1/models/_agent_bot.json.jbuilder（管理者にだけ access_token と secret を返す）
+//   /app/app/controllers/api/v1/accounts/inboxes_controller.rb（agent_bot・set_agent_bot）、views/api/v1/accounts/labels/index.json.jbuilder（payload）
 import { join } from "node:path";
 
 export const meta = { id: "chatwoot", title: "Chatwoot（問い合わせ窓口。開発環境）", targets: ["dev"], after: ["host-relay"] };
@@ -25,6 +27,15 @@ const DEFAULT_SITE_URL = "http://localhost:4321"; // 開発の公開サイト（
 const INBOX_NAME = "Web サイト";
 const AGENT_NAME = "AI エージェント";
 const RESULT_MARK = "@@RESULT@@";
+const FAQ_BOT_NAME = "FAQ ボット";
+// faq-bot の開発サーバー（127.0.0.1:3107。backend/faq-bot の pnpm dev）に、host-relay 経由で届く
+const FAQ_BOT_URL = "http://host.docker.internal:3107/webhook";
+// FAQ ボットが会話に付けるラベル（docs/superpowers/specs/2026-10-11-faq-bot-design.md の 7.2）。conversation-triage の集計に使う
+const FAQ_LABELS = [
+  { title: "faq-answered", description: "FAQ ボットが FAQ で答えた会話", color: "#2E7D32" },
+  { title: "faq-unmatched", description: "FAQ ボットが答えられず、担当者に引き継いだ会話", color: "#C62828" },
+  { title: "faq-handoff", description: "訪問者が担当者への相談を選んだ会話", color: "#EF6C00" },
+];
 
 const cwd = (ctx) => join(ctx.W, DIR);
 const compose = (ctx, args, opts = {}) => ctx.run("docker", ["compose", ...args], { cwd: cwd(ctx), ...opts });
@@ -278,6 +289,54 @@ async function ensureInbox(ctx) {
   }
 }
 
+async function ensureLabels(ctx) {
+  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+  const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+  const list = await ctx.http("Chatwoot ラベル一覧", `${base}/labels`, withToken(adminToken));
+  const existing = new Set((list?.payload ?? []).map((label) => label.title));
+  for (const label of FAQ_LABELS) {
+    if (existing.has(label.title)) continue;
+    await ctx.http("Chatwoot ラベル作成", `${base}/labels`, { method: "POST", ...withToken(adminToken), json: { ...label, show_on_sidebar: true } });
+    ctx.log(`ラベル ${label.title} を作った`);
+  }
+}
+
+/** エージェントボット「FAQ ボット」を作り（送り先は faq-bot の開発サーバー）、Web サイトの受信箱に接続する。トークンと secret は状態ファイルにだけ置く */
+async function ensureFaqBot(ctx) {
+  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+  const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+
+  const list = await ctx.http("Chatwoot エージェントボット一覧", `${base}/agent_bots`, withToken(adminToken));
+  const own = (Array.isArray(list) ? list : (list?.payload ?? [])).filter((bot) => !bot.system_bot);
+  let bot = own.find((b) => String(b.id) === ctx.state.get("CHATWOOT_FAQ_BOT_ID")) ?? own.find((b) => b.name === FAQ_BOT_NAME);
+  if (!bot) {
+    bot = await ctx.http("Chatwoot エージェントボット作成", `${base}/agent_bots`, {
+      method: "POST",
+      ...withToken(adminToken),
+      json: { name: FAQ_BOT_NAME, description: "Web サイトの FAQ に答えるボット（backend/faq-bot）", outgoing_url: FAQ_BOT_URL },
+    });
+    ctx.log(`エージェントボット「${FAQ_BOT_NAME}」を作った`);
+  } else if (bot.outgoing_url !== FAQ_BOT_URL) {
+    bot = await ctx.http("Chatwoot エージェントボット更新", `${base}/agent_bots/${bot.id}`, { method: "PATCH", ...withToken(adminToken), json: { outgoing_url: FAQ_BOT_URL } });
+    ctx.log(`エージェントボットの送り先を ${FAQ_BOT_URL} にした`);
+  }
+  // access_token と secret は管理者にだけ返る（_agent_bot.json.jbuilder）。表示しない
+  if (!bot.access_token || !bot.secret) throw new Error("エージェントボットの access_token・secret が応答に無い（管理者のトークンで呼んでいるか確かめる）");
+  ctx.state.set("CHATWOOT_FAQ_BOT_ID", String(bot.id));
+  ctx.state.set("CHATWOOT_FAQ_BOT_TOKEN", bot.access_token, { secret: true });
+  ctx.state.set("CHATWOOT_FAQ_BOT_SECRET", bot.secret, { secret: true });
+
+  // 受信箱にボットを付けると、新しい会話は pending で始まり、ボットが先に答える。faq-bot が止まっていれば、Chatwoot が会話をすぐ open にする
+  const inboxId = ctx.state.get("CHATWOOT_INBOX_ID");
+  const current = await ctx.http("Chatwoot 受信箱のボット", `${base}/inboxes/${inboxId}/agent_bot`, withToken(adminToken));
+  if (String(current?.agent_bot?.id ?? "") !== String(bot.id)) {
+    await ctx.http("Chatwoot 受信箱にボットを接続", `${base}/inboxes/${inboxId}/set_agent_bot`, { method: "POST", ...withToken(adminToken), json: { agent_bot: bot.id } });
+    ctx.log("Web サイトの受信箱に FAQ ボットを接続した（新しい会話は pending で始まる）");
+  } else {
+    ctx.log("FAQ ボットは Web サイトの受信箱に接続済み");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 契約
 // ---------------------------------------------------------------------------
@@ -307,11 +366,20 @@ export async function check(ctx) {
     if (!allowed) ok = false;
   }
 
-  for (const key of ["CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_WEBSITE_TOKEN", "CHATWOOT_AGENT_USER_ID"]) {
+  for (const key of ["CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_WEBSITE_TOKEN", "CHATWOOT_AGENT_USER_ID", "CHATWOOT_FAQ_BOT_ID"]) {
     if (!ctx.state.has(key)) {
       notes.push(`${key} がまだ状態に無い`);
       ok = false;
     }
+  }
+  if (info && ctx.state.has("CHATWOOT_FAQ_BOT_ID") && ctx.state.has("CHATWOOT_INBOX_ID") && ctx.state.has("CHATWOOT_ADMIN_TOKEN")) {
+    const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+    const current = await ctx
+      .http("Chatwoot 受信箱のボット", `${base}/inboxes/${ctx.state.get("CHATWOOT_INBOX_ID")}/agent_bot`, withToken(ctx.state.get("CHATWOOT_ADMIN_TOKEN")))
+      .catch(() => null);
+    const attached = String(current?.agent_bot?.id ?? "") === ctx.state.get("CHATWOOT_FAQ_BOT_ID");
+    notes.push(attached ? "FAQ ボットは Web サイトの受信箱に接続済み" : "FAQ ボットが Web サイトの受信箱に接続されていない");
+    if (!attached) ok = false;
   }
   return { ok, notes };
 }
@@ -323,5 +391,7 @@ export async function apply(ctx) {
   await ensureAdmin(ctx);
   await ensureAgent(ctx);
   await ensureInbox(ctx);
+  await ensureLabels(ctx);
+  await ensureFaqBot(ctx);
   ctx.log(`終わった。管理者のパスワード: --show CHATWOOT_ADMIN_PASSWORD／画面: ${BASE_URL}`);
 }

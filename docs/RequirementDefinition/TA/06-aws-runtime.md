@@ -60,6 +60,8 @@ flowchart LR
 ### 3.1 サービスとタスク
 
 > **（2026-10-06）ADR-21: この節の Strapi・n8n のサービス（タスク）は ECS に置かない**（オンプレの compose。`onprem/strapi`・`onprem/n8n`。n8n は本体と runners とリバースプロキシで、本番にサンドボックスは置かない）。ECS のサービスは Mautic（web・cron）・Chatwoot（web・worker）・Umami・`consent-api`・Cal.com・`admin-auth`。（**ADR-24: Cal.com は SaaS になり、ECS のサービスから外れた**）「n8n は 1 タスクに固定」「`cms.`・`n8n.` の ALB のターゲット」は ADR-16 の記述。
+>
+> **（2026-10-11）ADR-26: 常時稼働が不要な自作の部品は Lambda で動かす。faq-bot は VPC の外の Lambda（関数 URL）で、ECS のサービスではない。consent-api・admin-auth の移行は別の仕様で行う。この節の「実行基盤を ECS にそろえる」は ADR-26 で置き換えた。**
 
 | システム | ECS サービス | 役割 | タスク数（4.6 で決定） | 開発環境での対応 |
 |---|---|---|---|---|
