@@ -70,7 +70,7 @@
 | `src/chatwoot/client.ts` | `createConversation(sourceId, inboxId): Promise<{ id: number; status: ConversationStatus }>`（`id` は `display_id`） |
 | `src/dialog/welcome.ts`（新規） | `welcomeItems(snapshot): FaqItem[]`（3 節の 4）と `welcomeReply(items): Reply`（副作用なし） |
 | `src/dialog/execute.ts` | `executeWelcome(client, event, reply)`: 会話を作り、`pending` なら 1 通送る。結果は `{ outcome: "sent" \| "not-pending"; conversationId }` |
-| `src/handler.ts` | `welcome` のイベントを 3 節の 3〜6 のとおり扱う。ログは前の仕様の 1 行の形に `event: "welcome"`（前の仕様のログと同じく、イベントの `kind` を出す）・`decision`（`welcome` / `skip-active` / `skip-empty` / `skip-not-pending`）・`faqIds` を出す。訪問者の情報（`source_id`・氏名・メール）は出さない |
+| `src/handler.ts` | `welcome` のイベントを 3 節の 3〜6 のとおり扱う。ログは前の仕様の 1 行の形に `event: "welcome"`（前の仕様のログと同じく、イベントの `kind` を出す）・`contact_inbox`（ContactInbox の内部の id。同じ訪問者の開閉をログだけで追うため。2026-10-12 の最終レビューで追加）・`decision`（`welcome` / `skip-active` / `skip-empty` / `skip-not-pending`）・`faq`（FAQ の id の配列。前の仕様のログと同じ項目名）を出す。訪問者の情報（`source_id`・氏名・メール）は出さない。**形の壊れた本文で 400 を返すときは、違う項目の名前だけを `warn`（`result: "invalid_event"`）で出す**（Chatwoot の更新で本文の形が変わったとき、黙って止まらないため。値は出さない。`current_conversation` のキーが無い本文も 400） |
 
 - **判定（`decide.ts`）は変えない。** 一覧の選択は既存の「選択: FAQ の `id`」に乗る。
 - **Chatwoot の設定・setup は変えない。** エージェントボットには、もともとすべてのイベントが届く。
@@ -83,16 +83,20 @@
 | トップページの項目が 0 件（すべて未完成の印付き、など） | 200。何もしない。ログの `decision` は `skip-empty` | 一覧が出ない |
 | 会話の作成に失敗 | 例外（同上） | 一覧が出ない |
 | 会話は作れたが送信に失敗 | 例外（同上）。**空の `pending` の会話が残る** | 一覧が出ない。打ち込めばその会話で前の仕様の流れ |
-| 素早く 2 回開く（2 つ目のイベントの時点で 1 つ目の会話がまだ無い） | 会話が 2 つできうる。Chatwoot の側に排他の手段が無く、まれなので許す | 一覧が 2 回出ることがある |
+| 素早く 2 回開く（2 つ目のイベントの時点で 1 つ目の会話がまだ無い） | 会話が 2 つできうる。Chatwoot の側に排他の手段が無く、まれなので許す。ログの `contact_inbox` が同じ行が続くことで追える | 一覧が 2 回出ることがある |
+| 訪問者がボットより先に打ち込む（開いてから、ボットが会話を作るまでの間〈Sidekiq の待ちと Lambda の処理。コールドスタートで数秒〉に送った） | ウィジェットが会話 A を作り、続けてボットが会話 B を作る。B が「最後の会話」になる。ボットのトークンでは訪問者の他の会話を見られないため防げない。まれなので許す（2026-10-12 の最終レビューで追加） | 最初の質問への答えは A に入り、ウィジェットには B（一覧）が出る。以後の発言は B に入る。A は `pending` のまま残るか、答えられなければ担当者に回る |
 | ウィジェットのイベントの API を大量に呼ばれる | 発言による会話の作成と同じ程度の濫用の余地。同時実行の上限（5）で抑える | — |
 
-### 5.1 下流への影響（2026-10-12 の最終レビューで判明。**未決定**）
+### 5.1 下流への影響（2026-10-12 の最終レビューで判明）
 
-ボットが会話を作ると、会話の作成を「訪問者が会話を始めた」とみなしている既存の仕組みの意味が変わる。**本番で faq-bot（この機能）と次の仕組みを両方動かす前に、R1・R3 が扱いを決める。**
+ボットが会話を作ると、会話の作成を「訪問者が会話を始めた」とみなしている既存の仕組みの意味が変わる。
+
+- **I-12 は直した（2026-10-12。ユーザーが下の案 (a) を選んだ）。** 会話の作成（`conversation_created`）では通知せず、**顧客の最初の公開メッセージ**で `conversation-opened` を通知する。2 通目以降は通知の印（`<display_id>|lead`。`dedup_chatwoot`、保持 7 日）で止める（DD-04 の 5 節）。
+- **`conversation-triage` は未対応**（下の表）。
 
 | 仕組み | 今の扱い | この機能を足した後に起きること |
 |---|---|---|
-| n8n の I-12（`middleware/n8n/workflows/I-12-chatwoot-webhook-dedup.json`） | Chatwoot のアカウントの Webhook の `conversation_created` を `kind: "conversation-opened"` として I-21 のリード通知（`comegin-lead-alert`）に送る。訪問者の発言（`message_created`）では通知しない | **ウィジェットを開いただけでリード通知が届く**（`pending` の会話でも `conversation_created` は送られる）。訪問者が実際に質問を打った時点では会話が既にあるため、通知は出ない |
+| n8n の I-12（`middleware/n8n/workflows/I-12-chatwoot-webhook-dedup.json`） | Chatwoot のアカウントの Webhook の `conversation_created` を `kind: "conversation-opened"` として I-21 のリード通知（`comegin-lead-alert`）に送る。訪問者の発言（`message_created`）では通知しない | **ウィジェットを開いただけでリード通知が届く**（`pending` の会話でも `conversation_created` は送られる）。訪問者が実際に質問を打った時点では会話が既にあるため、通知は出ない。**→ 2026-10-12 に (a) で直した** |
 | `conversation-triage`（`CAP-12`） | `open` と `pending` の会話を読み、社内メモを書き、未対応の件数を数える | 開いただけで中身の無い `pending` の会話もメモと件数の対象になる |
 
 - 考えられる直し方: (a) I-12 で、着信のメッセージが無い `conversation_created` を飛ばし、会話の最初の着信を「会話の開始」として通知する。(b) faq-bot が作る会話に印（`additional_attributes`）を付け、I-12 と `conversation-triage` がそれを除く。(c) 決まるまで、本番の faq-bot ではこの機能を有効にしない。

@@ -59,27 +59,30 @@ describe("ノードの前提", () => {
 
 describe("会話の作成（conversation_created）", () => {
   describe("正常系", () => {
-    it("トップレベルの id を display_id とし、メッセージ ID の部分は固定の conversation_created にする", async () => {
+    // 2026-10-12 に変えた: 以前は会話の作成をリード通知にしていた。faq-bot がウィジェットを開いただけで会話を作るようになったため
+    // （docs/superpowers/specs/2026-10-12-faq-bot-welcome-design.md の 5.1）、通知は訪問者の最初の発言で行い、会話の作成は記録と突合だけにする
+    it("トップレベルの id を display_id とし、メッセージ ID の部分は固定の conversation_created にする。通知の対象にはしない", async () => {
       expect(await run(conversationCreated())).toEqual([
         {
           dedupKey: "12|conversation_created",
           matchKey: "12|conversation_created|match",
+          leadKey: "",
           event: "conversation_created",
           displayId: 12,
           messageId: "conversation_created",
           chatwootContactId: 55,
           email: "taro.yamada@example.com",
-          kind: "conversation-opened",
-          topic: "comegin-lead-alert",
+          kind: "",
+          topic: "",
           company: "株式会社テスト",
           receivedAtSec: NOW_SEC,
         },
       ]);
     });
 
-    it("空入力: 送信者が無くても会話の開始としては通知の対象にし、email・会社名は空、コンタクト ID は null にする", async () => {
+    it("空入力: 送信者が無くても記録と突合の入力は作り、email・会社名は空、コンタクト ID は null にする", async () => {
       const [ev] = await run(conversationCreated({ meta: {} }));
-      expect(ev).toMatchObject({ displayId: 12, chatwootContactId: null, email: "", company: "", kind: "conversation-opened" });
+      expect(ev).toMatchObject({ displayId: 12, chatwootContactId: null, email: "", company: "", kind: "" });
     });
   });
 
@@ -93,18 +96,27 @@ describe("会話の作成（conversation_created）", () => {
 
 describe("メッセージの作成（message_created）", () => {
   describe("正常系", () => {
-    it("顧客からの公開メッセージは conversation.id（display_id）と message の id でキーを作り、通知の対象にはしない", async () => {
+    it("顧客からの公開メッセージは conversation.id（display_id）と message の id でキーを作り、会話の開始（conversation-opened）の通知の候補にする", async () => {
       const [ev] = await run(messageCreated());
       expect(ev).toMatchObject({
         dedupKey: "12|1001",
+        leadKey: "12|lead",
         event: "message_created",
         displayId: 12,
         messageId: "1001",
         chatwootContactId: 55,
         email: "taro.yamada@example.com",
-        kind: "",
-        topic: "",
+        kind: "conversation-opened",
+        topic: "comegin-lead-alert",
+        company: "株式会社テスト",
       });
+    });
+
+    it("通知の印のキー（leadKey）は会話ごとに 1 つで、同じ会話の 2 通目以降も同じキーになる（通知は会話の最初の発言の 1 回だけ）", async () => {
+      const [first] = await run(messageCreated({ id: 1001 }));
+      const [second] = await run(messageCreated({ id: 1002 }));
+      expect(second.leadKey).toBe(first.leadKey);
+      expect(second.dedupKey).not.toBe(first.dedupKey);
     });
 
     it("message_type が数値の 0（incoming）でも顧客からのメッセージとして扱う", async () => {
@@ -202,6 +214,12 @@ describe("重複排除のキー", () => {
       const [ev] = await run(messageCreated());
       expect(ev.matchKey).toBe(`${ev.dedupKey}|match`);
     });
+
+    it("通知の印のキー（<display_id>|lead）は、冪等キー・突合の印と重ならない（メッセージ ID は数字、会話の作成は conversation_created）", async () => {
+      const [msg] = await run(messageCreated());
+      const [conv] = await run(conversationCreated());
+      expect([msg.dedupKey, msg.matchKey, conv.dedupKey, conv.matchKey]).not.toContain(msg.leadKey);
+    });
   });
 });
 
@@ -298,6 +316,55 @@ describe("突合（I-19）の枝", () => {
 
     it("空入力: email が無いイベントは突合の枝に進まない（メールアドレスがあるか の偽の出口に何もつながない）", () => {
       expect(edgesFrom("メールアドレスがあるか")[1] ?? []).toEqual([]);
+    });
+  });
+});
+
+// 2026-10-12 に変えた: リード通知は会話の作成ではなく、訪問者の最初の発言で行う（faq-bot がウィジェットを開いただけで会話を作るため）。
+// 会話の 2 通目以降で通知しないよう、通知の印（<display_id>|lead）を dedup_chatwoot に記録し、印が無いときだけ I-21 を呼ぶ
+describe("会話の開始の通知（I-21）の枝", () => {
+  const edgesFrom = (name) => (wf.connections[name]?.main ?? []).map((targets) => (targets ?? []).map((t) => t.node));
+
+  describe("正常系", () => {
+    it("冪等キーの記録 → 会話の開始か → 初めての発言だけ通す → 通知の印を記録 → I-21 の順につながる", () => {
+      expect(edgesFrom("冪等キーを記録")[0]).toEqual(["会話の開始か"]);
+      expect(edgesFrom("会話の開始か")[0]).toEqual(["初めての発言だけ通す"]);
+      expect(edgesFrom("初めての発言だけ通す")[0]).toEqual(["通知の印を記録"]);
+      expect(edgesFrom("通知の印を記録")[0]).toEqual(["I-21 通知を呼ぶ"]);
+    });
+
+    it("通知の印が無い会話だけ通す（dedup_chatwoot の dedupKey を leadKey で引く rowNotExists。キーは Code ノードの出力から読む）", async () => {
+      const gate = getNode(wf, "初めての発言だけ通す");
+      expect(gate.parameters).toMatchObject({ operation: "rowNotExists", dataTableId: { value: "dedup_chatwoot" } });
+      expect(gate.parameters.filters.conditions).toEqual([
+        expect.objectContaining({ keyName: "dedupKey", condition: "eq", keyValue: "={{ $('イベントの整理とキー生成').item.json.leadKey }}" }),
+      ]);
+      const [ev] = await run(messageCreated());
+      expect(ev.leadKey).toBe("12|lead");
+    });
+
+    it("通知の印は leadKey と display_id と固定の lead を記録し、email は記録しない", () => {
+      const record = getNode(wf, "通知の印を記録");
+      expect(record.parameters).toMatchObject({ operation: "insert", dataTableId: { value: "dedup_chatwoot" } });
+      const columns = record.parameters.columns.value;
+      expect(columns).toEqual({
+        dedupKey: "={{ $('イベントの整理とキー生成').item.json.leadKey }}",
+        displayId: "={{ $('イベントの整理とキー生成').item.json.displayId }}",
+        messageId: "lead",
+      });
+      expect(JSON.stringify(columns)).not.toContain("email");
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: 会話の作成（kind が空）は 会話の開始か の偽の出口に進み、何もつながない（通知しない）", async () => {
+      const [ev] = await run(conversationCreated());
+      expect(ev.kind).toBe("");
+      expect(edgesFrom("会話の開始か")[1] ?? []).toEqual([]);
+    });
+
+    it("入力: 印が既にある会話（2 通目以降・再送）は 初めての発言だけ通す で止まり、I-21 を呼ばない（rowNotExists は該当が無い item だけを出す）", () => {
+      expect(edgesFrom("初めての発言だけ通す")).toHaveLength(1);
     });
   });
 });

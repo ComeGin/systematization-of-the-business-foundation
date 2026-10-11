@@ -27,6 +27,11 @@ describe("welcomeItems", () => {
     it("入力: top で始まっても、ページの key が違う id（topics-1 など）は出さない", () => {
       expect(welcomeItems({ items: [item("topics-1"), item("top-2")] }).map((i) => i.id)).toEqual(["top-2"]);
     });
+
+    // 2026-10-12 の最終レビュー（Minor）: ページの key にはハイフンが入る（services-<slug>）ので、将来 top- で始まる key のページを足すと混ざる
+    it("入力: top- の後が数字だけでない id（top-campaign-1 など、top- で始まる別のページの key）は出さない", () => {
+      expect(welcomeItems({ items: [item("top-campaign-1"), item("top-1"), item("top-"), item("top-1a")] }).map((i) => i.id)).toEqual(["top-1"]);
+    });
   });
 });
 

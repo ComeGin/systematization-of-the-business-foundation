@@ -145,8 +145,15 @@ describe("createHandler（ウィジェットを開いたとき）", () => {
         null,
       );
       expect(client.getConversation).not.toHaveBeenCalled();
-      expect(log).toHaveBeenCalledWith(expect.objectContaining({ event: "welcome", decision: "welcome", conversation: 31, faq: ["top-3"] }));
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ event: "welcome", decision: "welcome", conversation: 31, faq: ["top-3"], contact_inbox: 55 }));
       expect(JSON.stringify(log.mock.calls)).not.toContain(SOURCE_ID);
+    });
+
+    // 2026-10-12 の最終レビュー（Minor）: 素早く 2 回開いた同じ訪問者を、ログだけで追えるようにする（source_id は出さない）
+    it("一覧を出さなかった行（skip-*）にも ContactInbox の id を出す", async () => {
+      const { handle, log } = setup({ faqItems: [makeFaqItem({ id: "pricing-1" })] });
+      await handle(signed(JSON.stringify(welcomePayload())));
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ decision: "skip-empty", contact_inbox: 55 }));
     });
 
     it("直前の会話が resolved なら、新しい会話を作って一覧を出す", async () => {
@@ -202,6 +209,15 @@ describe("createHandler（ウィジェットを開いたとき）", () => {
     it("入力: 形の壊れた webwidget_triggered は 400", async () => {
       const { handle } = setup();
       expect(await handle(signed(JSON.stringify(welcomePayload({ source_id: "" }))))).toEqual({ status: 400, body: '{"error":"invalid_event"}' });
+    });
+
+    // 2026-10-12 の最終レビュー（Minor）: Chatwoot の更新で本文の形が変わると、一覧が黙って止まる。どの項目が違うかだけを warn で出す
+    it("入力: 形の壊れた本文で 400 を返すとき、違う項目の名前だけを warn のログに出す（値は出さない）", async () => {
+      const { handle, log } = setup();
+      await handle(signed(JSON.stringify(welcomePayload({ current_conversation: { id: 40, status: "bot-secret-value" } }))));
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ level: "warn", result: "invalid_event", reason: expect.stringContaining("current_conversation.status") }));
+      expect(JSON.stringify(log.mock.calls)).not.toContain("bot-secret-value");
+      expect(JSON.stringify(log.mock.calls)).not.toContain(SOURCE_ID);
     });
   });
 });

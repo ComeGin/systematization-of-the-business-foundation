@@ -35,8 +35,9 @@ const json = (status: number, body: unknown): HttpResponse => ({ status, body: J
 
 /**
  * Webhook を受けて判定し、Chatwoot に反映する（仕様 6〜8 節）。
- * 失敗（faq.json が無い・Chatwoot の API の失敗）は例外で投げる。入口が 502 にし、Chatwoot は会話を open にする。
- * ログは 1 件 1 行。メッセージの本文・氏名・メールアドレス・トークンは出さない
+ * 失敗（faq.json が無い・Chatwoot の API の失敗）は例外で投げる。入口が 502 にし、メッセージのイベントなら Chatwoot は会話を open にする
+ * （ウィジェットを開いたイベント〈webwidget_triggered〉では Chatwoot は何もせず、一覧が出ないだけ）。
+ * ログは 1 件 1 行。メッセージの本文・氏名・メールアドレス・トークン・source_id は出さない
  */
 export function createHandler(deps: HandlerDeps): Handle {
   const { config, faq, client } = deps;
@@ -50,7 +51,8 @@ export function createHandler(deps: HandlerDeps): Handle {
    */
   async function handleWelcome(event: WelcomeEvent, startedAt: number): Promise<HttpResponse> {
     const done = (decision: string, extra: Record<string, unknown> = {}): HttpResponse => {
-      log({ t: new Date().toISOString(), level: "info", event: event.kind, decision, ...extra, ms: Date.now() - startedAt });
+      // contact_inbox（ContactInbox の内部の id）で、同じ訪問者が素早く 2 回開いたことをログだけで追える
+      log({ t: new Date().toISOString(), level: "info", event: event.kind, contact_inbox: event.contactInboxId, decision, ...extra, ms: Date.now() - startedAt });
       return json(200, { result: decision });
     };
     if (event.currentStatus !== null && event.currentStatus !== "resolved") return done("skip-active");
@@ -90,7 +92,11 @@ export function createHandler(deps: HandlerDeps): Handle {
     try {
       event = parseEvent(payload);
     } catch (error) {
-      if (error instanceof InvalidEventError) return json(400, { error: "invalid_event" });
+      if (error instanceof InvalidEventError) {
+        // Chatwoot の更新で本文の形が変わると黙って止まるため、違う項目の名前だけを出す（InvalidEventError のメッセージは値を含まない）
+        log({ t: new Date().toISOString(), level: "warn", result: "invalid_event", reason: error.message });
+        return json(400, { error: "invalid_event" });
+      }
       throw error;
     }
     if (event.kind === "ignore") return json(200, { result: "ignored" });

@@ -65,5 +65,5 @@ pnpm test:integration   # 結合テスト（開発の Chatwoot を本物とし�
 - **ウィジェットのバブルを開くと `webwidget_triggered` が届く**（本文は `ContactInbox#webhook_data`。`current_conversation` はその訪問者の最後の会話で、無ければ `null`）。**この送信に失敗しても Chatwoot は何もしない**（会話を `open` にするのはメッセージのイベントのときだけ）。
 - **ボットのトークンでも会話を作れる**（`conversations#create`。`source_id` と `inbox_id`）。ただし受信箱が `lock_to_single_conversation` だと、作らずに最後の会話を返す（解決済みでも）。そのため作成の応答が `pending` でなければ一覧を送らない（`dialog/execute.ts` の `executeWelcome`）。
 - **一覧の会話では、受信箱の挨拶メッセージと営業時間外の自動応答が出ない**（`MessageTemplates::HookExecutionService`: 挨拶は公開の `outgoing` が 1 件も無いとき、営業時間外は直近 5 分に公開の `outgoing` が無いときだけ出る）。
-- **ボットが会話を作ると `conversation_created` が出る。** n8n の I-12 はこれをリード通知にするので、本番で両方を動かす前に扱いを決める（仕様 `2026-10-12-faq-bot-welcome-design.md` の 5.1 節。未決定）。
+- **ボットが会話を作ると `conversation_created` が出る。** そのため n8n の I-12 は、リード通知を会話の作成ではなく顧客の最初の公開メッセージで行う（2026-10-12 に I-12 を変更。仕様 `2026-10-12-faq-bot-welcome-design.md` の 5.1 節）。`conversation-triage` は中身の無い `pending` の会話も数える（未対応）。
 - **初めて開いたとき、ウィジェットはホーム画面のまま**で、ボットの一覧が届くとボタンが「会話を開始」から「会話を続行」に変わる。押すと一覧が見える（開いたときにメッセージの画面へ移るのは、メッセージが既にあるときだけ。`app/javascript/widget/App.vue`）。

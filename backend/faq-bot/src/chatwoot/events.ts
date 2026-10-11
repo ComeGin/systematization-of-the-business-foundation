@@ -20,14 +20,17 @@ const MessagePayload = z.object({
 });
 
 // ContactInbox#webhook_data（webwidget_triggered）の必要な部分だけ。current_conversation は会話の EventDataPresenter#webhook_data
+// current_conversation は nullable（null は「会話なし」）で、キーが無い本文は壊れたものとして 400 にする
+// （本文の形が変わったときに、開くたびに会話を作る方向へ倒れないため。2026-10-12 の最終レビュー）
 const WelcomePayload = z.object({
+  id: z.number().int().positive(),
   source_id: z.string().min(1),
   inbox: z.object({ id: z.number().int().positive() }).passthrough(),
   account: z.object({ id: z.number().int().positive() }).passthrough(),
   current_conversation: z
     .object({ status: z.enum(["open", "resolved", "pending", "snoozed"]) })
     .passthrough()
-    .nullish(),
+    .nullable(),
 });
 
 export interface EventTarget {
@@ -51,6 +54,8 @@ export interface WelcomeEvent {
   readonly kind: "welcome";
   readonly accountId: number;
   readonly inboxId: number;
+  /** ContactInbox の内部の id（本文の id）。ログで同じ訪問者の開閉を追うのに使う（source_id と違い、外から訪問者になりすませない値） */
+  readonly contactInboxId: number;
   readonly sourceId: string;
   /** その訪問者のこの受信箱の最後の会話のステータス（会話が無ければ null） */
   readonly currentStatus: ConversationStatus | null;
@@ -74,6 +79,7 @@ function parseWelcome(body: unknown): WelcomeEvent {
     kind: "welcome",
     accountId: parsed.data.account.id,
     inboxId: parsed.data.inbox.id,
+    contactInboxId: parsed.data.id,
     sourceId: parsed.data.source_id,
     currentStatus: parsed.data.current_conversation?.status ?? null,
   };

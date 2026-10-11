@@ -47,6 +47,7 @@ describe("parseEvent", () => {
         kind: "welcome",
         accountId: 1,
         inboxId: 3,
+        contactInboxId: 55,
         sourceId: "3f1c2b9e-0000-4000-8000-000000000000",
         currentStatus: null,
       });
@@ -82,6 +83,17 @@ describe("parseEvent", () => {
       const { account: _account, ...noAccount } = welcomePayload();
       expect(() => parseEvent(noInbox)).toThrow(InvalidEventError);
       expect(() => parseEvent(noAccount)).toThrow(InvalidEventError);
+    });
+
+    // 2026-10-12 の最終レビュー（Minor）: キーが無い本文を「会話なし」として扱うと、本文の形が変わったとき開くたびに会話を作る方向に倒れる
+    it("入力: current_conversation のキーが無い webwidget_triggered は InvalidEventError（null と区別する）", () => {
+      const { current_conversation: _omit, ...rest } = welcomePayload();
+      expect(() => parseEvent(rest)).toThrow(InvalidEventError);
+    });
+
+    it("入力: ContactInbox の id（本文の id）が無い webwidget_triggered は InvalidEventError", () => {
+      const { id: _omit, ...rest } = welcomePayload();
+      expect(() => parseEvent(rest)).toThrow(InvalidEventError);
     });
 
     it("入力: 知らないステータスの current_conversation は InvalidEventError", () => {

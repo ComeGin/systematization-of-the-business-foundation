@@ -72,9 +72,12 @@ const send = (body: unknown, options: { timestamp?: string; signWith?: string } 
   return postWebhook("chatwoot-event", raw, { "x-chatwoot-timestamp": timestamp, "x-chatwoot-signature": signChatwoot(timestamp, raw, options.signWith ?? secret) });
 };
 
-// dedup_chatwoot には、通知の冪等キー（<display_id>|<message_id>）と突合の印（…|match。I-19 が成功したときだけ）の 2 種類の行が入る
+// dedup_chatwoot には、冪等キー（<display_id>|<message_id>）と突合の印（…|match。I-19 が成功したときだけ）と
+// 会話の開始の通知の印（<display_id>|lead。2026-10-12 に追加。顧客の最初のメッセージで通知したとき）の 3 種類の行が入る
 const allDedupRows = (displayId: number) => rows("dedup_chatwoot", [{ columnName: "displayId", condition: "eq", value: displayId }]);
-const dedupRows = async (displayId: number) => (await allDedupRows(displayId)).filter((r) => !String(r.dedupKey).endsWith("|match"));
+const isMark = (r: Record<string, unknown>) => String(r.dedupKey).endsWith("|match") || String(r.dedupKey).endsWith("|lead");
+const dedupRows = async (displayId: number) => (await allDedupRows(displayId)).filter((r) => !isMark(r));
+const leadRows = async (displayId: number) => (await allDedupRows(displayId)).filter((r) => String(r.dedupKey).endsWith("|lead"));
 const matchRows = async (displayId: number) => (await allDedupRows(displayId)).filter((r) => String(r.dedupKey).endsWith("|match"));
 const linkRows = (chatwootContactId: number) => rows("contact_link", [{ columnName: "chatwootContactId", condition: "eq", value: chatwootContactId }]);
 const conversationAlerts = (displayId: number) => alerts(`(conversation ${displayId})`);
@@ -117,16 +120,29 @@ afterAll(async () => {
 
 describe("I-12 Chatwoot Webhook の受領と重複排除（POST /webhook/chatwoot-event）", () => {
   describe("正常系", () => {
-    it("署名と時刻が正しい会話の作成は 200 を返し、冪等キーを記録し、I-21 が conversation-opened を通知する（本文に email を載せない）", async () => {
+    // 2026-10-12 に変えた: 会話の作成は通知しない（faq-bot がウィジェットを開いただけで会話を作るため。
+    // docs/superpowers/specs/2026-10-12-faq-bot-welcome-design.md の 5.1）。通知は顧客の最初のメッセージで行う
+    it("署名と時刻が正しい会話の作成は 200 を返し、冪等キーを記録するが、通知はしない", async () => {
       const displayId = nextId();
-      const contactId = nextId();
-      const company = itName("company");
-      const res = await send(conversationCreated(displayId, sender(contactId, MATCH_EMAIL, company)));
+      const res = await send(conversationCreated(displayId, sender(nextId(), null)));
       expect(res.status).toBe(200);
       expect(res.json).toEqual({ status: "accepted" });
 
       const [row] = await waitForList(() => dedupRows(displayId), "dedup_chatwoot の行");
       expect(row).toMatchObject({ dedupKey: `${displayId}|conversation_created`, displayId, messageId: "conversation_created" });
+      await expectNever(async () => (await conversationAlerts(displayId)).length > 0 || (await leadRows(displayId)).length > 0, { durationMs: 6_000, what: "会話の作成での通知" });
+    });
+
+    it("顧客の最初のメッセージで、I-21 が conversation-opened を通知し、通知の印（<display_id>|lead）を記録する（本文に email を載せない）", async () => {
+      const displayId = nextId();
+      const contactId = nextId();
+      const company = itName("company");
+      expect((await send(conversationCreated(displayId, sender(contactId, MATCH_EMAIL, company)))).status).toBe(200);
+      const res = await send(messageCreated(displayId, nextId(), sender(contactId, MATCH_EMAIL, company)));
+      expect(res.status).toBe(200);
+
+      const [lead] = await waitForList(() => leadRows(displayId), "通知の印");
+      expect(lead).toMatchObject({ dedupKey: `${displayId}|lead`, displayId, messageId: "lead" });
 
       const [mail] = await waitForList(() => conversationAlerts(displayId), "I-21 の通知");
       expect(mail!.Content.Headers.Subject?.[0]).toBe(`[comegin] lead: conversation-opened (conversation ${displayId})`);
@@ -150,7 +166,18 @@ describe("I-12 Chatwoot Webhook の受領と重複排除（POST /webhook/chatwoo
       expect(mark).toMatchObject({ dedupKey: `${displayId}|conversation_created|match`, displayId, messageId: "conversation_created" });
     });
 
-    it("顧客からのメッセージは display_id|message_id で記録し、通知はしないが、email があれば突合する", async () => {
+    it("同じ会話の 2 通目以降のメッセージは記録するが、通知は増えない", async () => {
+      const displayId = nextId();
+      const contact = sender(nextId(), null);
+      expect((await send(messageCreated(displayId, nextId(), contact))).status).toBe(200);
+      await waitForList(() => conversationAlerts(displayId), "1 通目での通知");
+      const second = nextId();
+      expect((await send(messageCreated(displayId, second, contact))).status).toBe(200);
+      await waitForList(async () => (await dedupRows(displayId)).filter((r) => r.messageId === String(second)), "2 通目の冪等キー");
+      await expectNever(async () => (await conversationAlerts(displayId)).length > 1 || (await leadRows(displayId)).length > 1, { durationMs: 6_000, what: "2 通目での通知" });
+    });
+
+    it("顧客からのメッセージは display_id|message_id で記録し、email があれば突合する", async () => {
       const displayId = nextId();
       const contactId = nextId();
       const messageId = nextId();
@@ -159,17 +186,16 @@ describe("I-12 Chatwoot Webhook の受領と重複排除（POST /webhook/chatwoo
       const [row] = await waitForList(() => dedupRows(displayId), "dedup_chatwoot の行");
       expect(row).toMatchObject({ dedupKey: `${displayId}|${messageId}`, displayId, messageId: String(messageId) });
       await waitForList(() => linkRows(contactId), "contact_link の行");
-      await expectNever(async () => (await conversationAlerts(displayId)).length > 0, { durationMs: 4_000, what: "メッセージでの通知" });
     });
 
     it("同じイベントの再送（時刻を変えて署名し直したもの）は 200 を返すが、冪等キーの行も通知も増えない", async () => {
       const displayId = nextId();
-      const body = conversationCreated(displayId, sender(nextId(), null));
+      const body = messageCreated(displayId, nextId(), sender(nextId(), null));
       expect((await send(body)).status).toBe(200);
       await waitForList(() => conversationAlerts(displayId), "1 通目の通知");
 
       expect((await send(body, { timestamp: String(nowSec() + 1) })).status).toBe(200);
-      await expectNever(async () => (await allDedupRows(displayId)).length > 1 || (await conversationAlerts(displayId)).length > 1, { durationMs: 8_000, what: "再送での二重の記録か通知" });
+      await expectNever(async () => (await dedupRows(displayId)).length > 1 || (await leadRows(displayId)).length > 1 || (await conversationAlerts(displayId)).length > 1, { durationMs: 8_000, what: "再送での二重の記録か通知" });
       expect(await dedupRows(displayId)).toHaveLength(1);
     });
 
@@ -217,9 +243,9 @@ describe("I-12 Chatwoot Webhook の受領と重複排除（POST /webhook/chatwoo
       expect(updated[0]).toMatchObject({ displayId, mauticContactId });
     });
 
-    it("空入力: 送信者の無い会話の作成も、冪等キーを記録して通知する（突合には進まない）", async () => {
+    it("空入力: 送信者の無いメッセージも、冪等キーを記録して通知する（突合には進まない）", async () => {
       const displayId = nextId();
-      expect((await send(conversationCreated(displayId, null))).status).toBe(200);
+      expect((await send(messageCreated(displayId, nextId(), sender(nextId(), null), { sender: null, conversation: { id: displayId, inbox_id: 1 } }))).status).toBe(200);
       await waitForList(() => conversationAlerts(displayId), "通知");
       expect(await dedupRows(displayId)).toHaveLength(1);
     });
@@ -351,7 +377,7 @@ describe("I-12 Chatwoot Webhook の受領と重複排除（POST /webhook/chatwoo
         const displayId = nextId();
         const contactId = nextId();
         await withMauticAt(await closedPortUrl(), async () => {
-          expect((await send(conversationCreated(displayId, sender(contactId, MATCH_EMAIL)))).status).toBe(200);
+          expect((await send(messageCreated(displayId, nextId(), sender(contactId, MATCH_EMAIL)))).status).toBe(200);
           const failed = await expectI19Failed(displayId, contactId);
           expect(failed.data?.resultData?.runData?.["Mautic でメールアドレスを検索"]?.[0]?.error).toBeDefined();
         });
@@ -381,7 +407,7 @@ describe("I-12 Chatwoot Webhook の受領と重複排除（POST /webhook/chatwoo
       it("サーバ: 突合が失敗した会話は、Mautic が戻った後の同じイベントの再送で突合をやり直す（通知は増えない）", async () => {
         const displayId = nextId();
         const contactId = nextId();
-        const body = conversationCreated(displayId, sender(contactId, MATCH_EMAIL));
+        const body = messageCreated(displayId, nextId(), sender(contactId, MATCH_EMAIL));
         await withMauticAt(await closedPortUrl(), async () => {
           expect((await send(body)).status).toBe(200);
           await expectI19Failed(displayId, contactId);
