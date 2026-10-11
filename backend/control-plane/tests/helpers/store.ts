@@ -29,6 +29,6 @@ export function putFile(root: string, relativePath: string, content: string): st
 
 /** リポジトリのルート（実在の定義を読むテスト用）。.claude/agents が見つからなければ null。 */
 export function repositoryRoot(): string | null {
-  const root = fileURLToPath(new URL("../../../../../../", import.meta.url));
+  const root = fileURLToPath(new URL("../../../../", import.meta.url));
   return existsSync(join(root, ".claude/agents")) ? root : null;
 }
