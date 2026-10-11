@@ -1,0 +1,198 @@
+# n8n（Web サイト運用・SEO 対策のワークフロー基盤）
+#
+# 元は get-n8n.sh（https://get.n8n.io）が配布するスタック定義。
+# https://github.com/n8n-io/n8n/commits/master/docker/get-n8n-compose.yml
+# compose-version: 1 をもとに、この事業基盤向けに次を変更している:
+#   - 内蔵 SQLite ではなく PostgreSQL を使う（公式が本番構成として推奨）
+#   - sandbox-api / sandbox-runner-1 から env_file: .env を外し、必要な変数だけを明示的に渡す
+#     （公式のセキュリティチェックリストに従い、暗号化キー・DB パスワード・モデル API キーを
+#       privileged な Docker-in-Docker コンテナへ渡さない）
+#   - ホストに公開するポートをループバックのみにバインドする
+#
+# 初回の準備:
+#   ./dev/init-env.sh      # .env を作り、パスワード・キーを生成する
+#   docker compose up -d
+# ブラウザからは http://localhost:${N8N_PORT_HOST:-5678}（3000=空き〈以前は Umami。ADR-25 で廃止〉/ 3100=Chatwoot と衝突しない）
+
+volumes:
+  n8n-data:
+  sandbox-tls:
+  db-data:
+
+services:
+  postgres:
+    image: postgres:18
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?.env に POSTGRES_USER を設定してください（dev/init-env.sh で生成できます）}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env に POSTGRES_PASSWORD を設定してください（dev/init-env.sh で生成できます）}
+      POSTGRES_DB: ${POSTGRES_DB:?.env に POSTGRES_DB を設定してください（dev/init-env.sh で生成できます）}
+      # Postgres 18 は既定のデータ格納先を変えた。この行を外すとボリュームの外に書き込まれ、
+      # 再起動のたびに空のデータベースから始まってしまう
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      # 外部ネットワークに公開しないようループバックのみにバインド（5432 は Chatwoot が使用）
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  sandbox-certs:
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.2.0
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        bootstrap-mtls.sh --out-dir /tls --api-san sandbox-api
+        --control-san-prefix sandbox-runner --world-readable &&
+        chown -R sandbox-api:sandbox-api /tls/api && chmod -R a+rX /tls &&
+        mkdir -p /tls/public &&
+        cp /tls/api/grpc-server.crt /tls/public/api-grpc-server.crt &&
+        cp /tls/api/control-grpc-api-client.crt /tls/public/api-control-grpc-api-client.crt &&
+        cp /tls/runner/grpc-client.crt /tls/public/runner-grpc-client.crt &&
+        cp /tls/runner/control-grpc-server.crt /tls/public/runner-control-grpc-server.crt &&
+        chmod -R a+rX /tls/public
+    environment:
+      NUM_RUNNERS: "1"
+    volumes:
+      - sandbox-tls:/tls
+    # 一度だけ走って mTLS 証明書を作り、終了する。証明書は自動更新されないため、
+    # 期限が切れたら sandbox-tls ボリュームを作り直す。
+    # /tls/public には公開部分（*.crt）だけをコピーする。n8n の ops-monitor（TA-05 の項目 5）が期限を読むために、
+    # n8n にはこのディレクトリだけをマウントする（秘密鍵 *.key と CA の鍵 ca.key は渡さない）。
+    # bootstrap-mtls.sh は証明書がそろっていれば何もしない（冪等）ので、up のたびに再実行されても安全
+    # 出典: bootstrap-mtls.sh（n8n-sandbox-service-api:1.2.0 の /usr/local/bin。tls_complete の判定）
+
+  sandbox-api:
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.2.0
+    restart: always
+    depends_on:
+      sandbox-certs:
+        condition: service_completed_successfully
+    environment:
+      # サンドボックスに必要な値だけを明示的に渡す（.env 全体は渡さない）
+      SANDBOX_API_KEYS: ${SANDBOX_API_KEYS:?.env に SANDBOX_API_KEYS を設定してください（dev/init-env.sh で生成できます）}
+      SANDBOX_API_RUNNER_REGISTRATION_TOKEN: ${SANDBOX_API_RUNNER_REGISTRATION_TOKEN:?.env に SANDBOX_API_RUNNER_REGISTRATION_TOKEN を設定してください（dev/init-env.sh で生成できます）}
+      SANDBOX_API_RUNNER_API_KEY: ${SANDBOX_API_RUNNER_API_KEY:?.env に SANDBOX_API_RUNNER_API_KEY を設定してください（dev/init-env.sh で生成できます）}
+      SANDBOX_API_GRPC_TLS_CERT_FILE: /tls/api/grpc-server.crt
+      SANDBOX_API_GRPC_TLS_KEY_FILE: /tls/api/grpc-server.key
+      SANDBOX_API_GRPC_TLS_CLIENT_CA_FILE: /tls/api/ca.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CA_FILE: /tls/api/ca.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CERT_FILE: /tls/api/control-grpc-api-client.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_KEY_FILE: /tls/api/control-grpc-api-client.key
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_SERVER_NAME: sandbox-runner-1
+    volumes:
+      - sandbox-tls:/tls:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    # 8080/9090 はインターネットに面したサーバーでは絶対にホストへ公開しない。
+    # n8n は Compose の既定ネットワーク越しにサービス名で到達する
+
+  sandbox-runner-1:
+    image: ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:1.2.0
+    restart: always
+    privileged: true
+    depends_on:
+      sandbox-api:
+        condition: service_healthy
+    environment:
+      SANDBOX_RUNNER_API_KEYS: ${SANDBOX_API_RUNNER_API_KEY}
+      SANDBOX_RUNNER_REGISTRATION_TOKEN: ${SANDBOX_API_RUNNER_REGISTRATION_TOKEN}
+      SANDBOX_RUNNER_API_GRPC_ADDR: sandbox-api:9090
+      SANDBOX_RUNNER_HTTP_BASE_URL: http://sandbox-runner-1:8080
+      SANDBOX_RUNNER_CONTROL_GRPC_LISTEN_ADDR: ":9091"
+      SANDBOX_RUNNER_CONTROL_GRPC_ADVERTISE_ADDR: sandbox-runner-1:9091
+      SANDBOX_RUNNER_ID: runner-1
+      SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE: ghcr.io/n8n-io/n8n-sandbox-service-sandbox:latest
+      SANDBOX_RUNNER_REGISTRATION_GRPC_CA_FILE: /tls/runner/ca.crt
+      SANDBOX_RUNNER_REGISTRATION_GRPC_CERT_FILE: /tls/runner/grpc-client.crt
+      SANDBOX_RUNNER_REGISTRATION_GRPC_KEY_FILE: /tls/runner/grpc-client.key
+      SANDBOX_RUNNER_REGISTRATION_GRPC_SERVER_NAME: sandbox-api
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_CERT_FILE: /tls/runner/control-grpc-server.crt
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_KEY_FILE: /tls/runner/control-grpc-server.key
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_CLIENT_CA_FILE: /tls/runner/ca.crt
+    volumes:
+      - sandbox-tls:/tls:ro
+    # privileged な Docker-in-Docker。公式も「ホストの root 相当」と警告しているため、
+    # このコンテナのポートは絶対に公開しない
+
+  n8n:
+    image: 'docker.io/n8nio/n8n:${N8N_VERSION:?.env に N8N_VERSION を設定してください（.env.example を参照）}'
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sandbox-api:
+        condition: service_healthy
+    ports:
+      # 唯一インターネットに向けてよいポート。ここではループバックのみにバインドし、
+      # 外部公開が必要なときは ngrok などのトンネルをホスト側で張る
+      - '127.0.0.1:${N8N_PORT_HOST:-5678}:5678'
+    # ホストの 127.0.0.1 で動く開発環境の Mautic・MailHog に、middleware/host-relay の中継を通して届くようにする
+    # （host.docker.internal は docker0 のアドレスになる。README の「開発環境での宛先」）
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    env_file: .env
+    environment:
+      # 既定の SQLite ではなく PostgreSQL を使う
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: '5432'
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # 実行履歴は 90 日で消す（DA-05 の 2 節）。env_file より environment が優先されるので、環境変数ファイルを更新しなくても効く。
+      # 件数の既定（10,000）のままだと 90 日に届く前に消えるため 50000 にする（DB の肥大の安全弁として上限は残す）
+      # 出典: https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/executions
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-2160}
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${EXECUTIONS_DATA_PRUNE_MAX_COUNT:-50000}
+    volumes:
+      - n8n-data:/home/node/.n8n
+      # サンドボックスの mTLS 証明書の公開部分（*.crt）だけを、読み取り専用で。ops-monitor の「sandbox-tls の期限」（TA-05 の項目 5）が
+      # Read/Write Files ノードで読む。n8n 2.0 以降、このノードは既定で ~/.n8n-files の下しか読めない（N8N_RESTRICT_FILE_ACCESS_TO の既定。
+      # 出典: https://docs.n8n.io/changelog/v20-breaking-changes）。subpath は Compose の long syntax（Docker 26 以降）
+      - type: volume
+        source: sandbox-tls
+        target: /home/node/.n8n-files/sandbox-tls
+        read_only: true
+        volume:
+          subpath: public
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  runners:
+    image: ghcr.io/n8n-io/runners:${N8N_VERSION}
+    restart: always
+    depends_on:
+      - n8n
+    environment:
+      # n8n 本体（タスクブローカー）と同じ共有シークレットで認証する
+      N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN:?.env に N8N_RUNNERS_AUTH_TOKEN を設定してください（dev/init-env.sh で生成できます）}
+      N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
+      # アイドル状態のランナーは終了し、タスクが来ると再起動する（task-runners のドキュメントに準拠）
+      N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT: "15"
+      # Code ノード内の日時処理を n8n 本体と同じタイムゾーンに揃える
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Tokyo}
+    # Code ノードのユーザーコードを実行する。このコンテナのポートは公開しない
+
+  searxng:
+    image: ghcr.io/searxng/searxng:latest
+    restart: always
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?.env に SEARXNG_SECRET を設定してください（dev/init-env.sh で生成できます）}
+    volumes:
+      - ./searxng-settings.yml:/etc/searxng/settings.yml:ro
+    # 内部からのみ利用する。n8n はサービス名で到達するのでポートは公開しない

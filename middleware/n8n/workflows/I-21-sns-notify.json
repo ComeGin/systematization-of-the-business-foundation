@@ -1,0 +1,542 @@
+{
+  "name": "I-21 SNS 通知",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "channel",
+              "type": "string"
+            },
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "idLabel",
+              "type": "string"
+            },
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "company",
+              "type": "string"
+            },
+            {
+              "name": "sourcePath",
+              "type": "string"
+            },
+            {
+              "name": "receivedAtSec",
+              "type": "number"
+            },
+            {
+              "name": "state",
+              "type": "string"
+            },
+            {
+              "name": "detail",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "47c95f32-8706-511c-87dd-de9b0fa5a1e0",
+      "name": "サブワークフローの入力",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "02c47b32-fcba-5e12-8e5f-fee65da1ca8e",
+              "leftValue": "={{ $json.channel }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "ops"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "897a6917-78a4-5cb6-9184-d32433684396",
+      "name": "監視の通知か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "monitor_state"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "checkId",
+              "condition": "eq",
+              "keyValue": "={{ $('サブワークフローの入力').first().json.kind }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "id": "8cdbc398-3f3c-5241-a444-30e23fa03434",
+      "name": "前回の状態を読む",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        100
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "808bcb59-25a6-54b5-a0b0-4f010e714132",
+              "leftValue": "={{ $('サブワークフローの入力').first().json.state }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "rightValue": "={{ $json.state ?? 'ok' }}"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "e20487ab-215c-52a2-96af-c46c2e2b4eb8",
+      "name": "ok と ng が入れ替わったか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "subject",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ (() => {\n  const t = $('サブワークフローの入力').first().json;\n  const s = t.channel === 'ops'\n    ? '[comegin] ops: ' + t.kind + ' ' + t.state\n    : '[comegin] lead: ' + t.kind + ' (' + t.idLabel + ' ' + t.id + ')';\n  // SNS の Subject は ASCII のみ。範囲外の文字は ? にして 100 文字未満に収める\n  return s.replace(/[^ -~]/g, '?').slice(0, 99);\n})() }}"
+            },
+            {
+              "id": "body",
+              "name": "body",
+              "type": "string",
+              "value": "={{ (() => {\n  const t = $('サブワークフローの入力').first().json;\n  const sec = t.receivedAtSec || Math.floor(Date.now() / 1000);\n  const at = DateTime.fromSeconds(Number(sec)).setZone('Asia/Tokyo').toFormat('yyyy-MM-dd HH:mm') + ' JST';\n  const lines = t.channel === 'ops'\n    ? ['種別: ' + t.kind, '状態: ' + t.state, '検知: ' + at, '確認: 監視の項目 ' + t.kind + ' を確認する']\n    : ['種別: ' + t.kind]\n        .concat(t.company ? ['会社名: ' + String(t.company).slice(0, 100)] : [])\n        .concat(['システム上の ID: ' + t.idLabel + ' ' + t.id])\n        .concat(t.sourcePath ? ['流入記事: ' + String(t.sourcePath).split('?')[0].slice(0, 200)] : [])\n        .concat(['受付: ' + at, '確認: ' + (t.idLabel === 'contact' ? 'Mautic のコンタクト画面を見る' : 'Chatwoot の会話画面を見る')]);\n  // 任意の内訳（件数・display_id・残り日数など、個人情報を含まない値だけを呼び出し側が渡す）。最後の「確認」の行の前に入れる\n  if (t.detail) lines.splice(-1, 0, '内訳: ' + String(t.detail).replace(/\\s+/g, ' ').slice(0, 200));\n  return lines.join('\\n');\n})() }}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "e11c2cd9-1492-5c5f-8292-748f85ecce40",
+      "name": "メッセージを組み立てる",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        896,
+        200
+      ],
+      "notes": "Subject は ASCII のみ・100 文字未満（SNS の制約）。本文に載せるのは種別・会社名・システム上の ID・受付時刻と、任意の内訳（detail）だけ。detail には件数・display_id・残り日数のように個人情報を含まない値だけを入れる。email・氏名・本文は載せない（DA-05 の 1.3）。"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ops_settings"
+        },
+        "returnAll": true
+      },
+      "id": "a424a24d-5b23-5fa4-9c4d-212464068fd6",
+      "name": "設定を読む",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        200
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "f12974b3-7e04-551d-a7b4-62345a11623b",
+              "leftValue": "={{ $('設定を読む').all().find(r => r.json.key === 'notifyBackend')?.json.value ?? 'mailhog' }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "sns"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "1371f1bb-4368-5570-8240-b736ef33bcc6",
+      "name": "本番の配信（SNS）か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        200
+      ],
+      "notes": "ops_settings の notifyBackend が sns のときだけ SNS に発行する。未設定・それ以外は MailHog（開発）。",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "authentication": "iam",
+        "operation": "publish",
+        "topic": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('設定を読む').all().find(r => r.json.key === ($('サブワークフローの入力').first().json.channel === 'ops' ? 'snsTopicArnOps' : 'snsTopicArnLead'))?.json.value }}"
+        },
+        "subject": "={{ $('メッセージを組み立てる').first().json.subject }}",
+        "message": "={{ $('メッセージを組み立てる').first().json.body }}"
+      },
+      "id": "759b9194-9d73-516c-b337-f41576ac967c",
+      "name": "SNS に発行",
+      "type": "n8n-nodes-base.awsSns",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        100
+      ],
+      "notes": "本番の n8n はオンプレ（ADR-21）。認証は AWS (IAM) で、IAM ユーザー comegin-<env>-onprem-n8n-sns のアクセスキー（2 つのトピックへの sns:Publish だけ）を資格情報に入れる。トピック ARN は ops_settings の snsTopicArnLead / snsTopicArnOps。",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "aws": {
+          "name": "AWS SNS 発行（アクセスキー）"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "n8n@comegin.local",
+        "toEmail": "alert-dev@comegin.local",
+        "subject": "={{ $('メッセージを組み立てる').first().json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $('メッセージを組み立てる').first().json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "672008c8-1616-51fe-906c-4fdb9990931a",
+      "name": "MailHog に送る（開発）",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1568,
+        300
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "MailHog SMTP（開発）"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "088bc071-986b-58ad-b641-41555d824145",
+      "name": "通知を送った",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ce32ef36-3771-5f3f-bd0b-7f93d94b5e53",
+              "leftValue": "={{ $('サブワークフローの入力').first().json.channel }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "ops"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "679fb5ec-c10e-5038-b134-fbb1f1b33c5c",
+      "name": "監視の通知か（状態を保存）",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2016,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "monitor_state"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "checkId",
+              "condition": "eq",
+              "keyValue": "={{ $('サブワークフローの入力').first().json.kind }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "checkId": "={{ $('サブワークフローの入力').first().json.kind }}",
+            "state": "={{ $('サブワークフローの入力').first().json.state }}"
+          },
+          "schema": [
+            {
+              "id": "checkId",
+              "displayName": "checkId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      },
+      "id": "2ba0fc55-31ba-5bec-a2ca-764eb6ecd05b",
+      "name": "今回の状態を保存",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        100
+      ],
+      "notes": "発行に成功したあとに保存する。発行に失敗したら状態は変わらず、次の検知でもう一度発行を試みる。"
+    }
+  ],
+  "connections": {
+    "サブワークフローの入力": {
+      "main": [
+        [
+          {
+            "node": "監視の通知か",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "監視の通知か": {
+      "main": [
+        [
+          {
+            "node": "前回の状態を読む",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "メッセージを組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "前回の状態を読む": {
+      "main": [
+        [
+          {
+            "node": "ok と ng が入れ替わったか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ok と ng が入れ替わったか": {
+      "main": [
+        [
+          {
+            "node": "メッセージを組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "メッセージを組み立てる": {
+      "main": [
+        [
+          {
+            "node": "設定を読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "設定を読む": {
+      "main": [
+        [
+          {
+            "node": "本番の配信（SNS）か",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "本番の配信（SNS）か": {
+      "main": [
+        [
+          {
+            "node": "SNS に発行",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MailHog に送る（開発）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SNS に発行": {
+      "main": [
+        [
+          {
+            "node": "通知を送った",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MailHog に送る（開発）": {
+      "main": [
+        [
+          {
+            "node": "通知を送った",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "通知を送った": {
+      "main": [
+        [
+          {
+            "node": "監視の通知か（状態を保存）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "監視の通知か（状態を保存）": {
+      "main": [
+        [
+          {
+            "node": "今回の状態を保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Tokyo",
+    "executionTimeout": 10,
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {},
+  "meta": {
+    "description": "顧客からの要求（lead）と監視・定例の状態遷移（ops）を、本番は Amazon SNS、開発は MailHog に通知するサブワークフロー。任意の入力 detail（個人情報を含まない内訳）を本文に添えられる。"
+  }
+}

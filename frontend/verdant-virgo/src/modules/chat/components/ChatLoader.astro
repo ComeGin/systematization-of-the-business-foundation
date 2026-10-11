@@ -1,0 +1,32 @@
+---
+// チャット（Chatwoot）の差し込み口（BaseLayout の <body> の末尾。props なし）。
+// [data-chat-open] の要素（無料相談の「チャットで質問する」）を押すと、同意済みならチャットを開き、未同意なら同意バナーを再表示する
+// （そのバナーで同意したら、そのまま開く）。開けなかったときは押したボタンの近くに案内を出す。
+---
+
+<script>
+  import { getConsent, onConsentBannerVisibilityChange, onConsentChange, onConsentBannerOpenRequest } from '@/modules/consent/client';
+  import { whenIdle } from '@/modules/analytics/client';
+  import {
+    handleBannerOpenRequest,
+    handleBannerVisibilityChange,
+    handleConsentChange,
+    loadChatwoot,
+    openChat,
+  } from '../lib/chatwoot';
+
+  // ウィジェットの読み込みは、最初の描画の後、ブラウザが空いてから（同意済みの訪問者でも）
+  whenIdle(() => {
+    if (getConsent() === 'granted') loadChatwoot();
+  });
+  onConsentChange(handleConsentChange);
+  onConsentBannerOpenRequest(handleBannerOpenRequest);
+  onConsentBannerVisibilityChange(handleBannerVisibilityChange);
+
+  document.addEventListener('click', (event) => {
+    const target = (event.target as Element | null)?.closest<HTMLElement>('[data-chat-open]');
+    if (!target) return;
+    event.preventDefault();
+    openChat(target);
+  });
+</script>

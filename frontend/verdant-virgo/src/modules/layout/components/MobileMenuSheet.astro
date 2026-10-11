@@ -1,0 +1,149 @@
+---
+/**
+ * Mobile のメニュー（01-content-spec.md §1.3、Figma の MobileMenuSheet）。React を使わず、ネイティブの <dialog> で作る
+ * （Lighthouse の performance のため。React の island にすると Mobile で最初から約 64KB の JS を読む）。
+ * - showModal() で開くので、フォーカスはパネルの中に閉じ込められ、Esc で閉じ、閉じるとメニューのボタンにフォーカスが戻る
+ * - 右から出るパネル（幅 320）: 閉じる → リンク 4 つ（各 48px）→ Separator → 無料相談（全幅）→ ソースコードを無料 DL（Link）
+ * - 背景の暗幕は role/text-body の 50%。暗幕を押しても閉じる。リンクを押したら閉じる（同じページの #source-dl のため）
+ * - 動かす JS は下の <script> だけ（数百バイト。Astro が外部ファイルにするので CSP のインラインの許可は要らない）
+ */
+import { DownloadIcon, MenuIcon, XIcon } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+interface MenuLink {
+  label: string;
+  href: string;
+  /** aria-current の値（そのページなら page、配下のページなら true） */
+  current?: 'page' | 'true';
+}
+
+interface MenuCta {
+  label: string;
+  href: string;
+  /** site-content/cta.ts の ctaDataAttributes() の戻り値（data-cta-*） */
+  attrs: Record<string, string>;
+}
+
+export interface Props {
+  links: MenuLink[];
+  /** 無料相談（ブログ一覧・記事では outline、それ以外は primary） */
+  consult: MenuCta & { variant: 'primary' | 'outline' };
+  /** ソースコードを無料 DL（副） */
+  sourceDl: MenuCta;
+}
+
+const { links, consult, sourceDl } = Astro.props;
+const iconButton = cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'size-11 text-text-body');
+---
+
+<button
+  type="button"
+  aria-label="メニューを開く"
+  aria-haspopup="dialog"
+  aria-expanded="false"
+  aria-controls="mobile-menu"
+  data-mobile-menu-open
+  class={iconButton}
+>
+  <MenuIcon aria-hidden="true" />
+</button>
+
+<dialog id="mobile-menu" aria-label="メニュー" class="mobile-menu">
+  <div class="flex h-full flex-col gap-4 p-6">
+    <div class="flex justify-end">
+      <button type="button" aria-label="メニューを閉じる" data-mobile-menu-close class={cn(iconButton, '-m-1.5')}>
+        <XIcon aria-hidden="true" />
+      </button>
+    </div>
+    <nav aria-label="メニュー">
+      <ul class="flex flex-col">
+        {
+          links.map((link) => (
+            <li>
+              <a href={link.href} aria-current={link.current} class="type-h4 flex h-12 items-center text-text-heading">
+                {link.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+    <hr class="border-border" />
+    <a
+      href={consult.href}
+      {...consult.attrs}
+      class={cn(
+        buttonVariants({ variant: consult.variant === 'primary' ? 'default' : 'outline', size: 'default' }),
+        'w-full',
+        consult.variant === 'primary' && 'min-h-11',
+      )}
+    >
+      {consult.label}
+    </a>
+    <a href={sourceDl.href} {...sourceDl.attrs} class={cn(buttonVariants({ variant: 'link', size: 'default' }), 'self-start')}>
+      <DownloadIcon aria-hidden="true" data-icon="inline-start" />
+      {sourceDl.label}
+    </a>
+  </div>
+</dialog>
+
+<style>
+  .mobile-menu {
+    /* 右端に全高で出す（<dialog> の既定の中央寄せと最大の高さを外す） */
+    position: fixed;
+    inset: 0 0 0 auto;
+    margin: 0;
+    width: min(320px, 100%);
+    max-width: 100%;
+    height: 100dvh;
+    max-height: none;
+    padding: 0;
+    border: 0;
+    background-color: var(--color-role-surface);
+    color: var(--color-role-text-body);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(2.5rem);
+    opacity: 0;
+    transition:
+      transform 200ms ease-in-out,
+      opacity 200ms ease-in-out,
+      overlay 200ms allow-discrete,
+      display 200ms allow-discrete;
+  }
+  .mobile-menu[open] {
+    transform: none;
+    opacity: 1;
+  }
+  @starting-style {
+    .mobile-menu[open] {
+      transform: translateX(2.5rem);
+      opacity: 0;
+    }
+  }
+  .mobile-menu::backdrop {
+    background-color: color-mix(in srgb, var(--color-role-text-body) 50%, transparent);
+  }
+  /* 開いている間は後ろのページをスクロールさせない */
+  :global(html:has(.mobile-menu[open])) {
+    overflow: hidden;
+  }
+</style>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>('#mobile-menu');
+  const opener = document.querySelector<HTMLButtonElement>('[data-mobile-menu-open]');
+  if (dialog && opener) {
+    const setExpanded = (open: boolean) => opener.setAttribute('aria-expanded', String(open));
+    opener.addEventListener('click', () => {
+      dialog.showModal();
+      setExpanded(true);
+    });
+    dialog.addEventListener('close', () => setExpanded(false));
+    dialog.querySelector('[data-mobile-menu-close]')?.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => {
+      // 暗幕（<dialog> 自身の外側）を押したら閉じる。リンクを押したら閉じる（同じページの #source-dl へ移るとき）
+      if (event.target === dialog || (event.target as Element).closest('a')) dialog.close();
+    });
+  }
+</script>

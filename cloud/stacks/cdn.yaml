@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Astro の静的サイトの配信。CloudFront、OAC、Astro バケットのポリシー、Route 53 のエイリアス。TA-02 の 2〜4・6 節。
+  証明書と WAF は us-east-1 の別スタック（global/template.yaml）で作り、その ARN をパラメータで受け取る。
+  フラットレートプランの購読も global/template.yaml 側（PricingPlanManager の API が us-east-1 のため）。
+  フラットレートプランの Free で使える機能に収める: マネージドのキャッシュポリシーとレスポンスヘッダーポリシー、
+  OAC（OAI は不可）、ForwardedValues と Real-time ログは使わない、キャッシュビヘイビアは 1 つ。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  SiteHost:
+    Type: String
+    Default: comegin.com
+    Description: '公開ホスト名。global/template.yaml の SiteHost と同じにする。TODO(未決定): apex か www か（TA-02 の 9 節）。'
+  HostedZoneId:
+    Type: String
+    Description: SiteHost の Route 53 ホストゾーン
+  AstroBucketName:
+    Type: String
+    Description: data.yaml の AstroBucketName
+  AstroBucketArn:
+    Type: String
+    Description: data.yaml の AstroBucketArn
+  AstroBucketRegionalDomainName:
+    Type: String
+    Description: data.yaml の AstroBucketRegionalDomainName（S3 の REST エンドポイント。ウェブサイトエンドポイントは使わない）
+  CloudFrontCertificateArn:
+    Type: String
+    Description: global/template.yaml の出力 CertificateArn（us-east-1 の ACM 証明書）
+  CloudFrontWebAclArn:
+    Type: String
+    Description: global/template.yaml の出力 WebAclArn（us-east-1 の WAF）
+  NotFoundPagePath:
+    Type: String
+    Default: /404.html
+    Description: >-
+      403 と 404 を割り当てる Astro の 404 ページ。TODO: frontend/verdant-virgo に 404 ページ（src/pages/404.astro）がまだ無い。
+      ビルドに含めるまでは、存在しないパスで 404 ページが返らない。
+
+Resources:
+  # CloudFront から S3 への署名付きアクセス（SigV4）。バケットポリシーでこの OAC だけを許す。OAI は使わない。
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'comegin-${EnvName}-astro'
+        Description: Astro bucket (SigV4)
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Astro はディレクトリ形式（既定。/about/ → about/index.html）でビルドされる。S3 の REST エンドポイントは
+  # ディレクトリの index.html を補わないため、ビューアーのリクエストで URI に index.html を補う。
+  # 既定ルートオブジェクト（/ → index.html）はディストリビューション側に設定する。
+  RewriteIndexFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub 'comegin-${EnvName}-rewrite-index'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Append index.html to directory-style URIs (Astro build.format = directory)
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          if (uri.endsWith('/')) {
+            request.uri = uri + 'index.html';
+          } else if (uri.indexOf('.', uri.lastIndexOf('/')) === -1) {
+            request.uri = uri + '/index.html';
+          }
+          return request;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'comegin-${EnvName} Astro site'
+        Aliases:
+          - !Ref SiteHost
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        WebACLId: !Ref CloudFrontWebAclArn
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CloudFrontCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: astro-s3
+            DomainName: !Ref AstroBucketRegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: astro-s3
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # マネージドポリシー（Free プランで使える「既定のルール」）。
+          #   CachePolicy 658327ea-... = Managed-CachingOptimized（オリジンの Cache-Control を尊重する）
+          #   ResponseHeadersPolicy 67f7725c-... = Managed-SecurityHeadersPolicy
+          #     このマネージドポリシーは Content-Security-Policy を付けない（Referrer-Policy・HSTS・X-Content-Type-Options・X-Frame-Options・X-XSS-Protection だけ。
+          #     出典 https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html）。
+          #     CSP をここで付けるなら、GA4（ADR-25）のホストを Google の CSP ガイドの「Google Analytics without any Ads features」の表に合わせて入れる
+          #     （出典 https://developers.google.com/tag-platform/security/guides/csp）。
+          # キャッシュの長さは配信時に S3 のオブジェクトの Cache-Control で決める（README の手順）:
+          #   _astro/ 配下のハッシュ付き資産 = public, max-age=31536000, immutable
+          #   HTML = public, max-age=0, must-revalidate
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt RewriteIndexFunction.FunctionARN
+        # OAC では存在しないキーに対して S3 が 403 を返す（ListBucket を許さないため）。404 ページに割り当てる。
+        CustomErrorResponses:
+          - { ErrorCode: 403, ResponseCode: 404, ResponsePagePath: !Ref NotFoundPagePath, ErrorCachingMinTTL: 60 }
+          - { ErrorCode: 404, ResponseCode: 404, ResponsePagePath: !Ref NotFoundPagePath, ErrorCachingMinTTL: 60 }
+        # TODO: アクセスログ。Free プランには標準アクセスログが含まれない（Pro 以上。TA-02 の 9 節）。
+        #   リアルタイムアクセスログはフラットレートプランでは使えない。
+
+  # 同じバケットに BucketPolicy は 1 つしか付けられないため、TLS のみの Deny もここに書く（data.yaml には書かない）。
+  AstroBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AstroBucketName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Ref AstroBucketArn
+              - !Sub '${AstroBucketArn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub '${AstroBucketArn}/*'
+            Condition:
+              StringEquals:
+                'AWS:SourceArn': !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+  # CloudFront の固定のホストゾーン ID（Z2FDTNDATAQYW2）。
+  # 既に SiteHost に A / AAAA のレコードがある場合は、先に整理しておく（レコードの作成が失敗する）。
+  SiteRecordA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref SiteHost
+      Type: A
+      AliasTarget: { DNSName: !GetAtt Distribution.DomainName, HostedZoneId: Z2FDTNDATAQYW2, EvaluateTargetHealth: false }
+
+  SiteRecordAAAA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref SiteHost
+      Type: AAAA
+      AliasTarget: { DNSName: !GetAtt Distribution.DomainName, HostedZoneId: Z2FDTNDATAQYW2, EvaluateTargetHealth: false }
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionArn:
+    Description: iam.yaml のデプロイ用ポリシーと、global/template.yaml の DistributionArn（フラットレートプランの購読）に使う。
+    Value: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+  DistributionDomainName:
+    Value: !GetAtt Distribution.DomainName

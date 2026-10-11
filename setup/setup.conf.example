@@ -1,0 +1,108 @@
+# setup/setup.mjs の設定（雛形）。実体は ~/.config/comegin/setup/<dev|prod>.conf に写して書く（chmod 600）。
+# 秘密値はこの雛形に書かない。スクリプトが作る値（管理者のパスワード・トークンなど）は状態ファイル
+# （~/.config/comegin/setup/<target>.state.json）に入るので、ここには書かなくてよい。
+#
+#   mkdir -p ~/.config/comegin/setup && chmod 700 ~/.config/comegin/setup
+#   cp setup/setup.conf.example ~/.config/comegin/setup/dev.conf && chmod 600 ~/.config/comegin/setup/dev.conf
+
+# ---- 必須 ----
+# 各製品（Chatwoot・Mautic・Strapi・n8n）の最初の管理者のメールアドレス。監視アプリのログインの許可リストの既定にもなる
+ADMIN_EMAIL=
+
+# ---- 途中で画面の操作をしてから書くもの（スクリプトが止まって案内する） ----
+# Mautic の API 資格情報（OAuth 2、client_credentials）。n8n の provision と mautic-mcp が使う
+MAUTIC_CLIENT_ID=
+MAUTIC_CLIENT_SECRET=
+
+# ---- 既に管理者がいる製品（手で作った管理者のパスワード。スクリプトが止まって案内したときだけ書く） ----
+# スクリプトが作った管理者なら不要（状態ファイルに入っている）。メールが ADMIN_EMAIL と違うときは *_EMAIL も書く
+CHATWOOT_ADMIN_PASSWORD=
+# 知らない場合は yes にすると、Chatwoot の管理者のパスワードを生成した値に変える（開発環境だけ）
+CHATWOOT_RESET_ADMIN_PASSWORD=
+MAUTIC_ADMIN_PASSWORD=
+STRAPI_ADMIN_EMAIL=
+STRAPI_ADMIN_PASSWORD=
+N8N_OWNER_EMAIL=
+N8N_OWNER_PASSWORD=
+
+# ---- n8n の MCP のトークン（スクリプトが止まって案内したときだけ） ----
+# n8n は作成済みの MCP のトークンを再表示しない。手元にある値を写すか、true にして作り直す（今の MCP の接続は切れる）
+N8N_DEV_TOKEN=
+N8N_MCP_ROTATE=
+# true にすると、親のワークフロー（I-11・I-12）も公開する（既定は子だけ公開）
+N8N_PUBLISH_PARENTS=
+
+# ---- 任意の上書き ----
+# 開発の公開サイトの URL（Chatwoot の受信箱に登録する。既定 http://localhost:4321）
+PUBLIC_SITE_URL=
+CHATWOOT_ACCOUNT_NAME=
+CHATWOOT_ADMIN_NAME=
+# エージェント専用ユーザーのメールアドレス（既定は ADMIN_EMAIL の + 付き）
+CHATWOOT_AGENT_EMAIL=
+# Strapi の MCP 用トークンの権限。draft（既定。下書きまで＝本番と同じ）か full（公開・削除も）
+STRAPI_DEV_TOKEN_SCOPE=
+
+# ---- 監視アプリ（frontend/next-js） ----
+# 承認済みの main のチェックアウトの絶対パス（ADR-18。定期実行の定義とエージェント定義はここから読む）。作業ツリーとは別に clone しておく
+CONTROL_MAIN_CHECKOUT=
+# エージェントを動かすときだけ要る（任意。空なら監視アプリは起動するがエージェントの実行は失敗として記録される）
+ANTHROPIC_API_KEY=
+# 監視アプリの Google ログイン（必須。ADR-23）。OAuth クライアントの作り方は setup/manual-steps.md の 7.2。
+# 空なら下の GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET（admin-auth と共用。そのクライアントに監視アプリのリダイレクト URI も足す）を使う
+CONTROL_GOOGLE_CLIENT_ID=
+CONTROL_GOOGLE_CLIENT_SECRET=
+# ログインを許すメールアドレス（カンマ区切り。既定は ADMIN_EMAIL）。comegin.com の Google アカウントだけが通る
+CONTROL_ADMIN_EMAILS=
+# ブラウザで開く URL（BETTER_AUTH_URL に書く。任意。空なら環境変数ファイルの今の値。ngrok で開くなら https://comegin-next-js-dev.ngrok.app）
+CONTROL_PUBLIC_URL=
+# E-15（実行記録の SQLite）の置き場（任意。既定 ~/.local/share/comegin-control）
+CONTROL_DATA_DIR=
+
+# ---- 接続先の上書き（任意。空なら開発環境の既定値: Chatwoot http://127.0.0.1:3100、Mautic http://127.0.0.1:8000） ----
+CHATWOOT_BASE_URL=
+MAUTIC_BASE_URL=
+
+# ---- n8n の週次の問い合わせの棚卸し（任意） ----
+# 棚卸し専用の Chatwoot のトークン（会話の一覧を読むだけ）。空なら管理者のトークン（CHATWOOT_ADMIN_TOKEN）で代用する（本番では警告）
+CHATWOOT_N8N_API_TOKEN=
+# n8n（コンテナ）から見た Chatwoot の URL（任意。空なら既定の http://host.docker.internal:3100〈middleware/host-relay の中継〉）
+CHATWOOT_URL_FROM_N8N=
+
+# ---- OpenSEO（middleware/open-seo-main。途中で画面の操作をしてから書くもの） ----
+# DataForSEO の login:password を base64 にした値（https://app.dataforseo.com/api-access の「Base64」。ダッシュボードの API キーではない）。
+# 既に OpenSEO の環境変数ファイルにあればそれを使うので、書かなくても止まらない（health の dataforseo が ok なら）
+DATAFORSEO_API_KEY=
+# ---- ここから「OpenSEO の Google の接続」と「GA4」の節は prod.conf にだけ書く（--target prod だけで使う。dev は AWS に展開されていないので Google の手順を飛ばす） ----
+# Search Console と GA4 用の Google の OAuth クライアント（任意。空なら下の GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET を使う）。
+# リダイレクト URI は http://localhost:3001/api/gsc/oauth/callback と、GA4 も使うなら http://localhost:3001/api/ga4/oauth/callback（同じクライアントに両方を足す）
+OPENSEO_GOOGLE_CLIENT_ID=
+OPENSEO_GOOGLE_CLIENT_SECRET=
+# 画面で Google の接続を済ませたら yes（接続の有無は OpenSEO の DB の中で、health には出ないため申告制）
+OPENSEO_GSC_CONNECTED=
+# Search Console を使わないなら yes（接続の案内をしない。check も通る）
+OPENSEO_SKIP_GSC=
+# 画面で GA4（本番のプロパティだけ）の接続を済ませたら yes（ADR-25。GSC と同じく申告制）。
+# 先に Google Cloud で Google Analytics Admin API と Data API を有効にする
+OPENSEO_GA4_CONNECTED=
+# GA4 を OpenSEO に接続しないなら yes（接続の案内をしない。analytics-reporter は GA4 を読めなくなる）
+OPENSEO_SKIP_GA4=
+
+# ---- GA4（middleware/ga4。ADR-25。どちらも秘密値ではない） ----
+# 本番の GA4 プロパティの ID（数字）と、Web ストリームの測定 ID（G- で始まる）。作り方は middleware/ga4/README.md。
+# 開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない。ユーザーの決定）。--target prod でだけ確かめる
+GA4_PROPERTY_ID=
+GA4_MEASUREMENT_ID=
+# アプリ内の AI エージェント（SAM）を使うときだけ
+OPENROUTER_API_KEY=
+# イメージの上書き（任意。空なら版とダイジェストで固定した既定〈0.1.8〉。middleware/open-seo-main/dev/setup/index.mjs の PINNED_IMAGE）
+OPEN_SEO_IMAGE=
+
+# ---- admin-auth（任意。空でも開発環境は起動する。Google ログインを試すときだけ） ----
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# ---- 本番だけ（--target prod。AWS のデプロイの後。いまは枠だけ） ----
+# IAM ユーザー comegin-prod-onprem-n8n-sns のアクセスキー（cloud/README.md の 4.5 で発行）
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=

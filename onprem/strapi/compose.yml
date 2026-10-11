@@ -1,0 +1,66 @@
+# 本番の Strapi（オンプレ。ADR-21）。データは AWS の RDS（PostgreSQL の strapi データベース）と S3（メディア）にあり、
+# RDS へは WireGuard 越し、S3 はインターネット越しの API でつなぐ。
+#
+# 開発環境の Strapi（backend/strapi-system を pnpm dev で動かす。SQLite・ローカルのアップロード、1337）とは別のインスタンス。
+# イメージは backend/strapi-system/Dockerfile でビルドする（RDS の CA が入っていて、証明書を検証してつなぐ）。
+#
+#   ホスト 127.0.0.1:1338 ──▶ strapi:1337   管理画面・API・MCP（/mcp）。ループバックだけ
+#
+# 起動の順番は WireGuard（wg-quick@wg0）→ Strapi → n8n。WireGuard が上がっていないと RDS に届かず起動に失敗する。
+#
+# 初回の準備:
+#   ./dev/init-env.sh        # .env を作り、鍵類を生成する（RDS のパスワード・IAM のキーなどは人が入れる）
+#   docker compose build
+#   docker compose up -d
+
+services:
+  strapi:
+    build:
+      context: ../../backend/strapi-system
+    image: comegin/strapi-onprem:local
+    restart: unless-stopped
+    ports:
+      # 管理画面・API・MCP。ループバックだけ（開発の Strapi は 1337）
+      - '127.0.0.1:${STRAPI_PORT_HOST:-1338}:1337'
+    # .env 全体は渡さず、必要な変数だけを明示する
+    environment:
+      HOST: 0.0.0.0
+      PORT: '1337'
+      # ブラウザから開く URL。ここがずれると管理画面のログインでつまずく。TLS を終端するプロキシは無いので PROXY=false
+      PUBLIC_URL: http://127.0.0.1:${STRAPI_PORT_HOST:-1338}
+      PROXY: 'false'
+      APP_KEYS: ${APP_KEYS:?.env に APP_KEYS を設定してください（dev/init-env.sh で生成できます）}
+      API_TOKEN_SALT: ${API_TOKEN_SALT:?.env に API_TOKEN_SALT を設定してください（dev/init-env.sh で生成できます）}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?.env に ADMIN_JWT_SECRET を設定してください（dev/init-env.sh で生成できます）}
+      TRANSFER_TOKEN_SALT: ${TRANSFER_TOKEN_SALT:?.env に TRANSFER_TOKEN_SALT を設定してください（dev/init-env.sh で生成できます）}
+      JWT_SECRET: ${JWT_SECRET:?.env に JWT_SECRET を設定してください（dev/init-env.sh で生成できます）}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?.env に ENCRYPTION_KEY を設定してください（dev/init-env.sh で生成できます）}
+      STRAPI_PLUGIN_I18N_INIT_LOCALE_CODE: ja-JP
+      # RDS（PostgreSQL の strapi データベース）。証明書は検証する（DATABASE_SSL_REJECT_UNAUTHORIZED は渡さない＝既定の true）
+      DATABASE_CLIENT: postgres
+      DATABASE_HOST: ${DATABASE_HOST:?.env に DATABASE_HOST（RDS のエンドポイント）を設定してください}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_NAME: ${DATABASE_NAME:-strapi}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-strapi}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?.env に DATABASE_PASSWORD を設定してください（RDS の strapi ユーザーのパスワード。人が入れる）}
+      DATABASE_SSL: 'true'
+      # メディアは S3（本番のバケット）。認証は IAM ユーザー comegin-<env>-onprem-strapi-media のアクセスキー
+      # （AWS SDK の既定の探索が AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY を読む）
+      UPLOAD_PROVIDER: aws-s3
+      UPLOAD_S3_BUCKET: ${UPLOAD_S3_BUCKET:?.env に UPLOAD_S3_BUCKET（本番のメディアのバケット名）を設定してください}
+      UPLOAD_S3_REGION: ${UPLOAD_S3_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?.env に AWS_ACCESS_KEY_ID（IAM ユーザー onprem-strapi-media のキー。人が入れる）を設定してください}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?.env に AWS_SECRET_ACCESS_KEY を設定してください}
+      # イメージは NODE_ENV=production のため、src/posthog.ts は設定が無くても例外にせず黙って送らない
+      # （例外にするのは本番以外だけ）。本番でイベントを落とさないよう、トークンの未設定はここの ${...:?} で起動前に止める
+      POSTHOG_PROJECT_TOKEN: ${POSTHOG_PROJECT_TOKEN:?.env に POSTHOG_PROJECT_TOKEN（本番のプロジェクトのトークン）を設定してください}
+      POSTHOG_HOST: ${POSTHOG_HOST:-https://us.i.posthog.com}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # /_health は 204 を返す。イメージに wget は無いので node で確かめる
+      test: ['CMD', 'node', '-e', "require('http').get('http://127.0.0.1:1337/_health',r=>process.exit(r.statusCode===204?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s

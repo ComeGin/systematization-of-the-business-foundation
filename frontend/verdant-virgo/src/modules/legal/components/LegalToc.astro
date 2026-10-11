@@ -1,0 +1,52 @@
+---
+// 目次（法務 10-A と、ブログ記事 8-4 で使う）。項目はページ内のアンカー。
+// 法務は h2 と同じ番号つきで並べる（§4.10。呼ぶ側が sectionHeading で文字列にして渡す）。
+// variant=sidebar: Desktop の本文の横（枠つき。スクロールに追従）。accordion: Mobile の本文の前（閉じた状態。JS なしの details）。
+import { ChevronDown } from 'lucide-react';
+
+interface Props {
+  items: readonly { readonly id: string; readonly label: string }[];
+  /** 目次の見出し（「目次」） */
+  label: string;
+  variant: 'sidebar' | 'accordion';
+  class?: string;
+}
+
+const { items, label, variant, class: className } = Astro.props;
+const linkClass = 'type-small phrase text-text-link underline underline-offset-4 hover:text-text-link-hover';
+---
+
+{
+  variant === 'sidebar' ? (
+    <nav aria-label={label} class:list={['sticky top-20 flex flex-col gap-3 rounded-md border border-border bg-surface p-6', className]}>
+      <p class="type-card-title text-text-heading">{label}</p>
+      <ol class="flex flex-col">
+        {items.map((item) => (
+          <li>
+            <a href={`#${item.id}`} class={linkClass}>
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  ) : (
+    <details class:list={['group rounded-md border border-border bg-surface', className]}>
+      <summary class="type-label flex min-h-11 cursor-pointer list-none items-center justify-between px-4 text-text-heading [&::-webkit-details-marker]:hidden">
+        {label}
+        <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <nav aria-label={label} class="border-t border-border px-4 py-3">
+        <ol class="flex flex-col gap-1">
+          {items.map((item) => (
+            <li>
+              <a href={`#${item.id}`} class={linkClass}>
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </nav>
+    </details>
+  )
+}

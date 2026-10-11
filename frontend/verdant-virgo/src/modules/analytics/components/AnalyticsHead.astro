@@ -1,0 +1,12 @@
+---
+// 計測の差し込み口（BaseLayout の <head> の末尾。props なし）。
+// 同意の前は何も読み込まない（GA4・PostHog とも。DD-02 の 2.2・3.1）。ここに置くのは起動の JS だけ。
+---
+
+<script>
+  import { bootAnalytics } from '../lib/boot';
+  import { whenIdle } from '../lib/idle';
+
+  // 最初の描画の後、ブラウザが空いてから起動する（同意済みでも GA4・PostHog の読み込みは描画を待つ）
+  whenIdle(bootAnalytics);
+</script>

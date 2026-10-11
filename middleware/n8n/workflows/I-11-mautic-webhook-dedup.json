@@ -1,0 +1,618 @@
+{
+  "name": "I-11 Mautic Webhook の受領と重複排除",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mautic-event",
+        "authentication": "none",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "a7e40c88-9542-5db2-a314-961767b27bbb",
+      "name": "Mautic からの Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "notes": "認証は none（Mautic は独自のヘッダーを付けられない）。代わりに Webhook-Signature（本文の HMAC-SHA256 の base64）を下の Crypto ノードで検証し、一致しなければ 401 で止める。署名を計算するために Raw Body（binary）を受け取る。",
+      "webhookId": "e0f30c16-e19c-56ab-a7cb-5f571be32117"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "type": "SHA256",
+        "dataPropertyName": "computedSignature",
+        "encoding": "base64"
+      },
+      "id": "e1d9e3e8-1b07-5938-a5a6-cdf8fb2bd9cf",
+      "name": "Webhook-Signature を計算",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        224,
+        96
+      ],
+      "notes": "Mautic は本文（json_encode の結果そのまま）の HMAC-SHA256 を base64 にして Webhook-Signature ヘッダーに入れる。Webhook ノードの Raw Body（binary）をそのまま計算する。鍵は Crypto 資格情報の Hmac Secret（Mautic の Webhook の Secret と同じ値）。鍵が空だと誰でも署名を作れてしまうので、必ず設定する。",
+      "credentials": {
+        "crypto": {
+          "name": "Mautic Webhook 署名鍵（Crypto）"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "binaryData": false,
+        "type": "SHA256",
+        "value": "={{ $json.computedSignature }}",
+        "dataPropertyName": "computedDigest",
+        "encoding": "hex"
+      },
+      "id": "5b73fd6f-539e-5bd8-9682-2f99f883c39d",
+      "name": "計算した署名を SHA-256 にする",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ],
+      "notes": "定数時間の比較の代わりに、両辺を SHA-256 にしてから比べる。攻撃者が送る値は SHA-256 で撹拌されるので、比較にかかる時間から署名を 1 バイトずつ当てることはできない。"
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "binaryData": false,
+        "type": "SHA256",
+        "value": "={{ $('Mautic からの Webhook').item.json.headers['webhook-signature'] ?? '' }}",
+        "dataPropertyName": "receivedDigest",
+        "encoding": "hex"
+      },
+      "id": "0da31fea-70dc-593e-83d7-3ae8c6cf605d",
+      "name": "受け取った署名を SHA-256 にする",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "707ca713-3b20-5627-8e83-2837ecad65df",
+              "leftValue": "={{ $('Mautic からの Webhook').item.json.headers['webhook-signature'] ?? '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "d030925e-6703-57ab-b321-e64089908b52",
+              "leftValue": "={{ $json.computedDigest }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "={{ $json.receivedDigest }}"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "07470a79-10a9-5b9f-9496-d65c629f8261",
+      "name": "署名が正しいか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        96
+      ],
+      "notes": "ヘッダーが無い場合（Mautic の Webhook に Secret を設定していない場合）も、ここで 401 になる。"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"accepted\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "942d8488-93a5-5f23-839f-2e3770e3bbcc",
+      "name": "200 を返す",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\":\"unauthorized\"}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "1ddeea5f-eaa4-56f4-a1ad-06d31512726d",
+      "name": "401 を返す（署名が不正）",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        192
+      ],
+      "notes": "ここで止まる（以降の処理には進まない）。"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// 署名を検証した Webhook の本文を、Webhook ノードから直接読む\nconst body = $('Mautic からの Webhook').first().json.body ?? {};\nconst seen = new Set();\n\n// 本文から決まる短い値（cyrb53。暗号用ではなく、同じイベントを同じ値にするためのもの。Code ノードでは crypto を使わない方針）\nconst digest = (text) => {\n  let h1 = 0xdeadbeef;\n  let h2 = 0x41c6ce57;\n  for (let i = 0; i < text.length; i++) {\n    const ch = text.charCodeAt(i);\n    h1 = Math.imul(h1 ^ ch, 2654435761);\n    h2 = Math.imul(h2 ^ ch, 1597334677);\n  }\n  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);\n  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);\n  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);\n};\nconst out = [];\n\nfor (const [eventType, events] of Object.entries(body)) {\n  // トップレベルの timestamp などの配列でない値は読み飛ばす\n  if (!Array.isArray(events)) continue;\n\n  for (const ev of events) {\n    const contactId = ev?.contact?.id ?? ev?.submission?.lead?.id ?? null;\n    // 取り扱うのはコンタクトに紐づくイベントだけ（会社のイベントなどは対象外）\n    if (contactId === null) continue;\n\n    const parsed = Date.parse(ev?.timestamp ?? body.timestamp ?? '');\n    const hasTime = !Number.isNaN(parsed);\n    // 通知の受付時刻。timestamp が読めないときは受信時刻で代用する\n    const timestampSec = Math.floor((hasTime ? parsed : Date.now()) / 1000);\n\n    // 冪等キーは本文から決まる値だけで作る。timestamp が読めないときは秒の代わりにイベントの中身のハッシュ（h + 16 進）を使う\n    // （受信時刻を入れると、秒をまたいだ再送が別のキーになり、重複と見なせない。2026-10-07 に直した）\n    const dedupKey = contactId + '|' + eventType + '|' + (hasTime ? String(timestampSec) : 'h' + digest(JSON.stringify(ev)));\n    if (seen.has(dedupKey)) continue;\n    seen.add(dedupKey);\n\n    // BA-04: 通知するのは「無料相談フォームの送信」と「MQL への到達」だけ。無料 DL は通知しない\n    let kind = '';\n    if (eventType === 'mautic.form_on_submit' && ev?.submission?.form?.alias === 'consult') {\n      kind = 'demo-requested';\n    } else if (eventType === 'mautic.lead_list_change' && ev?.action === 'added' && (ev?.segment?.alias ?? ev?.segment?.name) === 'mql') {\n      kind = 'mql';\n    }\n\n    out.push({\n      json: {\n        dedupKey,\n        contactId,\n        eventType,\n        timestampSec,\n        kind,\n        topic: kind ? 'comegin-lead-alert' : '',\n        company: ev?.submission?.lead?.fields?.core?.company?.value ?? ev?.contact?.fields?.core?.company?.value ?? '',\n        formAlias: ev?.submission?.form?.alias ?? '',\n      },\n    });\n  }\n}\n\nreturn out;"
+      },
+      "id": "3eba7379-2a3f-5469-924d-3a0ebf6aee7f",
+      "name": "イベント分割とキー生成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "notes": "Mautic は 1 回の送信に複数イベントを入れる（{ \"<種別>\": [ ... ] }）。1 件ずつに分け、冪等キー = contact_id + イベント種別 + timestamp（秒。読めないときはイベントの中身のハッシュ）を作る。同じ送信の中の重複もここで除く。氏名・メールは出力に含めない。"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_mautic"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedupKey",
+              "condition": "eq",
+              "keyValue": "={{ $json.dedupKey }}"
+            }
+          ]
+        }
+      },
+      "id": "45dea010-a42a-5192-be98-1ddb41b0c843",
+      "name": "未処理のイベントだけ通す",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_mautic"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "dedupKey": "={{ $json.dedupKey }}",
+            "contactId": "={{ $json.contactId }}",
+            "eventType": "={{ $json.eventType }}",
+            "timestampSec": "={{ $json.timestampSec }}"
+          },
+          "schema": [
+            {
+              "id": "dedupKey",
+              "displayName": "dedupKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventType",
+              "displayName": "eventType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "timestampSec",
+              "displayName": "timestampSec",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      },
+      "id": "8155eed1-ae2b-5182-b894-639d45e41575",
+      "name": "冪等キーを記録",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "4cd42c8b-241c-552f-954b-fd565a406371",
+              "leftValue": "={{ $('イベント分割とキー生成').item.json.kind }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7ef83cba-6f74-5e4d-ac5f-78a1d0fa7b03",
+      "name": "顧客からの要求か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2016,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "each",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RQ7X76GAXdPBcszO",
+          "cachedResultName": "I-21 SNS 通知"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "channel": "lead",
+            "kind": "={{ $('イベント分割とキー生成').item.json.kind }}",
+            "idLabel": "contact",
+            "id": "={{ String($('イベント分割とキー生成').item.json.contactId) }}",
+            "company": "={{ $('イベント分割とキー生成').item.json.company }}",
+            "sourcePath": "",
+            "receivedAtSec": "={{ $('イベント分割とキー生成').item.json.timestampSec }}",
+            "state": "",
+            "detail": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kind",
+              "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "idLabel",
+              "displayName": "idLabel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sourcePath",
+              "displayName": "sourcePath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "receivedAtSec",
+              "displayName": "receivedAtSec",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "a047d178-83ec-5100-9bbd-50c4957aa704",
+      "name": "I-21 通知を呼ぶ",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2240,
+        0
+      ],
+      "notes": "通知の失敗で Webhook の処理を止めない（onError: continueRegularOutput）。失敗は I-21 の実行履歴に残る。",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "afd8a4e7-644b-55bc-a6ef-6754649870fa",
+      "name": "毎日 03:00（保持期限の掃除）",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "dedup_mautic"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "createdAt",
+              "condition": "lt",
+              "keyValue": "={{ $now.minus({ days: 7 }).toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "76e38f19-8836-541d-87ed-e2179c63c591",
+      "name": "7 日を過ぎた行を削除",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        416
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook-Signature を計算": {
+      "main": [
+        [
+          {
+            "node": "計算した署名を SHA-256 にする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "計算した署名を SHA-256 にする": {
+      "main": [
+        [
+          {
+            "node": "受け取った署名を SHA-256 にする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "受け取った署名を SHA-256 にする": {
+      "main": [
+        [
+          {
+            "node": "署名が正しいか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "署名が正しいか": {
+      "main": [
+        [
+          {
+            "node": "200 を返す",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "401 を返す（署名が不正）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mautic からの Webhook": {
+      "main": [
+        [
+          {
+            "node": "Webhook-Signature を計算",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "200 を返す": {
+      "main": [
+        [
+          {
+            "node": "イベント分割とキー生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "イベント分割とキー生成": {
+      "main": [
+        [
+          {
+            "node": "未処理のイベントだけ通す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "未処理のイベントだけ通す": {
+      "main": [
+        [
+          {
+            "node": "冪等キーを記録",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "冪等キーを記録": {
+      "main": [
+        [
+          {
+            "node": "顧客からの要求か",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "毎日 03:00（保持期限の掃除）": {
+      "main": [
+        [
+          {
+            "node": "7 日を過ぎた行を削除",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "顧客からの要求か": {
+      "main": [
+        [
+          {
+            "node": "I-21 通知を呼ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Tokyo",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {}
+}

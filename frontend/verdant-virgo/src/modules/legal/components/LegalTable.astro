@@ -1,0 +1,104 @@
+---
+// 法務の表（Figma 46:7850 / 46:8378 の Basic Table）。Desktop は列幅を固定せず折り返す（03-handoff §0.3）。
+// 2 列の表: 項目列（Desktop 240px・Mobile 112px。UI/Label）＋ 内容列（role/surface-subtle の地・Body）。Mobile も表のまま。
+// 3 列以上の表: 見出し行 ＋ 内容（Small・地 role/surface-subtle）。セルは最小 5 字幅（「所在する国」「米国」の列が、折り返さない語のある列に押されて細くならないように）。mobile が 'cards' なら Mobile では行ごとのカードに組み替える（§4.10 10-A の D/M）。
+// セルは短い語句が多いので phrase（文節の折り返し）を当てる（「（米｜国）」のような末尾 1 字の行を避ける。2026-10-09 リード判断）。
+// リンクを含むセルは地を白にする（role/text-link は role/surface-subtle の上で 4.22:1 になり AA に届かないため。text-link の色は変えない。H-15）。
+import { isLink, LEGAL_KEEP_TOGETHER, toInlines } from '../rich-text';
+import type { LegalTable, LegalTableCell } from '../types';
+import RichTextView from './RichTextView.astro';
+
+interface Props {
+  table: LegalTable;
+}
+
+const { table } = Astro.props;
+const linesOf = (cell: LegalTableCell) => (typeof cell === 'object' && 'lines' in cell ? cell.lines : [cell]);
+const twoColumns = table.columns.length === 2;
+const cellText = 'phrase [overflow-wrap:anywhere]';
+const hasLink = (cell: LegalTableCell) => linesOf(cell).some((line) => toInlines(line).some(isLink));
+const cellSurface = (cell: LegalTableCell) => (hasLink(cell) ? 'bg-surface' : 'bg-surface-subtle');
+---
+
+{
+  twoColumns ? (
+    <table class="w-full table-fixed border-collapse">
+      <caption class="sr-only">{table.columns.join('・')}</caption>
+      <colgroup>
+        <col class="w-28 md:w-60" />
+        <col />
+      </colgroup>
+      <tbody>
+        {table.rows.map(([label, value]) => (
+          <tr class="border-b border-border">
+            <th scope="row" class={`type-label p-2 text-left align-middle text-text-body ${cellText}`}>
+              {linesOf(label).map((line) => (
+                <RichTextView text={line} keepTogether={LEGAL_KEEP_TOGETHER} />
+              ))}
+            </th>
+            <td class={`type-body ${cellSurface(value)} p-2 align-middle text-text-body ${cellText}`}>
+              {linesOf(value).map((line) => (
+                <span class="block">
+                  <RichTextView text={line} keepTogether={LEGAL_KEEP_TOGETHER} />
+                </span>
+              ))}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  ) : (
+    <div>
+      <table class:list={['w-full border-collapse', table.mobile === 'cards' && 'hidden md:table']}>
+        <thead>
+          <tr class="border-b border-border">
+            {table.columns.map((column) => (
+              <th scope="col" class={`type-label min-w-[5em] p-2 text-left align-middle text-text-body ${cellText}`}>
+                <RichTextView text={column} keepTogether={LEGAL_KEEP_TOGETHER} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row) => (
+            <tr class="border-b border-border">
+              {row.map((cell) => (
+                <td class={`type-small ${cellSurface(cell)} min-w-[5em] p-2 align-middle text-text-body ${cellText}`}>
+                  {linesOf(cell).map((line) => (
+                    <span class="block">
+                      <RichTextView text={line} keepTogether={LEGAL_KEEP_TOGETHER} />
+                    </span>
+                  ))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {table.mobile === 'cards' && (
+        <ul class="flex flex-col gap-4 md:hidden">
+          {table.rows.map((row) => (
+            <li class="rounded-md border border-border bg-surface p-4">
+              <dl class="flex flex-col gap-3">
+                {row.map((cell, index) => (
+                  <div class="flex flex-col gap-1">
+                    <dt class={`type-caption text-text-muted ${cellText}`}>
+                      <RichTextView text={table.columns[index]} keepTogether={LEGAL_KEEP_TOGETHER} />
+                    </dt>
+                    <dd class={`type-body text-text-body ${cellText}`}>
+                      {linesOf(cell).map((line) => (
+                        <span class="block">
+                          <RichTextView text={line} keepTogether={LEGAL_KEEP_TOGETHER} />
+                        </span>
+                      ))}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,66 @@
+# 開発環境だけで使う中継（ホストのループバックのサービスを、コンテナから届くようにする）
+#
+# 開発環境のサービスは、外に出さないよう 127.0.0.1 だけで待ち受けている（Mautic・Mautic の MailHog・n8n）。
+# コンテナの中から見た 127.0.0.1 はコンテナ自身なので、別のコンテナ（n8n・Chatwoot）からは届かない。
+# そこで、Docker の既定のブリッジのアドレス（docker0。既定 172.17.0.1）だけで待ち受け、
+# ホストの 127.0.0.1 へ転送する。コンテナからは host.docker.internal（extra_hosts の host-gateway）で届く。
+#
+#   n8n      → host.docker.internal:8000 → この中継 → 127.0.0.1:8000（Mautic。dev/serve.sh）
+#   n8n      → host.docker.internal:1025 → この中継 → 127.0.0.1:1025（Mautic の MailHog の SMTP）
+#   Chatwoot → host.docker.internal:5678 → この中継 → 127.0.0.1:5678（n8n の Webhook）
+#   n8n      → host.docker.internal:3100 → この中継 → 127.0.0.1:3100（Chatwoot の API。週次の問い合わせの棚卸し）
+#   n8n      → host.docker.internal:3001 → この中継（nginx） → 127.0.0.1:3001（OpenSEO。GET /api/health だけ。ops-monitor）
+#
+# docker0 のアドレスは LAN からは届かない（ホストとコンテナだけ）。本番には置かない（本番は ADR-21 の構成）。
+# 起動: docker compose up -d ／ 停止: docker compose down
+
+x-relay: &relay
+  # 版とダイジェストを固定する（latest を使わない）
+  image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+  # docker0 のアドレスで待ち受け、ホストの 127.0.0.1 に転送するため、ホストのネットワークを使う
+  network_mode: host
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+
+services:
+  mautic:
+    <<: *relay
+    command: ['TCP-LISTEN:8000,bind=${RELAY_BIND:-172.17.0.1},fork,reuseaddr', 'TCP:127.0.0.1:8000']
+
+  mailhog-smtp:
+    <<: *relay
+    command: ['TCP-LISTEN:1025,bind=${RELAY_BIND:-172.17.0.1},fork,reuseaddr', 'TCP:127.0.0.1:1025']
+
+  n8n:
+    <<: *relay
+    command: ['TCP-LISTEN:5678,bind=${RELAY_BIND:-172.17.0.1},fork,reuseaddr', 'TCP:127.0.0.1:5678']
+
+  chatwoot:
+    <<: *relay
+    # 週次の問い合わせの棚卸し（n8n）が Chatwoot の API を呼ぶ。Chatwoot 自体が api_access_token で守っている
+    command: ['TCP-LISTEN:3100,bind=${RELAY_BIND:-172.17.0.1},fork,reuseaddr', 'TCP:127.0.0.1:3100']
+
+  # OpenSEO は認証なし（local_noauth）で、UI と /mcp も同じポートにある。socat でポートごと中継すると、
+  # 同じホストのどのコンテナからも使えてしまうため、nginx で GET /api/health だけを通す（openseo-health.conf.template）
+  openseo-health:
+    # 版とダイジェストを固定する（latest を使わない。版は onprem/n8n の webhook-proxy と同じ）。ダイジェストはマルチアーキのインデックスのもの
+    # （docker buildx imagetools inspect nginxinc/nginx-unprivileged:1.29.8-alpine。2026-10-06 に確認）
+    image: nginxinc/nginx-unprivileged:1.29.8-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
+    # docker0 のアドレスで待ち受け、ホストの 127.0.0.1 に転送するため、ホストのネットワークを使う
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      RELAY_BIND: ${RELAY_BIND:-172.17.0.1}
+      # envsubst で置き換える変数を RELAY_BIND だけに限る（nginx の $request_method などを壊さない）
+      NGINX_ENVSUBST_FILTER: RELAY_
+    volumes:
+      - ./openseo-health.conf.template:/etc/nginx/templates/default.conf.template:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      # 生成した設定の置き場（read_only のため。nginx-unprivileged のユーザーは uid 101）
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']

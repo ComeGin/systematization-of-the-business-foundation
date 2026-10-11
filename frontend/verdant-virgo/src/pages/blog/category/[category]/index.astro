@@ -1,0 +1,27 @@
+---
+// 画面 7 ブログ一覧のカテゴリ別の 1 ページ目（/blog/category/<slug>。タブ「課題を知る」など）。
+// SEO は §7 に無く、2026-10-09 にリードが決めた（title にカテゴリ名〈と何ページ目か〉を足す。description は一覧と同じ。index・canonical はページ自身）。
+import type { GetStaticPaths } from 'astro';
+import { BLOG_CATEGORIES, getArticlesByCategory, paginate, type Article } from '@/modules/blog';
+import { blogCategorySeo } from '@/modules/site-content/seo';
+import BlogListing from '../../_BlogListing.astro';
+
+export const getStaticPaths = (async () =>
+  Promise.all(
+    BLOG_CATEGORIES.map(async (category) => {
+      const pages = paginate(await getArticlesByCategory(category.slug));
+      return { params: { category: category.slug }, props: { label: category.label, articles: pages[0], totalPages: pages.length } };
+    }),
+  )) satisfies GetStaticPaths;
+
+interface Props {
+  label: string;
+  articles: Article[];
+  totalPages: number;
+}
+
+const { category } = Astro.params;
+const { label, articles, totalPages } = Astro.props;
+---
+
+<BlogListing seo={blogCategorySeo(label, 1)} articles={articles} page={1} totalPages={totalPages} categorySlug={category} />

@@ -1,0 +1,540 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  データストア。RDS for MySQL 8.4（Mautic）、RDS for PostgreSQL 16（1 インスタンスに複数 DB）、
+  ElastiCache（Valkey）、EFS（Mautic の media と config）、S3（Chatwoot の添付・Strapi のメディア・Astro の配信用）。
+  TA-06 の 4 節。すべて単一構成（Single-AZ・1 ノード。4.6 で決定）。データを持つリソースは Retain。
+  PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / admin_auth / strapi / n8n）は
+  CloudFormation では作れない。ops-tasks.yaml の 1 回だけのタスクで作る（README の手順）。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+    Description: private サブネットの ID（2 つ。network.yaml の PrivateSubnetIds）
+  MysqlSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  PostgresSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  ValkeySecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  EfsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  SecretNamePrefix:
+    Type: String
+    Description: secrets.yaml の SecretNamePrefix。Valkey の AUTH トークンを名前で読む。
+
+  # ---- RDS（暫定値。TA-06 の 9 節の見積もり前）
+  MysqlInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+  MysqlEngineVersion:
+    Type: String
+    Default: '8.4'
+    Description: >-
+      バージョンのプレフィックス（CloudFormation が許す）。開発環境の MySQL 8.4 と同じ系列。
+      TODO: 本番に出す前に 8.4.x の最新のマイナーを確かめて固定する（AWS の API を呼べないため未確認）。
+  MysqlAllocatedStorageGiB:
+    Type: Number
+    Default: 20
+  MysqlMaxAllocatedStorageGiB:
+    Type: Number
+    Default: 100
+    Description: ストレージの自動拡張の上限。
+  PostgresInstanceClass:
+    Type: String
+    Default: db.t4g.small
+  PostgresEngineVersion:
+    Type: String
+    Default: '16'
+    Description: 'バージョンのプレフィックス。TODO: 最新の 16.x を確かめて固定する。'
+  PostgresAllocatedStorageGiB:
+    Type: Number
+    Default: 20
+  PostgresMaxAllocatedStorageGiB:
+    Type: Number
+    Default: 100
+  MysqlRequireSecureTransport:
+    Type: String
+    Default: '1'
+    AllowedValues: ['0', '1']
+    Description: >-
+      require_secure_transport。1 だと TLS でない接続を拒否する。Mautic は派生イメージ（cloud/images/mautic/Dockerfile）が
+      CA の検証つきの TLS で接続する（entrypoint の mysqladmin ping も同じ設定）。
+  PostgresForceSsl:
+    Type: String
+    Default: '1'
+    AllowedValues: ['0', '1']
+    Description: >-
+      rds.force_ssl。1 だとクライアントは TLS 必須。すべてのサービスが RDS の CA で証明書を検証して接続する（各サービスのテンプレートと
+      cloud/images/<製品>/Dockerfile）。繋がらない製品があれば、0 にする前に製品側の設定を探すこと。
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+    Description: 自動バックアップの保持日数（ポイントインタイムリカバリ）。TA-06 の 4.1。
+  DbLogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: RDS のログの保持日数（ロググループ）。ECS のログと同じ 30 日。
+  # 17:00 UTC = 02:00 JST（日次バックアップ）。メンテナンスの窓と重ならないようにする。
+  DbBackupWindow:
+    Type: String
+    Default: '17:00-17:30'
+  DbMaintenanceWindow:
+    Type: String
+    Default: 'sun:18:00-sun:18:30'
+
+  # ---- Valkey（ElastiCache）
+  ValkeyNodeType:
+    Type: String
+    Default: cache.t4g.micro
+  ValkeyEngineVersion:
+    Type: String
+    Default: '8.0'
+    Description: >-
+      開発環境は valkey/valkey:8-alpine。Chatwoot の Sidekiq で問題が出たら、同じノードタイプのまま
+      Redis OSS 7.1 に切り替える（TA-06 の 4.2）。TODO: ElastiCache が実際に受け付ける 8 系のバージョンを実機で確かめる。
+
+  # ---- EFS（Mautic）
+  MauticUid:
+    Type: Number
+    Default: 33
+    Description: Mautic のコンテナの実行ユーザー（www-data）。アクセスポイントの所有者になる。T1-3 でイメージの実際の値を確かめる。
+  MauticGid:
+    Type: Number
+    Default: 33
+
+  # ---- S3
+  NoncurrentVersionExpireDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    Description: Chatwoot の添付と Strapi のメディアで、古い版を何日で消すか（バージョニングが増え続けないように）。
+  AstroNoncurrentVersionExpireDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    Description: Astro の配信用バケットで、古い版を何日で消すか。誤ったデプロイからの復旧に使う期間。
+
+Resources:
+  # ---------------------------------------------------------------- RDS
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 'comegin-${EnvName} private subnets'
+      SubnetIds: !Ref PrivateSubnetIds
+
+  MysqlParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub 'comegin-${EnvName} mysql8.4'
+      Family: mysql8.4
+      Parameters:
+        require_secure_transport: !Ref MysqlRequireSecureTransport
+
+  PostgresParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub 'comegin-${EnvName} postgres16'
+      Family: postgres16
+      Parameters:
+        rds.force_ssl: !Ref PostgresForceSsl
+
+  # RDS のログ。ロググループを先に作って保持期間を付ける（RDS に任せると期限なしで残り続けるため）。
+  # cfn-guard の指摘のうち次は意図した例外: RDS_MULTI_AZ_SUPPORT（単一構成。TA-06 の 4.6 で決定）、
+  #   RDS_MASTER_USER_*（ManageMasterUserPassword で RDS が管理する。ユーザー名は秘密値ではない）。
+  # TODO: Enhanced Monitoring（MonitoringInterval）は費用が出るため付けていない。必要になったら足す。
+  MysqlErrorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-mysql/error'
+      RetentionInDays: !Ref DbLogRetentionDays
+
+  MysqlSlowQueryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-mysql/slowquery'
+      RetentionInDays: !Ref DbLogRetentionDays
+
+  PostgresLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-postgres/postgresql'
+      RetentionInDays: !Ref DbLogRetentionDays
+
+  PostgresUpgradeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-postgres/upgrade'
+      RetentionInDays: !Ref DbLogRetentionDays
+
+  # マスターパスワードは RDS に管理させる（Secrets Manager に自動で作られる）。アプリのタスクには渡さない。
+  # 読めるのは ops-tasks の実行ロールだけ（アプリ用のユーザーを作るため。ops-tasks.yaml）。
+  MysqlInstance:
+    Type: AWS::RDS::DBInstance
+    DependsOn: [MysqlErrorLogGroup, MysqlSlowQueryLogGroup]
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DBInstanceIdentifier: !Sub 'comegin-${EnvName}-mysql'
+      Engine: mysql
+      EngineVersion: !Ref MysqlEngineVersion
+      DBInstanceClass: !Ref MysqlInstanceClass
+      StorageType: gp3
+      AllocatedStorage: !Ref MysqlAllocatedStorageGiB
+      MaxAllocatedStorage: !Ref MysqlMaxAllocatedStorageGiB
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      DBParameterGroupName: !Ref MysqlParameterGroup
+      VPCSecurityGroups:
+        - !Ref MysqlSecurityGroupId
+      MasterUsername: admin
+      ManageMasterUserPassword: true
+      EnableCloudwatchLogsExports:
+        - error
+        - slowquery
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      PreferredBackupWindow: !Ref DbBackupWindow
+      PreferredMaintenanceWindow: !Ref DbMaintenanceWindow
+      CopyTagsToSnapshot: true
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: true
+
+  PostgresInstance:
+    Type: AWS::RDS::DBInstance
+    DependsOn: [PostgresLogGroup, PostgresUpgradeLogGroup]
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DBInstanceIdentifier: !Sub 'comegin-${EnvName}-postgres'
+      Engine: postgres
+      EngineVersion: !Ref PostgresEngineVersion
+      DBInstanceClass: !Ref PostgresInstanceClass
+      StorageType: gp3
+      AllocatedStorage: !Ref PostgresAllocatedStorageGiB
+      MaxAllocatedStorage: !Ref PostgresMaxAllocatedStorageGiB
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      DBParameterGroupName: !Ref PostgresParameterGroup
+      VPCSecurityGroups:
+        - !Ref PostgresSecurityGroupId
+      MasterUsername: postgres_admin
+      ManageMasterUserPassword: true
+      EnableCloudwatchLogsExports:
+        - postgresql
+        - upgrade
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      PreferredBackupWindow: !Ref DbBackupWindow
+      PreferredMaintenanceWindow: !Ref DbMaintenanceWindow
+      CopyTagsToSnapshot: true
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: true
+
+  # ---------------------------------------------------------------- ElastiCache（Valkey）
+  # ElastiCache Serverless は使えない（クラスターモード専用で、Chatwoot の Sidekiq が動かない。TA-06 の 4.2）。
+  # ノードベース・クラスターモード無効・1 ノード。TLS と AUTH を有効にする。バックアップは取らない（TA-06 の 4.5）。
+  ValkeySubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: !Sub 'comegin-${EnvName} private subnets'
+      SubnetIds: !Ref PrivateSubnetIds
+
+  ValkeyReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ReplicationGroupId: !Sub 'comegin-${EnvName}'
+      ReplicationGroupDescription: !Sub 'comegin-${EnvName} valkey (Chatwoot, Mautic cache, consent-api)'
+      Engine: valkey
+      EngineVersion: !Ref ValkeyEngineVersion
+      CacheNodeType: !Ref ValkeyNodeType
+      NumCacheClusters: 1
+      AutomaticFailoverEnabled: false
+      MultiAZEnabled: false
+      Port: 6379
+      CacheSubnetGroupName: !Ref ValkeySubnetGroup
+      SecurityGroupIds:
+        - !Ref ValkeySecurityGroupId
+      TransitEncryptionEnabled: true
+      AtRestEncryptionEnabled: true
+      AuthToken: !Sub '{{resolve:secretsmanager:${SecretNamePrefix}/shared/VALKEY_AUTH_TOKEN:SecretString}}'
+      SnapshotRetentionLimit: 0
+      AutoMinorVersionUpgrade: true
+
+  # ---------------------------------------------------------------- EFS（Mautic の media と config）
+  # 置くもの: media/images・media/files・config/local.php（TA-06 の 4.4）。var/cache は置かない（遅くなる）。
+  # アクセスポイントは 3 本（media/images、media/files、config）。mautic-web と mautic-cron の両方がマウントする。
+  EfsFileSystem:
+    Type: AWS::EFS::FileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: elastic
+      # 日次の自動バックアップ（AWS Backup。TA-06 の 4.5）
+      BackupPolicy:
+        Status: ENABLED
+      FileSystemTags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-mautic' }
+
+  EfsMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Select [0, !Ref PrivateSubnetIds]
+      SecurityGroups:
+        - !Ref EfsSecurityGroupId
+
+  EfsMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Select [1, !Ref PrivateSubnetIds]
+      SecurityGroups:
+        - !Ref EfsSecurityGroupId
+
+  # media は docroot/media 全体ではなく images と files の 2 つだけを置く（TA-06 の 4.4）。
+  # 全体を EFS で覆うと、イメージの media 直下のファイル（.htaccess など）が隠れるため。
+  MauticMediaImagesAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      PosixUser:
+        Uid: !Ref MauticUid
+        Gid: !Ref MauticGid
+      RootDirectory:
+        Path: /mautic/media/images
+        CreationInfo:
+          OwnerUid: !Ref MauticUid
+          OwnerGid: !Ref MauticGid
+          Permissions: '0755'
+      AccessPointTags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-mautic-media-images' }
+
+  MauticMediaFilesAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      PosixUser:
+        Uid: !Ref MauticUid
+        Gid: !Ref MauticGid
+      RootDirectory:
+        Path: /mautic/media/files
+        CreationInfo:
+          OwnerUid: !Ref MauticUid
+          OwnerGid: !Ref MauticGid
+          Permissions: '0755'
+      AccessPointTags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-mautic-media-files' }
+
+  MauticConfigAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      PosixUser:
+        Uid: !Ref MauticUid
+        Gid: !Ref MauticGid
+      RootDirectory:
+        Path: /mautic/config
+        CreationInfo:
+          OwnerUid: !Ref MauticUid
+          OwnerGid: !Ref MauticGid
+          Permissions: '0755'
+      AccessPointTags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-mautic-config' }
+
+  # ---------------------------------------------------------------- S3
+  # バケットはシステムごとに分ける（権限を混ぜない）。全ブロック・バージョニング・SSE-S3・TLS のみ。
+  # cfn-guard の Object Lock / アクセスログ / レプリケーションの指摘は意図した例外（費用に見合わない。TA-06 の 4.1）。
+  # TODO: Chatwoot の添付（ウィジェットからの直接アップロード）と Strapi のメディア（署名付き URL）に
+  #   CORS が要るか。T1-3 と Strapi の実装時に確かめる（TA-06 の 11 節）。
+  ChatwootBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'comegin-${EnvName}-chatwoot-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentVersionExpireDays
+          - Id: abort-incomplete-multipart-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  ChatwootBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ChatwootBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${ChatwootBucket}'
+              - !Sub 'arn:${AWS::Partition}:s3:::${ChatwootBucket}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+
+  StrapiMediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'comegin-${EnvName}-strapi-media-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentVersionExpireDays
+          - Id: abort-incomplete-multipart-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  StrapiMediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StrapiMediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${StrapiMediaBucket}'
+              - !Sub 'arn:${AWS::Partition}:s3:::${StrapiMediaBucket}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+
+  # Astro の配信用。CloudFront の OAC だけが読める（バケットポリシーは cdn.yaml が持つ。
+  # 1 つのバケットに BucketPolicy は 1 つしか付けられないため、TLS のみの Deny も cdn.yaml に書く）。
+  # 静的ウェブサイトホスティングは使わない（TA-02 の 4 節）。
+  AstroBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'comegin-${EnvName}-astro-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref AstroNoncurrentVersionExpireDays
+          - Id: abort-incomplete-multipart-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+Outputs:
+  MysqlEndpoint:
+    Value: !GetAtt MysqlInstance.Endpoint.Address
+  MysqlInstanceIdentifier:
+    Value: !Ref MysqlInstance
+  MysqlMasterSecretArn:
+    Description: RDS が管理するマスターパスワード。読めるのは ops-tasks の実行ロールだけにする。
+    Value: !GetAtt MysqlInstance.MasterUserSecret.SecretArn
+  PostgresEndpoint:
+    Value: !GetAtt PostgresInstance.Endpoint.Address
+  PostgresInstanceIdentifier:
+    Value: !Ref PostgresInstance
+  PostgresMasterSecretArn:
+    Description: RDS が管理するマスターパスワード。読めるのは ops-tasks の実行ロールだけにする。
+    Value: !GetAtt PostgresInstance.MasterUserSecret.SecretArn
+  ValkeyEndpoint:
+    Description: クライアントは TLS（rediss://）で、AUTH トークンを付けて接続する。
+    Value: !GetAtt ValkeyReplicationGroup.PrimaryEndPoint.Address
+  ValkeyReplicationGroupId:
+    Value: !Ref ValkeyReplicationGroup
+  EfsFileSystemId:
+    Value: !Ref EfsFileSystem
+  EfsFileSystemArn:
+    Value: !GetAtt EfsFileSystem.Arn
+  MauticMediaImagesAccessPointId:
+    Value: !Ref MauticMediaImagesAccessPoint
+  MauticMediaFilesAccessPointId:
+    Value: !Ref MauticMediaFilesAccessPoint
+  MauticConfigAccessPointId:
+    Value: !Ref MauticConfigAccessPoint
+  MauticConfigAccessPointArn:
+    Value: !GetAtt MauticConfigAccessPoint.Arn
+  ChatwootBucketName:
+    Value: !Ref ChatwootBucket
+  ChatwootBucketArn:
+    Value: !GetAtt ChatwootBucket.Arn
+  StrapiMediaBucketName:
+    Value: !Ref StrapiMediaBucket
+  StrapiMediaBucketArn:
+    Value: !GetAtt StrapiMediaBucket.Arn
+  AstroBucketName:
+    Value: !Ref AstroBucket
+  AstroBucketArn:
+    Value: !GetAtt AstroBucket.Arn
+  AstroBucketRegionalDomainName:
+    Value: !GetAtt AstroBucket.RegionalDomainName

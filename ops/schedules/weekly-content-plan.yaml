@@ -1,0 +1,18 @@
+id: weekly-content-plan
+description: "採用済みの E-01 から記事の構成案を作り、E-03（plan_state: drafted）として起案する。企画の採否は R2 が決める"
+enabled: false
+cron: "0 10 * * 3"
+kind: agent
+agent: content-planner
+builtin: null
+after: []
+prompt: |
+  採用済み（adoption_status が adopted）の E-01 のうち、企画がまだ無いものから、記事の構成案を E-03 として本番の Strapi に起案する。
+
+  取得の範囲（変えない）:
+  - 起案する数は 1 回の実行で 3 件まで
+  - plan_state は drafted のまま。承認と差し戻しは R2 が行う
+  - 取材が必要な一次情報を含む企画は assignee_role を R4 にする
+  - 同じキーワードに企画が既にあるときは作らない
+timeout_sec: 900
+max_turns: 40

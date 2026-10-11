@@ -1,0 +1,32 @@
+---
+// 画面 10-B 特定商取引法に基づく表記（/legal/tokushoho）。01-content-spec.md §4.10。Figma は 46:8705（Desktop）・46:8959（Mobile）。
+// 本文が表 1 つなので目次を置かない。表は 2 列（Mobile も表のまま。項目列 112px）。CTA は置かない。
+// 表の幅は §4.10 の共通の枠（本文 720px）と H-10（本文の 1 行は 720px まで）に従う。Figma は 1152px いっぱいに組んでいる（差として報告済み）。
+import { BaseLayout } from '@/modules/layout';
+import { LegalPageHeader, LegalTable, RichTextView, tokushoho } from '@/modules/legal';
+import { SEO } from '@/modules/site-content/seo';
+
+const seo = SEO.tokushoho;
+const { title, dates, table, after } = tokushoho;
+// ホームはパンくずの部品が先頭に足す
+const breadcrumb = tokushoho.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
+---
+
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
+  <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
+    <LegalPageHeader title={title} dates={dates} />
+    <div class="flex max-w-[720px] flex-col gap-12">
+      <LegalTable table={table} />
+      {/* 表の下の注記（Small・role/text-muted） */}
+      {
+        after.map((block) =>
+          block.kind === 'paragraph' ? (
+            <p class="type-small text-text-muted">
+              <RichTextView text={block.content} />
+            </p>
+          ) : null,
+        )
+      }
+    </div>
+  </div>
+</BaseLayout>

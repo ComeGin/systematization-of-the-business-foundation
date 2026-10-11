@@ -1,0 +1,97 @@
+---
+// Cookie 同意バナー（01-content-spec.md §8.1）と差し込み口（BaseLayout の <body> の末尾。props なし）。文言は仕様書から写す。
+// Desktop は左下に幅 420px のカード（右下は Chatwoot のため避ける）、Mobile は下端いっぱいのパネル。
+// 2 つのボタンは同じ見た目の重み（どちらも Outline）。バナーの操作自体は計測しない。
+// 寸法と色は Figma の CookieBanner（42:4936）: 余白 24・間隔 16、見出し 20px Bold・role/text-body、本文 Small・role/text-muted。
+//
+// React の island にしない。HTML をサーバーで出しておき（初期は hidden）、直後のインラインのスクリプトが Cookie を読んで
+// 未同意のときだけ表示する。JS の読み込みと水和を待たずに HTML と同時に描かれるので、LCP を遅らせない（Q3 の指摘）。
+// ボタン・再表示・フォーカスの処理は、バンドルする <script> が後から付ける。
+// CONSENT_POLICY_VERSION は PUBLIC_ ではないため、ビルド時に読んで data 属性で JS に渡す。
+import { buttonVariants } from '@/components/ui/button';
+import { CONFIG_ELEMENT_ID } from '../lib/consent';
+
+const policyVersion = import.meta.env.CONSENT_POLICY_VERSION ?? '';
+if (!policyVersion) {
+  if (import.meta.env.BUILD_TARGET === 'production') {
+    throw new Error('CONSENT_POLICY_VERSION が未設定です。consent-api と同じ値（プライバシーポリシーの最終改定日）を設定してください。');
+  }
+  console.warn('[consent] CONSENT_POLICY_VERSION が未設定です（同意の版が空のまま記録されます）。');
+}
+const buttonClass = `${buttonVariants({ variant: 'outline' })} h-11 w-full md:h-9`;
+---
+
+<div id={CONFIG_ELEMENT_ID} data-policy-version={policyVersion} hidden></div>
+<section
+  id="cookie-banner"
+  hidden
+  aria-labelledby="cookie-banner-heading"
+  class="fixed inset-x-0 bottom-0 z-50 grid gap-4 border border-border bg-card p-4 text-card-foreground shadow-md md:inset-x-auto md:bottom-6 md:left-6 md:w-[420px] md:rounded-lg md:p-6"
+>
+  <h2 id="cookie-banner-heading" tabindex="-1" class="text-xl leading-normal font-bold text-foreground outline-none">Cookie の利用について</h2>
+  <p class="phrase text-sm leading-[1.75] text-muted-foreground">
+    サイトの改善とチャットでのお問い合わせのために、Cookie などを使います。同意いただいた場合に限り、Google アナリティクスと PostHog で閲覧の記録を取り、チャット（Chatwoot）を読み込みます。記録したデータは米国のサーバーに送られます。
+  </p>
+  <p class="text-sm leading-5">
+    <a href="/legal/privacy" class="text-text-link underline hover:text-text-link-hover">詳しくはプライバシーポリシー</a>
+  </p>
+  <div class="grid grid-cols-2 gap-3">
+    <button type="button" class={buttonClass} data-consent-choice="granted">同意する</button>
+    <button type="button" class={buttonClass} data-consent-choice="denied">同意しない</button>
+  </div>
+</section>
+
+<!-- 未同意（Cookie が無い・形が違う・版が違う）のときだけ、描画の前に表示する。判定は lib/consent.ts の getConsent と同じ -->
+<script is:inline>
+  (function () {
+    var banner = document.getElementById('cookie-banner');
+    var version = document.getElementById('comegin-consent-config').getAttribute('data-policy-version') || '';
+    var match = document.cookie.match(/(?:^|; )comegin_consent=([^;]*)/);
+    var decided = false;
+    if (match) {
+      var params = new URLSearchParams(match[1]);
+      var state = params.get('s');
+      decided = (state === 'granted' || state === 'denied') && (params.get('v') || '') === version;
+    }
+    if (!decided) banner.hidden = false;
+  })();
+</script>
+
+<script>
+  import { onConsentBannerOpenRequest, openConsentBanner, setConsent, setConsentBannerVisible } from '../lib/consent';
+
+  const banner = document.getElementById('cookie-banner') as HTMLElement;
+  const heading = document.getElementById('cookie-banner-heading') as HTMLElement;
+  let opener: HTMLElement | null = null;
+
+  setConsentBannerVisible(!banner.hidden);
+
+  const show = (from: HTMLElement | null) => {
+    opener = from;
+    banner.hidden = false;
+    setConsentBannerVisible(true);
+    // 再表示したときは見出しにフォーカスを移す（どこに出たかを支援技術に伝える）
+    heading.focus();
+  };
+
+  banner.addEventListener('click', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLElement>('[data-consent-choice]');
+    const choice = button?.dataset.consentChoice;
+    if (choice !== 'granted' && choice !== 'denied') return;
+    setConsent(choice);
+    banner.hidden = true;
+    setConsentBannerVisible(false);
+    opener?.focus();
+    opener = null;
+  });
+
+  onConsentBannerOpenRequest(show);
+
+  // フッターの「Cookie 設定」（<button data-consent-open>）でバナーを再表示する（§1.4・§8.1）
+  document.addEventListener('click', (event) => {
+    const target = (event.target as Element | null)?.closest<HTMLElement>('[data-consent-open]');
+    if (!target) return;
+    event.preventDefault();
+    openConsentBanner(target);
+  });
+</script>

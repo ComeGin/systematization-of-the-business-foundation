@@ -1,0 +1,766 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudWatch アラーム。すべて ops トピック（comegin-ops-alert）へ直接発行する（n8n を経由しない。TA-05 の 4 節の項目 12〜14）。
+  監視対象と通知経路を分けるため（ADR-08）、AWS 側の監視は CloudWatch と SNS だけで完結させる。
+  通知は状態が変わったとき（OK から ALARM、ALARM から OK）だけ出す。通知に個人情報を載せない（アラーム名とメトリクスだけ）。
+  サービスは DesiredCount が 0 の間、タスク数・ターゲットともに 0 でアラームは鳴らない。
+  ハートビートのアラームは observability.yaml。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  OpsAlertTopicArn:
+    Type: String
+    Description: observability.yaml の OpsAlertTopicArn
+  ClusterName:
+    Type: String
+    Description: cluster.yaml の ClusterName（Container Insights の ClusterName ディメンション）
+  AlbFullName:
+    Type: String
+    Description: edge.yaml の AlbFullName（app/<名前>/<ID>）
+  MauticWebTargetGroupFullName:
+    Type: String
+    Description: edge.yaml の MauticWebTargetGroupFullName（targetgroup/<名前>/<ID>）
+  ChatwootWebTargetGroupFullName:
+    Type: String
+    Description: edge.yaml の ChatwootWebTargetGroupFullName（targetgroup/<名前>/<ID>）
+  AdminAuthTargetGroupFullName:
+    Type: String
+    Description: edge.yaml の AdminAuthTargetGroupFullName（targetgroup/<名前>/<ID>）
+  ConsentApiTargetGroupFullName:
+    Type: String
+    Description: edge.yaml の ConsentApiTargetGroupFullName（targetgroup/<名前>/<ID>）
+  MysqlInstanceIdentifier:
+    Type: String
+    Description: data.yaml の MysqlInstanceIdentifier
+  PostgresInstanceIdentifier:
+    Type: String
+    Description: data.yaml の PostgresInstanceIdentifier
+  WireguardInstanceId:
+    Type: String
+    Description: wireguard.yaml の InstanceId（オンプレとの WireGuard の EC2）
+  ValkeyReplicationGroupId:
+    Type: String
+    Description: data.yaml の ValkeyReplicationGroupId（1 ノードなので、ノードの ID は <この値>-001）
+  # しきい値（暫定値。実測して決める。TA-06 の 9 節の見積もり前）
+  EcsEvaluationMinutes:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: タスク数が足りない状態が何分続いたら通知するか。デプロイ中の入れ替わり（mautic-cron は止めてから起動する）で鳴らないための猶予。
+  Alb5xxRatioThresholdPercent:
+    Type: Number
+    Default: 5
+    Description: ALB の 5xx の比率（%）。ターゲットの 5xx と ALB 自身の 5xx の合計。
+  Alb5xxMinRequestsPer5Min:
+    Type: Number
+    Default: 20
+    Description: 5 分あたりのリクエストがこれ以下のときは比率を見ない（少ない件数の 1 件で鳴らないため）。
+  RdsFreeStorageThresholdBytes:
+    Type: Number
+    Default: 5368709120
+    Description: RDS の空きストレージのしきい値（5 GiB）。ストレージの自動拡張の上限に近づいたことを知るための値。
+  RdsCpuThresholdPercent:
+    Type: Number
+    Default: 80
+  MysqlConnectionsThreshold:
+    Type: Number
+    Default: 60
+    Description: MySQL（db.t4g.micro）の接続数のしきい値。インスタンスクラスを変えたら見直す。
+  PostgresConnectionsThreshold:
+    Type: Number
+    Default: 120
+    Description: PostgreSQL（db.t4g.small）の接続数のしきい値。6 つのデータベースが共有する。インスタンスクラスを変えたら見直す。
+  ValkeyMemoryThresholdPercent:
+    Type: Number
+    Default: 80
+  ValkeyEngineCpuThresholdPercent:
+    Type: Number
+    Default: 80
+  SesBounceRateThreshold:
+    Type: Number
+    Default: 0.04
+    Description: SES のバウンス率（0.04 = 4%）。SES は 5% で審査、10% で送信停止（TA-06 の 6 節）。手前で知る。
+  SesComplaintRateThreshold:
+    Type: Number
+    Default: 0.0008
+    Description: SES の苦情率（0.0008 = 0.08%）。SES は 0.1% で審査、0.5% で送信停止。手前で知る。
+
+Resources:
+  # ---------------------------------------------------------------- ECS: 実行中のタスク数が希望数を下回った（TA-05 の項目 12）
+  # Container Insights（cluster.yaml）の RunningTaskCount と DesiredTaskCount の差。
+  # admin-auth は止まっても訪問者に見えない（新しいログインだけができなくなる）ため、この通知でしか気づけない。
+  # Strapi と n8n はオンプレで動かす（ADR-21）。ここには対象が無い（オンプレの死活は、監視アプリのハートビートで見る）。
+  MauticWebRunningTaskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mautic-web-running-tasks'
+      AlarmDescription: mautic-web の実行中のタスク数が希望数を下回っている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: !Ref EcsEvaluationMinutes
+      DatapointsToAlarm: !Ref EcsEvaluationMinutes
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: desired
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: DesiredTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-mautic-web' }
+            Period: 60
+            Stat: Average
+        - Id: running
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: RunningTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-mautic-web' }
+            Period: 60
+            Stat: Average
+        - Id: shortfall
+          Label: DesiredTaskCount minus RunningTaskCount
+          Expression: desired - running
+          ReturnData: true
+
+  MauticCronRunningTaskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mautic-cron-running-tasks'
+      AlarmDescription: mautic-cron の実行中のタスク数が希望数を下回っている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: !Ref EcsEvaluationMinutes
+      DatapointsToAlarm: !Ref EcsEvaluationMinutes
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: desired
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: DesiredTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-mautic-cron' }
+            Period: 60
+            Stat: Average
+        - Id: running
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: RunningTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-mautic-cron' }
+            Period: 60
+            Stat: Average
+        - Id: shortfall
+          Label: DesiredTaskCount minus RunningTaskCount
+          Expression: desired - running
+          ReturnData: true
+
+  ChatwootWebRunningTaskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-chatwoot-web-running-tasks'
+      AlarmDescription: chatwoot-web の実行中のタスク数が希望数を下回っている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: !Ref EcsEvaluationMinutes
+      DatapointsToAlarm: !Ref EcsEvaluationMinutes
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: desired
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: DesiredTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-chatwoot-web' }
+            Period: 60
+            Stat: Average
+        - Id: running
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: RunningTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-chatwoot-web' }
+            Period: 60
+            Stat: Average
+        - Id: shortfall
+          Label: DesiredTaskCount minus RunningTaskCount
+          Expression: desired - running
+          ReturnData: true
+
+  ChatwootWorkerRunningTaskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-chatwoot-worker-running-tasks'
+      AlarmDescription: chatwoot-worker の実行中のタスク数が希望数を下回っている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: !Ref EcsEvaluationMinutes
+      DatapointsToAlarm: !Ref EcsEvaluationMinutes
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: desired
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: DesiredTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-chatwoot-worker' }
+            Period: 60
+            Stat: Average
+        - Id: running
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: RunningTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-chatwoot-worker' }
+            Period: 60
+            Stat: Average
+        - Id: shortfall
+          Label: DesiredTaskCount minus RunningTaskCount
+          Expression: desired - running
+          ReturnData: true
+
+
+
+  AdminAuthRunningTaskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-admin-auth-running-tasks'
+      AlarmDescription: admin-auth の実行中のタスク数が希望数を下回っている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: !Ref EcsEvaluationMinutes
+      DatapointsToAlarm: !Ref EcsEvaluationMinutes
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: desired
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: DesiredTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-admin-auth' }
+            Period: 60
+            Stat: Average
+        - Id: running
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: RunningTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-admin-auth' }
+            Period: 60
+            Stat: Average
+        - Id: shortfall
+          Label: DesiredTaskCount minus RunningTaskCount
+          Expression: desired - running
+          ReturnData: true
+
+  ConsentApiRunningTaskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-consent-api-running-tasks'
+      AlarmDescription: consent-api の実行中のタスク数が希望数を下回っている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: !Ref EcsEvaluationMinutes
+      DatapointsToAlarm: !Ref EcsEvaluationMinutes
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: desired
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: DesiredTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-consent-api' }
+            Period: 60
+            Stat: Average
+        - Id: running
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: ECS/ContainerInsights
+              MetricName: RunningTaskCount
+              Dimensions:
+                - { Name: ClusterName, Value: !Ref ClusterName }
+                - { Name: ServiceName, Value: !Sub 'comegin-${EnvName}-consent-api' }
+            Period: 60
+            Stat: Average
+        - Id: shortfall
+          Label: DesiredTaskCount minus RunningTaskCount
+          Expression: desired - running
+          ReturnData: true
+
+  # ---------------------------------------------------------------- ALB: ターゲットが unhealthy（TA-05 の項目 12）
+  MauticWebUnhealthyHostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mautic-web-unhealthy-hosts'
+      AlarmDescription: mautic-web のターゲットグループに unhealthy のターゲットがある。
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - { Name: TargetGroup, Value: !Ref MauticWebTargetGroupFullName }
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  ChatwootWebUnhealthyHostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-chatwoot-web-unhealthy-hosts'
+      AlarmDescription: chatwoot-web のターゲットグループに unhealthy のターゲットがある。
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - { Name: TargetGroup, Value: !Ref ChatwootWebTargetGroupFullName }
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  AdminAuthUnhealthyHostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-admin-auth-unhealthy-hosts'
+      AlarmDescription: admin-auth のターゲットグループに unhealthy のターゲットがある。
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - { Name: TargetGroup, Value: !Ref AdminAuthTargetGroupFullName }
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  ConsentApiUnhealthyHostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-consent-api-unhealthy-hosts'
+      AlarmDescription: consent-api のターゲットグループに unhealthy のターゲットがある。
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - { Name: TargetGroup, Value: !Ref ConsentApiTargetGroupFullName }
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  # ALB の 5xx の比率（ターゲットの 5xx と ALB 自身の 5xx の合計 / リクエスト数）。リクエストが少ないときは比率を見ない。
+  Alb5xxRatioAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-alb-5xx-ratio'
+      AlarmDescription: ALB の 5xx の比率がしきい値を超えている。
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: !Ref Alb5xxRatioThresholdPercent
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+      Metrics:
+        - Id: target5xx
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/ApplicationELB
+              MetricName: HTTPCode_Target_5XX_Count
+              Dimensions:
+                - { Name: LoadBalancer, Value: !Ref AlbFullName }
+            Period: 300
+            Stat: Sum
+        - Id: elb5xx
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/ApplicationELB
+              MetricName: HTTPCode_ELB_5XX_Count
+              Dimensions:
+                - { Name: LoadBalancer, Value: !Ref AlbFullName }
+            Period: 300
+            Stat: Sum
+        - Id: requests
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/ApplicationELB
+              MetricName: RequestCount
+              Dimensions:
+                - { Name: LoadBalancer, Value: !Ref AlbFullName }
+            Period: 300
+            Stat: Sum
+        - Id: ratio
+          Label: 5xx ratio (percent)
+          Expression: !Sub 'IF(FILL(requests, 0) > ${Alb5xxMinRequestsPer5Min}, 100 * (FILL(target5xx, 0) + FILL(elb5xx, 0)) / FILL(requests, 0), 0)'
+          ReturnData: true
+
+  # ---------------------------------------------------------------- RDS（TA-05 の項目 13）
+  # オンプレの n8n の実行履歴は RDS に増え続けるため、PostgreSQL のストレージの空きは n8n の実行履歴の保持設定（EXECUTIONS_DATA_MAX_AGE）と合わせて見る。
+  # バックアップの成否は、下の EventSubscription（バックアップの失敗など）で知る。
+  MysqlFreeStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mysql-free-storage'
+      AlarmDescription: Mysql の空きストレージがしきい値を下回っている。
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref MysqlInstanceIdentifier }
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: !Ref RdsFreeStorageThresholdBytes
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  MysqlCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mysql-cpu'
+      AlarmDescription: Mysql の CPU 使用率が高い状態が続いている。
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref MysqlInstanceIdentifier }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref RdsCpuThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  MysqlConnectionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mysql-connections'
+      AlarmDescription: Mysql の接続数がしきい値を超えている。
+      Namespace: AWS/RDS
+      MetricName: DatabaseConnections
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref MysqlInstanceIdentifier }
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref MysqlConnectionsThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  PostgresFreeStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-postgres-free-storage'
+      AlarmDescription: Postgres の空きストレージがしきい値を下回っている。
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref PostgresInstanceIdentifier }
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: !Ref RdsFreeStorageThresholdBytes
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  PostgresCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-postgres-cpu'
+      AlarmDescription: Postgres の CPU 使用率が高い状態が続いている。
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref PostgresInstanceIdentifier }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref RdsCpuThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  PostgresConnectionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-postgres-connections'
+      AlarmDescription: Postgres の接続数がしきい値を超えている。
+      Namespace: AWS/RDS
+      MetricName: DatabaseConnections
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref PostgresInstanceIdentifier }
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref PostgresConnectionsThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  # 自動バックアップの成否など。メトリクスでは分からないため、RDS のイベントを ops トピックへ直接送る。
+  # 発行を許すのは observability.yaml の ops トピックのポリシー（AllowRdsEvents）。
+  # TODO(未検証): イベントのカテゴリ名（low storage など）は実機で通知が届くことを確かめる。
+  RdsEventSubscription:
+    Type: AWS::RDS::EventSubscription
+    Properties:
+      SnsTopicArn: !Ref OpsAlertTopicArn
+      SourceType: db-instance
+      SourceIds:
+        - !Ref MysqlInstanceIdentifier
+        - !Ref PostgresInstanceIdentifier
+      EventCategories:
+        - availability
+        - backup
+        - failure
+        - low storage
+        - recovery
+      Enabled: true
+
+  # ---------------------------------------------------------------- ElastiCache（Valkey。TA-05 の項目 13）
+  # メモリの上限に近づくと追い出し（eviction）が起き、Chatwoot のキューのジョブや同意の記録が失われうる（TTL が未決のため増え続ける側。TA-06 の 11 節）。
+  ValkeyMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-valkey-memory'
+      AlarmDescription: Valkey のメモリ使用率がしきい値を超えている。
+      Namespace: AWS/ElastiCache
+      MetricName: DatabaseMemoryUsagePercentage
+      Dimensions:
+        - { Name: CacheClusterId, Value: !Sub '${ValkeyReplicationGroupId}-001' }
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref ValkeyMemoryThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  ValkeyEvictionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-valkey-evictions'
+      AlarmDescription: Valkey で追い出し（eviction）が起きている。
+      Namespace: AWS/ElastiCache
+      MetricName: Evictions
+      Dimensions:
+        - { Name: CacheClusterId, Value: !Sub '${ValkeyReplicationGroupId}-001' }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  ValkeyEngineCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-valkey-engine-cpu'
+      AlarmDescription: Valkey のエンジンの CPU 使用率が高い状態が続いている（シングルスレッドのため、ノード全体の CPU より先に詰まる）。
+      Namespace: AWS/ElastiCache
+      MetricName: EngineCPUUtilization
+      Dimensions:
+        - { Name: CacheClusterId, Value: !Sub '${ValkeyReplicationGroupId}-001' }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref ValkeyEngineCpuThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  # ---------------------------------------------------------------- SES のバウンス率と苦情率（アカウント単位。TA-05 の項目 14）
+  # 基準に達すると顧客向けメールが送れなくなる（TA-06 の 6 節）。サンドボックスのままで送っていない間はデータが無く、鳴らない。
+  SesBounceRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-ses-bounce-rate'
+      AlarmDescription: SES のバウンス率が送信停止の基準に近づいている。
+      Namespace: AWS/SES
+      MetricName: Reputation.BounceRate
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: !Ref SesBounceRateThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  SesComplaintRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-ses-complaint-rate'
+      AlarmDescription: SES の苦情率が送信停止の基準に近づいている。
+      Namespace: AWS/SES
+      MetricName: Reputation.ComplaintRate
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: !Ref SesComplaintRateThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  # ---------------------------------------------------------------- WireGuard の EC2（ADR-21。wireguard.yaml）
+  # 止まると、オンプレの Strapi・n8n が RDS に届かず、Mautic・Chatwoot の Webhook がオンプレに届かない。
+  # 訪問者に届くサービスは止まらない。通知は ops トピックへ。
+  WireguardStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-wireguard-status-check'
+      AlarmDescription: WireGuard の EC2 のステータスチェック（インスタンスまたはシステム）が失敗している。オンプレとの経路が止まっている可能性がある。
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - { Name: InstanceId, Value: !Ref WireguardInstanceId }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      # 停止やデータの欠落も異常として扱う（常時動かす 1 台のため）。
+      TreatMissingData: breaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  # システム側（ホストの障害）のときは、同じインスタンス ID・ENI・Elastic IP・EBS（秘密鍵）のまま自動復旧する。
+  # 復旧後は wg-quick が起動し、ピアは SSM のパラメータから数分で戻る。通知も出す。
+  WireguardSystemRecoverAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-wireguard-system-recover'
+      AlarmDescription: WireGuard の EC2 のシステムステータスチェックが失敗したため、自動復旧を実行した。
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions:
+        - { Name: InstanceId, Value: !Ref WireguardInstanceId }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions:
+        - !Sub 'arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover'
+        - !Ref OpsAlertTopicArn
+      OKActions: [!Ref OpsAlertTopicArn]

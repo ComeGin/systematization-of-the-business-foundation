@@ -1,0 +1,27 @@
+---
+// 箇条書き（行頭記号つき。Figma には出していないが仕様どおり付ける。03-handoff §0.3）。
+// 子の項目は字下げした入れ子の ul にする（10-A の 2 節の (1)〜(7)）。項目の間は 8px（Figma の箇条書き）。
+// 項目は短い語句が多いので phrase（文節の折り返し）を当てる（2026-10-09 リード判断。長い段落は LegalBlocks の p で当てない）
+import { LEGAL_KEEP_TOGETHER } from '../rich-text';
+import type { LegalListItem } from '../types';
+import RichTextView from './RichTextView.astro';
+
+interface Props {
+  items: readonly LegalListItem[];
+  /** 入れ子の段（0 が最上位） */
+  depth?: number;
+}
+
+const { items, depth = 0 } = Astro.props;
+---
+
+<ul class:list={['type-body phrase flex flex-col gap-2 text-text-body', depth === 0 ? 'list-disc pl-6' : 'mt-2 list-[circle] pl-5']}>
+  {
+    items.map((item) => (
+      <li>
+        <RichTextView text={item.content} keepTogether={LEGAL_KEEP_TOGETHER} />
+        {item.children && <Astro.self items={item.children} depth={depth + 1} />}
+      </li>
+    ))
+  }
+</ul>

@@ -1,0 +1,44 @@
+---
+// 画面 10-A プライバシーポリシー（/legal/privacy）。01-content-spec.md §4.10。Figma は 46:7850（Desktop）・46:8378（Mobile）。
+// 枠: パンくず → タイトルと制定日 → 目次（Desktop は本文の左に固定、Mobile は本文の前の Accordion）→ 本文（720px）。CTA は置かない。
+// 本文と目次のデータ・部品は legal モジュール。節へのアンカーは目次からだけ（本文中の「5 をご覧ください」はリンクにしない。リード判断）。
+import { BaseLayout } from '@/modules/layout';
+import { LegalBlocks, LegalPageHeader, LegalToc, privacyPolicy, sectionHeading } from '@/modules/legal';
+import { SEO } from '@/modules/site-content/seo';
+
+const seo = SEO.privacy;
+const { title, dates, tocLabel, preamble, sections } = privacyPolicy;
+// 目次の項目は h2 と同じ番号つきの見出し
+const tocItems = sections.map((section) => ({ id: section.id, label: sectionHeading(section) }));
+// ホームはパンくずの部品が先頭に足す
+const breadcrumb = privacyPolicy.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
+---
+
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
+  <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
+    <LegalPageHeader title={title} dates={dates} />
+    <LegalToc items={tocItems} label={tocLabel} variant="accordion" class="md:hidden" />
+
+    <div class="flex items-start gap-12">
+      <aside class="hidden w-72 shrink-0 self-stretch md:block">
+        <LegalToc items={tocItems} label={tocLabel} variant="sidebar" />
+      </aside>
+
+      <div class="flex w-full max-w-[720px] min-w-0 flex-col gap-12">
+        <div class="flex flex-col gap-3">
+          <LegalBlocks blocks={preamble} />
+        </div>
+        {
+          sections.map((section) => (
+            <section id={section.id} aria-labelledby={`${section.id}-heading`} class="flex scroll-mt-20 flex-col gap-3">
+              <h2 id={`${section.id}-heading`} class="type-h2 text-text-heading">
+                {sectionHeading(section)}
+              </h2>
+              <LegalBlocks blocks={section.blocks} />
+            </section>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</BaseLayout>

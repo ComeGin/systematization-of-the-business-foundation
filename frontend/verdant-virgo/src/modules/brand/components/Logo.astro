@@ -1,0 +1,48 @@
+---
+/**
+ * ComeGin のロゴ。SVG マスター（~/ComeGin/comegin/assets/logo/）の写しを public/brand/ に置き、<img> で出す
+ * （ページをまたいでキャッシュされる。文字として打ち直さない。GL §4.6-11）。
+ *
+ * - 縦横比を変えない（GL §4.6-1）。height か width の片方だけを渡し、もう片方は比率から計算する
+ * - 背景で色を選ぶ（GL §4.5）: 白・neutral 25〜100 → fullcolor ／ neutral 200〜400 → navy ／ navy 700〜900・blue 500 以上 → white
+ * - 既定の大きさは tokens.json の画面の最小幅（横組み 160px・縦組み 112px）とヘッダーのシンボル（高さ 32px）
+ */
+import { cn } from '@/lib/utils';
+import { LOGO_RATIO, type LogoColor, type LogoLockup } from '../lib/logo';
+
+interface Props {
+  lockup?: LogoLockup;
+  color?: LogoColor;
+  /** 高さ（px）。width と同時に渡さない */
+  height?: number;
+  /** 幅（px）。height と同時に渡さない */
+  width?: number;
+  /** 代替テキスト。ロゴだけでリンクにするときは既定の「ComeGin」のまま */
+  alt?: string;
+  /** ファーストビューのロゴだけ true（読み込みを遅らせない） */
+  eager?: boolean;
+  class?: string;
+}
+
+// 何も渡さないときの幅（横組み・縦組みは tokens.json の画面の最小幅。シンボルはヘッダーの高さ 32px から）
+const DEFAULT_WIDTH: Record<LogoLockup, number> = { horizontal: 160, vertical: 112, symbol: 32 * LOGO_RATIO.symbol };
+
+const { lockup = 'horizontal', color = 'fullcolor', height, width, alt = 'ComeGin', eager = false, class: className } = Astro.props;
+
+const ratio = LOGO_RATIO[lockup];
+const w = width ?? (height !== undefined ? height * ratio : DEFAULT_WIDTH[lockup]);
+const h = height ?? w / ratio;
+const base = lockup === 'symbol' ? 'comegin-symbol' : `comegin-logo-${lockup}`;
+const src = `/brand/${base}${color === 'fullcolor' ? '' : `-${color}`}.svg`;
+---
+
+<img
+  src={src}
+  alt={alt}
+  width={Number(w.toFixed(2))}
+  height={Number(h.toFixed(2))}
+  loading={eager ? 'eager' : 'lazy'}
+  decoding="async"
+  class={cn('block shrink-0', className)}
+  style={`width:${w.toFixed(2)}px;height:${h.toFixed(2)}px`}
+/>

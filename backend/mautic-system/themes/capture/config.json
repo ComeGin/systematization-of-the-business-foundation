@@ -1,0 +1,14 @@
+{
+  "name": "Capture",
+  "author": "Dropsolid",
+  "authorUrl": "https://dropsolid.io",
+  "builder": [
+    "grapesjsbuilder"
+  ],
+  "features": [
+    "page"
+  ],
+  "tags": [
+    "contact"
+  ]
+}

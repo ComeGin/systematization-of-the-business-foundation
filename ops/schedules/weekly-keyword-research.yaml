@@ -1,0 +1,20 @@
+id: weekly-keyword-research
+description: "OpenSEO でキーワード候補と検索ボリュームを調べ、E-01 の候補（adoption_status: candidate）を作る。費用が発生する（1 回 2,000 クレジットまで）"
+enabled: false
+cron: "0 9 * * 1"
+kind: agent
+agent: keyword-researcher
+builtin: null
+after: []
+prompt: |
+  キーワード候補を調べ、E-01 の候補（adoption_status は candidate）として本番の Strapi に書く。
+
+  取得の範囲と費用の上限（変えない）:
+  - シード: 10 個まで（research_keywords は 1 回 5 個まで）
+  - SERP: 20 キーワードまで（get_serp_results は 1 回 10 個まで。depth は既定のまま）
+  - 市場: 日本・日本語（locationCode と languageCode は渡さず、プロジェクトの既定に任せる）
+  - 費用: 1 回の実行の見積もりが 2,000 クレジットを超える調査は行わない。超えるなら止まって、R2 の承認が要ることを SUMMARY に書く
+  - includeClickstreamData は使わない。調査系の呼び出しは再試行しない
+  - 既存の phrase は作り直さない。adoption_status に adopted と skipped を書かない
+timeout_sec: 1200
+max_turns: 60

@@ -1,0 +1,34 @@
+---
+/**
+ * よくある質問の 1 項目（Figma の FAQItem。トップ 1-10・サービス詳細 3-7・料金 4-8）。
+ * <details>／<summary> で作り、JS を使わない（計画書 P-4）。各セクションの最初の 1 件だけ open。
+ * 区切りは項目の下罫線（開いているときは引かない。Figma と同じ）。
+ * 回答に【要記入】【要確認】を含む項目は marker で質問の行の右端にバッジを出す（文言は仕様書の回答のまま）。
+ * 回答にリンクなどを含めるときは既定のスロットで渡す（answer は省く）。
+ */
+import { ChevronDown } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+
+interface Props {
+  question: string;
+  answer?: string;
+  open?: boolean;
+  marker?: '要確認' | '要記入';
+  class?: string;
+}
+
+const { question, answer, open = false, marker, class: className } = Astro.props;
+---
+
+<details open={open} class={cn('group border-b border-border open:border-b-0', className)}>
+  <summary class="flex cursor-pointer list-none items-center gap-3 py-3 [&::-webkit-details-marker]:hidden">
+    <span class="type-label phrase flex-1 text-text-body">{question}</span>
+    <ChevronDown className="size-4 shrink-0 text-text-body transition-transform group-open:rotate-180" aria-hidden="true" />
+    {marker && <Badge variant="outline">{marker}</Badge>}
+  </summary>
+  <div class="type-body phrase max-w-[720px] pb-2 text-text-muted">
+    {answer && <p>{answer}</p>}
+    <slot />
+  </div>
+</details>
