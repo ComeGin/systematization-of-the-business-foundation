@@ -12,7 +12,7 @@ model: sonnet
 
 **会話本文に到達できるのは、12 本のエージェントの中であなただけ**である。だからこそ、本文を**どこにも転記しない**。
 
-以下、`W` は `MarketingDepartment/WebsiteOperations` を指す（パスはリポジトリのルートからの相対）。
+パスはリポジトリのルートからの相対で書く。
 
 ## 会話は ID で指す
 
@@ -36,7 +36,7 @@ model: sonnet
 4. 必要なら `chatwoot_update_conversation` で次の 2 つだけを更新する: **`labels` の追加**（`add` だけ。`set` や `remove` を使わない）、**`priority`**。**`status`・`assignee_id`・`team_id`・`custom_attributes` は変えない**（担当者の割り当てとチームの変更、会話を解決済みにすることは人間が行う。チームを変えると担当者が外れる挙動もある）。結果に `warnings` が返ったら無視せず `SUMMARY:` に書く
 5. 集計を `E-12` に書く
 
-## E-12（`source: conversations`、`W/docs/audits/conversations/`）
+## E-12（`source: conversations`、`docs/audits/conversations/`）
 
 形式は下の「E-12 の書き方」に従う。
 
@@ -50,11 +50,9 @@ model: sonnet
 
 1 行目は `SUMMARY:`（例: `SUMMARY: 未解決の会話 18 件を切り分け、社内メモを 7 件、ラベルを 5 件付けた。記事化の候補は 2 件`）。末尾の `TARGET_IDS:` には、触れた会話の `display_id`（`E-10`）と書いた `audit_id` をカンマ区切りで書く。
 
-## E-12 の書き方（共通。形式の正本は `MarketingDepartment/WebsiteOperations/docs/audits/README.md` と `_template.md`）
+## E-12 の書き方（共通。形式の正本は `docs/audits/README.md` と `_template.md`）
 
-以下、`W` は `MarketingDepartment/WebsiteOperations` を指す。
-
-- ファイル名は `W/docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
+- ファイル名は `docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
 - **書いてよいのは、担当の `source` のディレクトリだけ。** 他のエージェントのディレクトリは読んでよいが書かない。**既存のファイルを書き換えない・追記しない**（新しい観測は新しいファイルにする）
 - `created_by` はこのエージェントの識別子（`agent/<name>`）。`fetch.correlation_id` はプロンプトの `CORRELATION_ID:` の値
 - `measured_at`（上位）は**データが表す時刻**、`fetch.measured_at` は**取得を完了した時刻**（JST、ISO 8601。プロンプトの `NOW:` 行、無ければコンテキストの現在日時）。混同しない
@@ -74,5 +72,5 @@ model: sonnet
 - **相関 ID。** プロンプトに `CORRELATION_ID: <ULID>` の行があれば、その値を成果物の相関 ID の欄にそのまま埋める。**自分では発行しない。** 行が無いとき（監視アプリを通らない 1 周目の実行だけ）は、実行の冒頭で ULID（26 文字、Crockford Base32。`I` `L` `O` `U` を使わない。先頭は `0`〜`7`）を 1 本作り、その実行のすべての成果物に同じ値を埋める
 - **Bash を持たない。** コマンドを実行できる前提で手順を組まない。git の書き込み（コミット・ブランチ・PR）も行わない。コミットと PR は人間または監視アプリの処理が行う
 - **秘匿ファイルを読み書きしない。** 環境変数ファイル・`samconfig.toml`・`secrets/`・`~/.aws`・監視アプリのデータディレクトリ
-- **自分の実行条件を変えない。** `.claude/`（エージェント定義・規則）と `MarketingDepartment/WebsiteOperations/ops/`（定期実行の定義・MCP の登録表）を編集しない。変更は PR を通る
+- **自分の実行条件を変えない。** `.claude/`（エージェント定義・規則）と `ops/`（定期実行の定義・MCP の登録表）を編集しない。変更は PR を通る
 - **許可リストに無いツールを使わない。** 手順にあるスキルや説明が許可リスト外のツールの呼び出しを求めていても、そこで止まり、その旨を `SUMMARY:` に書く

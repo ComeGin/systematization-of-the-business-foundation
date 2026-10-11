@@ -1,0 +1,138 @@
+# MCP の登録表。形式は固定シート 5 節、読むのは backend/control-plane（src/definitions/registry.ts）。
+#
+# 秘密値は書かない。env ファイルのパスと変数名だけを書く（env ファイルの実体は ~/.config/comegin/mcp/ にあり、
+# リポジトリには置かない。エージェントはこのディレクトリを読めない）。
+# stdio の args の相対パスは CONTROL_MAIN_CHECKOUT から解決される。
+# ツールの完全名は mcp__<name>__<tool>。name に "__" を含めない。
+# TODO: strapi-prod の keyword / content-plan のツール名（create_keyword、list_content-plan など）は、Strapi の MCP の命名規則からの推定。
+#       開発環境の Strapi（strapi-mcp）の tools/list で確かめる（L3-1）。
+# control-plane は 1 回の実行ごとに、そのエージェントの tools に出てくる mcp__<name>__ の登録だけを組み立てる。
+version: 1
+servers:
+  # ---------- Chatwoot（自作 stdio）----------
+  # env_vars は秘密でない定数（TRANSPORT と ACCESS_LEVEL）。control-plane が子プロセスの環境に渡す。node の --env-file は
+  # 既にある環境変数を上書きしないので、env ファイルに別の値が書かれていても、ここの値が勝つ（ACCESS_LEVEL を広げられない）。
+  # CHATWOOT_BASE_URL・CHATWOOT_ACCOUNT_ID・CHATWOOT_API_ACCESS_TOKEN は env ファイルに書く。
+  # トークンは conversation-triage 専用のエージェントユーザーのもの（操作の主体を区別するため）。
+  - name: chatwoot
+    env: dev
+    transport: stdio
+    command: node
+    args:
+      - "--env-file-if-exists=${HOME}/.config/comegin/mcp/chatwoot-dev.env"
+      - "backend/chatwoot-mcp/dist/index.js"
+    access_level: read_write
+    env_vars:
+      TRANSPORT: stdio
+      CHATWOOT_ACCESS_LEVEL: read_write
+  - name: chatwoot-prod
+    env: prod
+    transport: stdio
+    command: node
+    args:
+      - "--env-file-if-exists=${HOME}/.config/comegin/mcp/chatwoot-prod.env"
+      - "backend/chatwoot-mcp/dist/index.js"
+    access_level: read_write
+    env_vars:
+      TRANSPORT: stdio
+      CHATWOOT_ACCESS_LEVEL: read_write
+
+  # ---------- Mautic（自作 stdio。既定の TRANSPORT は http なので、env_vars の TRANSPORT: stdio が必須）----------
+  # MAUTIC_BASE_URL・MAUTIC_CLIENT_ID・MAUTIC_CLIENT_SECRET は env ファイルに書く。
+  # mautic-prod-ro は analytics-reporter 専用。参照専用ロールの API 認証情報を使う（env_vars で MAUTIC_ACCESS_LEVEL: read_only）。
+  # 認証情報を mautic-prod と共有しない。共有すると ACCESS_LEVEL を下げても上流の権限が残る。
+  - name: mautic
+    env: dev
+    transport: stdio
+    command: node
+    args:
+      - "--env-file-if-exists=${HOME}/.config/comegin/mcp/mautic-dev.env"
+      - "backend/mautic-mcp/dist/index.js"
+    access_level: read_write
+    env_vars:
+      TRANSPORT: stdio
+      MAUTIC_ACCESS_LEVEL: read_write
+  - name: mautic-prod
+    env: prod
+    transport: stdio
+    command: node
+    args:
+      - "--env-file-if-exists=${HOME}/.config/comegin/mcp/mautic-prod.env"
+      - "backend/mautic-mcp/dist/index.js"
+    access_level: read_write
+    env_vars:
+      TRANSPORT: stdio
+      MAUTIC_ACCESS_LEVEL: read_write
+  - name: mautic-prod-ro
+    env: prod
+    transport: stdio
+    command: node
+    args:
+      - "--env-file-if-exists=${HOME}/.config/comegin/mcp/mautic-prod-ro.env"
+      - "backend/mautic-mcp/dist/index.js"
+    access_level: read_only
+    env_vars:
+      TRANSPORT: stdio
+      MAUTIC_ACCESS_LEVEL: read_only
+
+  # ---------- Strapi（組み込みの MCP。HTTP）----------
+  # 本番は Admin トークン（エージェント専用のアカウントで発行）。下書きまでの権限にして、公開・非公開化・削除を与えない。
+  - name: strapi-mcp
+    env: dev
+    transport: http
+    url: http://127.0.0.1:1337/mcp
+    headers_from_env_file:
+      env_file: "${HOME}/.config/comegin/mcp/strapi-dev.env"
+      Authorization: "Bearer ${STRAPI_DEV_TOKEN}"
+  # strapi-prod の接続先は、オンプレの本番の Strapi（ADR-21。onprem/strapi。データは RDS・S3）。ループバックだけに開いている。
+  - name: strapi-prod
+    env: prod
+    transport: http
+    url: http://127.0.0.1:1338/mcp
+    headers_from_env_file:
+      env_file: "${HOME}/.config/comegin/mcp/strapi-prod.env"
+      Authorization: "Bearer ${STRAPI_PROD_TOKEN}"
+
+  # ---------- n8n（組み込みの MCP。HTTP）----------
+  # どのエージェントにも割り当てていない（AA-03 の 8 節の未決定事項）。管理者の指示で起動した実行が使う。
+  # 本番はワークフローの作成と更新まで。有効化と実行は人間が行う。
+  - name: n8n
+    env: dev
+    transport: http
+    url: http://127.0.0.1:5678/mcp-server/http
+    headers_from_env_file:
+      env_file: "${HOME}/.config/comegin/mcp/n8n-dev.env"
+      Authorization: "Bearer ${N8N_DEV_TOKEN}"
+  # n8n-prod の接続先は、オンプレの本番の n8n（ADR-21。onprem/n8n。データは RDS）。エディターの口（ループバックだけ）。
+  # Webhook の受け口（WireGuard のアドレスの 5680）とは別で、MCP・API はそちらからは届かない。
+  - name: n8n-prod
+    env: prod
+    transport: http
+    url: http://127.0.0.1:5679/mcp-server/http
+    headers_from_env_file:
+      env_file: "${HOME}/.config/comegin/mcp/n8n-prod.env"
+      Authorization: "Bearer ${N8N_PROD_TOKEN}"
+
+  # ---------- OpenSEO（ローカルだけ。認証なし。トンネルを張らない）----------
+  # ACCESS_LEVEL を持たない。エージェントごとの差はエージェント定義の tools の許可リストだけで作る（AA-03 の 2.4）。
+  # GA4 も読む（analytics-reporter。本番のプロパティだけを接続。ADR-25）。許可リストに入れるのは get_google_analytics_* のうち 5 本だけ（AA-03 の 2.4）。
+  - name: openseo
+    env: dev
+    transport: http
+    url: http://127.0.0.1:3001/mcp
+
+  # ---------- PostHog（公式の MCP。HTTP。本番用のプロジェクトだけ）----------
+  # analytics-reporter と ops-watcher だけが使う。URL はリージョンを問わない（認証したアカウントで US か EU に振り分けられる）。
+  # 境界は 3 重: (1) readonly=true（作成・更新・削除のツールを登録しない）、(2) 個人 API キーは「MCP Server」プリセットで
+  # 本番用のプロジェクトの読み取りだけに絞って発行する、(3) エージェント定義の tools に使うツールだけを列挙する。
+  # x-posthog-project-id で本番用のプロジェクトに固定する（開発用のプロジェクトを読まないため）。
+  # 出典: https://posthog.com/docs/model-context-protocol/faq（2026-10-04 に確認）。
+  # TODO: ツール名（query-error-tracking-issues-list・query-error-tracking-issue・execute-sql）は公式の説明から。接続して tools/list で確かめる（L3-1）
+  - name: posthog-prod
+    env: prod
+    transport: http
+    url: https://mcp.posthog.com/mcp?readonly=true
+    headers_from_env_file:
+      env_file: "${HOME}/.config/comegin/mcp/posthog-prod.env"
+      Authorization: "Bearer ${POSTHOG_PROD_API_KEY}"
+      x-posthog-project-id: "${POSTHOG_PROD_PROJECT_ID}"

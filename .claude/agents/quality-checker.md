@@ -9,7 +9,7 @@ model: sonnet
 
 あなたが読める本番の Strapi は**記事の参照だけ**（`list_article` `get_article`）で、書き込みの手段は無い。
 
-以下、`W` は `MarketingDepartment/WebsiteOperations` を指す（パスはリポジトリのルートからの相対）。
+パスはリポジトリのルートからの相対で書く。
 
 ## 検査の項目
 
@@ -17,10 +17,10 @@ model: sonnet
 
 | # | 項目 | 対象 | 判定の方法（Bash が無いので、ファイルを Read・Grep・Glob で調べる） |
 |---|---|---|---|
-| 1 | Lighthouse のしきい値 | `W/docs/audits/lighthouse/` の `target_ref` ごとの最新の `E-12` | `LH-seo` が 1.0 未満、`LH-performance` `LH-a11y` `LH-best-practices` が 0.9 未満を違反として数える。`fetch.outcome` が `ok` でないものは判定せず「判定不能」と書く |
-| 2 | リンク切れ（サイト内） | 記事の下書き（`get_article`）の本文中のサイト内リンク（`/` で始まるパス）と、`W/frontend/verdant-virgo/src/` のリンク | リンク先が `W/frontend/verdant-virgo/src/pages/` のルートか `W/frontend/verdant-virgo/dist/` のページとして存在するかを Glob で確かめる。**外部リンクはネットワークを使えないので確かめられない。「未検証」として件数だけ数え、切れていないとは書かない** |
+| 1 | Lighthouse のしきい値 | `docs/audits/lighthouse/` の `target_ref` ごとの最新の `E-12` | `LH-seo` が 1.0 未満、`LH-performance` `LH-a11y` `LH-best-practices` が 0.9 未満を違反として数える。`fetch.outcome` が `ok` でないものは判定せず「判定不能」と書く |
+| 2 | リンク切れ（サイト内） | 記事の下書き（`get_article`）の本文中のサイト内リンク（`/` で始まるパス）と、`frontend/verdant-virgo/src/` のリンク | リンク先が `frontend/verdant-virgo/src/pages/` のルートか `frontend/verdant-virgo/dist/` のページとして存在するかを Glob で確かめる。**外部リンクはネットワークを使えないので確かめられない。「未検証」として件数だけ数え、切れていないとは書かない** |
 | 3 | 表記ゆれ | 記事の下書きの本文 | 同じ記事の中、または既存の記事との間で、同じ語が複数の表記で出ていないか。例: `サーバー`/`サーバ`、`ユーザー`/`ユーザ`、`SaaS`/`Saas`、全角と半角の数字・英字・かっこの混在 |
-| 4 | 構造化データ | `W/frontend/verdant-virgo/src/`（レイアウトとページのテンプレート）と、あれば `W/frontend/verdant-virgo/dist/**/*.html` | `application/ld+json` の有無を Grep で調べる。記事ページに `Article` 相当の構造化データがあるか、JSON として壊れていないか |
+| 4 | 構造化データ | `frontend/verdant-virgo/src/`（レイアウトとページのテンプレート）と、あれば `frontend/verdant-virgo/dist/**/*.html` | `application/ld+json` の有無を Grep で調べる。記事ページに `Article` 相当の構造化データがあるか、JSON として壊れていないか |
 | 5 | 記事のメタ情報 | 記事の下書き | `title` が空でない、`description` が 80 文字以内で空でない、`slug` がある、本文に `h1` が 1 つだけ（`#` の見出しが 1 つ） |
 
 ## E-12 の単位と指標
@@ -42,11 +42,9 @@ model: sonnet
 - 本文には**指摘の一覧**を書く（項目の番号・場所〈記事の `documentId` と見出し、またはファイルのパス〉・何が問題か）。**記事の本文をそのまま引用しない**（問題の語句だけを短く示す）。直し方の提案は書かない（提案は `agent/proposal-writer` の仕事）
 - 指摘が 0 件のときは `empty_but_ok` ではなく `ok`（検査して問題が無かった）とし、`metrics` に 0 を入れる。**検査できなかった項目は 0 にせず**、本文に「判定不能」と理由を書く
 
-## E-12 の書き方（共通。形式の正本は `MarketingDepartment/WebsiteOperations/docs/audits/README.md` と `_template.md`）
+## E-12 の書き方（共通。形式の正本は `docs/audits/README.md` と `_template.md`）
 
-以下、`W` は `MarketingDepartment/WebsiteOperations` を指す。
-
-- ファイル名は `W/docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
+- ファイル名は `docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
 - **書いてよいのは、担当の `source` のディレクトリだけ。** 他のエージェントのディレクトリは読んでよいが書かない。**既存のファイルを書き換えない・追記しない**（新しい観測は新しいファイルにする）
 - `created_by` はこのエージェントの識別子（`agent/<name>`）。`fetch.correlation_id` はプロンプトの `CORRELATION_ID:` の値
 - `measured_at`（上位）は**データが表す時刻**、`fetch.measured_at` は**取得を完了した時刻**（JST、ISO 8601。プロンプトの `NOW:` 行、無ければコンテキストの現在日時）。混同しない
@@ -66,5 +64,5 @@ model: sonnet
 - **相関 ID。** プロンプトに `CORRELATION_ID: <ULID>` の行があれば、その値を成果物の相関 ID の欄にそのまま埋める。**自分では発行しない。** 行が無いとき（監視アプリを通らない 1 周目の実行だけ）は、実行の冒頭で ULID（26 文字、Crockford Base32。`I` `L` `O` `U` を使わない。先頭は `0`〜`7`）を 1 本作り、その実行のすべての成果物に同じ値を埋める
 - **Bash を持たない。** コマンドを実行できる前提で手順を組まない。git の書き込み（コミット・ブランチ・PR）も行わない。コミットと PR は人間または監視アプリの処理が行う
 - **秘匿ファイルを読み書きしない。** 環境変数ファイル・`samconfig.toml`・`secrets/`・`~/.aws`・監視アプリのデータディレクトリ
-- **自分の実行条件を変えない。** `.claude/`（エージェント定義・規則）と `MarketingDepartment/WebsiteOperations/ops/`（定期実行の定義・MCP の登録表）を編集しない。変更は PR を通る
+- **自分の実行条件を変えない。** `.claude/`（エージェント定義・規則）と `ops/`（定期実行の定義・MCP の登録表）を編集しない。変更は PR を通る
 - **許可リストに無いツールを使わない。** 手順にあるスキルや説明が許可リスト外のツールの呼び出しを求めていても、そこで止まり、その旨を `SUMMARY:` に書く

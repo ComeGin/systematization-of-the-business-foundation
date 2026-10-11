@@ -1,0 +1,49 @@
+/*
+ * 役割トークンの補正・拡張と、shadcn/ui の変数の当て先。
+ *
+ * tokens.css は ~/ComeGin/comegin/assets/tokens/tokens.css の写し（生成物）なので直接直さない。
+ * 生成物に無いもの・生成物が古いものは、ここで primitive を指して定義する。
+ * 値の根拠は docs/BasicDesign/DesignSpec/website/
+ * 02-component-map.md §2.2（役割トークン）と §9.1（kit 変数 → 役割トークンの対応表）。
+ *
+ * レイヤーに入れない（global.css から tokens.css の後に読む）。Tailwind の @layer theme より強く、
+ * tokens.css の同名の値を後勝ちで上書きする。
+ */
+
+:root {
+  /* H-7: 主ボタンの地は blue.600（白文字で 5.09:1）。tokens.css は blue.500（4.06:1、AA 不適合）のまま古い。
+     正本（build_brand_tokens.py）を直したら、この 1 行は消してよい。 */
+  --color-role-surface-brand: var(--color-brand-blue-600);
+
+  /* 拡張の役割トークン（tokens.json の color.role に無い 7 件。02-component-map.md §2.2 の ◆） */
+  --color-role-text-heading: var(--color-brand-navy-700);
+  --color-role-text-link-hover: var(--color-brand-blue-700);
+  --color-role-text-brand: var(--color-brand-blue-700);
+  --color-role-text-accent-subtle: var(--color-brand-navy-700);
+  --color-role-surface-brand-hover: var(--color-brand-blue-700);
+  --color-role-surface-accent-subtle: var(--color-brand-blue-50);
+  --color-role-border-brand: var(--color-brand-navy-700);
+
+  /* shadcn/ui の変数（02-component-map.md §9.1） */
+  --background: var(--color-role-surface);
+  --foreground: var(--color-role-text-body);
+  --card: var(--color-role-surface);
+  --card-foreground: var(--color-role-text-body);
+  --popover: var(--color-role-surface);
+  --popover-foreground: var(--color-role-text-body);
+  /* §9.1 は kit の primary を surface-brand-strong（navy.700）に当てるが、コードでは Button の default が主 CTA になるため surface-brand にする。 */
+  --primary: var(--color-role-surface-brand);
+  --primary-foreground: var(--color-role-text-inverse);
+  --secondary: var(--color-role-surface-subtle);
+  --secondary-foreground: var(--color-role-text-heading);
+  --muted: var(--color-role-surface-subtle);
+  --muted-foreground: var(--color-role-text-muted);
+  --accent: var(--color-role-surface-accent-subtle);
+  --accent-foreground: var(--color-role-text-accent-subtle);
+  --destructive: var(--color-semantic-danger);
+  --border: var(--color-role-border);
+  --input: var(--color-role-border);
+  /* フォーカスリングは blue.500 のまま（UI 部品の境界は 3:1 で足りる。H-7・H-8） */
+  --ring: var(--color-role-focus-ring);
+  --radius: var(--radius-md);
+}
