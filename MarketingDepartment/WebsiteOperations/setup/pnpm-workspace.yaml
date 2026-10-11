@@ -1,7 +1,0 @@
-packages:
-  - '.'
-
-# サプライチェーン対策
-minimumReleaseAge: 10080 # 公開から 7 日未満のバージョンはインストールしない（分）
-trustPolicy: no-downgrade
-blockExoticSubdeps: true

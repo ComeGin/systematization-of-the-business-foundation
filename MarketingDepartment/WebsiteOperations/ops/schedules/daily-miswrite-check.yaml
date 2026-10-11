@@ -1,9 +1,0 @@
-id: daily-miswrite-check
-description: "誤った書き込みの突き合わせ。エージェント専用ユーザーの送信の記録のうち、どの E-13 にも対応しないものを候補として監視アプリに出す（TA-07 の 6.2）"
-enabled: false
-cron: "15 8 * * *"
-kind: builtin
-agent: null
-builtin: miswrite-check
-after: []
-timeout_sec: 600

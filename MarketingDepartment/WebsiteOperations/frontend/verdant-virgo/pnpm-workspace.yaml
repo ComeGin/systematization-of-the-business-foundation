@@ -1,5 +1,0 @@
-allowBuilds:
-  # posthog-js の依存。postinstall はバナー表示だけなので走らせない
-  core-js: false
-  esbuild: true
-  sharp: true

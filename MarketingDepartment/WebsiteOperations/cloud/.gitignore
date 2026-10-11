@@ -1,6 +1,0 @@
-# 実体の設定（アカウント固有の値）は追跡しない。雛形は samconfig.toml.example
-samconfig.toml
-
-# sam build / sam package の成果物
-.aws-sam/
-packaged.yaml

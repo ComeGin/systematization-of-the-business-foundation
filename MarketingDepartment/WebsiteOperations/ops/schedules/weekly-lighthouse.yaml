@@ -1,9 +1,0 @@
-id: weekly-lighthouse
-description: "Lighthouse の定点計測。pnpm lh を実行し、結果を frontend/verdant-virgo/.lighthouse/ に置く（エージェントは使わない）"
-enabled: false
-cron: "0 5 * * 1"
-kind: builtin
-agent: null
-builtin: lighthouse
-after: []
-timeout_sec: 1800
