@@ -1,0 +1,139 @@
+---
+// 画面 7 ブログ一覧の組み立て（01-content-spec.md §4.7。Figma は Blog 一覧 / Desktop 42:4374・Mobile 42:5786）。
+// すべての記事の一覧（/blog、/blog/page/<n>）とカテゴリ別の一覧（/blog/category/<slug>…）が共通で使う。
+// ヘッダーの「無料相談」は Outline（F2）。主 CTA は無料 DL（強調版。§6.3 の #26 dl_blog_section）。
+// カテゴリのタブとページ送りは JS を使わないリンク（計画 P-4）。ページ間の移動なので計測しない。
+// ファイル名の先頭の _ でページにならない（Astro のルーティングの対象外）。
+import { SourceDownloadBlock } from '@/modules/forms';
+import { ALL_CATEGORIES_LABEL, BLOG_CATEGORIES, type Article } from '@/modules/blog';
+import { BaseLayout, PageIntro, type BreadcrumbItem } from '@/modules/layout';
+import { Section } from '@/modules/marketing-ui';
+import { blogIndex } from '@/modules/site-content/blog';
+import type { PageSeo } from '@/modules/site-content/seo';
+import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui/button';
+import ArticleCard from './_ArticleCard.astro';
+
+interface Props {
+  seo: PageSeo;
+  /** このページに出す記事（9 件まで） */
+  articles: readonly Article[];
+  /** 1 から始まるページ番号 */
+  page: number;
+  totalPages: number;
+  /** カテゴリ別の一覧のときのカテゴリの slug（すべての一覧では省く） */
+  categorySlug?: string;
+}
+
+const { seo, articles, page, totalPages, categorySlug } = Astro.props;
+const { hero, pagination, sourceDownload } = blogIndex;
+
+// 一覧の URL。1 ページ目は /blog または /blog/category/<slug>、2 ページ目以降は …/page/<n>
+const basePath = categorySlug ? `/blog/category/${categorySlug}` : '/blog';
+const pageHref = (n: number) => (n === 1 ? basePath : `${basePath}/page/${n}`);
+const tabs = [
+  { label: ALL_CATEGORIES_LABEL, href: '/blog', active: !categorySlug },
+  ...BLOG_CATEGORIES.map((category) => ({
+    label: category.label,
+    href: `/blog/category/${category.slug}`,
+    active: category.slug === categorySlug,
+  })),
+];
+
+// パンくずは「ホーム / ブログ」（ホームは部品が先頭に足す）。カテゴリ別・2 ページ目以降も一覧の 1 枚として同じにする
+const breadcrumb: BreadcrumbItem[] = blogIndex.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
+const pageLinkClass = (current: boolean) =>
+  cn(buttonVariants({ variant: current ? 'outline' : 'ghost', size: 'sm' }), 'min-w-8 px-2.5 text-sm font-medium text-text-body', current && 'border-border');
+---
+
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} headerCta="outline" sourceDlOnPage>
+  {/* 7-3 導入ヒーロー。段落 1 と出典 1 を 1 つのまとまりで組む（03-handoff §0.3）。出典は Caption・role/text-muted */}
+  <PageIntro title={hero.h1}>
+    <div slot="body" class="phrase flex max-w-[720px] flex-col gap-4">
+      {
+        hero.paragraphs.map((paragraph) => (
+          <>
+            <p class="type-body-lg text-text-muted">{paragraph.sentences.join('')}</p>
+            {'source' in paragraph && <p class="type-caption text-text-muted">{paragraph.source}</p>}
+          </>
+        ))
+      }
+    </div>
+  </PageIntro>
+  {/* Figma の導入の地の下端（96px）に合わせる。PageIntro の下の余白 64px に 32px を足す */}
+  <div aria-hidden="true" class="hidden h-8 bg-surface-subtle md:block"></div>
+
+  {/* 7-4 カテゴリと記事一覧（Desktop 3 列 ×3 行、Mobile 1 列） */}
+  <Section>
+    {/* Mobile は横スクロール（折り返さない） */}
+    <nav aria-label="カテゴリ" class="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+      <ul class="flex w-max gap-2">
+        {
+          tabs.map((tab) => (
+            <li>
+              <a
+                href={tab.href}
+                aria-current={tab.active ? 'page' : undefined}
+                class={cn(
+                  'type-label flex min-h-8 items-center rounded-md px-2 py-1 whitespace-nowrap text-text-body',
+                  tab.active ? 'bg-surface shadow-sm ring-1 ring-border' : 'hover:bg-surface-subtle',
+                )}
+              >
+                {tab.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <ul class="mt-8 grid gap-4 md:grid-cols-3 md:gap-8">
+      {
+        articles.map((article) => (
+          <li class="flex">
+            <ArticleCard article={article} context="ブログ一覧のカバー" level="h2" />
+          </li>
+        ))
+      }
+    </ul>
+
+    {
+      totalPages > 1 && (
+        <nav aria-label="ページ送り" class="mt-8 flex items-center justify-center gap-2">
+          {page > 1 ? (
+            <a href={pageHref(page - 1)} rel="prev" class={pageLinkClass(false)}>
+              {pagination.previous}
+            </a>
+          ) : (
+            <span aria-disabled="true" class={cn(pageLinkClass(false), 'pointer-events-none opacity-50')}>
+              {pagination.previous}
+            </span>
+          )}
+          <ol class="flex items-center gap-2">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+              <li class={n === page ? undefined : 'hidden md:block'}>
+                <a href={pageHref(n)} aria-current={n === page ? 'page' : undefined} class={pageLinkClass(n === page)}>
+                  {n}
+                </a>
+              </li>
+            ))}
+          </ol>
+          {page < totalPages ? (
+            <a href={pageHref(page + 1)} rel="next" class={pageLinkClass(false)}>
+              {pagination.next}
+            </a>
+          ) : (
+            <span aria-disabled="true" class={cn(pageLinkClass(false), 'pointer-events-none opacity-50')}>
+              {pagination.next}
+            </span>
+          )}
+        </nav>
+      )
+    }
+  </Section>
+
+  {/* 7-5 無料 DL ブロック（主 CTA。強調版。部品が id="source-dl" を持つ） */}
+  <Section>
+    <SourceDownloadBlock ctaId="dl_blog_section" emphasis="strong" title={sourceDownload.heading} body={sourceDownload.body} />
+  </Section>
+</BaseLayout>

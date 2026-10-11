@@ -1,0 +1,33 @@
+---
+// オンライン面談の予約（/contact/thanks の 6'-2。id="booking"）。見出し（h2）と本文は props、
+// 予約枠・代わりの案内・枠の下の注記はこの部品が出す（注記は予約のボタンを押す前に、外に出る情報を知らせる）。
+// Desktop は本文幅 720px・高さ 640px、Mobile は全幅・高さ 560px。
+import BookingFrame from './BookingFrame';
+import { BOOKING_TEXT } from '../lib/messages';
+
+interface Props {
+  title: string;
+  body: string;
+  class?: string;
+}
+
+const { title, body, class: className } = Astro.props;
+const { privacyNote } = BOOKING_TEXT;
+---
+
+<section id="booking" class:list={['mx-auto grid w-full max-w-[720px] scroll-mt-20 gap-4', className]}>
+  <h2 class="text-2xl font-bold text-text-heading md:text-3xl">{title}</h2>
+  <p class="phrase leading-[1.75]">{body}</p>
+  <BookingFrame client:load />
+  <div class="phrase grid gap-1 text-xs text-muted-foreground">
+    {BOOKING_TEXT.notes.map((note) => <p>{note}</p>)}
+    <p>
+      {privacyNote.before}<a
+        href={privacyNote.href}
+        target="_blank"
+        rel="noopener"
+        class="text-text-link underline underline-offset-4 hover:text-text-link-hover">{privacyNote.linkText}</a
+      >{privacyNote.after}
+    </p>
+  </div>
+</section>

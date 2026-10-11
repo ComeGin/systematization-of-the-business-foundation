@@ -1,0 +1,17 @@
+---
+// 法務ページのタイトル（h1）と制定日・改定日（h1 の下、Small・role/text-muted）。
+// 仕様書の 2 つの文を、区切りの文字を足さずに間隔だけで並べる（Figma は「 ／ 」でつないでいるが、仕様書に無い文字のため使わない）。
+interface Props {
+  title: string;
+  dates: readonly string[];
+}
+
+const { title, dates } = Astro.props;
+---
+
+<div class="flex flex-col gap-3">
+  <h1 class="type-h1 text-text-heading">{title}</h1>
+  <p class="type-small flex flex-wrap gap-x-4 text-text-muted">
+    {dates.map((date) => <span>{date}</span>)}
+  </p>
+</div>

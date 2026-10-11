@@ -1,0 +1,173 @@
+---
+// 画面 8 ブログ記事（/blog/<slug>）。01-content-spec.md §4.8。Figma は Blog 記事 / Desktop（42:6400）・Mobile（44:6472）。
+// 記事は blog モジュールが Strapi からビルド時に取る（ADR-11）。ヘッダーの「無料相談」は Outline（F2）。
+// 主 CTA は記事の検索意図（カテゴリ）で切り替える（§4.8 の表）:
+//   潜在・準顕在 … 8-6 記事中 CTA ＝ 無料 DL（dl_article_inline → #source-dl）、8-8 ＝ 無料 DL ブロックの強調版（dl_article_end・primary）
+//   顕在・指名   … 8-6 ＝ 無料相談（consult_article_inline）、8-8 ＝ CTA バナー（consult_article_end）＋ 無料 DL ブロックの控えめ版（dl_article_end・secondary）
+// 並び: 記事ヘッダー → 目次（Mobile は本文の前）→ 本文（8-6 は最初の h2 の直前）→ 著者 → 8-8 → 関連記事。
+import type { GetStaticPaths } from 'astro';
+import { SourceDownloadBlock } from '@/modules/forms';
+import {
+  ArticleBlocks,
+  formatJstDate,
+  getAllArticles,
+  getArticleIntent,
+  getRelatedArticles,
+  prepareArticleBody,
+  StrapiImage,
+  type Article,
+} from '@/modules/blog';
+import { BaseLayout } from '@/modules/layout';
+import { LegalToc } from '@/modules/legal';
+import { CTABanner, CTAButton, IconCard, ImagePlaceholder, Section, SectionHeading } from '@/modules/marketing-ui';
+import { Badge } from '@/components/ui/badge';
+import { author } from '@/modules/site-content/about';
+import { blogArticle } from '@/modules/site-content/blog';
+import { contactHref } from '@/modules/site-content/cta';
+import { articleSeo } from '@/modules/site-content/seo';
+import ArticleCard from './_ArticleCard.astro';
+
+export const getStaticPaths = (async () =>
+  (await getAllArticles()).map((article) => ({ params: { slug: article.slug }, props: { article } }))) satisfies GetStaticPaths;
+
+interface Props {
+  article: Article;
+}
+
+const { article } = Astro.props;
+const seo = articleSeo(article.title, article.description);
+const from = Astro.url.pathname;
+const explicit = getArticleIntent(article) === 'explicit';
+const body = await prepareArticleBody(article);
+const related = await getRelatedArticles(article, 3);
+const tocItems = body.toc.map((item) => ({ id: item.id, label: item.text }));
+const { meta, inlineCta, endCta } = blogArticle;
+// パンくず「ホーム / ブログ / 記事タイトル」（ホームは部品が先頭に足す。Mobile は 1 行で省略）
+const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ ...crumb })), { label: article.title }];
+---
+
+<BaseLayout
+  title={seo.title}
+  description={seo.description}
+  noindex={seo.noindex}
+  ogType="article"
+  breadcrumb={breadcrumb}
+  breadcrumbTone="surface"
+  headerCta="outline"
+  sourceDlOnPage
+>
+  <div class="site-container flex items-start gap-12 pt-8 pb-16 md:pb-24">
+    <article class="flex w-full max-w-[720px] min-w-0 flex-col gap-8 md:gap-12">
+      {/* 8-3 記事ヘッダー */}
+      <header class="flex flex-col items-start gap-3">
+        {article.category && <Badge variant="secondary" className="h-6 py-1">{article.category.name}</Badge>}
+        <h1 class="type-h1 text-text-heading">{article.title}</h1>
+        <p class="type-small flex flex-wrap gap-x-4 text-text-muted">
+          <span>{meta.published} <time datetime={article.publishedAt}>{formatJstDate(article.publishedAt)}</time></span>
+          <span>{meta.updated} <time datetime={article.updatedAt}>{formatJstDate(article.updatedAt)}</time></span>
+          <span>{meta.author} {author.name}</span>
+        </p>
+      </header>
+      {
+        article.cover ? (
+          <StrapiImage media={article.cover} context="記事のアイキャッチ" loading="eager" class="aspect-video w-full rounded-md object-cover" />
+        ) : (
+          <ImagePlaceholder label={blogArticle.imagePlaceholder} class="aspect-video w-full" />
+        )
+      }
+
+      {/* 8-4 目次（Mobile は本文の前の Accordion。閉じた状態） */}
+      {tocItems.length > 0 && <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="accordion" class="md:hidden" />}
+
+      {/* 8-5 本文。8-6 記事中 CTA は最初の h2 の直前（h2 が無い記事では本文の後）に入る */}
+      <ArticleBlocks body={body} slug={article.slug}>
+        <Fragment slot="inline-cta">
+          {
+            explicit ? (
+              <CTABanner type="inline" level="p" title={inlineCta.consult.heading}>
+                <CTAButton
+                  slot="cta"
+                  ctaId="consult_article_inline"
+                  href={contactHref({ cta: 'consult_article_inline', from })}
+                  fullWidth="mobile"
+                >
+                  {inlineCta.consult.button}
+                </CTAButton>
+              </CTABanner>
+            ) : (
+              <CTABanner type="inline" level="p" title={inlineCta.sourceDownload.heading}>
+                <CTAButton slot="cta" ctaId="dl_article_inline" href="#source-dl" fullWidth="mobile">
+                  {inlineCta.sourceDownload.button}
+                </CTAButton>
+              </CTABanner>
+            )
+          }
+        </Fragment>
+      </ArticleBlocks>
+
+      {/* 8-7 著者（5-5a と一字一句そろえた紹介文。about.ts の author） */}
+      <IconCard avatar title={author.name} body={author.bio.join('')} />
+    </article>
+
+    {/* 8-4 目次（Desktop は本文の右。スクロールに追従） */}
+    {
+      tocItems.length > 0 && (
+        <aside class="hidden min-w-0 flex-1 self-stretch md:block">
+          <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="sidebar" />
+        </aside>
+      )
+    }
+  </div>
+
+  {/* 8-8 記事末 CTA（Figma は本文の下の余白とセクションの上の余白の両方を持つ） */}
+  <Section>
+    {
+      explicit ? (
+        <div class="flex flex-col gap-8 md:gap-12">
+          <CTABanner title={endCta.consultBanner.heading}>
+            <CTAButton
+              slot="cta"
+              ctaId="consult_article_end"
+              href={contactHref({ cta: 'consult_article_end', from })}
+              size="lg"
+              fullWidth="mobile"
+            >
+              {endCta.consultBanner.button}
+            </CTAButton>
+          </CTABanner>
+          <SourceDownloadBlock
+            ctaId="dl_article_end"
+            ctaRole="secondary"
+            emphasis="subtle"
+            title={endCta.sourceDownload.heading}
+            body={endCta.sourceDownload.body}
+          />
+        </div>
+      ) : (
+        <SourceDownloadBlock
+          ctaId="dl_article_end"
+          ctaRole="primary"
+          emphasis="strong"
+          title={endCta.sourceDownload.heading}
+          body={endCta.sourceDownload.body}
+        />
+      )
+    }
+  </Section>
+
+  {/* 8-9 関連記事（BlogCard ×3） */}
+  {
+    related.length > 0 && (
+      <Section labelledby="article-related">
+        <SectionHeading id="article-related" title={blogArticle.related.heading} />
+        <ul class="mt-8 grid gap-4 md:grid-cols-3 md:gap-8">
+          {related.map((item) => (
+            <li class="flex">
+              <ArticleCard article={item} context="関連記事のカバー" />
+            </li>
+          ))}
+        </ul>
+      </Section>
+    )
+  }
+</BaseLayout>

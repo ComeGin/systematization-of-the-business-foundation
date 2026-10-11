@@ -1,0 +1,18 @@
+---
+/**
+ * ロゴの並び（ダミー。トップ 1-8。Figma の LogoCloud）。実在の社名・ロゴを入れない。
+ * Desktop は 6 列（高さ 80px）、Mobile は 3 列 × 2 行（高さ 64px）。枠の文言はすべて「ロゴ（準備中）」。
+ */
+import { cn } from '@/lib/utils';
+import ImagePlaceholder from './ImagePlaceholder.astro';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+---
+
+<div class={cn('grid grid-cols-3 gap-4 md:grid-cols-6', className)}>
+  {Array.from({ length: 6 }, () => <ImagePlaceholder label="ロゴ（準備中）" class="h-16 md:h-20" />)}
+</div>

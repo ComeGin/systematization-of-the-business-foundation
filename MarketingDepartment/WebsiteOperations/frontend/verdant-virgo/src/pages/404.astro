@@ -1,0 +1,39 @@
+---
+// 画面 9 404（存在しない URL すべて。noindex）。01-content-spec.md §4.9。Figma は 404 / Desktop（46:7561）・Mobile（46:7655）。
+// パンくずは置かない。本文に CTA（無料相談・無料 DL）を置かない（ヘッダーからは辿れる）。2 つのボタンは CTA ではないので計測しない。
+// 「404」の数字は Display（Poppins Bold）。仕様書は Inter だが、計画 P-5 で Inter を外したため Poppins にした（2026-10-09 リード判断）。
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { BaseLayout } from '@/modules/layout';
+import { Section } from '@/modules/marketing-ui';
+import { SEO } from '@/modules/site-content/seo';
+import { notFound } from '@/modules/site-content/system';
+
+const seo = SEO.notFound;
+---
+
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex}>
+  {/* 9-2 本文（上下 Desktop 128px） */}
+  <Section class="phrase md:pt-32 md:pb-32" innerClass="flex flex-col items-center gap-8 text-center">
+    <p class="type-display font-bold text-text-muted">{notFound.display}</p>
+    <div class="flex flex-col items-center gap-3">
+      <h1 class="type-h1 text-text-heading">{notFound.h1}</h1>
+      <p class="type-body max-w-[640px] text-text-muted">{notFound.body}</p>
+    </div>
+    <div class="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+      {
+        notFound.buttons.map((button) => (
+          <a
+            href={button.href}
+            class={cn(
+              buttonVariants({ variant: button.variant === 'primary' ? 'default' : 'outline', size: 'lg' }),
+              'w-full md:w-auto',
+            )}
+          >
+            {button.label}
+          </a>
+        ))
+      }
+    </div>
+  </Section>
+</BaseLayout>

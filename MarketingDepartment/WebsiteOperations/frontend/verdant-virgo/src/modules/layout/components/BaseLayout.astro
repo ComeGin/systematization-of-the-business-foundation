@@ -1,0 +1,120 @@
+---
+/**
+ * 全ページ共通の骨組み。<html lang="ja">、title・description・canonical・robots・OGP・ファビコン、
+ * 本文へのスキップリンク、ヘッダー・パンくず・フッター、計測・同意・チャットの差し込み口を持つ。
+ *
+ * - title・description・noindex は site-content/seo.ts の値をそのまま渡す（01-content-spec.md §7）
+ * - OGP 画像は全画面共通の 1 枚（public/og.png。§7.1）。og:title・og:description は title・description と同じ
+ * - canonical はクエリを外した URL（/contact?cta=… も /contact にする。§7 の注）
+ * - 計測・同意・チャットは integrations の部品を body の末尾と head に置く（ページ側は何もしない）
+ * - 告知帯（トップだけ）は slot="announcement"、ページ固有の head 要素（JSON-LD など）は slot="head"
+ */
+import '@/styles/global.css';
+import { AnalyticsHead, CtaTracking } from '@/modules/analytics';
+import { ChatLoader } from '@/modules/chat';
+import { ConsentBanner } from '@/modules/consent';
+import type { BreadcrumbItem, BreadcrumbTone, HeaderCta } from '../lib/types';
+import { HOME_CRUMB } from '../lib/types';
+import Breadcrumb from './Breadcrumb.astro';
+import SiteFooter from './SiteFooter.astro';
+import SiteHeader from './SiteHeader.astro';
+
+export interface Props {
+  /** <title>（「… | ComeGin」まで含めた全体） */
+  title: string;
+  /** meta description。完了・404 は設定しない（§7） */
+  description?: string;
+  noindex?: boolean;
+  /** ヘッダー・Sheet の「無料相談」の強さ。ブログ一覧・記事だけ outline */
+  headerCta?: HeaderCta;
+  /** パンくずのホームより後ろの段（最後が現在のページ）。トップ・404 では渡さない */
+  breadcrumb?: BreadcrumbItem[];
+  breadcrumbTone?: BreadcrumbTone;
+  /** 既定は全画面共通の /og.png */
+  ogImage?: string;
+  ogType?: 'website' | 'article';
+  /** ページの中に無料 DL ブロック（id="source-dl"）があるか。Sheet・フッターの DL のリンク先が変わる */
+  sourceDlOnPage?: boolean;
+}
+
+const {
+  title,
+  description,
+  noindex = false,
+  headerCta = 'primary',
+  breadcrumb,
+  breadcrumbTone = 'subtle',
+  ogImage = '/og.png',
+  ogType = 'website',
+  sourceDlOnPage = false,
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImageUrl = new URL(ogImage, Astro.site);
+
+// パンくずの構造化データ（Google の BreadcrumbList）。最後の段（現在のページ）は item を省く
+const breadcrumbJsonLd = breadcrumb && {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [HOME_CRUMB, ...breadcrumb].map((crumb, i, all) => ({
+    '@type': 'ListItem',
+    position: i + 1,
+    name: crumb.label,
+    ...(i < all.length - 1 && crumb.href ? { item: new URL(crumb.href, Astro.site).href } : {}),
+  })),
+};
+---
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    {noindex && <meta name="robots" content="noindex" />}
+    <link rel="canonical" href={canonical.href} />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <meta name="theme-color" content="#FFFFFF" />
+
+    <meta property="og:site_name" content="ComeGin" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:title" content={title} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:url" content={canonical.href} />
+    <meta property="og:image" content={ogImageUrl.href} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="ComeGin" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <meta name="generator" content={Astro.generator} />
+    {breadcrumbJsonLd && <script type="application/ld+json" set:html={JSON.stringify(breadcrumbJsonLd)} />}
+    <slot name="head" />
+    <AnalyticsHead />
+  </head>
+  <body class="flex min-h-dvh flex-col">
+    <a
+      href="#main"
+      class="type-label sr-only z-50 rounded-md bg-surface px-4 py-2 text-text-heading shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+    >
+      本文へ移動
+    </a>
+    <slot name="announcement" />
+    <SiteHeader headerCta={headerCta} sourceDlOnPage={sourceDlOnPage} />
+    {breadcrumb && <Breadcrumb items={breadcrumb} tone={breadcrumbTone} />}
+    <main id="main" class="flex-1">
+      <slot />
+    </main>
+    <SiteFooter sourceDlOnPage={sourceDlOnPage} />
+    <ConsentBanner />
+    <ChatLoader />
+    <CtaTracking />
+  </body>
+</html>

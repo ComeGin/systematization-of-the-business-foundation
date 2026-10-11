@@ -1,0 +1,52 @@
+---
+/**
+ * ブログ記事のカード（Figma の BlogCard。ブログ一覧 7-4・記事 8-9・サービス詳細 3-8）。
+ * 上から 画像 16:9（slot="image"。無ければ「画像（準備中）」の枠）、カテゴリ、タイトル（記事へのリンク）、要約（2 行で省略）、日付。
+ * カード全体を押せるようにタイトルのリンクを広げる。値は Strapi の記事から渡す（blog モジュール）。
+ */
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import type { HeadingLevel } from '../lib/types';
+
+interface Props {
+  href: string;
+  title: string;
+  excerpt?: string;
+  /** 画面に出す日付（「2026年10月9日」の形） */
+  date: string;
+  /** <time datetime>（ISO 8601） */
+  dateTime?: string;
+  category?: string;
+  level?: HeadingLevel;
+  class?: string;
+}
+
+const { href, title, excerpt, date, dateTime, category, level = 'h3', class: className } = Astro.props;
+const Heading = level;
+const hasImage = Astro.slots.has('image');
+---
+
+<article
+  class={cn(
+    'not-typeset relative flex flex-col overflow-hidden rounded-md border border-border bg-surface',
+    className,
+  )}
+>
+  <div class="aspect-video w-full overflow-hidden bg-surface-subtle">
+    {
+      hasImage ? (
+        <slot name="image" />
+      ) : (
+        <div class="type-ui-text flex h-full items-center justify-center p-4 text-text-body">画像（準備中）</div>
+      )
+    }
+  </div>
+  <div class="flex flex-col items-start gap-2 p-6">
+    {category && <Badge variant="secondary">{category}</Badge>}
+    <Heading class="type-card-title text-text-heading">
+      <a href={href} class="after:absolute after:inset-0 hover:underline">{title}</a>
+    </Heading>
+    {excerpt && <p class="type-small phrase line-clamp-2 text-text-muted">{excerpt}</p>}
+    <p class="type-caption text-text-muted"><time datetime={dateTime}>{date}</time></p>
+  </div>
+</article>
