@@ -18,8 +18,10 @@ export const MAX_RECORDS_PER_ID = 200;
 
 export const VALKEY_COMMAND_TIMEOUT_MS = 2_000;
 export const VALKEY_CONNECT_TIMEOUT_MS = 3_000;
+// Lambda で、コールドスタートの接続の完了と、凍結から戻ったときの再接続を待つ上限（仕様 3.3）
+export const VALKEY_READY_TIMEOUT_MS = 3_000;
 
-// ALB のアイドルタイムアウト（既定 60 秒）より長くする。短いと ALB が再利用した接続を先に切られて 502 になる
+// 開発の入口（server.ts）だけが使う。以前の ECS では ALB のアイドルタイムアウト（既定 60 秒）より長くする必要があった
 export const KEEP_ALIVE_TIMEOUT_MS = 65_000;
 export const HEADERS_TIMEOUT_MS = 66_000;
 export const REQUEST_TIMEOUT_MS = 15_000;

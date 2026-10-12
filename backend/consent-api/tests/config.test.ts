@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { ConfigError, loadConfig, parseConfig } from "../src/config.js";
 
 const BASE_ENV = {
   VALKEY_URL: "redis://valkey:6379",
@@ -183,6 +183,43 @@ describe("loadConfig", () => {
       }
       expect(stderr).toHaveBeenCalledTimes(1);
       expect(exit).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+// Lambda の入口が使う。プロセスを終了させず、例外にする（初期化の失敗として次の呼び出しでやり直すため）
+describe("parseConfig", () => {
+  describe("正常系", () => {
+    it("正しい環境変数なら loadConfig と同じ設定を返し、何も出さない", () => {
+      expect(parseConfig({ ...BASE_ENV })).toEqual(loadConfig({ ...BASE_ENV }));
+      expect(stderr).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("異常系", () => {
+    it("空入力: 環境変数が 1 つも無ければ、必須の 3 つを並べた ConfigError を投げ、終了しない", () => {
+      const error = (() => {
+        try {
+          parseConfig({});
+        } catch (e) {
+          return e;
+        }
+      })() as ConfigError;
+      expect(error).toBeInstanceOf(ConfigError);
+      for (const name of ["VALKEY_URL", "SITE_URL", "CONSENT_POLICY_VERSION"]) expect(error.message).toContain(`- ${name}:`);
+      expect(exit).not.toHaveBeenCalled();
+      expect(stderr).not.toHaveBeenCalled();
+    });
+
+    it("入力: 例外のメッセージに値（シークレットを含みうる）を入れない", () => {
+      expect(() => parseConfig({ ...BASE_ENV, VALKEY_URL: "http://secret-host:6379", VALKEY_PASSWORD: "pw-should-not-leak" })).toThrow(ConfigError);
+      try {
+        parseConfig({ ...BASE_ENV, VALKEY_URL: "http://secret-host:6379", VALKEY_PASSWORD: "pw-should-not-leak" });
+      } catch (e) {
+        expect((e as Error).message).not.toContain("secret-host");
+        expect((e as Error).message).not.toContain("pw-should-not-leak");
+      }
     });
   });
 });

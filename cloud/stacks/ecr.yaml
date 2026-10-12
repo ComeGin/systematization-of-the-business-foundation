@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  ECR リポジトリ。自作（admin-auth・consent-api）、Mautic・Chatwoot の派生イメージ用。Strapi と n8n はオンプレで動かす（ADR-21）、Cal.com は SaaS（ADR-24）、アクセス解析は GA4（SaaS。ADR-25 で Umami を廃止）なので、リポジトリを持たない。
+  ECR リポジトリ。自作（admin-auth）、Mautic・Chatwoot の派生イメージ用。consent-api・faq-bot は Lambda（ADR-26）で、sam build が zip にするためリポジトリを持たない。Strapi と n8n はオンプレで動かす（ADR-21）、Cal.com は SaaS（ADR-24）、アクセス解析は GA4（SaaS。ADR-25 で Umami を廃止）なので、リポジトリを持たない。
   TA-06 の 3.2「イメージは ECR に置く」。タグは不変にし、プッシュ時にスキャンする。
 
 Parameters:
@@ -15,7 +15,7 @@ Parameters:
     Description: タグの無いイメージを何日で期限切れにするか。タグ付きは消さない（タスク定義が参照するため）。
 
 # リポジトリは作り直すと中のイメージが失われるため、すべて Retain にする。
-# ライフサイクルポリシーは 6 本とも同じ内容（CloudFormation は YAML のアンカーを使えないため繰り返す）。
+# ライフサイクルポリシーはすべて同じ内容（CloudFormation は YAML のアンカーを使えないため繰り返す）。
 Resources:
   AdminAuthRepository:
     Type: AWS::ECR::Repository
@@ -23,19 +23,6 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       RepositoryName: !Sub 'comegin/${EnvName}/admin-auth'
-      ImageTagMutability: IMMUTABLE
-      ImageScanningConfiguration: { ScanOnPush: true }
-      EncryptionConfiguration: { EncryptionType: AES256 }
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub >-
-          {"rules":[{"rulePriority":1,"description":"untagged images","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":${UntaggedImageExpireDays}},"action":{"type":"expire"}}]}
-
-  ConsentApiRepository:
-    Type: AWS::ECR::Repository
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      RepositoryName: !Sub 'comegin/${EnvName}/consent-api'
       ImageTagMutability: IMMUTABLE
       ImageScanningConfiguration: { ScanOnPush: true }
       EncryptionConfiguration: { EncryptionType: AES256 }
@@ -77,8 +64,6 @@ Resources:
 Outputs:
   AdminAuthRepositoryUri:
     Value: !GetAtt AdminAuthRepository.RepositoryUri
-  ConsentApiRepositoryUri:
-    Value: !GetAtt ConsentApiRepository.RepositoryUri
   MauticRepositoryUri:
     Value: !GetAtt MauticRepository.RepositoryUri
   ChatwootRepositoryUri:

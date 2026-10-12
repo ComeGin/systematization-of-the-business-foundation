@@ -35,13 +35,27 @@ const EnvSchema = z.object({
 
 export type Config = z.infer<typeof EnvSchema>;
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+/** 設定が不正。メッセージは変数名と理由だけ（値は入れない） */
+export class ConfigError extends Error {}
+
+/** 検証して返す。不正なら ConfigError を投げる（Lambda の入口が使う。プロセスを終了させない） */
+export function parseConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
-    // 値そのもの（シークレット）は出力せず、変数名と理由だけを表示する
+    // 値そのもの（シークレット）は入れず、変数名と理由だけにする
     const issues = result.error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`);
-    console.error(`[config] 環境変数が不正です:\n${issues.join("\n")}`);
-    process.exit(1);
+    throw new ConfigError(`環境変数が不正です:\n${issues.join("\n")}`);
   }
   return result.data;
+}
+
+/** 開発の入口が使う。不正なら変数名と理由だけを stderr に出して終了する */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  try {
+    return parseConfig(env);
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    console.error(`[config] ${error.message}`);
+    process.exit(1);
+  }
 }

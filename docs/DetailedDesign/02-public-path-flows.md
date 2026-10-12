@@ -582,6 +582,8 @@ AA-04 の 3.2 は「`LH-seo` が 1.0 未満ならループの作用を全面停�
 
 ### 8.1 なぜ ECS on Fargate なのか
 
+> **（2026-10-12）ADR-26 で、実行基盤を ECS on Fargate から VPC の中の Lambda（ALB のターゲット）に替えた。** 下の表の採用の理由「実行基盤が増えない」は ADR-26 で置き換えた（デプロイは同じ SAM、監視は Lambda のアラームを足すだけ）。**ALB の後ろに置くこと**（Lambda 関数 URL・API Gateway を使わないこと）は変えない（WAF のレート制限とホストの振り分けを共有するため）。仕様は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`。
+
 候補は 3 つあり、**ALB の後ろの自作のサービス**を採った（TA-06 の 4.8）。
 
 | 候補 | 採否 | 理由 |

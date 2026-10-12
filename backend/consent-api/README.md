@@ -1,9 +1,9 @@
 # consent-api
 
-公開サイトの Cookie 同意の状態を、サーバー側に**追記だけ**で記録する小さな API（開発ポート 3104。本番は ALB 配下の ECS on Fargate、ホスト名 `consent.comegin.com`）。
+公開サイトの Cookie 同意の状態を、サーバー側に**追記だけ**で記録する小さな API（開発ポート 3104。本番は ALB 配下の Lambda〈VPC の中。ADR-26。2026-10-12 に ECS on Fargate から移した〉、ホスト名 `consent.comegin.com`）。
 Node 標準の `http` と Valkey クライアント（`ioredis`）だけで作り、DB は持たない。
 
-設計の出典: `docs/DetailedDesign/02-public-path-flows.md` の 3.3・3.4・4.4・8 節、`docs/RequirementDefinition/TA/06-aws-runtime.md` の 4.8・5.3・5.5、`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 8.1.1。
+設計の出典: `docs/DetailedDesign/02-public-path-flows.md` の 3.3・3.4・4.4・8 節、`docs/RequirementDefinition/TA/06-aws-runtime.md` の 4.8・5.3・5.5、`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 8.1.1、Lambda 化は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`。
 
 訪問者のリクエストを**直接受ける**自作コードなので、できることを意図的に絞っている。パスを増やさない（TA-06 の 5.3 の許可リストは 2 本だけ）。
 
@@ -14,7 +14,7 @@ Node 標準の `http` と Valkey クライアント（`ioredis`）だけで作�
 | `POST /v1/consent` | 同意の記録。本文は `{"state":"granted"}` か `{"state":"denied"}` だけ（撤回も `denied` として 1 件積む） |
 | `GET /v1/consent` | Cookie の識別子の最新の状態を返す |
 | `OPTIONS /v1/consent` | CORS のプリフライト |
-| `GET /healthz` | ALB のターゲットのヘルスチェック用。**外部に出すパスの許可リストには入れない** |
+| `GET /healthz` | 開発のヘルスチェック用（本番の ALB には出さず、ターゲットのヘルスチェックも無効）。**外部に出すパスの許可リストには入れない** |
 
 ### POST /v1/consent
 
@@ -72,16 +72,28 @@ Node 標準の `http` と Valkey クライアント（`ioredis`）だけで作�
 docker compose exec valkey valkey-cli XRANGE consent:c:<識別子> - +
 ```
 
+## 構成（本体と 2 つの入口）
+
+```
+src/handler.ts   入口に依存しない本体（ルーティング・CORS・検証・Cookie・エラー・ログ）。例外を投げない
+src/server.ts    開発の入口（Node の http。3104）。本文を上限つきで読み、handler を呼ぶだけ
+src/lambda.ts    本番の入口（ALB のイベント ↔ handler）。Valkey の接続を使い回し、AUTH トークンを Secrets Manager から読む
+src/index.ts     開発の起動と停止（SIGTERM）
+```
+
+- **Lambda では Valkey の接続を 1 本持ち、呼び出しをまたいで使い回す。** 初期化（コールドスタート）で `ready` を最大 3 秒待ち、来なければ初期化の失敗（ALB は 502。次の呼び出しでやり直す）。各呼び出しの前にも、`ready` でなければ最大 3 秒待つ（凍結から戻ったときの再接続）。`enableOfflineQueue: false` のため、待たないと最初の要求が 503 になる。
+- ビルドは `sam build` が `Makefile` の `build-ConsentApiFunction` を呼ぶ（pnpm と esbuild。`@aws-sdk/*` は実行環境にあるので含めない）。`Dockerfile` は開発の compose だけが使う。
+
 ## 起動（ローカル）
 
 ```bash
 pnpm install
 cp .env.example <環境変数ファイル>   # 名前は .env.example のコメントを参照。SITE_URL などを確認する
-docker compose up -d --build         # consent-api は 127.0.0.1:3104 だけに開く。Valkey はホストに公開しない
+docker compose up -d --build         # consent-api は 127.0.0.1:3104、Valkey は 127.0.0.1:6380 だけに開く
 curl -i localhost:3104/healthz
 ```
 
-- Valkey はホストに公開していないため、`pnpm dev` で直接動かす場合は別途 Valkey を用意して `VALKEY_URL` を合わせる。普段は compose の中で動かす。
+- Valkey は `127.0.0.1:6380` にだけ開いている（結合テストが Lambda の入口から直接つなぐため）。`pnpm dev` で直接動かすときは `VALKEY_URL=redis://127.0.0.1:6380` にする。普段は compose の中で動かす。
 - Valkey は AOF で永続化する（同意の記録は失うと取り戻せないため）。
 - `Secure` 付きの Cookie は、ブラウザでは `localhost` に限って http でも保存される。curl では `-c` / `-b` で確かめられる。
 - 公開サイトの開発サーバー（Astro、4321）から呼ぶときは `SITE_URL=http://localhost:4321`、`COOKIE_DOMAIN` は空にする。
@@ -93,28 +105,35 @@ curl -si -c jar.txt -H 'Origin: http://localhost:4321' -H 'Content-Type: applica
 curl -s -b jar.txt -H 'Origin: http://localhost:4321' localhost:3104/v1/consent
 ```
 
+### テスト
+
+```bash
+pnpm test               # 単体（外部はモック）
+pnpm test:integration   # 結合: ALB の形のイベントで lambda.ts を呼び、開発の Valkey（127.0.0.1:6380）を本物として使う。Valkey を数秒 docker pause する
+```
+
 ## 環境変数
 
 `.env.example` が正本。
 
 | 変数 | 内容 | secret |
 |---|---|---|
-| `HOST` / `PORT` | 既定 `0.0.0.0` / `3104` | |
+| `HOST` / `PORT` | 既定 `0.0.0.0` / `3104`（開発の入口だけ） | |
 | `VALKEY_URL` | `rediss://host:6379`（開発は `redis://valkey:6379`） | |
 | `VALKEY_PASSWORD` | AUTH トークン（開発は空でよい） | ✔ |
+| `VALKEY_PASSWORD_SECRET_ID` | 本番の入口（`lambda.ts`）だけが使う。AUTH トークンを入れた Secrets Manager の Secret の ID（`comegin/<env>/shared/VALKEY_AUTH_TOKEN`）。開発は使わない | |
 | `VALKEY_KEY_PREFIX` | 既定 `consent:` | |
 | `SITE_URL` | CORS で許すオリジン（1 つ）。パスが付いていてもオリジンだけに正規化する | |
 | `COOKIE_DOMAIN` | 既定は空（本番は `.comegin.com`） | |
 | `CONSENT_POLICY_VERSION` | 現行の文面の版（例 `2026-10-01`）。英数字と `. _ -` の 32 文字以内 | |
 
-設定が不正なときは、変数名と理由だけを stderr に出して終了する（値は出さない）。
+設定が不正なときは、変数名と理由だけを stderr に出して終了する（値は出さない）。本番の入口（Lambda）は終了せず、同じ文面の例外にする（初期化の失敗として、次の呼び出しでやり直す）。
 
 ## 運用上の注意
 
 - **ログは stderr に JSON の 1 行**（時刻・メソッド・パス・ステータス・所要時間）。識別子と IP は出さない。
-- `GET /healthz` は**プロセスが生きているかだけ**を見て、Valkey は見ない。Valkey の瞬断でタスクが ALB から外れ、全リクエストが 503 になるのを避けるため。Valkey が落ちたときは、各リクエストが 503 を返す。
-- Node の keep-alive は 65 秒（ALB のアイドルタイムアウト 60 秒より長い）。短いと ALB が再利用した接続の切断で 502 が出る。
-- SIGTERM で処理中のリクエストを終えてから Valkey を閉じる（ECS の停止に合わせる。猶予 10 秒）。
+- `GET /healthz` は開発だけ。本番は ALB のターゲットのヘルスチェックを使わない（Lambda。ADR-26）。監視は Lambda の `Errors`・`Throttles` とターゲットの 5xx のアラーム（`cloud/stacks/alarms.yaml`）。Valkey が落ちたときは、各リクエストが 503 を返す。
+- Node の keep-alive（65 秒）・SIGTERM での停止（猶予 10 秒）は開発の入口だけの設定（本番の Lambda では使わない）。
 - アプリ側のレート制限は持たない。連打の抑制は ALB の WAF（consent は最も厳しいしきい値）と、上の 1 識別子あたり 200 件の上限だけ。
 - 本番のバックアップは取らない（TA-06 の 4.5・4.8）。ElastiCache を失うと、記録は戻らない（訪問者はバナーを出し直されて再び同意する）。
 

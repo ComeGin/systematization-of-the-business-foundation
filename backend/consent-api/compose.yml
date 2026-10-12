@@ -1,4 +1,4 @@
-# 開発用: consent-api と Valkey。Valkey はホストに公開しない（compose のネットワークの中だけ）。
+# 開発用: consent-api と Valkey。Valkey は 127.0.0.1:6380 にだけ開く（結合テストが Lambda の入口から直接つなぐため。外部には出さない）。
 # 設定は同じディレクトリの環境変数ファイル（.env.example を写して作る）かシェルの環境変数から読む。
 services:
   consent-api:
@@ -21,6 +21,9 @@ services:
 
   valkey:
     image: valkey/valkey:8-alpine
+    # 結合テスト（pnpm test:integration）が Lambda の入口から直接つなぐ。127.0.0.1 だけ
+    ports:
+      - "127.0.0.1:6380:6379"
     environment:
       VALKEY_PASSWORD: ${VALKEY_PASSWORD:-}
     # 同意の記録は失うと取り戻せないため、AOF で永続化する。パスワードが空なら認証なし（開発のみ）

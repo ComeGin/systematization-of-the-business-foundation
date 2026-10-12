@@ -16,7 +16,7 @@ Metadata:
       - Label: { default: Astro の配信（CloudFront。global/template.yaml の出力を写す） }
         Parameters: [SiteHost, CloudFrontCertificateArn, CloudFrontWebAclArn]
       - Label: { default: コンテナの待ち受けポート }
-        Parameters: [MauticWebPort, ChatwootWebPort, AdminAuthPort, ConsentApiPort]
+        Parameters: [MauticWebPort, ChatwootWebPort, AdminAuthPort]
       - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
         Parameters: [AlbOidcClientId]
       - Label: { default: データストア（暫定値） }
@@ -26,11 +26,13 @@ Metadata:
       - Label: { default: WAF（暫定値） }
         Parameters: [WafRateLimitConsent, WafRateLimitForm, WafRateLimitApi, WafRateLimitVisitor, WafRateLimitAuth, WafCommonRuleSetAction]
       - Label: { default: サービスのイメージのタグ（製品ごと。latest は使えない） }
-        Parameters: [MauticImageTag, ChatwootImageTag, AdminAuthImageTag, ConsentApiImageTag]
+        Parameters: [MauticImageTag, ChatwootImageTag, AdminAuthImageTag]
       - Label: { default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値） }
-        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory, ConsentApiDesiredCount, ConsentApiCpu, ConsentApiMemory]
+        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory]
       - Label: { default: サービスの設定 }
         Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
+      - Label: { default: consent-api（ADR-26。services/consent-api.yaml） }
+        Parameters: [ConsentApiReservedConcurrency]
       - Label: { default: FAQ ボット（ADR-26。services/faq-bot.yaml） }
         Parameters: [FaqBotChatwootAccountId, FaqMatchHigh, FaqMatchLow, FaqMatchMargin]
       - Label: { default: 通知と監視 }
@@ -90,9 +92,6 @@ Parameters:
   AdminAuthPort:
     Type: Number
     Default: 3103
-  ConsentApiPort:
-    Type: Number
-    Default: 3104
 
   AlbOidcClientId:
     Type: String
@@ -163,11 +162,6 @@ Parameters:
     AllowedPattern: '^(?!latest$).+$'
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: REPLACE-WITH-FIXED-TAG
-  ConsentApiImageTag:
-    Type: String
-    AllowedPattern: '^(?!latest$).+$'
-    ConstraintDescription: latest は使えない。バージョンのタグで固定する。
-    Default: REPLACE-WITH-FIXED-TAG
   MauticWebDesiredCount:
     Type: Number
     Default: 0
@@ -221,17 +215,6 @@ Parameters:
     Default: '256'
     AllowedValues: ['256', '512', '1024', '2048', '4096']
   AdminAuthMemory:
-    Type: String
-    Default: '512'
-  ConsentApiDesiredCount:
-    Type: Number
-    Default: 0
-    MinValue: 0
-  ConsentApiCpu:
-    Type: String
-    Default: '256'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
-  ConsentApiMemory:
     Type: String
     Default: '512'
   # ---- オンプレとの WireGuard（ADR-21。TA-06 の 5.6・wireguard.yaml）
@@ -314,6 +297,11 @@ Parameters:
     Type: String
     Default: '2026-10-01'
     Description: 現行のプライバシーポリシー・Cookie 文面の版（consent-api が記録と Cookie に入れる）。
+  ConsentApiReservedConcurrency:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    Description: consent-api（Lambda）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md の 12 節）
   FaqBotChatwootAccountId:
     Type: Number
     Default: 1
@@ -343,7 +331,6 @@ Resources:
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
         AdminAuthPort: !Ref AdminAuthPort
-        ConsentApiPort: !Ref ConsentApiPort
         WireguardPort: !Ref WireguardPort
         WireguardIngressCidr: !Ref WireguardIngressCidr
         OnpremWebhookPort: !Ref OnpremWebhookPort
@@ -419,7 +406,7 @@ Resources:
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
         AdminAuthPort: !Ref AdminAuthPort
-        ConsentApiPort: !Ref ConsentApiPort
+        ConsentApiTargetGroupArn: !GetAtt ConsentApiService.Outputs.TargetGroupArn
         AlbOidcClientId: !Ref AlbOidcClientId
         WafRateLimitConsent: !Ref WafRateLimitConsent
         WafRateLimitForm: !Ref WafRateLimitForm
@@ -631,28 +618,21 @@ Resources:
         AlbClientId: !Ref AlbOidcClientId
         AlbProtectedHosts: !GetAtt EdgeStack.Outputs.AlbProtectedHosts
 
+  # ---- consent-api（ADR-26。VPC の中の Lambda。ALB のターゲットグループもこのスタックが持ち、EdgeStack に渡す）
   ConsentApiService:
     Type: AWS::Serverless::Application
     Properties:
       Location: stacks/services/consent-api.yaml
       Parameters:
         EnvName: !Ref EnvName
-        ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
         SecurityGroupId: !GetAtt NetworkStack.Outputs.ConsentApiSecurityGroupId
-        LogGroupName: !GetAtt ClusterStack.Outputs.ConsentApiLogGroupName
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
-        ImageRepositoryUri: !GetAtt EcrStack.Outputs.ConsentApiRepositoryUri
-        ImageTag: !Ref ConsentApiImageTag
-        DesiredCount: !Ref ConsentApiDesiredCount
-        Cpu: !Ref ConsentApiCpu
-        Memory: !Ref ConsentApiMemory
-        ContainerPort: !Ref ConsentApiPort
-        TargetGroupArn: !GetAtt EdgeStack.Outputs.ConsentApiTargetGroupArn
         ValkeyEndpoint: !GetAtt DataStack.Outputs.ValkeyEndpoint
         SiteUrl: !Sub 'https://${SiteHost}'
         CookieDomain: !Sub '.${DomainName}'
         ConsentPolicyVersion: !Ref ConsentPolicyVersion
+        ReservedConcurrency: !Ref ConsentApiReservedConcurrency
 
   # ---- faq-bot（ADR-26。Lambda。VPC の外）
   FaqBotService:
@@ -682,12 +662,13 @@ Resources:
         MauticWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.MauticWebTargetGroupFullName
         ChatwootWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.ChatwootWebTargetGroupFullName
         AdminAuthTargetGroupFullName: !GetAtt EdgeStack.Outputs.AdminAuthTargetGroupFullName
-        ConsentApiTargetGroupFullName: !GetAtt EdgeStack.Outputs.ConsentApiTargetGroupFullName
+        ConsentApiTargetGroupFullName: !GetAtt ConsentApiService.Outputs.TargetGroupFullName
         MysqlInstanceIdentifier: !GetAtt DataStack.Outputs.MysqlInstanceIdentifier
         PostgresInstanceIdentifier: !GetAtt DataStack.Outputs.PostgresInstanceIdentifier
         ValkeyReplicationGroupId: !GetAtt DataStack.Outputs.ValkeyReplicationGroupId
         WireguardInstanceId: !GetAtt WireguardStack.Outputs.InstanceId
         FaqBotFunctionName: !GetAtt FaqBotService.Outputs.FunctionName
+        ConsentApiFunctionName: !GetAtt ConsentApiService.Outputs.FunctionName
 
 Outputs:
   FaqBotFunctionUrl:

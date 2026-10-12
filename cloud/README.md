@@ -22,7 +22,7 @@ cloud/
   stacks/
     network.yaml             VPC、2AZ の public / private、NAT 1 台、S3 ゲートウェイエンドポイント、セキュリティグループ（すべて。WireGuard の EC2 の SG を含む）
     wireguard.yaml           オンプレとの WireGuard の終端（EC2 t4g.nano 1 台、Elastic IP、private サブネットの経路、SSM のパラメータ）
-    ecr.yaml                 ECR（自作 2 本〈admin-auth・consent-api〉と、Mautic・Chatwoot の 4 本）
+    ecr.yaml                 ECR（自作 1 本〈admin-auth〉と、Mautic・Chatwoot の 3 本。consent-api・faq-bot は Lambda で ECR を使わない）
     observability.yaml       SNS（comegin-lead-alert / comegin-ops-alert）、ハートビートのアラーム 2 つ（オンプレの監視アプリ、オンプレの n8n のスケジュール実行）
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
@@ -34,8 +34,9 @@ cloud/
     ses.yaml                 SES のドメイン ID と DKIM
     ops-tasks.yaml           運用者が RunTask で起動する DB 作成のタスク
     alarms.yaml              CloudWatch アラームと RDS のイベント通知
-    services/<svc>.yaml      ECS のサービス 6 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker・admin-auth・consent-api）
+    services/<svc>.yaml      ECS のサービス 5 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker・admin-auth）
     services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.14）
+    services/consent-api.yaml consent-api（Lambda。VPC の中。ALB のターゲットとターゲットグループを持つ。ADR-26。4.15）
   images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）
 ```
 
@@ -124,11 +125,11 @@ ACM の証明書は DNS 検証。Route 53 に検証用のレコードが自動�
 ### 4.2 本番スタック（ap-northeast-1）
 
 ```bash
-sam build         # 必須（2026-10-11 から）。faq-bot の Lambda を backend/faq-bot/Makefile（pnpm と esbuild）でまとめる。開発機に pnpm 11 が要る
+sam build         # 必須（2026-10-11 から）。faq-bot と consent-api の Lambda を各 Makefile（pnpm と esbuild）でまとめる。開発機に pnpm 11 が要る
 sam deploy        # 初回は RDS・ElastiCache・ACM の検証で 30 分前後かかる
 ```
 
-**`sam build` を飛ばすと、faq-bot（4.14）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは faq-bot のスタックを無条件で作るため、faq-bot をまだ使わない場合でも build は省けない（受信箱にボットを接続しない限り、訪問者には影響しない）。
+**`sam build` を飛ばすと、faq-bot（4.14）・consent-api（4.15）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは両方のスタックを無条件で作るため、使わない場合でも build は省けない（faq-bot は受信箱にボットを接続しない限り、訪問者には影響しない。consent-api は ALB のルール 106 から呼ばれるので、build を飛ばすと同意の受け口が 502 になる）。
 
 作られるもの: ネットワーク、**WireGuard の EC2（Elastic IP つき）と、private サブネットの経路**、ECR、SNS、データストア、Secrets、ALB と WAF、CloudFront、SES のドメイン ID、アラーム、
 **IAM ユーザー 2 つ（オンプレの Strapi・n8n 用。アクセスキーは無い）**、ECS のサービス（**すべて DesiredCount 0**）。
@@ -338,13 +339,14 @@ docker push $ECR/comegin/prod/chatwoot:v4.18.0-1
 | リポジトリ | ビルド元 | パラメータ |
 |---|---|---|
 | `comegin/<env>/admin-auth` | `backend/admin-auth`（同上） | `AdminAuthImageTag` |
-| `comegin/<env>/consent-api` | `backend/consent-api` | `ConsentApiImageTag` |
 
 ```bash
 TAG=$(git rev-parse --short HEAD)
-docker build --platform linux/amd64 -t $ECR/comegin/prod/consent-api:$TAG backend/consent-api
-docker push $ECR/comegin/prod/consent-api:$TAG
+docker build --platform linux/amd64 -t $ECR/comegin/prod/admin-auth:$TAG backend/admin-auth
+docker push $ECR/comegin/prod/admin-auth:$TAG
 ```
+
+consent-api・faq-bot は Lambda（ADR-26）で、イメージを作らない（`sam build` が zip にする。4.14・4.15）。
 
 タグを設定ファイル（`samconfig.toml`）に書いてデプロイする（`REPLACE-WITH-FIXED-TAG` のままでは起動しない）。
 
@@ -448,8 +450,8 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 | 1 | `AdminAuthDesiredCount=1` | イメージ、`GoogleClientId`、`GOOGLE_CLIENT_SECRET`、DB 作成、migrate、`register-alb-client` を済ませてから。**これが無いと、管理画面に誰も入れない** |
 | 2 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
 | 3 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
-| 4 | `ConsentApiDesiredCount=1` | 公開サイトの同意の受け口。WAF のレート制限が最も厳しい |
 
+consent-api は Lambda（ADR-26）で DesiredCount を持たない。`sam deploy` の時点で ALB から呼ばれる（4.15）。
 `mautic-web` と `mautic-cron` の DesiredCount は 0 か 1 しか受け付けない（テンプレートが拒否する）。
 WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1）。オンプレの Strapi・n8n の起動は、ここの対象外（`onprem/` の README）。
 
@@ -586,6 +588,18 @@ Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-
 - **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
 - しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。
 
+### 4.15 consent-api（Cookie 同意の受け口。ADR-26）
+
+VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`。**`sam build` は `backend/consent-api/Makefile` を使い、pnpm と esbuild でまとめる。** ターゲットグループ（`comegin-<env>-consent-api`）は `services/consent-api.yaml` が持ち、edge のルール 106 に渡す。
+
+1. `sam build` → `sam deploy`（Secrets の `shared/VALKEY_AUTH_TOKEN` は secrets.yaml が作る。人が入れる値は無い）。
+2. 確かめる: 公開サイトのバナーで同意し、`comegin_consent` の Cookie が書かれること。`curl -s https://<ConsentHost>/v1/consent` が `{"state":"unset"}` を返すこと（4.13）。
+3. CloudWatch のアラーム `consent-api-errors`・`consent-api-throttles`・`consent-api-target-5xx` が鳴っていないこと。ロググループ `/aws/lambda/comegin-<env>-consent-api` に 1 件 1 行のログが出て、識別子と IP が無いこと。
+
+- **初回の呼び出し（コールドスタート）は、Secrets Manager と Valkey への接続のぶん遅い。** 訪問者はバナーの応答を待たない（DD-02 の 8.3）。
+- 予約同時実行数（`ConsentApiReservedConcurrency`。既定 10）とタイムアウト（10 秒）は暫定値。`Throttles` のアラームが鳴ったら上げる。
+- **ターゲットグループの名前は固定**（`comegin-<env>-consent-api`。ALB からの呼び出しの許可を名前で絞るため）。置き換えの要る変更（`TargetType` など）は、名前の衝突で CloudFormation の更新が失敗する。そのときは `services/consent-api.yaml` の名前を変えてデプロイする（許可の `SourceArn` も同じ名前から作られる）。
+
 ## 5. TODO 一覧
 
 設計書の「未決定事項」のうち、インフラで決まるもの、実機で確かめるもの、他のメンバーの作業待ちのもの。`(未検証)` は一度も実機で動かしていないという意味。
@@ -616,9 +630,9 @@ Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-
 ## 6. 設計書との差分と判断メモ
 
 - **Secret が 18 個**（`secrets.yaml`。ほかに RDS が管理するマスターの 2 個）。ADR-21 で Strapi と n8n の鍵類を外した（`DB_PASSWORD` の 2 個だけ残す）。ADR-24 で Cal.com の 4 個を、ADR-25 で Umami の 2 個（と `services/umami.yaml` が作っていた `DATABASE_URL` の 1 個）を外した。
-- **ECR は 4 本**: 自作 2 本（admin-auth・consent-api）と、Mautic、Chatwoot。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。
+- **ECR は 3 本**: 自作 1 本（admin-auth）と、Mautic、Chatwoot。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。consent-api は ADR-26 で Lambda になり、ECR を外した（2026-10-12）。
 - **`cdn.yaml`・`ses.yaml`・`ops-tasks.yaml`・`alarms.yaml`**: 固定シートの一覧にないが必要なので足した（OAC 専用の Astro バケットとデプロイ用 IAM の対象、SES のドメイン ID、DB 作成のタスク、アラーム）。
-- **イメージのタグは製品ごと**（4 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
+- **イメージのタグは製品ごと**（3 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
 - **RDS のマスターの資格情報**: TA-06 の 7 節は「タスクには渡さない」とするが、アプリ用ユーザーを作る 1 回だけのタスクには要る。`ops-tasks.yaml` の専用の実行ロールだけが読める。
 - **DB の TLS は、検証をしない形を作らない**: 暗号化だけにして逃がすことはしない。Prisma の Rust のエンジンが `sslmode` だけでは検証しない点は、実験で確かめて `sslaccept=strict` を付けた（4.7）。Mautic は上流が CA を渡す設定項目を持たないため、ビルド時にパッチを当て、当たったことを確かめられなければビルドを失敗させる。
 - **Mautic の config は EFS で覆う（既定で有効）**: 公式イメージの `config/` には `.gitkeep` しか無く、覆っても既定のファイルは隠れない。`local.php` は entrypoint が無ければ作る。init コンテナは不要（イメージの中身を確かめた上での判断。4.10）。

@@ -44,9 +44,11 @@ Parameters:
   AdminAuthPort:
     Type: Number
     Default: 3103
-  ConsentApiPort:
-    Type: Number
-    Default: 3104
+
+  # ---- consent-api（ADR-26。Lambda。ターゲットグループは services/consent-api.yaml が持つ。仕様 2.1）
+  ConsentApiTargetGroupArn:
+    Type: String
+    Description: services/consent-api.yaml の TargetGroupArn（ルール 106 の転送先）
 
   # ---- ヘルスチェック。ターゲットへ直接届くため、リスナールールの認証を通らない。
   # TODO(T1-3): 各製品のバージョンで実測して確かめる。
@@ -57,9 +59,6 @@ Parameters:
     Type: String
     Default: /
   AdminAuthHealthCheckPath:
-    Type: String
-    Default: /healthz
-  ConsentApiHealthCheckPath:
     Type: String
     Default: /healthz
 
@@ -248,24 +247,6 @@ Resources:
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-admin-auth' }
 
-  ConsentApiTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VpcId
-      TargetType: ip
-      Protocol: HTTP
-      Port: !Ref ConsentApiPort
-      HealthCheckPath: !Ref ConsentApiHealthCheckPath
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 10
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      Matcher: { HttpCode: '200-399' }
-      TargetGroupAttributes:
-        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
-      Tags:
-        - { Key: Name, Value: !Sub 'comegin-${EnvName}-consent-api' }
-
   # ---------------------------------------------------------------- 優先度帯 100 番台: 訪問者向け（認証も認可もしない。WAF のレート制限だけ）
   # パスは TA-06 の 5.3 の想定。製品のバージョンに依存するため、DevTools で実測して確定する（TODO(T1-3)）。
   # ALB の制約: 1 ルールの条件値は 5 つまで（host-header も 1 つに数える）。そのためホスト 1 + パス 4 以内で分割する。
@@ -316,7 +297,7 @@ Resources:
         - { Type: forward, TargetGroupArn: !Ref MauticWebTargetGroup }
 
   # consent-api は /v1/consent の 1 本だけ（GET・POST・OPTIONS。増やさないことが守りになる。TA-06 の 5.3）。
-  # /healthz は外部に出さない（ターゲットのヘルスチェックはリスナールールを通らない）。
+  # /healthz は外部に出さない（ターゲットは Lambda で、ヘルスチェックも無効。ADR-26）。
   VisitorConsentRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -327,7 +308,7 @@ Resources:
         - { Field: path-pattern, PathPatternConfig: { Values: [/v1/consent] } }
         - { Field: http-request-method, HttpRequestMethodConfig: { Values: [GET, POST, OPTIONS] } }
       Actions:
-        - { Type: forward, TargetGroupArn: !Ref ConsentApiTargetGroup }
+        - { Type: forward, TargetGroupArn: !Ref ConsentApiTargetGroupArn }
 
   # Strapi（cms.）と n8n（n8n.）は ADR-21 でオンプレに移した。ALB にホストもルールも無い（n8n の Webhook はオンプレの WireGuard のアドレスだけで受ける。wireguard.yaml）。
   # n8n（オンプレ）から Chatwoot・Mautic の API は、下の機械向けのルール（201・202）経由で届く。
@@ -656,7 +637,3 @@ Outputs:
     Value: !Ref AdminAuthTargetGroup
   AdminAuthTargetGroupFullName:
     Value: !GetAtt AdminAuthTargetGroup.TargetGroupFullName
-  ConsentApiTargetGroupArn:
-    Value: !Ref ConsentApiTargetGroup
-  ConsentApiTargetGroupFullName:
-    Value: !GetAtt ConsentApiTargetGroup.TargetGroupFullName

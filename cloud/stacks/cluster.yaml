@@ -60,12 +60,6 @@ Resources:
       LogGroupName: !Sub '/comegin/${EnvName}/admin-auth'
       RetentionInDays: !Ref LogRetentionDays
 
-  ConsentApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/comegin/${EnvName}/consent-api'
-      RetentionInDays: !Ref LogRetentionDays
-
   # 運用者が RunTask で起動する 1 回だけのタスク（DB の作成・マイグレーション。ops-tasks.yaml と README）
   TasksLogGroup:
     Type: AWS::Logs::LogGroup
@@ -88,7 +82,5 @@ Outputs:
     Value: !Ref ChatwootWorkerLogGroup
   AdminAuthLogGroupName:
     Value: !Ref AdminAuthLogGroup
-  ConsentApiLogGroupName:
-    Value: !Ref ConsentApiLogGroup
   TasksLogGroupName:
     Value: !Ref TasksLogGroup

@@ -11,7 +11,7 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 
 > **（2026-10-05）ADR-21 による変更。本ファイルの本文より、この注記を優先する。**
 > - **Strapi と n8n は ECS から外れ、オンプレで動く**（TA-07）。データの置き場（RDS の `strapi` `n8n`、S3 の Strapi のメディア）は AWS に残る。ALB の `cms.`・`n8n.` のホスト名とルール、ACM の対応する名前、Strapi・n8n の ECS 用の Secrets は不要になる。
-> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。（**ADR-24 で Cal.com が、ADR-25 で Umami が外れた。下の注記**）
+> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。（**ADR-24 で Cal.com が、ADR-25 で Umami が外れた。下の注記**）（**2026-10-12 ADR-26: `consent-api` も ECS から外れ、VPC の中の Lambda〈ALB のターゲット〉になった。`docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`**）
 > - **WireGuard の EC2 を足す**（`t4g.nano` 程度、public サブネット、Elastic IP、送信元／宛先チェック無効）。private サブネットの経路表に「オンプレの WireGuard のアドレス帯 → この EC2」を足し、Mautic・Chatwoot のタスクからオンプレの n8n の Webhook に届くようにする。RDS のセキュリティグループには、WireGuard の EC2 から `strapi` `n8n` のために 5432 を許す。
 > - `cloud/` の SAM はこの注記に合わせて直した（2026-10-05）。
 >
@@ -83,7 +83,7 @@ flowchart LR
 - **n8n のサンドボックスを本番に置かない理由**（ADR-16）。`sandbox-runner-1` は privileged な Docker-in-Docker で、**Fargate は privileged のコンテナを受け付けない。** サンドボックスは n8n Assistant がコードを実行するための仕組みであり、本番のワークフローの実行には使わない。本番のワークフローがサンドボックスを必要とした時点で、n8n を EC2 起動タイプの ECS に移す。
 - **`mautic-web` を 2 タスク以上にするには、PHP のセッションを共有する必要がある。** Mautic の既定はファイルに保存するセッション（`app/config/config.php` の `session.handler_id` が `null`）であり、タスクをまたげない。当面は 1 タスクで運用し、増やすときにセッションの保存先（ElastiCache か RDS）を決める。
 - **各サービスのタスク数は 1 で決定した**（単一構成。`R1` の 2026-09-18 の決定。4.6）。そのタスクがある AZ が障害を起こすと、そのサービスは別の AZ で起動し直すまで止まる。
-- **`calcom` と `consent-api` を ECS に置くのは、実行基盤を増やさないためである**（2026-10-01 の決定）。`consent-api` では Lambda 関数 URL・API Gateway・CloudFront Function も候補だったが、**デプロイ手順（8 節）と監視（TA-05）が二重になる**ため採らなかった（DD-02 の 8.1）。`admin-auth` という自作のサービスの前例があり、扱いをそろえられる。
+- **（2026-10-12）ADR-26 で置き換え: `consent-api` は VPC の中の Lambda〈ALB のターゲット〉にした（デプロイは同じ SAM、監視は Lambda のアラームを足すだけ）。以下は 2026-10-01 の記録。** **`calcom` と `consent-api` を ECS に置くのは、実行基盤を増やさないためである**（2026-10-01 の決定）。`consent-api` では Lambda 関数 URL・API Gateway・CloudFront Function も候補だったが、**デプロイ手順（8 節）と監視（TA-05）が二重になる**ため採らなかった（DD-02 の 8.1）。`admin-auth` という自作のサービスの前例があり、扱いをそろえられる。
 - **`consent-api` は訪問者のリクエストを直接受ける唯一の自作のコードである。** `admin-auth` は管理者だけが触り、他の 6 サービスは上流の製品である。**自作のコードを公開経路に出す初めての箇所**にあたるため、入力の検査（受け取るのは状態と識別子だけ）と WAF のレート制限（5.5）を、他のサービスより厳しく見る。 **（2026-10-03 に追加）`points-api` の利用者ポータルもインターネットから直接リクエストを受けるが、相手は訪問者ではなく利用者（基盤を立てた事業者）で、メールのワンタイムリンクでログインした後にだけ使える。**
 - **`consent-api` は RDS を使わない**（記録は ElastiCache。4.8）。DB を持たないサービスにすることで、**訪問者のリクエストが製品の DB に届く経路を作らない**。
 - **（2026-10-03 に追加）`points-api` は採掘しない。** unMineable と thirdweb の API を呼ぶだけで、採掘プールも Monero のノードも AWS に置かない（AWS Service Terms 1.25。AA-05 の ADR-20）。**本システムの完成後に着手し、承認ゲート G-1〜G-3 を通るまで置かない。**
@@ -100,7 +100,7 @@ flowchart LR
 | Strapi | **`backend/strapi-system` からビルドする**（Strapi 5.53.0） | コンテンツタイプの定義はコードにあるため、**スキーマの変更はイメージの更新で本番に反映する**（ADR-16 の「そろえ続ける」） |
 | n8n | 公式の `n8nio/n8n` と `n8nio/runners` | **2 つのバージョンを必ず一致させる**（`N8N_VERSION`。`.claude/CLAUDE.md` の Docker スタックの共通方針と同じ） |
 | **Cal.com**（2026-10-01 に追加） | **公式イメージ**（`calcom/cal.com`。**本セッションでは未確認**。無ければ上流のソースからビルドする） | **`latest` を使わず、バージョンのタグで固定する。** **ライセンスの確認が先に要る**（機能によってライセンスが分かれており、使う機能〈予約ページ・埋め込み・Google Calendar の連携〉が自前で動かせる範囲に収まるかを上流の条件で確かめる。11 節、AA-02 の 5 節）。**取り込み済みの上流は持たない**（`backend/calcom-system` は compose と環境変数のテンプレートだけにする。`.claude/CLAUDE.md` の `chatwoot-system` と `middleware/n8n` と同じ扱い） |
-| **`consent-api`**（2026-10-01 に追加） | **`backend/consent-api` からビルドする**（自作） | `admin-auth` と同じ扱い。**依存を最小にする**（公開経路に出る自作のコードのため。3.1） |
+| **`consent-api`**（2026-10-01 に追加） | **ECR に置かない**（Lambda。`sam build` が esbuild で zip にする。ADR-26。2026-10-12） | 依存を最小にする（公開経路に出る自作のコードのため。3.1） |
 
 **イメージは ECR に置く。** Docker Hub から直接取得すると、取得回数の制限と、上流のタグの付け替えの影響を受ける。
 
@@ -218,7 +218,7 @@ Mautic は次のファイルをローカルのディスクに書く。Fargate �
 | ストア | **既存の ElastiCache（Valkey）を使う**（4.1）。新しいストアも新しい AWS のサービスも足さない |
 | 置き方 | **Chatwoot・Mautic とキーの名前空間を分ける**（接頭辞で分ける）。1 ノードを共有するため、4.3 で RDS について受け入れたのと同じ「片方の負荷がもう片方に響く」ことを受け入れる |
 | 中身 | 同意の状態（`granted` / `denied`）・時刻・同意した文面の版・Cookie が指す識別子。**訪問者の氏名・メールアドレス・IP を入れない** |
-| 書き手 | **`consent-api`**（ALB の後ろの自作のサービス。ECS on Fargate。3.1。`R1` の 2026-10-01 の決定） |
+| 書き手 | **`consent-api`**（ALB の後ろの自作のサービス。VPC の中の Lambda〈ALB のターゲット〉。ADR-26〈2026-10-12〉。3.1。`R1` の 2026-10-01 の決定） |
 | 保持期間 | **未決定**（11 節。DA-05 の 2 節と合わせて決める）。決まるまで TTL を設定しない |
 | 開発環境での対応 | `redis:alpine`（4.1 の ElastiCache と同じ対応） |
 
@@ -342,6 +342,7 @@ sequenceDiagram
 
 - **Cal.com は訪問者向けと管理者向けが同一オリジンにある**（Chatwoot と同じ構造。旧版は「Umami・Chatwoot と同じ」。Umami は ADR-25 で廃止）。**訪問者に要るのは予約ページと埋め込みだけ**で、設定・連携・予約の一覧は運用経路（5.2 の管理者の認証）に残す。**パスの切り分けを実装時に DevTools で確かめる**（切り分けを誤ると、予約の管理画面が無認証で開くか、予約そのものができなくなる。11 節）。
 - **`consent-api` のパスを 2 本に限る。** 自作であるため、**公開経路に出すパスをこちらで決められる**（製品と違い、バージョンで増えない）。増やさないことが守りになる。
+- **（2026-10-12）consent-api のターゲットは lambda 型**（ADR-26）。許可パス（ルール 106）は変えない。ターゲットグループは `cloud/stacks/services/consent-api.yaml` が持つ。
 - **Strapi と n8n には訪問者向けのパスが無い。** 公開ページは Strapi に実行時のリクエストを出さない（ADR-11）。n8n の Webhook（`/webhook/*`）は本番の Chatwoot・Mautic から VPC の中で受け、ALB には出さない（11 節）。外部のサービスから Webhook を受ける必要が出たときに、そのパスだけを許可リストに加える。
 - **`/cable` は訪問者と運用者の両方が使う。** Chatwoot のウィジェットと管理画面は同じ WebSocket のエンドポイントを使うため、無認証で通し、製品側の認証に任せる。
 - **Mautic の `/api/*` と `/oauth/*` は訪問者向けに含めない。** 機械向けの API（5.4）として扱う。
@@ -469,7 +470,7 @@ sequenceDiagram
 |---|---|---|
 | ALB | 時間 ＋ LCU | 1 台に集約する（5.1） |
 | WAF（ALB 用） | WebACL・ルール・リクエスト数 | **CloudFront のフラットレートプランの対象外** |
-| Fargate | vCPU と メモリの時間 | **11 サービス**（3.1。`admin-auth`・`strapi`・`n8n`・`points-api`〈2026-10-03 に追加。採掘はしない〉を含む。ADR-16 で 2 つ、**2026-10-01 の決定で `calcom` と `consent-api` の 2 つ、2026-10-03 に `points-api` の 1 つ**増えた） |
+| Fargate | vCPU と メモリの時間 | **11 サービス**（3.1。`admin-auth`・`strapi`・`n8n`・`points-api`〈2026-10-03 に追加。採掘はしない〉を含む。ADR-16 で 2 つ、**2026-10-01 の決定で `calcom` と `consent-api` の 2 つ、2026-10-03 に `points-api` の 1 つ**増えた。**2026-10-12 ADR-26: `consent-api` は Lambda になり、Fargate から外れた**〈Lambda の呼び出しと実行時間の料金に替わる〉） |
 | RDS | インスタンスの時間 ＋ ストレージ ＋ バックアップ | 2 台（MySQL・PostgreSQL） |
 | ElastiCache | ノードの時間 | 1 ノード |
 | NAT Gateway | 時間 ＋ 処理したデータ量 | 1 つ |
@@ -599,7 +600,7 @@ sequenceDiagram
 |---|---|---|
 | Cookie 同意の状態の保存先 | **Cookie とサーバの両方**（`localStorage` は使わない）。サーバ側は**既存の ElastiCache（Valkey）**を使い、ストアを増やさない | 4.1・4.8 |
 | 同意の対象 | **PostHog と Chatwoot の 2 つ**（Umami は同意の前でも送る）。本番の Chatwoot のウィジェットは同意の後にだけ読み込まれる（**2026-10-06 ADR-25: 同意の対象は PostHog・Chatwoot・GA4 の 3 つになった。Umami は廃止。同意のポリシーの版〈`CONSENT_POLICY_VERSION`〉を上げる。`consent-api` のコードと Cookie の形式は変えない**） | 4.8（DD-02 の 4.4） |
-| 同意を受け取る受け口 | **ALB の後ろの自作のサービス `consent-api`（ECS on Fargate）。** Lambda 関数 URL・API Gateway・CloudFront Function は採らない（**実行基盤を増やさない**） | 3.1・4.8・5.3・5.5 |
+| 同意を受け取る受け口 | **ALB の後ろの自作のサービス `consent-api`（ECS on Fargate）。** **（2026-10-12 ADR-26: VPC の中の Lambda に移した。ALB の後ろに置くことは変えない）** Lambda 関数 URL・API Gateway・CloudFront Function は採らない（**実行基盤を増やさない**） | 3.1・4.8・5.3・5.5 |
 | **Cal.com**（`I-25`） | **セルフホストする**（SaaS として使わない）。TA-01 の 8 節の「SaaS に依存してよい 2 種類」に当たらないため、**基準を変えずに運用対象を 1 つ増やす側を選んだ**。ECS の `calcom`・RDS の `calcom` データベース・`cal.comegin.com`（案） | 3.1・3.2・4.1・4.3・5.1・5.3 |
 | Cal.com と Google Calendar | **`calcom` が Google Calendar API を呼ぶ**（OAuth クライアントは `admin-auth`・GSC と同じ Google Workspace の中で発行し、**`admin-auth` のクライアントと共用しない**）。**開発環境は本番のカレンダーを指さない** | 7・10 |
 | 氏名・メールアドレスの越境 | **予約の正本（`E-16`）は起きない**（セルフホストのため `ap-northeast-1` に留まる）。**ただし予約の成立後に Google Calendar へ予定を作るため、氏名・メールアドレス・日時は Google LLC（米国）に渡る**（同日のユーザーの決定）。**TA-01 の 8 節の SaaS 依存の基準は変えないが、越境する先は PostHog と Google Calendar の 2 つになった**（DA-05 の 1.2・1.2.2） | 7（DD-02 の 7.5） |
