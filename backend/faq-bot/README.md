@@ -18,6 +18,8 @@ Chatwoot の受信箱「Web サイト」で、訪問者の質問に **Web サイ
 | 当たらない・［どれにも当てはまらない］ | 引き継ぎの案内 | `faq-unmatched` | `open`（担当者へ） |
 | ［担当者に相談する］ | 引き継ぎの案内 | `faq-handoff` | `open` |
 | ［解決しました］ | お礼 | — | `resolved` |
+| 担当者がマクロ「解決の確認を送る」を押した（ラベル `faq-ask-resolved`） | ラベルを外して「ご質問は解決しましたか？…」と［解決しました］ | （`faq-ask-resolved` を外す） | そのまま |
+| 担当者の対応中（`open`・`snoozed`）に［解決しました］ | お礼（ボタンが最新のメッセージのときだけ） | — | `resolved` |
 
 照合は文字 2-gram の Dice 係数（外部 API なし）。しきい値は `FAQ_MATCH_HIGH`・`FAQ_MATCH_LOW`・`FAQ_MATCH_MARGIN`（既定 0.5・0.25・0.1。言い換えの例文 43 件で正答率 93.0%）。
 
@@ -64,6 +66,10 @@ pnpm test:integration   # 結合テスト（開発の Chatwoot を本物とし�
 - 新しい会話は、受信箱にボットが付いていると `pending` で始まる。`open` 以降は人の担当で、ボットは何もしない。
 - **ウィジェットのバブルを開くと `webwidget_triggered` が届く**（本文は `ContactInbox#webhook_data`。`current_conversation` はその訪問者の最後の会話で、無ければ `null`）。**この送信に失敗しても Chatwoot は何もしない**（会話を `open` にするのはメッセージのイベントのときだけ）。
 - **ボットのトークンでも会話を作れる**（`conversations#create`。`source_id` と `inbox_id`）。ただし受信箱が `lock_to_single_conversation` だと、作らずに最後の会話を返す（解決済みでも）。そのため作成の応答が `pending` でなければ一覧を送らない（`dialog/execute.ts` の `executeWelcome`）。
+- **ウィジェットに「ボット」の名前で出る、FAQ ボット以外のメッセージは、Chatwoot の自動のメールアドレスの収集**（受信箱の `enable_email_collect`。「ご連絡先をご入力ください。」と入力欄。メールアドレスの無い訪問者の発言に Chatwoot が自動で足す `template`〈`message_type` 3〉で、ウィジェットは `template` の送り主を必ず「ボット」と表示する〈`AgentMessage.vue`〉）。集めたメールアドレスは Mautic との突合（I-19）に使うので残している（2026-10-12 にユーザーが判断）。
+- **担当者への引き継ぎのメール**: ボットが会話を `open` にすると、Chatwoot が受信箱のメンバーに「新しい会話」（`conversation_creation`）の通知を作る。メールになるのは、その担当者が「新しい会話が作成されたとき」のメールを有効にしているときだけ。開発は setup が管理者を受信箱のメンバーにして有効にする。**開発のメールは Chatwoot の MailHog（`http://localhost:8026`）に届く**（n8n・Mautic の MailHog〈8025〉とは別）。受信箱の自動割り当てで「割り当てられたとき」のメールも続けて来る。
+- **解決した会話に訪問者が書き込むと、新しいチャットになる**（受信箱の `allow_messages_after_resolved: false`。2026-10-12 に setup で設定）。ウィジェットは入力欄を消して「新しいチャットを開始する」を出す。
 - **一覧の会話では、受信箱の挨拶メッセージと営業時間外の自動応答が出ない**（`MessageTemplates::HookExecutionService`: 挨拶は公開の `outgoing` が 1 件も無いとき、営業時間外は直近 5 分に公開の `outgoing` が無いときだけ出る）。
 - **ボットが会話を作ると `conversation_created` が出る。** そのため n8n の I-12 は、リード通知を会話の作成ではなく顧客の最初の公開メッセージで行う（2026-10-12 に I-12 を変更。仕様 `2026-10-12-faq-bot-welcome-design.md` の 5.1 節）。`conversation-triage` は中身の無い `pending` の会話も数える（未対応）。
 - **初めて開いたとき、ウィジェットはホーム画面のまま**で、ボットの一覧が届くとボタンが「会話を開始」から「会話を続行」に変わる。押すと一覧が見える（開いたときにメッセージの画面へ移るのは、メッセージが既にあるときだけ。`app/javascript/widget/App.vue`）。
+- **管理画面からはボタン（`input_select`）を送れない**（返信欄・定型文・マクロの「メッセージを送る」はどれも文字だけ）。そのため担当者の返信の後の［解決しました］は、マクロ「解決の確認を送る」がラベル `faq-ask-resolved` を付け、ボットが `conversation_updated` の `changed_attributes` で「今付いた」ことを確かめ、ラベルを外してから送る（2026-10-12。仕様 `2026-10-12-faq-bot-ask-resolved-design.md`）。マクロを使わず担当者がラベルを手で付けても同じ。**ボタンが出ずにラベルが残っていたら（faq-bot の失敗）、ラベルを外してからマクロを押し直す**（同じラベルを付け直しても Chatwoot は変更として扱わず、`conversation_updated` が出ない）。ボットは「今付いた」ときだけ反応するので、残ったラベルで後からボタンが出ることはない。

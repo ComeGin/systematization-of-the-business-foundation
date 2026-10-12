@@ -576,7 +576,12 @@ Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-
 4. 公開サイトを `faq.json` 入りでビルドして配信する（`https://<SiteHost>/faq.json` が JSON を返すこと）。
 5. `sam build` → `sam deploy`。出力の `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を、2 のボットの Webhook の URL に入れる。
 6. 「設定 → 受信箱 → Web サイト → ボットの設定」で「FAQ ボット」を選ぶ（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。
-7. 確かめる: ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま。
+7. 受信箱「Web サイト」の設定を合わせる（2026-10-12 に追加。開発は `backend/chatwoot-system/setup/index.mjs` が同じことをする）:
+   - **解決した会話への書き込みを許さない**（受信箱の設定の「解決後のメッセージを許可」を切る。API では `allow_messages_after_resolved: false`）。解決後はウィジェットに「新しいチャットを開始する」が出て、新しい会話になる（既定のままだと、解決した会話が開き直される）。
+   - **担当者（人）を受信箱のメンバーにする**（「設定 → 受信箱 → Web サイト → 共同作業者」）。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）。
+   - **各担当者が、プロフィールの通知設定で「新しい会話が作成されたとき」のメールを有効にする**（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。本人のトークンでしか変えられない）。受信箱の自動割り当てが有効なら、続けて「割り当てられたとき」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる。
+   - **ラベル `faq-ask-resolved` と、マクロ「解決の確認を送る」を作る**（「設定 → ラベル」と「設定 → マクロ」。マクロは全員で共有し、動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）。
+8. 確かめる: ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま。
 
 - **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
 - しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。

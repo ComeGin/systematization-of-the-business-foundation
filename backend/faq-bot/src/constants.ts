@@ -34,6 +34,8 @@ export const LABELS = {
   answered: "faq-answered",
   unmatched: "faq-unmatched",
   handoff: "faq-handoff",
+  // 担当者がマクロ「解決の確認を送る」で付ける。ボットが外して［解決しました］ボタンを送る（2026-10-12 の解決の確認の仕様）
+  askResolved: "faq-ask-resolved",
 } as const;
 
 // input_select の選択肢の値（FAQ の id と衝突しないよう __ で始める）
@@ -48,6 +50,7 @@ export const MESSAGES = {
   answerLinkPrefix: "詳しくは: ",
   candidatesPrompt: "次のどれに近いですか？",
   welcome: "よくあるご質問です。当てはまらなければ、ご質問をそのまま入力してください。",
+  askResolved: "ご質問は解決しましたか？まだご不明な点があれば、そのまま入力してください。",
   handoff: "担当者におつなぎします。順番にお返事しますので、このままお待ちください。",
   resolved: "お役に立ててよかったです。ほかにもご質問があれば、いつでもどうぞ。",
   choiceResolved: "解決しました",

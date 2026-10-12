@@ -1,7 +1,7 @@
 import type { ChatwootClient } from "../chatwoot/client.js";
 import type { EventTarget, WelcomeEvent } from "../chatwoot/events.js";
 import type { LastMessage, Reply } from "../chatwoot/types.js";
-import { MESSAGE_TYPE_OUTGOING, MESSAGE_TYPE_TEMPLATE } from "../constants.js";
+import { LABELS, MESSAGE_TYPE_OUTGOING, MESSAGE_TYPE_TEMPLATE } from "../constants.js";
 import type { Action } from "./decide.js";
 
 export type Outcome = "done" | "not-pending" | "stale";
@@ -38,14 +38,23 @@ export async function execute(
   action: Action,
 ): Promise<ExecuteResult> {
   const view = await client.getConversation(target.conversationId);
-  if (view.status !== "pending") return { outcome: "not-pending", sent: false };
+  // ［解決しました］だけは、担当者の会話（open・snoozed）でも受け付ける（2026-10-12 の解決の確認の仕様 3 節）。ほかは pending のときだけ
+  const resolvingAgentOwned = action.decision === "resolved" && (view.status === "open" || view.status === "snoozed");
+  if (view.status !== "pending" && !resolvingAgentOwned) return { outcome: "not-pending", sent: false };
 
   const send = shouldSend(view.lastMessage, target.messageId);
   if (send === "stale") return { outcome: "stale", sent: false };
+  // 担当者の会話では、ボタン自身が最新のときだけ閉じる。ボタンへのボットの返事（引き継ぎの案内など）が後にあれば、お礼なしに閉じない。
+  // テンプレートも例外にしない（訪問者の新しい発言に営業時間外の自動返信が続いた後に、未回答の質問ごと閉じないため。2026-10-12 の最終レビュー）
+  if (resolvingAgentOwned && view.lastMessage?.id !== target.messageId) return { outcome: "stale", sent: false };
 
   if (send) await client.sendMessage(target.conversationId, action.reply, target.messageId);
-  const missing = action.addLabels.filter((label) => !view.labels.includes(label));
-  if (missing.length > 0) await client.setLabels(target.conversationId, [...view.labels, ...missing]);
+  if (action.addLabels.some((label) => !view.labels.includes(label))) {
+    // 付け替えは一覧ごと書くので、書く直前に読み直す。送信の間に担当者のマクロなどが足したラベルを消さない（2026-10-12 の最終レビュー）
+    const current = await client.getLabels(target.conversationId);
+    const missing = action.addLabels.filter((label) => !current.includes(label));
+    if (missing.length > 0) await client.setLabels(target.conversationId, [...current, ...missing]);
+  }
   if (action.status) await client.setStatus(target.conversationId, action.status);
   return { outcome: "done", sent: send };
 }
@@ -65,4 +74,19 @@ export async function executeWelcome(client: ChatwootClient, target: Pick<Welcom
   if (created.status !== "pending") return { outcome: "not-pending", conversationId: created.id };
   await client.sendMessage(created.id, reply, null);
   return { outcome: "sent", conversationId: created.id };
+}
+
+export type AskResolvedOutcome = "sent" | "skip-resolved" | "skip-no-label";
+
+/**
+ * 担当者のマクロ「解決の確認を送る」（ラベル faq-ask-resolved）への応答（2026-10-12 の解決の確認の仕様 3 節の 4〜6）。
+ * 会話を読み直し、解決済みなら何もしない。ラベルがまだあれば、送る前に外す（二度押し・重複したイベントで 2 通出さないため）。失敗は例外
+ */
+export async function executeAskResolved(client: ChatwootClient, conversationId: number, reply: Reply): Promise<AskResolvedOutcome> {
+  const view = await client.getConversation(conversationId);
+  if (view.status === "resolved") return "skip-resolved";
+  if (!view.labels.includes(LABELS.askResolved)) return "skip-no-label";
+  await client.setLabels(conversationId, view.labels.filter((label) => label !== LABELS.askResolved));
+  await client.sendMessage(conversationId, reply, null);
+  return "sent";
 }

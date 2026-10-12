@@ -1,18 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatwootApiError, type ChatwootClient } from "../src/chatwoot/client.js";
-import type { ConversationStatus } from "../src/chatwoot/types.js";
+import type { ConversationStatus, ConversationView } from "../src/chatwoot/types.js";
 import { MESSAGES } from "../src/constants.js";
 import type { FaqItem } from "../src/faq/schema.js";
 import { buildSnapshot, FaqUnavailableError, type FaqSource } from "../src/faq/store.js";
 import { createHandler, type HttpRequest } from "../src/handler.js";
-import { questionPayload, sign, welcomePayload } from "./helpers/chatwoot.js";
+import { conversationUpdatedPayload, labelChange, questionPayload, sign, welcomePayload } from "./helpers/chatwoot.js";
 import { makeConfig } from "./helpers/config.js";
 import { makeFaqItem } from "./helpers/faq.js";
 
 const NOW = 1_800_000_000;
 const CONFIG = makeConfig();
 
-function setup(options: { faqFails?: boolean; clientFails?: boolean; faqItems?: FaqItem[]; createdStatus?: ConversationStatus } = {}) {
+function setup(
+  options: { faqFails?: boolean; clientFails?: boolean; faqItems?: FaqItem[]; createdStatus?: ConversationStatus; conversation?: Partial<ConversationView> } = {},
+) {
   const faq: FaqSource = {
     current: vi.fn(async () => {
       if (options.faqFails) throw new FaqUnavailableError("faq.json をまだ一度も取得できていない");
@@ -22,12 +24,18 @@ function setup(options: { faqFails?: boolean; clientFails?: boolean; faqItems?: 
   const client = {
     getConversation: vi.fn(async () => {
       if (options.clientFails) throw new ChatwootApiError(503, "GET conversations/12", "HTTP 503");
-      return { status: "pending" as const, labels: [], lastMessage: { id: 101, messageType: 0, senderType: "contact", inReplyTo: null } };
+      return {
+        status: "pending" as ConversationStatus,
+        labels: [] as readonly string[],
+        lastMessage: { id: 101, messageType: 0, senderType: "contact", inReplyTo: null },
+        ...options.conversation,
+      };
     }),
     createConversation: vi.fn(async () => {
       if (options.clientFails) throw new ChatwootApiError(503, "POST conversations", "HTTP 503");
       return { id: 31, status: options.createdStatus ?? ("pending" as const) };
     }),
+    getLabels: vi.fn(async () => (options.conversation?.labels ?? []) as readonly string[]),
     sendMessage: vi.fn(async () => {}),
     setLabels: vi.fn(async () => {}),
     setStatus: vi.fn(async () => {}),
@@ -218,6 +226,51 @@ describe("createHandler（ウィジェットを開いたとき）", () => {
       expect(log).toHaveBeenCalledWith(expect.objectContaining({ level: "warn", result: "invalid_event", reason: expect.stringContaining("current_conversation.status") }));
       expect(JSON.stringify(log.mock.calls)).not.toContain("bot-secret-value");
       expect(JSON.stringify(log.mock.calls)).not.toContain(SOURCE_ID);
+    });
+  });
+});
+
+describe("createHandler（担当者のマクロ「解決の確認を送る」）", () => {
+  describe("正常系", () => {
+    it("ラベル faq-ask-resolved が付いたら、ラベルを外してから［解決しました］ボタンを送り、ログを 1 行出す", async () => {
+      const { handle, client, log } = setup({ conversation: { status: "open", labels: ["faq-handoff", "faq-ask-resolved"] } });
+      expect(await handle(signed(JSON.stringify(conversationUpdatedPayload())))).toEqual({ status: 200, body: '{"result":"ask-resolved"}' });
+      expect(client.setLabels).toHaveBeenCalledWith(12, ["faq-handoff"]);
+      expect(client.sendMessage).toHaveBeenCalledWith(12, { kind: "select", content: MESSAGES.askResolved, items: [{ title: "解決しました", value: "__resolved" }] }, null);
+      expect(client.setLabels.mock.invocationCallOrder[0]).toBeLessThan(client.sendMessage.mock.invocationCallOrder[0]!);
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ event: "ask-resolved", conversation: 12, decision: "ask-resolved" }));
+    });
+
+    it("ラベル faq-ask-resolved が今付いたのでない会話の更新は、Chatwoot の API を呼ばずに 200 で何もしない", async () => {
+      const { handle, client } = setup();
+      const event = conversationUpdatedPayload({ labels: ["faq-answered"], changed_attributes: labelChange([], ["faq-answered"]) });
+      expect((await handle(signed(JSON.stringify(event)))).body).toBe('{"result":"ignored"}');
+      expect(client.getConversation).not.toHaveBeenCalled();
+    });
+
+    it("解決済みの会話では何もしない（skip-resolved）", async () => {
+      const { handle, client } = setup({ conversation: { status: "resolved", labels: ["faq-ask-resolved"] } });
+      expect((await handle(signed(JSON.stringify(conversationUpdatedPayload())))).body).toBe('{"result":"skip-resolved"}');
+      expect(client.setLabels).not.toHaveBeenCalled();
+    });
+
+    it("読み直したらラベルがもう無ければ何もしない（skip-no-label）", async () => {
+      const { handle, client } = setup({ conversation: { status: "open", labels: ["faq-handoff"] } });
+      expect((await handle(signed(JSON.stringify(conversationUpdatedPayload())))).body).toBe('{"result":"skip-no-label"}');
+      expect(client.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("別のアカウントの会話の更新は 200 で何もしない", async () => {
+      const { handle, client } = setup();
+      expect((await handle(signed(JSON.stringify(conversationUpdatedPayload({ account: { id: 2 } }))))).body).toBe('{"result":"ignored"}');
+      expect(client.getConversation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("異常系", () => {
+    it("サーバ: Chatwoot の API の失敗は例外", async () => {
+      const { handle } = setup({ clientFails: true });
+      await expect(handle(signed(JSON.stringify(conversationUpdatedPayload())))).rejects.toBeInstanceOf(ChatwootApiError);
     });
   });
 });

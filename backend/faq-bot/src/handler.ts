@@ -1,10 +1,11 @@
 import type { ChatwootClient } from "./chatwoot/client.js";
-import { type BotEvent, InvalidEventError, parseEvent, type WelcomeEvent } from "./chatwoot/events.js";
+import { type AskResolvedEvent, type BotEvent, InvalidEventError, parseEvent, type WelcomeEvent } from "./chatwoot/events.js";
 import { verifySignature } from "./chatwoot/signature.js";
 import type { Config } from "./config.js";
 import { HEALTH_PATH, MAX_BODY_BYTES, SIGNATURE_TOLERANCE_SECONDS, WEBHOOK_PATH } from "./constants.js";
+import { askResolvedReply } from "./dialog/ask-resolved.js";
 import { decide } from "./dialog/decide.js";
-import { execute, executeWelcome } from "./dialog/execute.js";
+import { execute, executeAskResolved, executeWelcome } from "./dialog/execute.js";
 import { welcomeItems, welcomeReply } from "./dialog/welcome.js";
 import type { FaqSource } from "./faq/store.js";
 
@@ -36,7 +37,7 @@ const json = (status: number, body: unknown): HttpResponse => ({ status, body: J
 /**
  * Webhook を受けて判定し、Chatwoot に反映する（仕様 6〜8 節）。
  * 失敗（faq.json が無い・Chatwoot の API の失敗）は例外で投げる。入口が 502 にし、メッセージのイベントなら Chatwoot は会話を open にする
- * （ウィジェットを開いたイベント〈webwidget_triggered〉では Chatwoot は何もせず、一覧が出ないだけ）。
+ * （ウィジェットを開いたイベント〈webwidget_triggered〉・担当者のマクロ〈conversation_updated〉では Chatwoot は何もせず、一覧・ボタンが出ないだけ）。
  * ログは 1 件 1 行。メッセージの本文・氏名・メールアドレス・トークン・source_id は出さない
  */
 export function createHandler(deps: HandlerDeps): Handle {
@@ -60,6 +61,14 @@ export function createHandler(deps: HandlerDeps): Handle {
     if (items.length === 0) return done("skip-empty");
     const result = await executeWelcome(client, event, welcomeReply(items));
     return done(result.outcome === "sent" ? "welcome" : "skip-not-pending", { conversation: result.conversationId, faq: items.map((item) => item.id) });
+  }
+
+  /** 担当者のマクロ「解決の確認を送る」（2026-10-12 の解決の確認の仕様 3 節）。ラベルを外してから［解決しました］ボタンを送る */
+  async function handleAskResolved(event: AskResolvedEvent, startedAt: number): Promise<HttpResponse> {
+    const outcome = await executeAskResolved(client, event.conversationId, askResolvedReply());
+    const decision = outcome === "sent" ? "ask-resolved" : outcome;
+    log({ t: new Date().toISOString(), level: "info", event: event.kind, conversation: event.conversationId, decision, ms: Date.now() - startedAt });
+    return json(200, { result: decision });
   }
 
   return async (req) => {
@@ -105,6 +114,7 @@ export function createHandler(deps: HandlerDeps): Handle {
       return json(200, { result: "ignored" });
     }
     if (event.kind === "welcome") return handleWelcome(event, startedAt);
+    if (event.kind === "ask-resolved") return handleAskResolved(event, startedAt);
 
     const snapshot = await faq.current();
     const action = decide(event, snapshot, thresholds);

@@ -1,5 +1,5 @@
 import * as z from "zod/v4";
-import { MAX_QUESTION_CHARS } from "../constants.js";
+import { LABELS, MAX_QUESTION_CHARS } from "../constants.js";
 import type { ConversationStatus } from "./types.js";
 
 // Message#webhook_data の必要な部分だけ（他の項目は無視する）。conversation.id は display_id
@@ -33,6 +33,18 @@ const WelcomePayload = z.object({
     .nullable(),
 });
 
+// 会話の webhook_data（conversation_updated）の必要な部分だけ。id は display_id。
+// changed_attributes は Chatwoot の BaseListener#extract_changed_attributes の形（[{ 属性名: { previous_value, current_value } }]。変更が無ければ null）
+const ConversationUpdatedPayload = z.object({
+  id: z.number().int().positive(),
+  account: z.object({ id: z.number().int().positive() }).passthrough(),
+  changed_attributes: z.array(z.record(z.string(), z.unknown())).nullish(),
+});
+const LabelListChange = z.object({
+  previous_value: z.array(z.string()).nullish(),
+  current_value: z.array(z.string()).nullish(),
+});
+
 export interface EventTarget {
   readonly accountId: number;
   readonly conversationId: number;
@@ -61,7 +73,15 @@ export interface WelcomeEvent {
   readonly currentStatus: ConversationStatus | null;
 }
 
-export type BotEvent = QuestionEvent | SelectionEvent | WelcomeEvent | { readonly kind: "ignore"; readonly reason: string };
+/** 担当者がラベル faq-ask-resolved を付けた（マクロ「解決の確認を送る」）。ボットが［解決しました］ボタンを送る */
+export interface AskResolvedEvent {
+  readonly kind: "ask-resolved";
+  readonly accountId: number;
+  /** display_id */
+  readonly conversationId: number;
+}
+
+export type BotEvent = QuestionEvent | SelectionEvent | WelcomeEvent | AskResolvedEvent | { readonly kind: "ignore"; readonly reason: string };
 
 export class InvalidEventError extends Error {
   constructor(message: string) {
@@ -85,11 +105,28 @@ function parseWelcome(body: unknown): WelcomeEvent {
   };
 }
 
+/**
+ * この更新でラベル faq-ask-resolved が今付いたとき（前の値に無く、今の値にある）だけ ask-resolved（2026-10-12 のユーザーの決定）。
+ * ほかの更新（ステータス・担当・ボットのラベル・既に付いているラベル）は API を呼ばずに ignore。
+ * 残ったラベルで、後の別の更新や解決済みの会話の開き直しのときにボタンを出さないため
+ */
+function parseConversationUpdated(body: unknown): BotEvent {
+  const parsed = ConversationUpdatedPayload.safeParse(body);
+  if (!parsed.success) throw new InvalidEventError(`形式が違う（${parsed.error.issues[0]?.path.join(".") || "root"}）`);
+  const entry = (parsed.data.changed_attributes ?? []).find((change) => "label_list" in change);
+  const change = LabelListChange.safeParse(entry?.label_list);
+  if (!change.success) return ignore("no-label-change");
+  const added = (change.data.current_value ?? []).includes(LABELS.askResolved) && !(change.data.previous_value ?? []).includes(LABELS.askResolved);
+  if (!added) return ignore("no-ask-resolved-added");
+  return { kind: "ask-resolved", accountId: parsed.data.account.id, conversationId: parsed.data.id };
+}
+
 /** Webhook の本文を、ボットが扱うイベントに変える（仕様 7.1 と、2026-10-12 の一覧の仕様 3 節）。扱わないものは ignore、壊れた本文は InvalidEventError */
 export function parseEvent(body: unknown): BotEvent {
   const name = typeof body === "object" && body !== null ? (body as { event?: unknown }).event : undefined;
   if (typeof name !== "string") throw new InvalidEventError("event が無い");
   if (name === "webwidget_triggered") return parseWelcome(body);
+  if (name === "conversation_updated") return parseConversationUpdated(body);
   if (name !== "message_created" && name !== "message_updated") return ignore(`event:${name}`);
 
   const parsed = MessagePayload.safeParse(body);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InvalidEventError, parseEvent } from "../../src/chatwoot/events.js";
-import { questionPayload, selectionPayload, welcomePayload } from "../helpers/chatwoot.js";
+import { conversationUpdatedPayload, labelChange, questionPayload, selectionPayload, welcomePayload } from "../helpers/chatwoot.js";
 
 describe("parseEvent", () => {
   describe("正常系", () => {
@@ -57,6 +57,39 @@ describe("parseEvent", () => {
       expect(parseEvent(welcomePayload({ current_conversation: { id: 40, status: "resolved" } }))).toMatchObject({ kind: "welcome", currentStatus: "resolved" });
       expect(parseEvent(welcomePayload({ current_conversation: { id: 41, status: "pending" } }))).toMatchObject({ kind: "welcome", currentStatus: "pending" });
     });
+
+    it("ラベル faq-ask-resolved が今付いた会話の更新は ask-resolved", () => {
+      expect(parseEvent(conversationUpdatedPayload())).toEqual({ kind: "ask-resolved", accountId: 1, conversationId: 12 });
+    });
+
+    it("ボットが別のラベルを付け替えた更新は ignore", () => {
+      const event = conversationUpdatedPayload({ labels: ["faq-answered"], changed_attributes: labelChange([], ["faq-answered"]) });
+      expect(parseEvent(event)).toMatchObject({ kind: "ignore" });
+    });
+
+    // 2026-10-12 のユーザーの決定: 「今ラベルが付いたとき」だけ。残ったラベルで、別の更新のときに遅れてボタンを出さない
+    it("ラベルが既に付いている会話のステータス・担当の変更（label_list の変化なし）は ignore", () => {
+      const event = conversationUpdatedPayload({ changed_attributes: [{ status: { previous_value: "resolved", current_value: "open" } }] });
+      expect(parseEvent(event)).toMatchObject({ kind: "ignore" });
+    });
+
+    it("ラベルが既に付いている会話に別のラベルを足した更新は ignore", () => {
+      const event = conversationUpdatedPayload({
+        labels: ["faq-ask-resolved", "vip"],
+        changed_attributes: labelChange(["faq-ask-resolved"], ["faq-ask-resolved", "vip"]),
+      });
+      expect(parseEvent(event)).toMatchObject({ kind: "ignore" });
+    });
+
+    it("ボットがラベル faq-ask-resolved を外した更新は ignore", () => {
+      const event = conversationUpdatedPayload({ labels: ["faq-handoff"], changed_attributes: labelChange(["faq-handoff", "faq-ask-resolved"], ["faq-handoff"]) });
+      expect(parseEvent(event)).toMatchObject({ kind: "ignore" });
+    });
+
+    it("空入力: changed_attributes が null・空の会話の更新は ignore", () => {
+      expect(parseEvent(conversationUpdatedPayload({ changed_attributes: null }))).toMatchObject({ kind: "ignore" });
+      expect(parseEvent(conversationUpdatedPayload({ changed_attributes: [] }))).toMatchObject({ kind: "ignore" });
+    });
   });
 
   describe("異常系", () => {
@@ -98,6 +131,13 @@ describe("parseEvent", () => {
 
     it("入力: 知らないステータスの current_conversation は InvalidEventError", () => {
       expect(() => parseEvent(welcomePayload({ current_conversation: { id: 40, status: "bot" } }))).toThrow(InvalidEventError);
+    });
+
+    it("入力: id か account の無い conversation_updated は InvalidEventError", () => {
+      const { id: _id, ...noId } = conversationUpdatedPayload();
+      const { account: _account, ...noAccount } = conversationUpdatedPayload();
+      expect(() => parseEvent(noId)).toThrow(InvalidEventError);
+      expect(() => parseEvent(noAccount)).toThrow(InvalidEventError);
     });
   });
 });

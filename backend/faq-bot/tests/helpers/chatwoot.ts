@@ -51,3 +51,22 @@ export function welcomePayload(overrides: Record<string, unknown> = {}): Record<
     ...overrides,
   };
 }
+
+/** conversation_updated（会話の更新。ラベルの変更など）の本文。会話の webhook_data ＋ event・changed_attributes の形 */
+export function conversationUpdatedPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    event: "conversation_updated",
+    id: 12,
+    status: "open",
+    inbox_id: 3,
+    labels: ["faq-handoff", "faq-ask-resolved"],
+    account: { id: 1, name: "ComeGin" },
+    changed_attributes: [{ label_list: { previous_value: ["faq-handoff"], current_value: ["faq-handoff", "faq-ask-resolved"] } }],
+    ...overrides,
+  };
+}
+
+/** conversation_updated の changed_attributes（Chatwoot の BaseListener#extract_changed_attributes の形）で、ラベルの前後を表す */
+export function labelChange(previous: string[], current: string[]): Record<string, unknown>[] {
+  return [{ label_list: { previous_value: previous, current_value: current } }];
+}

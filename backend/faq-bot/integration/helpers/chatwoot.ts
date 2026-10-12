@@ -74,6 +74,21 @@ export class Admin {
     return { status: body.status, labels: body.labels ?? [] };
   }
 
+  /** ラベルを付け替える（マクロ「解決の確認を送る」はラベル faq-ask-resolved を足すだけなので、同じ結果になる） */
+  async setLabels(id: number, labels: string[]): Promise<void> {
+    await ok(await fetch(this.url(`/conversations/${id}/labels`), { method: "POST", headers: { api_access_token: this.state.adminToken, "Content-Type": "application/json" }, body: JSON.stringify({ labels }) }), "labels");
+  }
+
+  /** 担当者の公開の返信（管理画面の返信欄と同じ） */
+  async reply(id: number, content: string): Promise<void> {
+    await ok(await fetch(this.url(`/conversations/${id}/messages`), { method: "POST", headers: { api_access_token: this.state.adminToken, "Content-Type": "application/json" }, body: JSON.stringify({ content, message_type: "outgoing", private: false }) }), "reply");
+  }
+
+  /** 会話のステータスを変える（管理画面の「解決」「再開」「スヌーズ」と同じ） */
+  async setStatus(id: number, status: "open" | "resolved" | "snoozed"): Promise<void> {
+    await ok(await fetch(this.url(`/conversations/${id}/toggle_status`), { method: "POST", headers: { api_access_token: this.state.adminToken, "Content-Type": "application/json" }, body: JSON.stringify({ status }) }), "toggle_status");
+  }
+
   async deleteContact(id: number): Promise<void> {
     await fetch(this.url(`/contacts/${id}`), { method: "DELETE", headers: { api_access_token: this.state.adminToken } });
   }

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ChatwootApiError, type ChatwootClient, type CreatedConversation } from "../../src/chatwoot/client.js";
 import type { ConversationView } from "../../src/chatwoot/types.js";
 import type { Action } from "../../src/dialog/decide.js";
-import { execute, executeWelcome } from "../../src/dialog/execute.js";
+import { execute, executeAskResolved, executeWelcome } from "../../src/dialog/execute.js";
 
 const ANSWER: Action = {
   decision: "answer",
@@ -15,7 +15,12 @@ const ANSWER: Action = {
 const HANDOFF: Action = { ...ANSWER, decision: "unmatched", reply: { kind: "text", content: "引き継ぎ" }, addLabels: ["faq-unmatched"], status: "open", faqIds: [] };
 const TARGET = { conversationId: 12, messageId: 101 };
 
-function fakeClient(view: ConversationView, failOn?: keyof ChatwootClient, created: CreatedConversation = { id: 31, status: "pending" }) {
+function fakeClient(
+  view: ConversationView,
+  failOn?: keyof ChatwootClient,
+  created: CreatedConversation = { id: 31, status: "pending" },
+  freshLabels: readonly string[] = view.labels,
+) {
   const calls: string[] = [];
   const step = (name: keyof ChatwootClient) => async () => {
     calls.push(name);
@@ -29,6 +34,10 @@ function fakeClient(view: ConversationView, failOn?: keyof ChatwootClient, creat
     createConversation: vi.fn(async () => {
       await step("createConversation")();
       return created;
+    }),
+    getLabels: vi.fn(async () => {
+      await step("getLabels")();
+      return freshLabels;
     }),
     sendMessage: vi.fn(step("sendMessage")),
     setLabels: vi.fn(step("setLabels")),
@@ -49,7 +58,7 @@ describe("execute", () => {
     it("まだ答えていなければ、送ってからラベルを足す", async () => {
       const { client, calls } = fakeClient(pending());
       expect(await execute(client, TARGET, ANSWER)).toEqual({ outcome: "done", sent: true });
-      expect(calls).toEqual(["getConversation", "sendMessage", "setLabels"]);
+      expect(calls).toEqual(["getConversation", "sendMessage", "getLabels", "setLabels"]);
       expect(client.sendMessage).toHaveBeenCalledWith(12, ANSWER.reply, 101);
       expect(client.setLabels).toHaveBeenCalledWith(12, ["faq-answered"]);
     });
@@ -57,8 +66,22 @@ describe("execute", () => {
     it("引き継ぎは、送る → ラベル → ステータスの順", async () => {
       const { client, calls } = fakeClient(pending());
       await execute(client, TARGET, HANDOFF);
-      expect(calls).toEqual(["getConversation", "sendMessage", "setLabels", "setStatus"]);
+      expect(calls).toEqual(["getConversation", "sendMessage", "getLabels", "setLabels", "setStatus"]);
       expect(client.setStatus).toHaveBeenCalledWith(12, "open");
+    });
+
+    // 2026-10-12 の最終レビュー: 送信の間に担当者のマクロがラベルを足しても、読んだ時点の一覧で上書きして消さない
+    it("ラベルは書く直前に読み直し、送信の間に足されたラベル（faq-ask-resolved など）を残して足す", async () => {
+      const { client, calls } = fakeClient(pending({ labels: [] }), undefined, undefined, ["faq-ask-resolved"]);
+      await execute(client, TARGET, ANSWER);
+      expect(calls).toEqual(["getConversation", "sendMessage", "getLabels", "setLabels"]);
+      expect(client.setLabels).toHaveBeenCalledWith(12, ["faq-ask-resolved", "faq-answered"]);
+    });
+
+    it("読み直したら足すラベルが既にあれば付け替えない", async () => {
+      const { client } = fakeClient(pending({ labels: [] }), undefined, undefined, ["faq-answered"]);
+      await execute(client, TARGET, ANSWER);
+      expect(client.setLabels).not.toHaveBeenCalled();
     });
 
     it("今のラベルを残して足す", async () => {
@@ -76,14 +99,14 @@ describe("execute", () => {
     it("ボットが対象より新しい返事を出していれば、送らずにラベルとステータスだけやり直す（送り直し）", async () => {
       const { client, calls } = fakeClient(pending({ lastMessage: { id: 150, messageType: 1, senderType: "agent_bot", inReplyTo: 101 } }));
       expect(await execute(client, TARGET, HANDOFF)).toEqual({ outcome: "done", sent: false });
-      expect(calls).toEqual(["getConversation", "setLabels", "setStatus"]);
+      expect(calls).toEqual(["getConversation", "getLabels", "setLabels", "setStatus"]);
     });
 
     it("Chatwoot が自動で足したテンプレート（連絡先の入力欄。message_type 3）が対象より新しくても、まだ答えていないとみなして送る", async () => {
       // ウィジェットの最初の発言の直後に、受信箱の設定で「ご連絡先をご入力ください」の input_email が template として入る（開発の結合テストで確認）
       const { client, calls } = fakeClient(pending({ lastMessage: { id: 103, messageType: 3, senderType: null, inReplyTo: null } }));
       expect(await execute(client, TARGET, ANSWER)).toEqual({ outcome: "done", sent: true });
-      expect(calls).toEqual(["getConversation", "sendMessage", "setLabels"]);
+      expect(calls).toEqual(["getConversation", "sendMessage", "getLabels", "setLabels"]);
     });
 
     it("pending でなければ何もしない（人の担当）", async () => {
@@ -109,7 +132,7 @@ describe("execute", () => {
       // 質問 9 → 質問 11 → 9 への返事 12（in_reply_to 9）→ 11 のイベント
       const { client, calls } = fakeClient(pending({ lastMessage: { id: 12, messageType: 1, senderType: "agent_bot", inReplyTo: 9 } }));
       expect(await execute(client, { conversationId: 12, messageId: 11 }, ANSWER)).toEqual({ outcome: "done", sent: true });
-      expect(calls).toEqual(["getConversation", "sendMessage", "setLabels"]);
+      expect(calls).toEqual(["getConversation", "sendMessage", "getLabels", "setLabels"]);
     });
 
     it("in_reply_to の無いボットのメッセージが最新なら、古いイベントとして何もしない", async () => {
@@ -175,6 +198,106 @@ describe("executeWelcome", () => {
       const { client, calls } = fakeClient(pending(), "sendMessage");
       await expect(executeWelcome(client, OPENED, WELCOME)).rejects.toBeInstanceOf(ChatwootApiError);
       expect(calls).toEqual(["createConversation", "sendMessage"]);
+    });
+  });
+});
+
+const RESOLVED: Action = { decision: "resolved", reply: { kind: "text", content: "お礼" }, addLabels: [], status: "resolved", faqIds: [], topScore: null };
+const ASK = { kind: "select" as const, content: "ご質問は解決しましたか？", items: [{ title: "解決しました", value: "__resolved" }] };
+
+describe("execute（担当者が対応中〈open〉の会話）", () => {
+  describe("正常系", () => {
+    it("［解決しました］は、ボタンが最新のメッセージなら open の会話でもお礼を送って resolved にする", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open", lastMessage: { id: 101, messageType: 1, senderType: "agent_bot", inReplyTo: null } }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "done", sent: true });
+      expect(calls).toEqual(["getConversation", "sendMessage", "setStatus"]);
+      expect(client.setStatus).toHaveBeenCalledWith(12, "resolved");
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: ［解決しました］以外の判定は、open の会話では今までどおり何もしない（人の担当）", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open" }));
+      expect(await execute(client, TARGET, ANSWER)).toEqual({ outcome: "not-pending", sent: false });
+      expect(calls).toEqual(["getConversation"]);
+    });
+
+    it("入力: open の会話で、ボタンへのボットの返事（引き継ぎの案内など）が最新なら、お礼なしに閉じず何もしない", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open", lastMessage: { id: 150, messageType: 1, senderType: "agent_bot", inReplyTo: 101 } }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "stale", sent: false });
+      expect(calls).toEqual(["getConversation"]);
+    });
+
+    it("入力: open の会話で、ボタンの後に担当者が返信していれば何もしない（担当者の対応中に前のボタンで閉じない）", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open", lastMessage: { id: 160, messageType: 1, senderType: "user", inReplyTo: null } }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "stale", sent: false });
+      expect(calls).toEqual(["getConversation"]);
+    });
+
+    // 2026-10-12 の最終レビュー: 訪問者の新しい発言に営業時間外の自動返信（テンプレート）が続くと、最新がテンプレートになる。open では未回答の質問ごと閉じない
+    it("入力: open の会話で、ボタンの後に Chatwoot の自動のテンプレートが最新でも何もしない（その前に訪問者が発言している）", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open", lastMessage: { id: 170, messageType: 3, senderType: null, inReplyTo: null } }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "stale", sent: false });
+      expect(calls).toEqual(["getConversation"]);
+    });
+
+    // 2026-10-12: スヌーズ中も担当者の会話。担当者がマクロで確認を求めたので、ボタンが最新なら閉じる（open と同じ規則）
+    it("入力: スヌーズ中の会話でも、ボタンが最新なら［解決しました］でお礼を送って resolved にする", async () => {
+      const { client, calls } = fakeClient(pending({ status: "snoozed", lastMessage: { id: 101, messageType: 1, senderType: "agent_bot", inReplyTo: null } }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "done", sent: true });
+      expect(calls).toEqual(["getConversation", "sendMessage", "setStatus"]);
+    });
+
+    it("入力: スヌーズ中の会話で、ボタンの後に担当者が返信していれば何もしない", async () => {
+      const { client } = fakeClient(pending({ status: "snoozed", lastMessage: { id: 160, messageType: 1, senderType: "user", inReplyTo: null } }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "stale", sent: false });
+    });
+
+    it("入力: ［解決しました］以外の判定は、スヌーズ中の会話では何もしない", async () => {
+      const { client } = fakeClient(pending({ status: "snoozed" }));
+      expect(await execute(client, TARGET, ANSWER)).toEqual({ outcome: "not-pending", sent: false });
+    });
+
+    it("入力: 解決済みの会話の［解決しました］は何もしない", async () => {
+      const { client } = fakeClient(pending({ status: "resolved" }));
+      expect(await execute(client, TARGET, RESOLVED)).toEqual({ outcome: "not-pending", sent: false });
+    });
+  });
+});
+
+describe("executeAskResolved", () => {
+  describe("正常系", () => {
+    it("ラベル faq-ask-resolved を外してから、in_reply_to なしでボタンを 1 通送る（ほかのラベルは残す）", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open", labels: ["faq-handoff", "faq-ask-resolved"] }));
+      expect(await executeAskResolved(client, 12, ASK)).toBe("sent");
+      expect(calls).toEqual(["getConversation", "setLabels", "sendMessage"]);
+      expect(client.setLabels).toHaveBeenCalledWith(12, ["faq-handoff"]);
+      expect(client.sendMessage).toHaveBeenCalledWith(12, ASK, null);
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: 解決済みの会話では何もしない（ラベルも外さない）", async () => {
+      const { client, calls } = fakeClient(pending({ status: "resolved", labels: ["faq-ask-resolved"] }));
+      expect(await executeAskResolved(client, 12, ASK)).toBe("skip-resolved");
+      expect(calls).toEqual(["getConversation"]);
+    });
+
+    it("入力: ラベルがもう無ければ何もしない（同じイベントの重複・二度押しの 2 つ目）", async () => {
+      const { client, calls } = fakeClient(pending({ status: "open", labels: ["faq-handoff"] }));
+      expect(await executeAskResolved(client, 12, ASK)).toBe("skip-no-label");
+      expect(calls).toEqual(["getConversation"]);
+    });
+
+    it("サーバ: ラベルを外せなければ例外（送らない）", async () => {
+      const { client, calls } = fakeClient(pending({ labels: ["faq-ask-resolved"] }), "setLabels");
+      await expect(executeAskResolved(client, 12, ASK)).rejects.toBeInstanceOf(ChatwootApiError);
+      expect(calls).toEqual(["getConversation", "setLabels"]);
+    });
+
+    it("サーバ: 送信に失敗したら例外（ラベルは外れている。担当者がもう一度押せば出る）", async () => {
+      const { client } = fakeClient(pending({ labels: ["faq-ask-resolved"] }), "sendMessage");
+      await expect(executeAskResolved(client, 12, ASK)).rejects.toBeInstanceOf(ChatwootApiError);
     });
   });
 });

@@ -153,6 +153,7 @@ flowchart LR
 | `message_created` | `message_type` が `incoming`（訪問者の発言）。**本文の無い発言（添付だけ）も空の質問として扱い、担当者に引き継ぐ**（2026-10-11 の最終レビューで修正。旧版は無視していたため、会話が `pending` のまま誰にも見えなくなった） |
 | `message_updated` | ボット自身の `input_select` のメッセージで、`content_attributes.submitted_values` がある（訪問者が選択肢を選んだ） |
 | `webwidget_triggered` | 訪問者がウィジェットを開いた。会話が無いか直前の会話が `resolved` のときだけ、会話を作ってトップページの FAQ の一覧を出す（2026-10-12 に追加。`docs/superpowers/specs/2026-10-12-faq-bot-welcome-design.md`） |
+| `conversation_updated` | 本文の `changed_attributes` で、ラベル `faq-ask-resolved`（担当者のマクロ「解決の確認を送る」）が今付いたときだけ。ラベルを外して［解決しました］ボタンを送る（2026-10-12 に追加。`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`） |
 
 - 処理の前に会話の `show` を呼び、**ステータスが `pending` のときだけ**続ける（`open` 以降は人の担当。イベントの本文のステータスは古いことがあるので信用しない）。
 - ボット自身の `outgoing` の `message_created` は扱わない（無限の往復を防ぐ）。
@@ -192,7 +193,7 @@ flowchart LR
 
 ボットのトークンはメッセージの一覧を読めないため、**会話の `show` が返す `last_non_activity_message`**（活動メッセージを除いた最新の 1 件。`messages` の 1 件はラベルやステータスの変更の活動メッセージになりうるので使わない。`_conversation.json.jbuilder` と `Message.non_activity_messages` で確認済み）で判断する。
 
-1. `show` を呼ぶ（ステータス・ラベル・`last_non_activity_message`）。`pending` でなければ終了。
+1. `show` を呼ぶ（ステータス・ラベル・`last_non_activity_message`）。`pending` でなければ終了。**ただし［解決しました］は担当者の会話（`open`・`snoozed`）でも続け、そのときはボタン自身が最新のメッセージの場合だけお礼を送って閉じる**（2026-10-12 に追加。解決の確認の仕様の 3 節）。
 2. **送信の要否**（対象のメッセージ ＝ `message_created` なら訪問者の発言、`message_updated` なら選ばれたボットのメッセージ）:
    - `last_non_activity_message` の `id` が対象と同じ → まだ答えていない。1 通送る（`content_attributes.in_reply_to` に対象の `id` を入れる）。
    - `last_non_activity_message` が対象より新しい **`template`（`message_type` が 3）** → Chatwoot が自動で足したもの（ウィジェットの最初の発言の直後の連絡先の入力欄。2026-10-11 の結合テストで判明）で、訪問者の発言ではない。まだ答えていないとみなして 1 通送る。

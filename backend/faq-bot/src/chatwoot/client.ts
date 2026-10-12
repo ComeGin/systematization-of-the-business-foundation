@@ -28,6 +28,8 @@ export interface ChatwootClient {
   createConversation(sourceId: string, inboxId: number): Promise<CreatedConversation>;
   /** inReplyTo が null なら in_reply_to を送らない（一覧のメッセージは訪問者の発言への返事でない） */
   sendMessage(conversationId: number, reply: Reply, inReplyTo: number | null): Promise<void>;
+  /** 会話の今のラベル（labels#index）。付け替えの直前に読み直し、ほかの処理が足したラベルを消さないために使う */
+  getLabels(conversationId: number): Promise<readonly string[]>;
   setLabels(conversationId: number, labels: readonly string[]): Promise<void>;
   setStatus(conversationId: number, status: "open" | "resolved"): Promise<void>;
 }
@@ -53,6 +55,8 @@ const ConversationSchema = z.object({
     .passthrough()
     .nullish(),
 });
+
+const LabelsSchema = z.object({ payload: z.array(z.string()) });
 
 const CreatedSchema = z.object({
   id: z.number().int().positive(),
@@ -124,6 +128,12 @@ export function createChatwootClient(options: ChatwootClientOptions): ChatwootCl
               content_attributes: { items: reply.items, ...replyTo },
             };
       await call("POST", `/${conversationId}/messages`, body);
+    },
+
+    async getLabels(conversationId) {
+      const parsed = LabelsSchema.safeParse(await call("GET", `/${conversationId}/labels`));
+      if (!parsed.success) throw new ChatwootApiError(200, `GET conversations/${conversationId}/labels`, "応答の形が違う");
+      return parsed.data.payload;
     },
 
     async setLabels(conversationId, labels) {

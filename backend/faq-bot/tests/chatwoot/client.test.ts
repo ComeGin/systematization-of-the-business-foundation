@@ -68,6 +68,17 @@ describe("createChatwootClient", () => {
       expect(calls[0]).toMatchObject({ url: `${BASE}/12/labels`, method: "POST", body: { labels: ["vip", "faq-answered"] } });
     });
 
+    it("getLabels は会話の今のラベルを読む（書き込む直前の読み直しに使う）", async () => {
+      const { fetchImpl, calls } = recordingFetch(jsonResponse({ payload: ["vip", "faq-ask-resolved"] }));
+      expect(await makeClient(fetchImpl).getLabels(12)).toEqual(["vip", "faq-ask-resolved"]);
+      expect(calls[0]).toMatchObject({ url: `${BASE}/12/labels`, method: "GET" });
+    });
+
+    it("空入力: getLabels はラベルの無い会話で空の一覧", async () => {
+      const { fetchImpl } = recordingFetch(jsonResponse({ payload: [] }));
+      expect(await makeClient(fetchImpl).getLabels(12)).toEqual([]);
+    });
+
     it("空入力: setLabels は空の一覧も送る", async () => {
       const { fetchImpl, calls } = recordingFetch(jsonResponse({ payload: [] }));
       await makeClient(fetchImpl).setLabels(12, []);
@@ -144,6 +155,11 @@ describe("createChatwootClient", () => {
     it("入力: 知らないステータスの会話は ChatwootApiError", async () => {
       const { fetchImpl } = recordingFetch(jsonResponse({ ...SHOW, status: "archived" }));
       await expect(makeClient(fetchImpl).getConversation(12)).rejects.toBeInstanceOf(ChatwootApiError);
+    });
+
+    it("入力: getLabels の応答の形が違えば ChatwootApiError", async () => {
+      const { fetchImpl } = recordingFetch(jsonResponse({ labels: ["vip"] }));
+      await expect(makeClient(fetchImpl).getLabels(12)).rejects.toBeInstanceOf(ChatwootApiError);
     });
 
     it("入力: createConversation の応答の形が違えば ChatwootApiError（本文は入れない）", async () => {
