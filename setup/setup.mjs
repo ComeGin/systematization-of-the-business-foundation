@@ -26,6 +26,7 @@ const MODULES = [
   "backend/consent-api/setup/index.mjs",
   "backend/admin-auth/setup/index.mjs",
   "backend/chatwoot-mcp/setup/index.mjs",
+  "backend/faq-bot/setup/index.mjs",
   "backend/mautic-mcp/setup/index.mjs",
   "backend/control-plane/setup/index.mjs",
   "frontend/next-js/setup/index.mjs",

@@ -1,4 +1,5 @@
-// Chatwoot（開発環境）の設定。環境変数の用意 → DB の準備 → 起動 → Webhook の私設アドレスへの送信の許可 → 管理者・アカウント → エージェント専用ユーザー → Web サイトの受信箱。
+// Chatwoot（開発環境）の設定。環境変数の用意 → DB の準備 → 起動 → Webhook の私設アドレスへの送信の許可 → 管理者・アカウント → エージェント専用ユーザー → Web サイトの受信箱
+// （解決後は新しいチャット・管理者もメンバー）→ FAQ ボット（ラベル・エージェントボット・受信箱への接続）→ マクロ「解決の確認を送る」→ 担当者への引き継ぎのメール通知（管理者）。
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - 使うのは Chatwoot の公式の API（Application API）と、製品のモデルを通した rails runner だけ。SQL は書かない・画面は操作しない
@@ -15,6 +16,9 @@
 //   /app/app/views/api/v1/models/_user.json.jbuilder（ログインとプロフィールの応答に access_token が入る）
 //   /app/app/views/api/v1/models/_inbox.json.jbuilder（受信箱の応答に website_token が入る）
 //   /app/lib/tasks/db_enhancements.rake（db:chatwoot_prepare）
+//   /app/app/controllers/api/v1/accounts/agent_bots_controller.rb・views/api/v1/models/_agent_bot.json.jbuilder（管理者にだけ access_token と secret を返す）
+//   /app/app/controllers/api/v1/accounts/inboxes_controller.rb（agent_bot・set_agent_bot）、views/api/v1/accounts/labels/index.json.jbuilder（payload）
+//   /app/app/controllers/api/v1/accounts/macros_controller.rb・app/models/macro.rb（マクロ。一覧は payload、動作は ACTIONS_ATTRS の add_label）
 import { join } from "node:path";
 
 export const meta = { id: "chatwoot", title: "Chatwoot（問い合わせ窓口。開発環境）", targets: ["dev"], after: ["host-relay"] };
@@ -25,6 +29,20 @@ const DEFAULT_SITE_URL = "http://localhost:4321"; // 開発の公開サイト（
 const INBOX_NAME = "Web サイト";
 const AGENT_NAME = "AI エージェント";
 const RESULT_MARK = "@@RESULT@@";
+const FAQ_BOT_NAME = "FAQ ボット";
+// faq-bot の開発サーバー（127.0.0.1:3107。backend/faq-bot の pnpm dev）に、host-relay 経由で届く
+const FAQ_BOT_URL = "http://host.docker.internal:3107/webhook";
+// FAQ ボットが会話に付けるラベル（docs/superpowers/specs/2026-10-11-faq-bot-design.md の 7.2）。conversation-triage の集計に使う
+const FAQ_LABELS = [
+  { title: "faq-answered", description: "FAQ ボットが FAQ で答えた会話", color: "#2E7D32" },
+  { title: "faq-unmatched", description: "FAQ ボットが答えられず、担当者に引き継いだ会話", color: "#C62828" },
+  { title: "faq-handoff", description: "訪問者が担当者への相談を選んだ会話", color: "#EF6C00" },
+  { title: "faq-ask-resolved", description: "担当者が解決の確認を送るときに付ける（マクロ「解決の確認を送る」用。ボットがすぐ外して［解決しました］ボタンを送る）", color: "#1565C0" },
+];
+// 担当者が管理画面から［解決しました］ボタンを出すためのマクロ（docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md）。中身はラベルを付けるだけ
+const ASK_RESOLVED_MACRO = { name: "解決の確認を送る", visibility: "global", actions: [{ action_name: "add_label", action_params: ["faq-ask-resolved"] }] };
+// ボットからの引き継ぎで Chatwoot が担当者に作る通知の種類（notification.rb の conversation_creation）のメールのフラグ
+const HANDOFF_EMAIL_FLAG = "email_conversation_creation";
 
 const cwd = (ctx) => join(ctx.W, DIR);
 const compose = (ctx, args, opts = {}) => ctx.run("docker", ["compose", ...args], { cwd: cwd(ctx), ...opts });
@@ -269,13 +287,111 @@ async function ensureInbox(ctx) {
   ctx.state.set("CHATWOOT_INBOX_ID", String(inbox.id));
   ctx.state.set("CHATWOOT_WEBSITE_TOKEN", inbox.website_token);
 
-  // agent の権限のユーザーは、所属した受信箱の会話しか見えない。エージェント専用ユーザーを入れる
+  // 解決した会話に訪問者が書き込んでも同じ会話を開き直さず、ウィジェットに「新しいチャットを開始する」を出して新しい会話にする
+  // （Chatwoot の既定は true。widget/messages_controller.rb の prevent_reply_to_resolved_conversation と ChatFooter.vue の hideReplyBox）
+  if (inbox.allow_messages_after_resolved !== false) {
+    await ctx.http("Chatwoot 受信箱の更新", `${base}/inboxes/${inbox.id}`, { method: "PATCH", ...withToken(adminToken), json: { allow_messages_after_resolved: false } });
+    ctx.log("解決した会話への書き込みを止めた（ウィジェットに「新しいチャットを開始する」が出る）");
+  }
+
+  // 受信箱のメンバーにする:
+  //   - エージェント専用ユーザー … agent の権限のユーザーは、所属した受信箱の会話しか見えない
+  //   - 管理者（人の担当者）… ボットが担当者に引き継いだとき（pending → open）の Chatwoot の通知は、受信箱のメンバーにだけ届く
+  //     （notification_listener.rb の conversation_bot_handoff は inbox.members に通知を作る。管理者でもメンバーでなければ届かない）
+  const adminId = (await profile(ctx, adminToken))?.id;
+  if (!adminId) throw new Error("管理者のトークンでプロフィールを読めない");
   const members = await ctx.http("Chatwoot 受信箱のメンバー", `${base}/inbox_members/${inbox.id}`, withToken(adminToken));
   const memberIds = (members.payload ?? members).map((m) => m.id);
-  if (!memberIds.includes(agentId)) {
-    await ctx.http("Chatwoot 受信箱のメンバー追加", `${base}/inbox_members`, { method: "POST", ...withToken(adminToken), json: { inbox_id: inbox.id, user_ids: [agentId] } });
-    ctx.log("エージェント専用ユーザーを受信箱のメンバーに入れた");
+  const missing = [agentId, adminId].filter((id) => !memberIds.includes(id));
+  if (missing.length > 0) {
+    // inbox_members の create は渡した user_ids を「追加」する（update は置き換え）
+    await ctx.http("Chatwoot 受信箱のメンバー追加", `${base}/inbox_members`, { method: "POST", ...withToken(adminToken), json: { inbox_id: inbox.id, user_ids: missing } });
+    ctx.log(`受信箱のメンバーに入れた（ユーザー ID ${missing.join("・")}）`);
   }
+}
+
+/**
+ * ボットが担当者に引き継いだ会話（faq-handoff・faq-unmatched）を、担当者（管理者）にメールで知らせる。
+ * 引き継ぎ（pending → open）で Chatwoot が作る通知は「新しい会話」（conversation_creation）なので、管理者のその通知のメールを有効にする。
+ * 開発では Chatwoot の SMTP（MailHog）に届く。本番は各担当者がプロフィールの通知設定で有効にする（docs の手順）
+ */
+async function ensureHandoffNotification(ctx) {
+  const url = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}/notification_settings`;
+  const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+  const current = await ctx.http("Chatwoot 通知設定", url, withToken(adminToken));
+  const email = current.selected_email_flags ?? [];
+  if (email.includes(HANDOFF_EMAIL_FLAG)) {
+    ctx.log("担当者への引き継ぎのメール通知は有効");
+    return;
+  }
+  // update は email と push の両方を置き換えるので、今の値に足して送る
+  await ctx.http("Chatwoot 通知設定の更新", url, {
+    method: "PATCH",
+    ...withToken(adminToken),
+    json: { notification_settings: { selected_email_flags: [...email, HANDOFF_EMAIL_FLAG], selected_push_flags: current.selected_push_flags ?? [] } },
+  });
+  ctx.log("担当者への引き継ぎ（新しい会話）のメール通知を有効にした（開発は MailHog に届く）");
+}
+
+async function ensureLabels(ctx) {
+  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+  const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+  const list = await ctx.http("Chatwoot ラベル一覧", `${base}/labels`, withToken(adminToken));
+  const existing = new Set((list?.payload ?? []).map((label) => label.title));
+  for (const label of FAQ_LABELS) {
+    if (existing.has(label.title)) continue;
+    await ctx.http("Chatwoot ラベル作成", `${base}/labels`, { method: "POST", ...withToken(adminToken), json: { ...label, show_on_sidebar: true } });
+    ctx.log(`ラベル ${label.title} を作った`);
+  }
+}
+
+/** エージェントボット「FAQ ボット」を作り（送り先は faq-bot の開発サーバー）、Web サイトの受信箱に接続する。トークンと secret は状態ファイルにだけ置く */
+async function ensureFaqBot(ctx) {
+  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+  const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+
+  const list = await ctx.http("Chatwoot エージェントボット一覧", `${base}/agent_bots`, withToken(adminToken));
+  const own = (Array.isArray(list) ? list : (list?.payload ?? [])).filter((bot) => !bot.system_bot);
+  let bot = own.find((b) => String(b.id) === ctx.state.get("CHATWOOT_FAQ_BOT_ID")) ?? own.find((b) => b.name === FAQ_BOT_NAME);
+  if (!bot) {
+    bot = await ctx.http("Chatwoot エージェントボット作成", `${base}/agent_bots`, {
+      method: "POST",
+      ...withToken(adminToken),
+      json: { name: FAQ_BOT_NAME, description: "Web サイトの FAQ に答えるボット（backend/faq-bot）", outgoing_url: FAQ_BOT_URL },
+    });
+    ctx.log(`エージェントボット「${FAQ_BOT_NAME}」を作った`);
+  } else if (bot.outgoing_url !== FAQ_BOT_URL) {
+    bot = await ctx.http("Chatwoot エージェントボット更新", `${base}/agent_bots/${bot.id}`, { method: "PATCH", ...withToken(adminToken), json: { outgoing_url: FAQ_BOT_URL } });
+    ctx.log(`エージェントボットの送り先を ${FAQ_BOT_URL} にした`);
+  }
+  // access_token と secret は管理者にだけ返る（_agent_bot.json.jbuilder）。表示しない
+  if (!bot.access_token || !bot.secret) throw new Error("エージェントボットの access_token・secret が応答に無い（管理者のトークンで呼んでいるか確かめる）");
+  ctx.state.set("CHATWOOT_FAQ_BOT_ID", String(bot.id));
+  ctx.state.set("CHATWOOT_FAQ_BOT_TOKEN", bot.access_token, { secret: true });
+  ctx.state.set("CHATWOOT_FAQ_BOT_SECRET", bot.secret, { secret: true });
+
+  // 受信箱にボットを付けると、新しい会話は pending で始まり、ボットが先に答える。faq-bot が止まっていれば、Chatwoot が会話をすぐ open にする
+  const inboxId = ctx.state.get("CHATWOOT_INBOX_ID");
+  const current = await ctx.http("Chatwoot 受信箱のボット", `${base}/inboxes/${inboxId}/agent_bot`, withToken(adminToken));
+  if (String(current?.agent_bot?.id ?? "") !== String(bot.id)) {
+    await ctx.http("Chatwoot 受信箱にボットを接続", `${base}/inboxes/${inboxId}/set_agent_bot`, { method: "POST", ...withToken(adminToken), json: { agent_bot: bot.id } });
+    ctx.log("Web サイトの受信箱に FAQ ボットを接続した（新しい会話は pending で始まる）");
+  } else {
+    ctx.log("FAQ ボットは Web サイトの受信箱に接続済み");
+  }
+}
+
+/** マクロ「解決の確認を送る」を作る（名前で探し、あれば作らない）。管理者が作るので全員で使える（visibility: global） */
+async function ensureAskResolvedMacro(ctx) {
+  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+  const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+  const list = await ctx.http("Chatwoot マクロ一覧", `${base}/macros`, withToken(adminToken));
+  if ((list?.payload ?? []).some((macro) => macro.name === ASK_RESOLVED_MACRO.name)) {
+    ctx.log(`マクロ「${ASK_RESOLVED_MACRO.name}」は既にある`);
+    return;
+  }
+  await ctx.http("Chatwoot マクロ作成", `${base}/macros`, { method: "POST", ...withToken(adminToken), json: ASK_RESOLVED_MACRO });
+  ctx.log(`マクロ「${ASK_RESOLVED_MACRO.name}」を作った（ラベル faq-ask-resolved を付ける。ボットが［解決しました］ボタンを送る）`);
 }
 
 // ---------------------------------------------------------------------------
@@ -307,11 +423,47 @@ export async function check(ctx) {
     if (!allowed) ok = false;
   }
 
-  for (const key of ["CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_WEBSITE_TOKEN", "CHATWOOT_AGENT_USER_ID"]) {
+  for (const key of ["CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID", "CHATWOOT_WEBSITE_TOKEN", "CHATWOOT_AGENT_USER_ID", "CHATWOOT_FAQ_BOT_ID"]) {
     if (!ctx.state.has(key)) {
       notes.push(`${key} がまだ状態に無い`);
       ok = false;
     }
+  }
+  if (info && ctx.state.has("CHATWOOT_FAQ_BOT_ID") && ctx.state.has("CHATWOOT_INBOX_ID") && ctx.state.has("CHATWOOT_ADMIN_TOKEN")) {
+    const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+    const current = await ctx
+      .http("Chatwoot 受信箱のボット", `${base}/inboxes/${ctx.state.get("CHATWOOT_INBOX_ID")}/agent_bot`, withToken(ctx.state.get("CHATWOOT_ADMIN_TOKEN")))
+      .catch(() => null);
+    const attached = String(current?.agent_bot?.id ?? "") === ctx.state.get("CHATWOOT_FAQ_BOT_ID");
+    notes.push(attached ? "FAQ ボットは Web サイトの受信箱に接続済み" : "FAQ ボットが Web サイトの受信箱に接続されていない");
+    if (!attached) ok = false;
+
+    const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
+    const inboxId = ctx.state.get("CHATWOOT_INBOX_ID");
+    const inbox = await ctx.http("Chatwoot 受信箱", `${base}/inboxes/${inboxId}`, withToken(adminToken)).catch(() => null);
+    const newChat = inbox?.allow_messages_after_resolved === false;
+    notes.push(newChat ? "解決後の書き込みは新しいチャットになる" : "解決した会話に書き込むと同じ会話が開き直される（allow_messages_after_resolved が false でない）");
+    if (!newChat) ok = false;
+
+    const adminId = (await profile(ctx, adminToken))?.id;
+    const members = await ctx.http("Chatwoot 受信箱のメンバー", `${base}/inbox_members/${inboxId}`, withToken(adminToken)).catch(() => null);
+    const isMember = Boolean(adminId) && (members?.payload ?? members ?? []).some((m) => m.id === adminId);
+    const settings = await ctx.http("Chatwoot 通知設定", `${base}/notification_settings`, withToken(adminToken)).catch(() => null);
+    const mailOn = (settings?.selected_email_flags ?? []).includes(HANDOFF_EMAIL_FLAG);
+    notes.push(isMember && mailOn ? "担当者への引き継ぎは管理者にメールで届く" : "担当者への引き継ぎのメールが管理者に届かない（受信箱のメンバーでないか、新しい会話のメール通知が無効）");
+    if (!isMember || !mailOn) ok = false;
+
+    const macros = await ctx.http("Chatwoot マクロ一覧", `${base}/macros`, withToken(adminToken)).catch(() => null);
+    const hasMacro = (macros?.payload ?? []).some((macro) => macro.name === ASK_RESOLVED_MACRO.name);
+    notes.push(hasMacro ? `マクロ「${ASK_RESOLVED_MACRO.name}」がある` : `マクロ「${ASK_RESOLVED_MACRO.name}」が無い`);
+    if (!hasMacro) ok = false;
+
+    // ラベルが無くても Chatwoot は付けられるが、色・説明・サイドバーの表示のため FAQ のラベルがすべてあることを確かめる
+    const labels = await ctx.http("Chatwoot ラベル一覧", `${base}/labels`, withToken(adminToken)).catch(() => null);
+    const titles = new Set((labels?.payload ?? []).map((label) => label.title));
+    const missingLabels = FAQ_LABELS.map((label) => label.title).filter((title) => !titles.has(title));
+    notes.push(missingLabels.length === 0 ? `FAQ のラベル ${FAQ_LABELS.length} つがある` : `FAQ のラベルが無い: ${missingLabels.join("・")}`);
+    if (missingLabels.length > 0) ok = false;
   }
   return { ok, notes };
 }
@@ -323,5 +475,9 @@ export async function apply(ctx) {
   await ensureAdmin(ctx);
   await ensureAgent(ctx);
   await ensureInbox(ctx);
+  await ensureLabels(ctx);
+  await ensureFaqBot(ctx);
+  await ensureAskResolvedMacro(ctx);
+  await ensureHandoffNotification(ctx);
   ctx.log(`終わった。管理者のパスワード: --show CHATWOOT_ADMIN_PASSWORD／画面: ${BASE_URL}`);
 }

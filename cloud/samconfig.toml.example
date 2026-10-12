@@ -6,7 +6,7 @@
 version = 0.1
 
 # ---------------------------------------------------------------- 本番（ap-northeast-1）
-# デプロイ: cd cloud && sam build（自作のコードは無いので省略可）→ sam deploy
+# デプロイ: cd cloud && sam build（必須。faq-bot の Lambda を backend/faq-bot/Makefile でまとめる。ADR-26）→ sam deploy
 [default.global.parameters]
 stack_name = "comegin-prod"
 

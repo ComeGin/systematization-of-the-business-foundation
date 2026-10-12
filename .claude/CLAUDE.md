@@ -23,6 +23,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n`、`middleware/ga4`（2026-10-06。ADR-25） | 公式イメージを動かすための compose と環境変数のテンプレートだけ。`middleware/ga4` は SaaS（GA4）の設定の記録と setup だけで、動かすものは無い（本番のプロパティだけ。開発ではタグを出さない） |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |
 | 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | 本番は ALB 配下の ECS on Fargate。consent-api は DB を持たず Valkey だけ、admin-auth は Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にする |
+| 自作（サービス。2026-10-11 着手） | `backend/faq-bot` | Chatwoot の受信箱「Web サイト」で FAQ に答えるエージェントボット。**本番は Lambda（VPC の外。関数 URL。ADR-26）**、開発は Node の HTTP サーバー（3107）。FAQ は Astro の `faq.json`（`frontend/verdant-virgo/src/modules/faq-export`）を読む。データの置き場は持たない |
 | 自作（管制。2026-10-04 着手） | `backend/control-plane`（ライブラリ）＋ `frontend/next-js`（監視アプリ） | `E-15` の記録（作業ツリーの外の SQLite）・定期実行・Agent SDK でのエージェント起動・`I-13` の起票。**control-plane は next-js が取り込んで 1 プロセスで動かす**。境界の型は `backend/control-plane/src/contract.ts` |
 | 自作（IaC・定義） | `cloud/`（AWS SAM。クラウドに置く製品と例外とデータの置き場。デプロイ手順は `cloud/README.md`）、`onprem/`（ADR-21。オンプレの本番の Strapi・n8n と WireGuard の構成）、`middleware/n8n/workflows/`（ワークフローの JSON）、`ops/`（定期実行の定義と MCP の登録表）、リポジトリ直下の `.claude/agents/`（エージェント定義 12 本） | 定期実行の定義とエージェント定義は、監視アプリが**承認済みの `main` のチェックアウトから**読む（ADR-18）。作業ツリーで書き換えても次の実行には効かない |
 
@@ -42,6 +43,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 3104 | consent-api（Cookie 同意の記録。ALB 配下の ECS on Fargate。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
 | 3105 | （空き。以前は Cal.com のセルフホスト用。**ADR-24〈2026-10-06〉で Cal.com は SaaS〈cal.com〉を公開サイトの完了画面に埋め込む形にした**ため使わない。予約の氏名・メール・日時は Cal.com, Inc.〈米国〉と Google LLC〈米国〉に渡る。設計は `docs/DetailedDesign/02-public-path-flows.md` の 7 節と `RequirementDefinition/AA/05-application-decisions.md` の ADR-24） |
 | 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `docs/DetailedDesign/08-monetization-flows.md`） |
+| 3107 | faq-bot の開発サーバー（`backend/faq-bot` の `pnpm dev`。`127.0.0.1` にバインド。開発の Chatwoot からは host-relay 経由。本番は Lambda の関数 URL でポートを持たない。ADR-26） |
 | 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は以前 Umami と衝突していたため 3200 を使う〈Umami の廃止後も変えない〉。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
 | 1337 | Strapi（開発環境） |
 | 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |
@@ -123,7 +125,7 @@ docker compose up -d
 
 **開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
 
-**コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678・3100・3001 だけで待ち受け、`127.0.0.1` に転送する。3001〈OpenSEO〉は無認証で費用の出る `/mcp` を持つため、`GET /api/health` だけを通す。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
+**コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678・3100・3001・3107 だけで待ち受け、`127.0.0.1` に転送する。3001〈OpenSEO〉は無認証で費用の出る `/mcp` を持つため、`GET /api/health` だけを通す。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
 
 ## MCP サーバの共通設計
 

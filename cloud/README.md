@@ -26,7 +26,7 @@ cloud/
     observability.yaml       SNS（comegin-lead-alert / comegin-ops-alert）、ハートビートのアラーム 2 つ（オンプレの監視アプリ、オンプレの n8n のスケジュール実行）
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
-    secrets.yaml             Secrets Manager（18 個）
+    secrets.yaml             Secrets Manager（20 個。faq-bot の 2 個を含む）
     data.yaml                RDS（MySQL 8.4・PostgreSQL 16）、Valkey、EFS、S3
     cluster.yaml             ECS クラスター、ロググループ（Service Connect は使わない）
     edge.yaml                ACM、ALB、リスナールール、WAF、Route 53
@@ -35,6 +35,7 @@ cloud/
     ops-tasks.yaml           運用者が RunTask で起動する DB 作成のタスク
     alarms.yaml              CloudWatch アラームと RDS のイベント通知
     services/<svc>.yaml      ECS のサービス 6 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker・admin-auth・consent-api）
+    services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.14）
   images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）
 ```
 
@@ -123,8 +124,11 @@ ACM の証明書は DNS 検証。Route 53 に検証用のレコードが自動�
 ### 4.2 本番スタック（ap-northeast-1）
 
 ```bash
+sam build         # 必須（2026-10-11 から）。faq-bot の Lambda を backend/faq-bot/Makefile（pnpm と esbuild）でまとめる。開発機に pnpm 11 が要る
 sam deploy        # 初回は RDS・ElastiCache・ACM の検証で 30 分前後かかる
 ```
+
+**`sam build` を飛ばすと、faq-bot（4.14）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは faq-bot のスタックを無条件で作るため、faq-bot をまだ使わない場合でも build は省けない（受信箱にボットを接続しない限り、訪問者には影響しない）。
 
 作られるもの: ネットワーク、**WireGuard の EC2（Elastic IP つき）と、private サブネットの経路**、ECR、SNS、データストア、Secrets、ALB と WAF、CloudFront、SES のドメイン ID、アラーム、
 **IAM ユーザー 2 つ（オンプレの Strapi・n8n 用。アクセスキーは無い）**、ECS のサービス（**すべて DesiredCount 0**）。
@@ -256,9 +260,9 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 - **キーを Claude Code の環境変数に引き継がない**（監視アプリの許可リスト方式の `env` のとおり）。キーが漏れた疑いがあれば、すぐに `delete-access-key` する（権限は上の 1 バケットか 2 トピックだけ）。
 - スタックは、ユーザーとポリシーを作るだけで、キーの有無を知らない。キーを作っても、CloudFormation の状態にも出力にも残らない。
 
-### 4.6 Secrets の値を入れる（プレースホルダ 5 個）
+### 4.6 Secrets の値を入れる（プレースホルダ 7 個）
 
-`secrets.yaml` の Secret のうち 13 個は自動生成（英数字のみ）。次の 5 個は値なしで作られるので、人間が入れる。**値を入れる前にそのサービスの DesiredCount を上げない**（ECS がタスクの起動に失敗する）。
+`secrets.yaml` の Secret のうち 13 個は自動生成（英数字のみ）。次の 7 個は値なしで作られるので、人間が入れる。**値を入れる前にそのサービスの DesiredCount を上げない**（ECS がタスクの起動に失敗する）。
 生成された値を変えない（暗号化の鍵・ソルトを変えると既存のデータを復号できなくなる）。**Secrets Manager の値を消したり作り直したりしない。**
 Strapi と n8n の鍵類（`APP_KEYS`・`ENCRYPTION_KEY`・`N8N_ENCRYPTION_KEY`・PostHog のトークンなど）は、オンプレで動かす（ADR-21）ので、Secrets Manager に置かない。オンプレの秘匿ファイルにだけ置く。
 
@@ -267,6 +271,7 @@ Strapi と n8n の鍵類（`APP_KEYS`・`ENCRYPTION_KEY`・`N8N_ENCRYPTION_KEY`�
 | `comegin/<env>/admin-auth/GOOGLE_CLIENT_SECRET` | Google の OAuth クライアントのシークレット | Google Cloud（Workspace の「内部」）。承認済みのリダイレクト URI は `https://<AuthHost>/api/auth/callback/google`。クライアント ID は親のパラメータ `GoogleClientId` |
 | `comegin/<env>/mautic/SMTP_USERNAME` `SMTP_PASSWORD` | Mautic 用の SES の SMTP 認証情報 | 4.9 |
 | `comegin/<env>/chatwoot/SMTP_USERNAME` `SMTP_PASSWORD` | Chatwoot 用の SES の SMTP 認証情報（Mautic とは別に発行） | 4.9 |
+| `comegin/<env>/faq-bot/CHATWOOT_BOT_TOKEN` `CHATWOOT_BOT_SECRET` | Chatwoot のエージェントボット「FAQ ボット」の access_token と secret | 4.14 |
 
 値は、シェルの履歴に残らない方法で入れる:
 
@@ -551,6 +556,35 @@ fields @timestamp, httpRequest.clientIp, httpRequest.uri, terminatingRuleId
 管理画面の保存・アップロード（Mautic のメールの本文、Chatwoot の添付）が Count に入っていなければ、Block にしてよい。入っていれば、そのルールだけを Count の上書き（`RuleActionOverrides`）に足してから Block にする。
 
 ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・送信元 IP あたり。consent 30、フォーム 100、API 1000、`auth.` 300、その他 2000）。同じログで実測して決める。
+
+### 4.14 faq-bot（Chatwoot の FAQ ボット。ADR-26）
+
+Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-11-faq-bot-design.md`。**`sam build` は `backend/faq-bot/Makefile` を使い、pnpm と esbuild でまとめる**（開発機に pnpm 11 が要る。npm は使わない）。
+
+1. 本番の Chatwoot（管理画面の「設定 → ラベル」）でラベル `faq-answered`・`faq-unmatched`・`faq-handoff` を作る。
+2. 「設定 → ボット」でエージェントボット「FAQ ボット」を作る（Webhook の URL は後で入れるので、仮に `https://example.invalid/webhook`）。作成後の画面か `GET /api/v1/accounts/<id>/agent_bots/<bot_id>`（管理者のトークン）で access_token と secret を控える。
+3. Secrets Manager に入れる（4.6 と同じく、シェルの履歴に残らない方法で）:
+
+   ```bash
+   read -rs SECRET_VALUE   # access_token を貼る（画面に出ない）
+   aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN --secret-string "$SECRET_VALUE"
+   read -rs SECRET_VALUE   # secret を貼る
+   aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_SECRET --secret-string "$SECRET_VALUE"
+   unset SECRET_VALUE
+   ```
+
+4. 公開サイトを `faq.json` 入りでビルドして配信する（`https://<SiteHost>/faq.json` が JSON を返すこと）。
+5. `sam build` → `sam deploy`。出力の `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を、2 のボットの Webhook の URL に入れる。
+6. 「設定 → 受信箱 → Web サイト → ボットの設定」で「FAQ ボット」を選ぶ（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。
+7. 受信箱「Web サイト」の設定を合わせる（2026-10-12 に追加。開発は `backend/chatwoot-system/setup/index.mjs` が同じことをする）:
+   - **解決した会話への書き込みを許さない**（受信箱の設定の「解決後のメッセージを許可」を切る。API では `allow_messages_after_resolved: false`）。解決後はウィジェットに「新しいチャットを開始する」が出て、新しい会話になる（既定のままだと、解決した会話が開き直される）。
+   - **担当者（人）を受信箱のメンバーにする**（「設定 → 受信箱 → Web サイト → 共同作業者」）。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）。
+   - **各担当者が、プロフィールの通知設定で「新しい会話が作成されたとき」のメールを有効にする**（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。本人のトークンでしか変えられない）。受信箱の自動割り当てが有効なら、続けて「割り当てられたとき」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる。
+   - **ラベル `faq-ask-resolved` と、マクロ「解決の確認を送る」を作る**（「設定 → ラベル」と「設定 → マクロ」。マクロは全員で共有し、動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）。
+8. 確かめる: ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま。
+
+- **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
+- しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。
 
 ## 5. TODO 一覧
 

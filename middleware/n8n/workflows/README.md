@@ -25,7 +25,7 @@
 
 ```
 Mautic ──Webhook──▶ I-11 ──(顧客からの要求だけ)──────────▶ I-21 ──▶ SNS（開発は MailHog）
-Chatwoot ─Webhook─▶ I-12 ──(会話の開始)──────────────────▶ I-21
+Chatwoot ─Webhook─▶ I-12 ──(会話の開始＝顧客の最初の公開メッセージ)─▶ I-21
                        └──(email があるとき)────────────▶ I-19 ──▶ Mautic の API ／ contact_link
 週次の棚卸し ─(月曜 09:00)─▶ Chatwoot の API ─▶ I-21（lead。取得の失敗・回復は ops）
 運用監視（開発）─(5 分・毎日)─▶ OpenSEO の health・sandbox-tls の期限 ─▶ I-21（ops。状態が変わったときだけ）
@@ -110,6 +110,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 ### I-12 Chatwoot Webhook の受領と重複排除
 
 - **目的**: Chatwoot の会話の作成と、顧客からのメッセージの受信を重複なく受け、会話の開始を `I-21` に、email があれば `I-19` に渡す。
+- **会話の開始の通知は、顧客の最初の公開メッセージで行う**（2026-10-12 に変えた。以前は会話の作成〈`conversation_created`〉で通知していたが、faq-bot がウィジェットを開いただけで会話を作るようになったため。`docs/superpowers/specs/2026-10-12-faq-bot-welcome-design.md` の 5.1）。通知の枝は「冪等キーを記録 → 会話の開始か → 通知の印 `<display_id>|lead` が無い会話だけ通す → 印を記録 → `I-21`」。2 通目以降と再送は印で止まる。印も 7 日で消えるので、**7 日以上あいて再開した会話はもう一度通知する**。会話の作成は記録と突合だけ。
 - **トリガー**: Webhook `POST /webhook/chatwoot-event`（Chatwoot の Webhook のシークレットを控える）。Chatwoot 側で購読するのは `conversation_created` と `message_created`。**顧客以外のメッセージ（担当者の返信・社内メモ・システムの活動）は読み飛ばす。**
 - **冪等キー**: **`display_id` + `message_id`**。Data Table `dedup_chatwoot`、保持 7 日（毎日 03:05 に掃除）。会話の作成イベントにはメッセージ ID が無いので、その部分は固定の `conversation_created` を使う。**`message_created` で `body.id` が無い・`null` のイベントは読み飛ばす**（`String(undefined)` の `'undefined'` をキーにすると、同じ会話の ID の無いメッセージがすべて同じキーとして重複扱いになるため。Chatwoot は常に `id` を付けるので実害は小さい。2026-10-06 に直した）。**会話 ID は必ず `display_id`**（Webhook の `conversation.id`、会話イベントのトップレベルの `id`）。
 - **突合（`I-19`）は冪等キーと別の印で重複を除く**（2026-10-07 に直した）。Code ノードから「通知の枝」（冪等キー → `I-21`）と「突合の枝」（email があるとき → 印 `<display_id>|<message_id>|match` が `dedup_chatwoot` に無いものだけ → `I-19`）に分かれ、**`I-19` が成功したときだけ印を記録する**。`I-19` が失敗した会話は、同じイベントの再送で突合だけをやり直す（Chatwoot 自身は失敗した Webhook を再送しないが、同じ会話の次の顧客のメッセージは別のイベントなので、そこでも突合される。通知は冪等キーで 1 回だけ。以前は冪等キーの記録の後に `I-19` を呼んでいたので、失敗した会話は再送しても突合をやり直せなかった）。印の行も 7 日で消える。`I-19` が何も返さない（`chatwootContactId` が無いなど突合できない入力）ときも印は記録しないので、再送のたびに `I-19` を呼ぶ（何も書かない）。
