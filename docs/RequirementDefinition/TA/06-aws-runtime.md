@@ -11,7 +11,7 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 
 > **（2026-10-05）ADR-21 による変更。本ファイルの本文より、この注記を優先する。**
 > - **Strapi と n8n は ECS から外れ、オンプレで動く**（TA-07）。データの置き場（RDS の `strapi` `n8n`、S3 の Strapi のメディア）は AWS に残る。ALB の `cms.`・`n8n.` のホスト名とルール、ACM の対応する名前、Strapi・n8n の ECS 用の Secrets は不要になる。
-> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。（**ADR-24 で Cal.com が、ADR-25 で Umami が外れた。下の注記**）（**2026-10-12 ADR-26: `consent-api` も ECS から外れ、VPC の中の Lambda〈ALB のターゲット〉になった。`docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`**）
+> - **ECS に残るのは**、製品の Mautic（web・cron）・Chatwoot（web・worker）・Umami と、例外の `consent-api`・Cal.com・`admin-auth`。（**ADR-24 で Cal.com が、ADR-25 で Umami が外れた。下の注記**）（**2026-10-12 ADR-26: `consent-api` も ECS から外れ、VPC の中の Lambda〈ALB のターゲット〉になった。`docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`**）（**同日、`admin-auth` も Lambda〈本体と運用の 2 つ〉になり、ECS に残るのは Mautic・Chatwoot だけになった。`docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md`**）
 > - **WireGuard の EC2 を足す**（`t4g.nano` 程度、public サブネット、Elastic IP、送信元／宛先チェック無効）。private サブネットの経路表に「オンプレの WireGuard のアドレス帯 → この EC2」を足し、Mautic・Chatwoot のタスクからオンプレの n8n の Webhook に届くようにする。RDS のセキュリティグループには、WireGuard の EC2 から `strapi` `n8n` のために 5432 を許す。
 > - `cloud/` の SAM はこの注記に合わせて直した（2026-10-05）。
 >
@@ -84,6 +84,7 @@ flowchart LR
 - **`mautic-web` を 2 タスク以上にするには、PHP のセッションを共有する必要がある。** Mautic の既定はファイルに保存するセッション（`app/config/config.php` の `session.handler_id` が `null`）であり、タスクをまたげない。当面は 1 タスクで運用し、増やすときにセッションの保存先（ElastiCache か RDS）を決める。
 - **各サービスのタスク数は 1 で決定した**（単一構成。`R1` の 2026-09-18 の決定。4.6）。そのタスクがある AZ が障害を起こすと、そのサービスは別の AZ で起動し直すまで止まる。
 - **（2026-10-12）ADR-26 で置き換え: `consent-api` は VPC の中の Lambda〈ALB のターゲット〉にした（デプロイは同じ SAM、監視は Lambda のアラームを足すだけ）。以下は 2026-10-01 の記録。** **`calcom` と `consent-api` を ECS に置くのは、実行基盤を増やさないためである**（2026-10-01 の決定）。`consent-api` では Lambda 関数 URL・API Gateway・CloudFront Function も候補だったが、**デプロイ手順（8 節）と監視（TA-05）が二重になる**ため採らなかった（DD-02 の 8.1）。`admin-auth` という自作のサービスの前例があり、扱いをそろえられる。
+- **（2026-10-12）ADR-26: `admin-auth` も VPC の中の Lambda にした**（本体は ALB のターゲット、運用〈migrate・ALB の登録〉は別の関数 `admin-auth-ops`。3.3）。表の「タスク数 1」は Lambda では予約同時実行数 5 に当たる。
 - **`consent-api` は訪問者のリクエストを直接受ける唯一の自作のコードである。** `admin-auth` は管理者だけが触り、他の 6 サービスは上流の製品である。**自作のコードを公開経路に出す初めての箇所**にあたるため、入力の検査（受け取るのは状態と識別子だけ）と WAF のレート制限（5.5）を、他のサービスより厳しく見る。 **（2026-10-03 に追加）`points-api` の利用者ポータルもインターネットから直接リクエストを受けるが、相手は訪問者ではなく利用者（基盤を立てた事業者）で、メールのワンタイムリンクでログインした後にだけ使える。**
 - **`consent-api` は RDS を使わない**（記録は ElastiCache。4.8）。DB を持たないサービスにすることで、**訪問者のリクエストが製品の DB に届く経路を作らない**。
 - **（2026-10-03 に追加）`points-api` は採掘しない。** unMineable と thirdweb の API を呼ぶだけで、採掘プールも Monero のノードも AWS に置かない（AWS Service Terms 1.25。AA-05 の ADR-20）。**本システムの完成後に着手し、承認ゲート G-1〜G-3 を通るまで置かない。**
@@ -101,6 +102,7 @@ flowchart LR
 | n8n | 公式の `n8nio/n8n` と `n8nio/runners` | **2 つのバージョンを必ず一致させる**（`N8N_VERSION`。`.claude/CLAUDE.md` の Docker スタックの共通方針と同じ） |
 | **Cal.com**（2026-10-01 に追加） | **公式イメージ**（`calcom/cal.com`。**本セッションでは未確認**。無ければ上流のソースからビルドする） | **`latest` を使わず、バージョンのタグで固定する。** **ライセンスの確認が先に要る**（機能によってライセンスが分かれており、使う機能〈予約ページ・埋め込み・Google Calendar の連携〉が自前で動かせる範囲に収まるかを上流の条件で確かめる。11 節、AA-02 の 5 節）。**取り込み済みの上流は持たない**（`backend/calcom-system` は compose と環境変数のテンプレートだけにする。`.claude/CLAUDE.md` の `chatwoot-system` と `middleware/n8n` と同じ扱い） |
 | **`consent-api`**（2026-10-01 に追加） | **ECR に置かない**（Lambda。`sam build` が esbuild で zip にする。ADR-26。2026-10-12） | 依存を最小にする（公開経路に出る自作のコードのため。3.1） |
+| **`admin-auth`** | **ECR に置かない**（Lambda。`sam build` が esbuild で zip にする。ADR-26。2026-10-12） | RDS の CA は Lambda の実行環境の `/var/runtime/ca-cert.pem` を読む（以前はイメージに同梱） |
 
 **イメージは ECR に置く。** Docker Hub から直接取得すると、取得回数の制限と、上流のタグの付け替えの影響を受ける。
 
@@ -115,6 +117,7 @@ flowchart LR
 - Mautic（`doctrine:migrations:migrate`）も同じ扱いにする。（旧版: Umami も同じ扱いにし、Umami のイメージが起動時に自動で移行するかを実装時に確認する。**ADR-25 で廃止**）
 - **Strapi と n8n は起動時に自分で DB を移行する。** どちらもタスクを 1 に固定するため（3.1）、移行が並行して走ることはない。
 - **Cal.com も起動時に自分で DB を移行する**（Prisma の移行。2026-10-01 に追加）。タスクを 1 に固定するため並行して走らないが、**起動時の移行は実装時に実際の挙動を確かめる**（イメージが移行を含むか、別のコマンドが要るかで手順が変わる。11 節）。`consent-api` は DB を持たないため移行が無い。
+- **（2026-10-12）`admin-auth` の移行は、運用の Lambda（`admin-auth-ops`）の `{"action":"migrate"}` で行う**（ADR-26。1 回だけのタスクの代わり。予約同時実行数 1 で、並行して走らない）。許可リストの初期値もここで入る。
 
 ## 4. データストア
 
@@ -322,6 +325,7 @@ sequenceDiagram
 - **Better Auth は製品の SSO ではなく、製品の手前にかける関門である**（TA-04 の 6 節の「SSO を導入しない」判断とは別の層）。関門を通った後も、各製品のアカウントでログインする。
 - **管理画面への通信は `admin-auth` を通らない。** `admin-auth` が関わるのはログインのときだけで、その後は ALB が自分のセッション Cookie で判定して製品に直接転送する。自作のコードをすべての管理操作の経路に挟まない。
 - **`admin-auth` が止まると、新しいログインだけができなくなる。** ALB のセッションが残っている間は管理画面を使い続けられ、訪問者向けの機能には影響しない。
+- **（2026-10-12）`admin-auth` は Lambda になった（ADR-26）。** ALB はトークンと UserInfo を、ブラウザが同じ関数を呼んだ数秒後に呼ぶため、関数は起動済みである見込み。ALB が IdP の応答を何秒待つかは公式文書で確かめられていないので、Wave 4 で実測し、遅ければプロビジョニングされた同時実行数を付ける（`docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md` の D1）。
 - **許可リストの追加と削除は BA-05 の参加時・離任時チェックリストに含める。** 離任時は Google Workspace のアカウントの停止と、許可リストからの削除の両方を行う。
 - **ベンダーは増えない。** Google Workspace は既に使っており（GSC の OAuth。TA-04 の 8 節）、Better Auth はライブラリで、`admin-auth` は自作のサービスである。
 
@@ -420,11 +424,11 @@ sequenceDiagram
 |---|---|---|
 | RDS のマスターパスワード | Secrets Manager（**RDS に管理させる**） | タスクには渡さない。アプリ用のユーザーを別に作る |
 | アプリ用の DB パスワード・ElastiCache の AUTH トークン・SES の SMTP 認証情報 | Secrets Manager | タスク定義の `secrets` で環境変数として注入する |
-| **暗号化の鍵**（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`、Mautic の `secret_key`、（Umami の `APP_SECRET` は ADR-25 で削除）`admin-auth` の `BETTER_AUTH_SECRET`、Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、**n8n の `N8N_ENCRYPTION_KEY`**・`N8N_RUNNERS_AUTH_TOKEN`） | Secrets Manager | 同上。**`N8N_ENCRYPTION_KEY` を変えると、n8n に保存した資格情報を復号できなくなる** |
+| **暗号化の鍵**（Chatwoot の `SECRET_KEY_BASE`・`ACTIVE_RECORD_ENCRYPTION_*`、Mautic の `secret_key`、（Umami の `APP_SECRET` は ADR-25 で削除）`admin-auth` の `BETTER_AUTH_SECRET`、Strapi の `APP_KEYS`・`ADMIN_JWT_SECRET`・`API_TOKEN_SALT`・`TRANSFER_TOKEN_SALT`・`JWT_SECRET`・`ENCRYPTION_KEY`、**n8n の `N8N_ENCRYPTION_KEY`**・`N8N_RUNNERS_AUTH_TOKEN`） | Secrets Manager | 同上。**`N8N_ENCRYPTION_KEY` を変えると、n8n に保存した資格情報を復号できなくなる**。`admin-auth` の `BETTER_AUTH_SECRET` は、2026-10-12 から Lambda がコールドスタートで読む（ADR-26） |
 | **n8n に保存する資格情報**（本番の Chatwoot・Mautic のトークンなど） | n8n の DB（`N8N_ENCRYPTION_KEY` で暗号化） | 人間が本番の n8n のエディターで登録する。**開発環境の資格情報を本番に持ち込まない**。**Strapi の資格情報は必要になるまで登録せず、登録するときも公開・非公開化・削除の権限を与えない（下書きまで。ADR-18）** |
 | Strapi の本番の PostHog のプロジェクトトークン | Secrets Manager | **本番用のプロジェクトのトークン**（開発と本番でプロジェクトを分ける。ADR-16） |
 | **本番の MCP 用のトークン**（Chatwoot の `api_access_token`・Mautic の API クライアント・Strapi の Admin トークン（Umami の API キーは ADR-25 で削除）・n8n の MCP のアクセストークン）と、**ビルド用の Strapi の読み取り専用の API トークン** | **ローカルの PC の本番用の設定**（`.env.production` と Claude Code の MCP の設定。AWS には置かない。Git で追跡しない） | 本番の各管理画面でエージェント専用のアカウントに発行する。`ACCESS_LEVEL` は `read_write` まで（5.4。ADR-15・ADR-16）。Strapi の Admin トークンは下書きまで（ADR-17） |
-| `admin-auth` の Google の OAuth クライアントシークレット／ALB 用のクライアントシークレット | Secrets Manager（後者は ALB のリスナールールにも設定する） | 前者はタスクに注入する。後者は ALB と `admin-auth` の両方が知る必要がある |
+| `admin-auth` の Google の OAuth クライアントシークレット／ALB 用のクライアントシークレット | Secrets Manager（後者は ALB のリスナールールにも設定する） | **（2026-10-12）Lambda がコールドスタートで読む。本体は Google の分、運用の Lambda だけが ALB 用を読む**（2026-10-12 までは前者をタスクに注入していた）。後者は ALB と `admin-auth` の両方が知る必要がある |
 | **Cal.com の鍵**（セッションの秘密鍵・連携の暗号化の鍵。**変えると保存済みのカレンダー連携を復号できなくなる**）と、**Cal.com が使う Google の OAuth クライアントシークレット**（Google Calendar API） | Secrets Manager | 2026-10-01 に追加。**`admin-auth` と GSC と同じ Google Workspace の中で OAuth クライアントを発行する**（TA-04 の 8 節と同じ扱い）。**`admin-auth` のクライアントと共用しない**（用途とスコープが違う。Cal.com は Calendar、`admin-auth` はログイン） |
 | **`consent-api` が ElastiCache に接続する資格情報**（AUTH トークン） | Secrets Manager | 2026-10-01 に追加。既存の ElastiCache の AUTH と同じもの（4.1）。**`consent-api` には RDS の資格情報を一切渡さない**（DB を持たないサービスのため。3.1） |
 | S3 への権限（Chatwoot の添付ファイル・Strapi のメディア） | **タスクロール**（IAM ロール） | アクセスキーを発行しない |
@@ -470,7 +474,7 @@ sequenceDiagram
 |---|---|---|
 | ALB | 時間 ＋ LCU | 1 台に集約する（5.1） |
 | WAF（ALB 用） | WebACL・ルール・リクエスト数 | **CloudFront のフラットレートプランの対象外** |
-| Fargate | vCPU と メモリの時間 | **11 サービス**（3.1。`admin-auth`・`strapi`・`n8n`・`points-api`〈2026-10-03 に追加。採掘はしない〉を含む。ADR-16 で 2 つ、**2026-10-01 の決定で `calcom` と `consent-api` の 2 つ、2026-10-03 に `points-api` の 1 つ**増えた。**2026-10-12 ADR-26: `consent-api` は Lambda になり、Fargate から外れた**〈Lambda の呼び出しと実行時間の料金に替わる〉） |
+| Fargate | vCPU と メモリの時間 | **11 サービス**（3.1。`admin-auth`・`strapi`・`n8n`・`points-api`〈2026-10-03 に追加。採掘はしない〉を含む。ADR-16 で 2 つ、**2026-10-01 の決定で `calcom` と `consent-api` の 2 つ、2026-10-03 に `points-api` の 1 つ**増えた。**2026-10-12 ADR-26: `consent-api` は Lambda になり、Fargate から外れた**〈Lambda の呼び出しと実行時間の料金に替わる〉）（**同日、`admin-auth` も外れた**） |
 | RDS | インスタンスの時間 ＋ ストレージ ＋ バックアップ | 2 台（MySQL・PostgreSQL） |
 | ElastiCache | ノードの時間 | 1 ノード |
 | NAT Gateway | 時間 ＋ 処理したデータ量 | 1 つ |

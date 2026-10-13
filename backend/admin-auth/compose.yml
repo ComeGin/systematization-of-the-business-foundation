@@ -1,4 +1,4 @@
-# 開発用: admin-auth（Better Auth の OIDC Provider）と PostgreSQL。PostgreSQL はホストに公開しない。
+# 開発用: admin-auth（Better Auth の OIDC Provider）と PostgreSQL。PostgreSQL は 127.0.0.1:5434 にだけ開く（結合テストが Lambda の入口から直接つなぐため）。
 # 設定は同じディレクトリの環境変数ファイル（dev/init-env.sh が .env.example から作る）かシェルの環境変数から読む。
 x-admin-auth-environment: &admin-auth-environment
   HOST: 0.0.0.0
@@ -43,6 +43,9 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    # 結合テスト（pnpm test:integration）が Lambda の入口から直接つなぐ。127.0.0.1 だけ（5432 は Chatwoot、5433 は n8n）
+    ports:
+      - "127.0.0.1:5434:5432"
     environment:
       POSTGRES_DB: ${DATABASE_NAME:-admin_auth}
       POSTGRES_USER: ${DATABASE_USERNAME:-admin_auth}

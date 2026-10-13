@@ -3,7 +3,7 @@
 Chatwoot の受信箱「Web サイト」で、訪問者の質問に **Web サイトの FAQ の原文**で答えるエージェントボット。答えられないときは、ラベルを付けて担当者に引き継ぐ。
 
 - 仕様: `docs/superpowers/specs/2026-10-11-faq-bot-design.md`（判断の経緯は AA-05 の ADR-26、連携点は AA-02 の `I-31`〜`I-33`、フローは DD-04 の 12 節）
-- 本番: **Lambda（VPC の外。関数 URL）**（ADR-26。`cloud/stacks/services/faq-bot.yaml`。手順は `cloud/README.md` の 4.14）
+- 本番: **Lambda（VPC の外。関数 URL）**（ADR-26。`cloud/stacks/services/faq-bot.yaml`。手順は `cloud/README.md` の 4.17）
 - 開発: Node の HTTP サーバー（`127.0.0.1:3107`）。開発の Chatwoot（Docker）からは `middleware/host-relay` 経由で `http://host.docker.internal:3107/webhook` に届く
 - FAQ の正本: Astro の `site-content`。ビルドが `faq.json` を出し（`frontend/verdant-virgo/src/modules/faq-export`）、ボットが 10 分ごとに読む。`【要記入】`・`【要確認】` の付いた項目は出さない
 - **データの置き場を持たない。** 訪問者の発言は Chatwoot の外に残さない（ログは会話の番号・判定・スコアだけ）

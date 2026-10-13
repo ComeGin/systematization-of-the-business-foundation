@@ -16,7 +16,7 @@ Metadata:
       - Label: { default: Astro の配信（CloudFront。global/template.yaml の出力を写す） }
         Parameters: [SiteHost, CloudFrontCertificateArn, CloudFrontWebAclArn]
       - Label: { default: コンテナの待ち受けポート }
-        Parameters: [MauticWebPort, ChatwootWebPort, AdminAuthPort]
+        Parameters: [MauticWebPort, ChatwootWebPort]
       - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
         Parameters: [AlbOidcClientId]
       - Label: { default: データストア（暫定値） }
@@ -26,13 +26,15 @@ Metadata:
       - Label: { default: WAF（暫定値） }
         Parameters: [WafRateLimitConsent, WafRateLimitForm, WafRateLimitApi, WafRateLimitVisitor, WafRateLimitAuth, WafCommonRuleSetAction]
       - Label: { default: サービスのイメージのタグ（製品ごと。latest は使えない） }
-        Parameters: [MauticImageTag, ChatwootImageTag, AdminAuthImageTag]
+        Parameters: [MauticImageTag, ChatwootImageTag]
       - Label: { default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値） }
-        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory, AdminAuthDesiredCount, AdminAuthCpu, AdminAuthMemory]
+        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory]
       - Label: { default: サービスの設定 }
         Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
       - Label: { default: consent-api（ADR-26。services/consent-api.yaml） }
         Parameters: [ConsentApiReservedConcurrency]
+      - Label: { default: admin-auth（ADR-26。services/admin-auth.yaml） }
+        Parameters: [AdminAuthReservedConcurrency, AdminAuthProvisionedConcurrency]
       - Label: { default: FAQ ボット（ADR-26。services/faq-bot.yaml） }
         Parameters: [FaqBotChatwootAccountId, FaqMatchHigh, FaqMatchLow, FaqMatchMargin]
       - Label: { default: 通知と監視 }
@@ -89,9 +91,6 @@ Parameters:
   ChatwootWebPort:
     Type: Number
     Default: 3000
-  AdminAuthPort:
-    Type: Number
-    Default: 3103
 
   AlbOidcClientId:
     Type: String
@@ -157,11 +156,6 @@ Parameters:
     AllowedPattern: '^(?!latest$).+$'
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
-  AdminAuthImageTag:
-    Type: String
-    AllowedPattern: '^(?!latest$).+$'
-    ConstraintDescription: latest は使えない。バージョンのタグで固定する。
-    Default: REPLACE-WITH-FIXED-TAG
   MauticWebDesiredCount:
     Type: Number
     Default: 0
@@ -206,17 +200,6 @@ Parameters:
   ChatwootWorkerMemory:
     Type: String
     Default: '1024'
-  AdminAuthDesiredCount:
-    Type: Number
-    Default: 0
-    MinValue: 0
-  AdminAuthCpu:
-    Type: String
-    Default: '256'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
-  AdminAuthMemory:
-    Type: String
-    Default: '512'
   # ---- オンプレとの WireGuard（ADR-21。TA-06 の 5.6・wireguard.yaml）
   OnpremWireguardCidr:
     Type: String
@@ -302,6 +285,16 @@ Parameters:
     Default: 10
     MinValue: 1
     Description: consent-api（Lambda）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md の 12 節）
+  AdminAuthReservedConcurrency:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: admin-auth（Lambda の本体）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md の 12 節）
+  AdminAuthProvisionedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: admin-auth（本体）のプロビジョニングされた同時実行数。0 なら付けない。Wave 4 で ALB の IdP の呼び出しが遅ければ 1 にする（月 4〜5 USD 前後）
   FaqBotChatwootAccountId:
     Type: Number
     Default: 1
@@ -330,7 +323,6 @@ Resources:
         VpcCidr: !Ref VpcCidr
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
-        AdminAuthPort: !Ref AdminAuthPort
         WireguardPort: !Ref WireguardPort
         WireguardIngressCidr: !Ref WireguardIngressCidr
         OnpremWebhookPort: !Ref OnpremWebhookPort
@@ -405,8 +397,8 @@ Resources:
         ConsentHost: !Ref ConsentHost
         MauticWebPort: !Ref MauticWebPort
         ChatwootWebPort: !Ref ChatwootWebPort
-        AdminAuthPort: !Ref AdminAuthPort
         ConsentApiTargetGroupArn: !GetAtt ConsentApiService.Outputs.TargetGroupArn
+        AdminAuthTargetGroupArn: !GetAtt AdminAuthService.Outputs.TargetGroupArn
         AlbOidcClientId: !Ref AlbOidcClientId
         WafRateLimitConsent: !Ref WafRateLimitConsent
         WafRateLimitForm: !Ref WafRateLimitForm
@@ -592,31 +584,26 @@ Resources:
         AttachmentBucketArn: !GetAtt DataStack.Outputs.ChatwootBucketArn
         MailerSenderEmail: !Ref ChatwootMailerSenderEmail
 
+  # ---- admin-auth（ADR-26。VPC の中の Lambda 2 つ。ALB のターゲットグループもこのスタックが持ち、EdgeStack に渡す）
+  # AlbProtectedHosts は EdgeStack の出力を使わずに親で組み立てる（edge がこのスタックを参照するため、使うと循環する。値は同じ）
   AdminAuthService:
     Type: AWS::Serverless::Application
     Properties:
       Location: stacks/services/admin-auth.yaml
       Parameters:
         EnvName: !Ref EnvName
-        ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
         SecurityGroupId: !GetAtt NetworkStack.Outputs.AdminAuthSecurityGroupId
-        LogGroupName: !GetAtt ClusterStack.Outputs.AdminAuthLogGroupName
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
-        ImageRepositoryUri: !GetAtt EcrStack.Outputs.AdminAuthRepositoryUri
-        ImageTag: !Ref AdminAuthImageTag
-        DesiredCount: !Ref AdminAuthDesiredCount
-        Cpu: !Ref AdminAuthCpu
-        Memory: !Ref AdminAuthMemory
-        ContainerPort: !Ref AdminAuthPort
-        TargetGroupArn: !GetAtt EdgeStack.Outputs.AdminAuthTargetGroupArn
         PostgresEndpoint: !GetAtt DataStack.Outputs.PostgresEndpoint
         AuthHost: !Ref AuthHost
         DomainName: !Ref DomainName
         GoogleClientId: !Ref GoogleClientId
         AdminBootstrapEmails: !Ref AdminBootstrapEmails
         AlbClientId: !Ref AlbOidcClientId
-        AlbProtectedHosts: !GetAtt EdgeStack.Outputs.AlbProtectedHosts
+        AlbProtectedHosts: !Join [',', [!Ref ChatHost, !Ref MktHost]]
+        ReservedConcurrency: !Ref AdminAuthReservedConcurrency
+        ProvisionedConcurrency: !Ref AdminAuthProvisionedConcurrency
 
   # ---- consent-api（ADR-26。VPC の中の Lambda。ALB のターゲットグループもこのスタックが持ち、EdgeStack に渡す）
   ConsentApiService:
@@ -661,7 +648,7 @@ Resources:
         AlbFullName: !GetAtt EdgeStack.Outputs.AlbFullName
         MauticWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.MauticWebTargetGroupFullName
         ChatwootWebTargetGroupFullName: !GetAtt EdgeStack.Outputs.ChatwootWebTargetGroupFullName
-        AdminAuthTargetGroupFullName: !GetAtt EdgeStack.Outputs.AdminAuthTargetGroupFullName
+        AdminAuthTargetGroupFullName: !GetAtt AdminAuthService.Outputs.TargetGroupFullName
         ConsentApiTargetGroupFullName: !GetAtt ConsentApiService.Outputs.TargetGroupFullName
         MysqlInstanceIdentifier: !GetAtt DataStack.Outputs.MysqlInstanceIdentifier
         PostgresInstanceIdentifier: !GetAtt DataStack.Outputs.PostgresInstanceIdentifier
@@ -669,6 +656,7 @@ Resources:
         WireguardInstanceId: !GetAtt WireguardStack.Outputs.InstanceId
         FaqBotFunctionName: !GetAtt FaqBotService.Outputs.FunctionName
         ConsentApiFunctionName: !GetAtt ConsentApiService.Outputs.FunctionName
+        AdminAuthFunctionName: !GetAtt AdminAuthService.Outputs.FunctionName
 
 Outputs:
   FaqBotFunctionUrl:
@@ -726,9 +714,9 @@ Outputs:
   ChatwootWebSecurityGroupId:
     Description: chatwoot の db:chatwoot_prepare を RunTask で実行するときのセキュリティグループ（DB と Valkey に届く）
     Value: !GetAtt NetworkStack.Outputs.ChatwootWebSecurityGroupId
-  AdminAuthSecurityGroupId:
-    Description: admin-auth の migrate と ALB クライアントの登録を RunTask で実行するときのセキュリティグループ
-    Value: !GetAtt NetworkStack.Outputs.AdminAuthSecurityGroupId
+  AdminAuthOpsFunctionName:
+    Description: admin-auth の運用の Lambda（migrate・register-alb-client。cloud/README の 4.19）
+    Value: !GetAtt AdminAuthService.Outputs.OpsFunctionName
   MauticWebSecurityGroupId:
     Description: Mautic のコマンドを RunTask で実行するときのセキュリティグループ（MySQL と EFS に届く）
     Value: !GetAtt NetworkStack.Outputs.MauticWebSecurityGroupId

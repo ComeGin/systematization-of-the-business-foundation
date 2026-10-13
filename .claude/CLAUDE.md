@@ -22,7 +22,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 自作（MCP サーバ） | `backend/chatwoot-mcp`、`backend/mautic-mcp` | このリポジトリの主要な自作コード |
 | 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n`、`middleware/ga4`（2026-10-06。ADR-25） | 公式イメージを動かすための compose と環境変数のテンプレートだけ。`middleware/ga4` は SaaS（GA4）の設定の記録と setup だけで、動かすものは無い（本番のプロパティだけ。開発ではタグを出さない） |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |
-| 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | consent-api は本番は ALB 配下の Lambda（VPC の中。ADR-26。2026-10-12）で、DB を持たず Valkey だけ。admin-auth は本番は ALB 配下の ECS on Fargate で、Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にする |
+| 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | 本番はどちらも ALB 配下の Lambda（VPC の中。ADR-26。2026-10-12）。consent-api は DB を持たず Valkey だけ。admin-auth は Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にし、運用（migrate・ALB の登録）は別の Lambda（admin-auth-ops） |
 | 自作（サービス。2026-10-11 着手） | `backend/faq-bot` | Chatwoot の受信箱「Web サイト」で FAQ に答えるエージェントボット。**本番は Lambda（VPC の外。関数 URL。ADR-26）**、開発は Node の HTTP サーバー（3107）。FAQ は Astro の `faq.json`（`frontend/verdant-virgo/src/modules/faq-export`）を読む。データの置き場は持たない |
 | 自作（管制。2026-10-04 着手） | `backend/control-plane`（ライブラリ）＋ `frontend/next-js`（監視アプリ） | `E-15` の記録（作業ツリーの外の SQLite）・定期実行・Agent SDK でのエージェント起動・`I-13` の起票。**control-plane は next-js が取り込んで 1 プロセスで動かす**。境界の型は `backend/control-plane/src/contract.ts` |
 | 自作（IaC・定義） | `cloud/`（AWS SAM。クラウドに置く製品と例外とデータの置き場。デプロイ手順は `cloud/README.md`）、`onprem/`（ADR-21。オンプレの本番の Strapi・n8n と WireGuard の構成）、`middleware/n8n/workflows/`（ワークフローの JSON）、`ops/`（定期実行の定義と MCP の登録表）、リポジトリ直下の `.claude/agents/`（エージェント定義 12 本） | 定期実行の定義とエージェント定義は、監視アプリが**承認済みの `main` のチェックアウトから**読む（ADR-18）。作業ツリーで書き換えても次の実行には効かない |
@@ -39,7 +39,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 3001 | OpenSEO（UI と MCP の `/mcp`。上流の compose のまま `127.0.0.1` にバインド。`AUTH_MODE=local_noauth` で無認証のため、トンネルを張らない） |
 | 3100 | Chatwoot 本体（`CHATWOOT_PORT`）／ **mautic-mcp の HTTP 既定値と衝突する**。両方 HTTP で動かすならどちらかの `PORT` を変える |
 | 3102 | chatwoot-mcp（HTTP 時） |
-| 3103 | admin-auth（Better Auth の OIDC Provider。本番は `auth.comegin.com`。設計は `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13・`TA/06-aws-runtime.md` の 5.2） |
+| 3103 | admin-auth（Better Auth の OIDC Provider。本番は `auth.comegin.com`〈ALB 配下の Lambda。ADR-26。ポートを持たない〉。設計は `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13・`TA/06-aws-runtime.md` の 5.2） |
 | 3104 | consent-api（Cookie 同意の記録。本番は ALB 配下の Lambda〈ADR-26〉で、ポートを持たない。訪問者のリクエストを直接受ける初めての自作コードなので、DB を持たせず ElastiCache だけに書く。設計は `docs/DetailedDesign/02-public-path-flows.md` の 8 節） |
 | 3105 | （空き。以前は Cal.com のセルフホスト用。**ADR-24〈2026-10-06〉で Cal.com は SaaS〈cal.com〉を公開サイトの完了画面に埋め込む形にした**ため使わない。予約の氏名・メール・日時は Cal.com, Inc.〈米国〉と Google LLC〈米国〉に渡る。設計は `docs/DetailedDesign/02-public-path-flows.md` の 7 節と `RequirementDefinition/AA/05-application-decisions.md` の ADR-24） |
 | 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `docs/DetailedDesign/08-monetization-flows.md`） |
@@ -50,6 +50,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |
 | 5432 | Chatwoot の PostgreSQL |
 | 5433 | n8n の PostgreSQL |
+| 5434 | admin-auth の開発の PostgreSQL（`127.0.0.1` だけ。admin-auth の結合テストが Lambda の入口から直接つなぐ） |
 | 5678 | n8n（開発環境） |
 | 5679 | n8n（**本番。オンプレ**。ADR-21。データは AWS の RDS。`127.0.0.1` だけに開く。構成は `onprem/n8n`） |
 | 5680 | n8n の本番の Webhook の受け口（リバースプロキシ。**WireGuard のアドレスだけ**に開き、`/webhook/*` だけを 5679 に通す。エディター・API はクラウドから届かない） |

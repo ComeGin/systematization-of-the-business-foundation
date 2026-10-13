@@ -27,6 +27,14 @@ beforeEach(() => {
 
 describe("createPool", () => {
   describe("正常系", () => {
+    it("Lambda の入口はプールの上限と問い合わせのタイムアウトを上書きできる。上書きしなければ query_timeout は付けない", () => {
+      createPool(loadConfig(validEnv()), { max: 2, queryTimeoutMs: 5_000 });
+      createPool(loadConfig(validEnv()));
+      expect(poolInstances[0]?.options).toMatchObject({ max: 2, query_timeout: 5_000 });
+      expect(poolInstances[1]?.options.max).toBe(10);
+      expect(poolInstances[1]?.options.query_timeout).toBeUndefined();
+    });
+
     it("設定の接続情報と、プールの上限・接続のタイムアウトを渡す", () => {
       createPool(loadConfig(validEnv({ DATABASE_PORT: "6543", DATABASE_NAME: "aa" })));
       expect(poolInstances[0]?.options).toMatchObject({

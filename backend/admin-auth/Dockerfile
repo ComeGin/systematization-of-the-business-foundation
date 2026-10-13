@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # 依存の取得・ビルド・実行の 3 段。実行イメージにはビルド用の道具とソースを入れず、非 root で動かす
+# 開発の compose だけが使う（本番は Lambda。sam build が Makefile で zip にする。ADR-26）。開発の PostgreSQL は TLS を使わないので、RDS の CA は入れない
 FROM node:24-alpine AS base
 WORKDIR /app
 RUN corepack enable
@@ -15,15 +16,9 @@ RUN pnpm build
 FROM base AS prod-deps
 RUN pnpm install --frozen-lockfile --prod
 
-# RDS に TLS（証明書の検証つき）でつなぐための CA。Node は Amazon の CA を持たないため、NODE_EXTRA_CA_CERTS で追加する
-FROM alpine:3 AS rds-ca
-ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /certs/rds-global-bundle.pem
-
 FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
-ENV NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem
 WORKDIR /app
-COPY --from=rds-ca --chown=node:node /certs ./certs
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./

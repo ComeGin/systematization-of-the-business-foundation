@@ -1274,7 +1274,7 @@ ADR-25 で受け入れる点（1〜7）と、それ以外の影響を分けて�
 
 - 監視が 2 種類になる（ECS の `RunningTaskCount` と Lambda の `Errors`。どちらも SNS の `ops` に送る）。
 - ALB の配下に置く Lambda は、ALB と Lambda の形式（ヘッダー・Cookie・本文の変換）に合わせる入口が要る。開発は Node の HTTP サーバーのまま動かすため、処理の本体と入口を分ける（faq-bot の `handler.ts`・`server.ts`・`lambda.ts` が前例）。
-- **consent-api・admin-auth の移行はサブプロジェクト ②③ で行う（それぞれ別の仕様）。admin-auth は ALB の OIDC の IdP の応答時間を実測してから決める**（ALB が IdP のトークン・UserInfo を待つ時間を、2026-10-11 の時点で公式文書で確かめられていない）。**（2026-10-12）② consent-api は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md` で実施した（ターゲットグループは関数のスタックに移した）。③ admin-auth は実測を待たずに進めることにした（ユーザーの 2026-10-12 の決定。ALB の IdP の呼び出しの直前にブラウザが同じ関数を呼ぶため、起動済みである見込み。プロビジョニングされた同時実行数を備えにする。別の仕様）。**
+- **consent-api・admin-auth の移行はサブプロジェクト ②③ で行う（それぞれ別の仕様）。admin-auth は ALB の OIDC の IdP の応答時間を実測してから決める**（ALB が IdP のトークン・UserInfo を待つ時間を、2026-10-11 の時点で公式文書で確かめられていない）。**（2026-10-12）② consent-api は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md` で実施した（ターゲットグループは関数のスタックに移した）。③ admin-auth は実測を待たずに進めることにした（ユーザーの 2026-10-12 の決定。ALB の IdP の呼び出しの直前にブラウザが同じ関数を呼ぶため、起動済みである見込み。プロビジョニングされた同時実行数を備えにする。別の仕様）。** **（2026-10-12）③ admin-auth は `docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md` で実施した（本体と運用の Lambda 2 つ。IdP の応答時間の実測は Wave 4 で行い、遅ければプロビジョニングされた同時実行数を付ける）。**
 
 ## 決定の一覧
 

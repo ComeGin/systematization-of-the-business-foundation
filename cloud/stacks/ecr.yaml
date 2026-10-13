@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  ECR リポジトリ。自作（admin-auth）、Mautic・Chatwoot の派生イメージ用。consent-api・faq-bot は Lambda（ADR-26）で、sam build が zip にするためリポジトリを持たない。Strapi と n8n はオンプレで動かす（ADR-21）、Cal.com は SaaS（ADR-24）、アクセス解析は GA4（SaaS。ADR-25 で Umami を廃止）なので、リポジトリを持たない。
+  ECR リポジトリ。Mautic・Chatwoot の派生イメージ用。自作のサービス（admin-auth・consent-api・faq-bot）は Lambda（ADR-26）で、sam build が zip にするためリポジトリを持たない。Strapi と n8n はオンプレで動かす（ADR-21）、Cal.com は SaaS（ADR-24）、アクセス解析は GA4（SaaS。ADR-25 で Umami を廃止）なので、リポジトリを持たない。
   TA-06 の 3.2「イメージは ECR に置く」。タグは不変にし、プッシュ時にスキャンする。
 
 Parameters:
@@ -17,19 +17,6 @@ Parameters:
 # リポジトリは作り直すと中のイメージが失われるため、すべて Retain にする。
 # ライフサイクルポリシーはすべて同じ内容（CloudFormation は YAML のアンカーを使えないため繰り返す）。
 Resources:
-  AdminAuthRepository:
-    Type: AWS::ECR::Repository
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      RepositoryName: !Sub 'comegin/${EnvName}/admin-auth'
-      ImageTagMutability: IMMUTABLE
-      ImageScanningConfiguration: { ScanOnPush: true }
-      EncryptionConfiguration: { EncryptionType: AES256 }
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub >-
-          {"rules":[{"rulePriority":1,"description":"untagged images","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":${UntaggedImageExpireDays}},"action":{"type":"expire"}}]}
-
   # 公式イメージが Mautic 7.x を提供しているかは未確認（TA-06 の 3.2・11 節）。
   # 無ければ cloud/images/mautic/ の Dockerfile から自前でビルドして、ここに置く。
   MauticRepository:
@@ -62,8 +49,6 @@ Resources:
           {"rules":[{"rulePriority":1,"description":"untagged images","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":${UntaggedImageExpireDays}},"action":{"type":"expire"}}]}
 
 Outputs:
-  AdminAuthRepositoryUri:
-    Value: !GetAtt AdminAuthRepository.RepositoryUri
   MauticRepositoryUri:
     Value: !GetAtt MauticRepository.RepositoryUri
   ChatwootRepositoryUri:

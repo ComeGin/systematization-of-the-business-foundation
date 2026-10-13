@@ -8,3 +8,5 @@ README.md
 compose.yml
 Dockerfile
 dev
+dist-lambda
+Makefile

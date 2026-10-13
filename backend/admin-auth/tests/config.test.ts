@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadAlbConfig, loadConfig } from "../src/config.js";
+import { ConfigError, loadAlbConfig, loadConfig, parseAlbConfig, parseConfig } from "../src/config.js";
 import { captureStderr, DB_PASSWORD, mockExit, SECRET, validEnv } from "./helpers/env.js";
 
 // 環境変数の検証だけを見る純粋な関数なので、サーバ側の異常は無い
@@ -201,6 +201,84 @@ describe("loadAlbConfig", () => {
       const text = expectExit(() => loadAlbConfig(albEnv({ ALB_CLIENT_SECRET: short })));
       expect(text).toContain("ALB_CLIENT_SECRET");
       expect(text).not.toContain(short);
+    });
+  });
+});
+
+// Lambda の入口が使う。プロセスを終了させず、例外にする（初期化の失敗として次の呼び出しでやり直すため）
+describe("parseConfig", () => {
+  describe("正常系", () => {
+    it("正しい環境変数なら loadConfig と同じ設定を返し、何も出さない", () => {
+      const stderr = captureStderr();
+      expect(parseConfig(validEnv())).toEqual(loadConfig(validEnv()));
+      expect(stderr.spy).not.toHaveBeenCalled();
+    });
+
+    it("requireGoogle: false なら、NODE_ENV=production でも Google の設定を求めない（運用の入口）", () => {
+      const config = parseConfig(validEnv({ NODE_ENV: "production" }), { requireGoogle: false });
+      expect(config.GOOGLE_CLIENT_ID).toBeUndefined();
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: NODE_ENV=production で Google の設定が無ければ、既定では ConfigError", () => {
+      expect(() => parseConfig(validEnv({ NODE_ENV: "production" }))).toThrow(ConfigError);
+    });
+
+    it("空入力: 環境変数が 1 つも無ければ、必須の名前を並べた ConfigError を投げ、終了しない", () => {
+      const exit = mockExit();
+      let error: unknown;
+      try {
+        parseConfig({});
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(ConfigError);
+      for (const name of ["BETTER_AUTH_URL", "BETTER_AUTH_SECRET", "DATABASE_HOST", "DATABASE_USERNAME", "DATABASE_PASSWORD"]) {
+        expect((error as Error).message).toContain(`- ${name}:`);
+      }
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("入力: 例外のメッセージに値（シークレット・DB のパスワード）を入れない", () => {
+      let message = "";
+      try {
+        parseConfig(validEnv({ BETTER_AUTH_SECRET: "short", DATABASE_PORT: DB_PASSWORD }));
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toContain("BETTER_AUTH_SECRET");
+      expect(message).not.toContain(DB_PASSWORD);
+      expect(message).not.toContain(SECRET);
+    });
+  });
+});
+
+describe("parseAlbConfig", () => {
+  const albEnv = { ALB_CLIENT_ID: "alb-admin-gate", ALB_CLIENT_SECRET: "alb-secret-0123456789abcdefghijklmnopq", ALB_PROTECTED_HOSTS: "Chat.comegin.com" };
+
+  describe("正常系", () => {
+    it("正しければ loadAlbConfig と同じ値を返す", () => {
+      expect(parseAlbConfig(albEnv)).toEqual(loadAlbConfig(albEnv));
+    });
+  });
+
+  describe("異常系", () => {
+    it("空入力: 何も無ければ ConfigError を投げ、終了しない", () => {
+      const exit = mockExit();
+      expect(() => parseAlbConfig({})).toThrow(ConfigError);
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("入力: シークレットが短くても、値をメッセージに入れない", () => {
+      let message = "";
+      try {
+        parseAlbConfig({ ...albEnv, ALB_CLIENT_SECRET: "short-secret-value" });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toContain("ALB_CLIENT_SECRET");
+      expect(message).not.toContain("short-secret-value");
     });
   });
 });

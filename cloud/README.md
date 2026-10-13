@@ -22,7 +22,7 @@ cloud/
   stacks/
     network.yaml             VPC、2AZ の public / private、NAT 1 台、S3 ゲートウェイエンドポイント、セキュリティグループ（すべて。WireGuard の EC2 の SG を含む）
     wireguard.yaml           オンプレとの WireGuard の終端（EC2 t4g.nano 1 台、Elastic IP、private サブネットの経路、SSM のパラメータ）
-    ecr.yaml                 ECR（自作 1 本〈admin-auth〉と、Mautic・Chatwoot の 3 本。consent-api・faq-bot は Lambda で ECR を使わない）
+    ecr.yaml                 ECR（Mautic・Chatwoot の 2 本。自作のサービス〈admin-auth・consent-api・faq-bot〉は Lambda で ECR を使わない）
     observability.yaml       SNS（comegin-lead-alert / comegin-ops-alert）、ハートビートのアラーム 2 つ（オンプレの監視アプリ、オンプレの n8n のスケジュール実行）
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
@@ -34,9 +34,10 @@ cloud/
     ses.yaml                 SES のドメイン ID と DKIM
     ops-tasks.yaml           運用者が RunTask で起動する DB 作成のタスク
     alarms.yaml              CloudWatch アラームと RDS のイベント通知
-    services/<svc>.yaml      ECS のサービス 5 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker・admin-auth）
-    services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.14）
-    services/consent-api.yaml consent-api（Lambda。VPC の中。ALB のターゲットとターゲットグループを持つ。ADR-26。4.15）
+    services/<svc>.yaml      ECS のサービス 4 本（mautic-web・mautic-cron・chatwoot-web・chatwoot-worker）
+    services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.17）
+    services/consent-api.yaml consent-api（Lambda。VPC の中。ALB のターゲットとターゲットグループを持つ。ADR-26。4.18）
+    services/admin-auth.yaml  admin-auth（Lambda 2 つ: 本体〈ALB のターゲット〉と運用〈admin-auth-ops〉。VPC の中。ADR-26。4.19）
   images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）
 ```
 
@@ -90,9 +91,9 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 
 ## 3. 費用
 
-見積もりは未実施（TA-06 の 9 節）。固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（6 サービス。タスクは各 1）、RDS（2 台）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
+見積もりは未実施（TA-06 の 9 節）。固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、RDS（2 台）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
 **EC2 t4g.nano（WireGuard。1 台）と Elastic IP（public IPv4 の課金）と EBS 8 GB（gp3）**、
-Secrets Manager（18 個 + RDS が管理するマスターの 2 個 = 20 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 26 個、ログ、メトリクス）。
+Secrets Manager（18 個 + RDS が管理するマスターの 2 個 = 20 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 27 個〈`alarms.yaml`〉、ログ、メトリクス）。
 
 **ADR-21 による増減（概算。単価は見積もりで確かめる）**: Fargate のサービスが 2 つ減る（Strapi と n8n が各 1 vCPU・2 GB。東京の公表単価からの概算で、1 つあたり月 $45 前後。n8n は runners のサイドカー分も減る）。
 EC2 t4g.nano（月 $4 前後）、Elastic IP（public IPv4 は 1 つ月 $3.65）、EBS 8 GB（月 $1 未満）が増える。Secrets Manager が 9 個減る（月 $3.6 前後）。アラームは 4 つ減って 2 つ増える（さらに n8n のハートビートのアラームが 1 つ増える）。
@@ -125,11 +126,11 @@ ACM の証明書は DNS 検証。Route 53 に検証用のレコードが自動�
 ### 4.2 本番スタック（ap-northeast-1）
 
 ```bash
-sam build         # 必須（2026-10-11 から）。faq-bot と consent-api の Lambda を各 Makefile（pnpm と esbuild）でまとめる。開発機に pnpm 11 が要る
+sam build         # 必須（2026-10-11 から）。faq-bot・consent-api・admin-auth の Lambda を各 Makefile（pnpm と esbuild）でまとめる。開発機に pnpm 11 が要る
 sam deploy        # 初回は RDS・ElastiCache・ACM の検証で 30 分前後かかる
 ```
 
-**`sam build` を飛ばすと、faq-bot（4.14）・consent-api（4.15）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは両方のスタックを無条件で作るため、使わない場合でも build は省けない（faq-bot は受信箱にボットを接続しない限り、訪問者には影響しない。consent-api は ALB のルール 106 から呼ばれるので、build を飛ばすと同意の受け口が 502 になる）。
+**`sam build` を飛ばすと、faq-bot（4.17）・consent-api（4.18）・admin-auth（4.19）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは 3 つのスタックを無条件で作るため、使わない場合でも build は省けない（faq-bot は受信箱にボットを接続しない限り、訪問者には影響しない。consent-api と admin-auth は ALB から呼ばれるので、build を飛ばすと同意の受け口とログインが 502 になる）。
 
 作られるもの: ネットワーク、**WireGuard の EC2（Elastic IP つき）と、private サブネットの経路**、ECR、SNS、データストア、Secrets、ALB と WAF、CloudFront、SES のドメイン ID、アラーム、
 **IAM ユーザー 2 つ（オンプレの Strapi・n8n 用。アクセスキーは無い）**、ECS のサービス（**すべて DesiredCount 0**）。
@@ -272,7 +273,7 @@ Strapi と n8n の鍵類（`APP_KEYS`・`ENCRYPTION_KEY`・`N8N_ENCRYPTION_KEY`�
 | `comegin/<env>/admin-auth/GOOGLE_CLIENT_SECRET` | Google の OAuth クライアントのシークレット | Google Cloud（Workspace の「内部」）。承認済みのリダイレクト URI は `https://<AuthHost>/api/auth/callback/google`。クライアント ID は親のパラメータ `GoogleClientId` |
 | `comegin/<env>/mautic/SMTP_USERNAME` `SMTP_PASSWORD` | Mautic 用の SES の SMTP 認証情報 | 4.9 |
 | `comegin/<env>/chatwoot/SMTP_USERNAME` `SMTP_PASSWORD` | Chatwoot 用の SES の SMTP 認証情報（Mautic とは別に発行） | 4.9 |
-| `comegin/<env>/faq-bot/CHATWOOT_BOT_TOKEN` `CHATWOOT_BOT_SECRET` | Chatwoot のエージェントボット「FAQ ボット」の access_token と secret | 4.14 |
+| `comegin/<env>/faq-bot/CHATWOOT_BOT_TOKEN` `CHATWOOT_BOT_SECRET` | Chatwoot のエージェントボット「FAQ ボット」の access_token と secret | 4.17 |
 
 値は、シェルの履歴に残らない方法で入れる:
 
@@ -306,13 +307,13 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
   2. `sha256sum /tmp/b.pem` の値を、`cloud/images/*/Dockerfile` の `RDS_CA_SHA256` と、親のパラメータ `RdsCaSha256`（ops-tasks）に反映する。
   3. 2 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。
 - ElastiCache（`rediss://`）は、Amazon の公開 CA で署名されており、Node（consent-api）と Ruby（Chatwoot）の既定の信頼ストアで検証される。検証を無効にする設定は入れていない。
-- 自作の admin-auth は、Dockerfile が同じ CA を `NODE_EXTRA_CA_CERTS` で持つ。
+- 自作の admin-auth（Lambda。ADR-26）は、Lambda の実行環境の `/var/runtime/ca-cert.pem`（RDS の CA を含む）を `NODE_EXTRA_CA_CERTS` で読む（2026-10-12 まではイメージに同梱していた）。
 
 | 接続元 | 検証のしかた（テンプレートの設定） | 検証の状況 |
 |---|---|---|
 | Chatwoot（Rails・libpq） | `PGSSLMODE=verify-full`、`PGSSLROOTCERT=/etc/rds/global-bundle.pem` | libpq は、自作の CA のローカルの PostgreSQL で確認済み（正しいとき接続、CA が無いときとホスト名が違うときは失敗）。Chatwoot の Rails 本体では未 |
 | Mautic（Doctrine・PDO と起動時の `mysqladmin ping`） | `config.php` に `PDO::MYSQL_ATTR_SSL_CA` と `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT` を足し（ビルド時のパッチ。2 か所に入ったことと `php -l` を確かめ、確かめられなければビルドが失敗する）、mariadb-admin の設定（`/etc/mysql/conf.d/rds-ssl.cnf`）に `ssl-ca` と `ssl-verify-server-cert`。RDS の MySQL は `require_secure_transport=1`（`data.yaml`） | **派生イメージのビルドを確認済み。PHP 8.3 の PDO と `mysqladmin` は、自作の CA のローカルの TLS つき MySQL で確認済み**（正しいとき接続、CA が違うときとホスト名が違うときは失敗）。Mautic 本体の起動は未 |
-| admin-auth | `DATABASE_SSL=true`（CA は Dockerfile の `NODE_EXTRA_CA_CERTS`） | edge が実装済み。実機では未 |
+| admin-auth | `DATABASE_SSL=true`（CA は `NODE_EXTRA_CA_CERTS=/var/runtime/ca-cert.pem`。Lambda の実行環境のもの） | edge が実装済み。実機では未 |
 | オンプレの Strapi・n8n（WireGuard 経由） | `onprem/` の設定（Strapi は `DATABASE_SSL=true`、n8n は `DB_POSTGRESDB_SSL_CA_FILE` と `REJECT_UNAUTHORIZED=true`）。接続先は RDS のエンドポイント名（ホスト名の検証が通る） | 未（実機で、トンネルを張ってから確かめる） |
 | ops-tasks の DB 作成タスク | 起動時に CA を取得して SHA-256 を照合し、`PGSSLMODE=verify-full`（MySQL は `--ssl-mode=VERIFY_IDENTITY`） | CA の取得と照合は、各イメージで確認済み |
 
@@ -334,21 +335,11 @@ docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 -t $ECR/com
 docker push $ECR/comegin/prod/chatwoot:v4.18.0-1
 ```
 
-#### 自作のイメージ（タグはコミットの短縮 SHA など、毎回変わるもの）
-
-| リポジトリ | ビルド元 | パラメータ |
-|---|---|---|
-| `comegin/<env>/admin-auth` | `backend/admin-auth`（同上） | `AdminAuthImageTag` |
-
-```bash
-TAG=$(git rev-parse --short HEAD)
-docker build --platform linux/amd64 -t $ECR/comegin/prod/admin-auth:$TAG backend/admin-auth
-docker push $ECR/comegin/prod/admin-auth:$TAG
-```
-
-consent-api・faq-bot は Lambda（ADR-26）で、イメージを作らない（`sam build` が zip にする。4.14・4.15）。
-
 タグを設定ファイル（`samconfig.toml`）に書いてデプロイする（`REPLACE-WITH-FIXED-TAG` のままでは起動しない）。
+
+#### 自作のサービス
+
+自作のサービス（admin-auth・consent-api・faq-bot）は Lambda（ADR-26）で、イメージを作らない（`sam build` が zip にする。4.17〜4.19）。
 
 ### 4.8 データベースとアプリ用ユーザーを作る（1 回だけ）
 
@@ -416,7 +407,7 @@ aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].co
 | サービス | 手順 |
 |---|---|
 | **Chatwoot** | 上の `db:chatwoot_prepare`（entrypoint は `docker/entrypoints/rails.sh` のまま、`command` だけ上書き）。**初回とイメージを更新するたびに、サービスを起動する前に実行する。** |
-| **admin-auth** | ① 移行 `["node","dist/scripts/migrate.js"]` ② ALB を信頼済みクライアントとして登録 `["node","dist/scripts/register-alb-client.js"]`（**`pnpm alb:register` ではない。イメージの中に pnpm は無い**）。どちらも冪等で、終了コードは成功 0・失敗 1。タスク定義は `comegin-prod-admin-auth`、コンテナ名 `admin-auth`、セキュリティグループは `AdminAuthSecurityGroupId`。環境変数はサービスと同じもの（`DATABASE_*`・`BETTER_AUTH_*`・`GOOGLE_*`・`ALB_*`）で、`ALB_CLIENT_SECRET` は ALB のリスナールールと同じ Secret から渡る。**`ALB_PROTECTED_HOSTS` には `authenticate-oidc` をかける 2 つのホスト（`ChatHost`・`MktHost`）がすべて入る**（ADR-21 で `cms.`・`n8n.` を、ADR-24 で `cal.` を、ADR-25 で `stats.` を外した）（親が edge の出力から渡す）。足りないホストでは、ALB のリダイレクトが拒否されてログインできない。**移行と登録のあとで `AdminAuthDesiredCount` を上げる**（許可リストの表が無い、または DB に届かないとき、プロセスは終了して ECS が再起動を繰り返す）。 |
+| **admin-auth** | **運用の Lambda で行う**（4.19。RunTask は使わない）。① `{"action":"migrate"}`（許可リストの初期値も入る）② `{"action":"register-alb-client"}`。**① のあとでないと、ログインの判定が 500 になる** |
 | **Mautic** | **RunTask は要らない。** 公式の entrypoint が、インストール済み（`config/local.php` に `db_driver` と `site_url` がある）なら、web ロールの起動のたびに `doctrine:migrations:migrate` を実行する。未インストールのあいだは何もせず、cron は**インストールが終わるまで待つ**。初回は、`mautic-web` を起動し、ログインした管理者がブラウザで `https://<MktHost>/installer` を開いてインストールする（`/installer` は OIDC の内側）。`local.php` は EFS の `config` に保存され、再起動で消えない。CLI でするなら ECS Exec（`su -s /bin/sh www-data -c 'cd /var/www/html && php ./bin/console mautic:install https://<MktHost> --admin_email=<…> --admin_password=<…>'`。未検証）。管理者のパスワードは Secrets Manager に置かず、インストール時に人間が決める。**TODO(未検証)**: Mautic の設定名（`MAUTIC_SITE_URL`、`MAUTIC_TRUSTED_PROXIES`）。 |
 | **Strapi・n8n（オンプレ）** | オンプレで動かす（ADR-21）。起動時に自分で RDS の `strapi`・`n8n` データベースを移行する。WireGuard が張れていて、4.8 のパスワードを渡してから起動する。 |
 
@@ -447,21 +438,21 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 
 | 順 | サービス | 条件・注意 |
 |---|---|---|
-| 1 | `AdminAuthDesiredCount=1` | イメージ、`GoogleClientId`、`GOOGLE_CLIENT_SECRET`、DB 作成、migrate、`register-alb-client` を済ませてから。**これが無いと、管理画面に誰も入れない** |
-| 2 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
-| 3 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
+| 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
+| 2 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
 
-consent-api は Lambda（ADR-26）で DesiredCount を持たない。`sam deploy` の時点で ALB から呼ばれる（4.15）。
+consent-api と admin-auth は Lambda（ADR-26）で DesiredCount を持たない。`sam deploy` の時点で ALB から呼ばれる（4.18・4.19）。**admin-auth は 4.19 の migrate と登録が済むまで、管理画面に誰も入れない**（Chatwoot・Mautic を起動する前に済ませる）。
 `mautic-web` と `mautic-cron` の DesiredCount は 0 か 1 しか受け付けない（テンプレートが拒否する）。
 WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1）。オンプレの Strapi・n8n の起動は、ここの対象外（`onprem/` の README）。
 
 ### 4.12 イメージの更新
 
 1. 新しいイメージを ECR に置く（4.7）。
-2. **DB のスキーマが変わる製品（Chatwoot・Mautic・admin-auth）**: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
+2. **DB のスキーマが変わる製品（Chatwoot・Mautic）**: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
 3. **スキーマが変わらない更新**: タグを変えてデプロイするだけ（ローリング更新。サーキットブレーカーが、新しいタスクの起動が失敗し続けたときに直前に戻す）。
 4. Strapi と n8n の更新は、オンプレで行う（ADR-21。`onprem/` の README）。このスタックの対象外。
 5. **4.13 の確認をデプロイごとに行う。** 製品を更新すると訪問者向けのパスが変わりうる。許可リスト方式なので、変わると機能が止まる側に倒れる（管理画面が開く側には倒れない）。
+6. **admin-auth（Lambda）**: `sam build` → `sam deploy` のあと、スキーマが変わる版なら運用の Lambda で `{"action":"migrate"}` を呼ぶ（4.19）。
 
 ### 4.13 デプロイ後の確認
 
@@ -559,7 +550,7 @@ fields @timestamp, httpRequest.clientIp, httpRequest.uri, terminatingRuleId
 
 ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・送信元 IP あたり。consent 30、フォーム 100、API 1000、`auth.` 300、その他 2000）。同じログで実測して決める。
 
-### 4.14 faq-bot（Chatwoot の FAQ ボット。ADR-26）
+### 4.17 faq-bot（Chatwoot の FAQ ボット。ADR-26）
 
 Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-11-faq-bot-design.md`。**`sam build` は `backend/faq-bot/Makefile` を使い、pnpm と esbuild でまとめる**（開発機に pnpm 11 が要る。npm は使わない）。
 
@@ -588,7 +579,7 @@ Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-
 - **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
 - しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。
 
-### 4.15 consent-api（Cookie 同意の受け口。ADR-26）
+### 4.18 consent-api（Cookie 同意の受け口。ADR-26）
 
 VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`。**`sam build` は `backend/consent-api/Makefile` を使い、pnpm と esbuild でまとめる。** ターゲットグループ（`comegin-<env>-consent-api`）は `services/consent-api.yaml` が持ち、edge のルール 106 に渡す。
 
@@ -599,6 +590,28 @@ VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/s
 - **初回の呼び出し（コールドスタート）は、Secrets Manager と Valkey への接続のぶん遅い。** 訪問者はバナーの応答を待たない（DD-02 の 8.3）。
 - 予約同時実行数（`ConsentApiReservedConcurrency`。既定 10）とタイムアウト（10 秒）は暫定値。`Throttles` のアラームが鳴ったら上げる。
 - **ターゲットグループの名前は固定**（`comegin-<env>-consent-api`。ALB からの呼び出しの許可を名前で絞るため）。置き換えの要る変更（`TargetType` など）は、名前の衝突で CloudFormation の更新が失敗する。そのときは `services/consent-api.yaml` の名前を変えてデプロイする（許可の `SourceArn` も同じ名前から作られる）。
+
+### 4.19 admin-auth（管理画面の関門。ADR-26）
+
+VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のターゲット）と運用（`comegin-<env>-admin-auth-ops`。ALB にはつながない）。仕様は `docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md`。**`sam build` は `backend/admin-auth/Makefile` の 2 つのターゲットを使う。** ターゲットグループ（`comegin-<env>-admin-auth`。マルチバリューヘッダー有効）は `services/admin-auth.yaml` が持ち、edge のルール 300 に渡す。
+
+1. `sam build` → `sam deploy`。Secrets の `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）と、親のパラメータ `GoogleClientId`・`AdminBootstrapEmails`（管理者の許可リストの初期値。カンマ区切り。空のまま migrate すると誰もログインできない）を `samconfig.toml` に入れておく。
+2. DB とアプリ用ユーザーを作る（4.8 の共有のタスク）。
+3. 移行（許可リストの初期値もここで入る）と、ALB の登録:
+
+   ```bash
+   OPS=$(OUT AdminAuthOpsFunctionName)
+   aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"migrate"}' /dev/stdout
+   aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"register-alb-client"}' /dev/stdout
+   # ALB がトークンの要求で invalid_client になるときは '{"action":"register-alb-client","authMethod":"client_secret_post"}'
+   ```
+
+   結果の JSON が `{"ok":true,…}` であること。`{"ok":false,…}` は入力の誤り、`FunctionError` は実行の失敗（ロググループ `/aws/lambda/comegin-<env>-admin-auth-ops`）。
+4. 確かめる: 管理画面（`chat.`・`mkt.`）を開き、`auth.` に飛んで Google でログインし、戻ってこられること。**ALB の認証のメトリクス（`AWS/ApplicationELB` の `ELBAuthError`・`ELBAuthFailure` が 0 であること）と、IdP の呼び出しの所要時間（`ELBAuthLatency`）**を見る（ALB のアクセスログは未設定〈5 章〉。原因を詳しく見るときは一時的に有効にして `error_reason` を見る）。アラーム `admin-auth-errors`・`admin-auth-throttles`・`admin-auth-target-5xx` が鳴っていないこと。
+
+- **ALB の IdP の呼び出し（トークン・UserInfo）が待つ時間は公式文書で確かめられていない。** 呼び出しの数秒前にブラウザが同じ関数を呼ぶため、起動済みである見込み（仕様の D1）。遅い・失敗するときは `AdminAuthProvisionedConcurrency=1` にしてデプロイする（常時 1 つ起動。月 4〜5 USD 前後）。
+- 予約同時実行数（`AdminAuthReservedConcurrency`。既定 5）・タイムアウト（10 秒）・アイドルの判定（60 秒）は暫定値。
+- ターゲットグループの名前は固定（4.18 と同じ注意。置き換えの要る変更は名前を変えてデプロイする）。
 
 ## 5. TODO 一覧
 
@@ -618,7 +631,7 @@ VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/s
 | **Chatwoot** | S3 をタスクロールで使えるか（`AWS_ACCESS_KEY_ID` を空のまま SDK の既定の探索に倒れるか。倒れなければ専用の IAM ユーザーのキーを Secret に）。有効にする拡張を採用バージョンの `db/schema.rb` で確かめる。Rails 本体で `PGSSLMODE=verify-full` が効くか | `services/chatwoot-*.yaml`、`ops-tasks.yaml` |
 | **RDS への TLS** | すべてのサービスが検証つきで接続する形にした（4.7 の表）。**実機の RDS で、各製品が検証つきで繋がること**（とくにオンプレの Strapi と n8n・Chatwoot の Rails・Mautic 本体）。繋がらない製品があっても、`PostgresForceSsl` を 0 にしたり検証を外したりする前に、製品側の設定を探す | `data.yaml`、4.7 |
 | **エンジンのバージョン** | RDS は `8.4` と `16` のプレフィックス指定（最新のマイナーを確かめて固定）。Valkey は `8.0`（CloudFormation と ElastiCache が受け付けるかを実機で確かめる。無ければ 7.2。開発は `valkey/valkey:8-alpine`）。Chatwoot の Sidekiq に問題が出たら、同じノードタイプのまま Redis OSS 7.1 に切り替える | `data.yaml` |
-| **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は既定の `client_secret_basic`（ALB が post を使う場合は、登録スクリプトの引数で登録し直す）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
+| **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は既定の `client_secret_basic`（ALB が post を使う場合は、運用の Lambda に `{"action":"register-alb-client","authMethod":"client_secret_post"}` を送って登録し直す。4.19）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
 | **フラットレートプラン** | 購読の実機での確認（Free Tier のアカウントは不可）。apex か `www` か（プランは 1 apex まで）。allowance を超えた後の挙動。標準アクセスログは Pro 以上（Free は無し）。`/404.html` を `frontend/verdant-virgo` に作る | `global/template.yaml`、`cdn.yaml` |
 | **WAF** | Common ルールの Count から Block への切り替え（判断は R1。4.16）、しきい値の実測、WAF のログの配信権限（デプロイ主体に `logs:CreateLogDelivery` と `logs:PutResourcePolicy` などが要る見込み）。ALB のアクセスログは未設定 | `edge.yaml`、4.16 |
 | **ネットワーク** | タスクのセキュリティグループの外向きは tcp の全ポートを `0.0.0.0/0` に開けている（ECR・Secrets Manager・SES が呼ぶ外部 API）。宛先で絞るのは未着手 | `network.yaml` |
@@ -630,9 +643,9 @@ VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/s
 ## 6. 設計書との差分と判断メモ
 
 - **Secret が 18 個**（`secrets.yaml`。ほかに RDS が管理するマスターの 2 個）。ADR-21 で Strapi と n8n の鍵類を外した（`DB_PASSWORD` の 2 個だけ残す）。ADR-24 で Cal.com の 4 個を、ADR-25 で Umami の 2 個（と `services/umami.yaml` が作っていた `DATABASE_URL` の 1 個）を外した。
-- **ECR は 3 本**: 自作 1 本（admin-auth）と、Mautic、Chatwoot。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。consent-api は ADR-26 で Lambda になり、ECR を外した（2026-10-12）。
+- **ECR は 2 本**: Mautic と Chatwoot。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。自作のサービス（consent-api・admin-auth）は ADR-26 で Lambda になり、ECR を外した（2026-10-12）。
 - **`cdn.yaml`・`ses.yaml`・`ops-tasks.yaml`・`alarms.yaml`**: 固定シートの一覧にないが必要なので足した（OAC 専用の Astro バケットとデプロイ用 IAM の対象、SES のドメイン ID、DB 作成のタスク、アラーム）。
-- **イメージのタグは製品ごと**（3 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
+- **イメージのタグは製品ごと**（2 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
 - **RDS のマスターの資格情報**: TA-06 の 7 節は「タスクには渡さない」とするが、アプリ用ユーザーを作る 1 回だけのタスクには要る。`ops-tasks.yaml` の専用の実行ロールだけが読める。
 - **DB の TLS は、検証をしない形を作らない**: 暗号化だけにして逃がすことはしない。Prisma の Rust のエンジンが `sslmode` だけでは検証しない点は、実験で確かめて `sslaccept=strict` を付けた（4.7）。Mautic は上流が CA を渡す設定項目を持たないため、ビルド時にパッチを当て、当たったことを確かめられなければビルドを失敗させる。
 - **Mautic の config は EFS で覆う（既定で有効）**: 公式イメージの `config/` には `.gitkeep` しか無く、覆っても既定のファイルは隠れない。`local.php` は entrypoint が無ければ作る。init コンテナは不要（イメージの中身を確かめた上での判断。4.10）。

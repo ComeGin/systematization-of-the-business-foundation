@@ -54,12 +54,6 @@ Resources:
       LogGroupName: !Sub '/comegin/${EnvName}/chatwoot-worker'
       RetentionInDays: !Ref LogRetentionDays
 
-  AdminAuthLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/comegin/${EnvName}/admin-auth'
-      RetentionInDays: !Ref LogRetentionDays
-
   # 運用者が RunTask で起動する 1 回だけのタスク（DB の作成・マイグレーション。ops-tasks.yaml と README）
   TasksLogGroup:
     Type: AWS::Logs::LogGroup
@@ -80,7 +74,5 @@ Outputs:
     Value: !Ref ChatwootWebLogGroup
   ChatwootWorkerLogGroupName:
     Value: !Ref ChatwootWorkerLogGroup
-  AdminAuthLogGroupName:
-    Value: !Ref AdminAuthLogGroup
   TasksLogGroupName:
     Value: !Ref TasksLogGroup

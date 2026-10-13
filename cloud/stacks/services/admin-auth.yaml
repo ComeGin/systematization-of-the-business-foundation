@@ -1,68 +1,26 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Description: >-
-  admin-auth: 管理画面の関門（Better Auth）。ALB の authenticate-oidc の IdP で、Google Workspace でログインさせる（ECS on Fargate）。TA-06 の 5.2.1。
+  admin-auth: 管理画面の関門（Better Auth）。ALB の authenticate-oidc の IdP で、Google Workspace でログインさせる。
+  ADR-26 により VPC の中の Lambda 2 つ: 本体（ALB のターゲット）と運用（admin-auth-ops。migrate と ALB クライアントの登録。運用者が aws lambda invoke で呼ぶ）。
+  仕様は docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md。環境変数名は backend/admin-auth/.env.example が正本。
   止まっても、ALB のセッションが残っている間は管理画面を使い続けられる（新しいログインだけができなくなる）。
-  環境変数名は backend/admin-auth/.env.example が正本。ALB の登録（pnpm alb:register）は 1 回だけの RunTask で行う（README の手順）。
-  RDS の CA はイメージが NODE_EXTRA_CA_CERTS で持つ（証明書の検証つきで TLS 接続する）。
+  ターゲットグループはこのスタックが持つ（CloudFormation で関数を登録する手段が TargetGroup の Targets だけのため。edge に置くと循環する）。
+  RDS の CA は Lambda の実行環境の /var/runtime/ca-cert.pem を NODE_EXTRA_CA_CERTS で読む（証明書の検証つきで TLS 接続する）。
 
 Parameters:
   EnvName:
     Type: String
     Default: prod
-  ClusterArn:
-    Type: String
-    Description: cluster.yaml の ClusterArn
   PrivateSubnetIds:
     Type: CommaDelimitedList
     Description: private サブネットの ID（network.yaml の PrivateSubnetIds）
   SecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
     Description: network.yaml の AdminAuthSecurityGroupId
-  LogGroupName:
-    Type: String
-    Description: cluster.yaml の AdminAuthLogGroupName
   SecretNamePrefix:
     Type: String
-    Description: secrets.yaml の SecretNamePrefix
-  ImageRepositoryUri:
-    Type: String
-    Description: ecr.yaml の AdminAuthRepositoryUri
-  ImageTag:
-    Type: String
-    AllowedPattern: '^(?!latest$).+$'
-    ConstraintDescription: latest は使えない。バージョンのタグで固定する（TA-06 の 3.2）。
-    Default: REPLACE-WITH-FIXED-TAG
-    Description: admin-auth のイメージのタグ（backend/admin-auth からビルドしたもの）。
-  DesiredCount:
-    Type: Number
-    Default: 0
-    MinValue: 0
-    Description: 初期値は 0（README の順に上げる）。
-  Cpu:
-    Type: String
-    Default: '256'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
-    Description: 暫定値（TA-06 の 9 節の見積もり前）
-  Memory:
-    Type: String
-    Default: '512'
-    Description: 暫定値。Fargate の CPU との組み合わせに合う値にする。
-  EnableExecuteCommand:
-    Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
-    Description: ECS Exec（運用者が DB やコンテナに入るための手段。踏み台は置かない。TA-06 の 5.6）
-  ContainerPort:
-    Type: Number
-    Default: 3103
-    Description: コンテナの待ち受けポート。network.yaml と edge.yaml の値と同じにする（親が同じ値を渡す）。
-  TargetGroupArn:
-    Type: String
-    Description: edge.yaml の AdminAuthTargetGroupArn
-  HealthCheckGracePeriodSeconds:
-    Type: Number
-    Default: 60
-    Description: 起動直後のヘルスチェックの猶予（秒）
+    Description: secrets.yaml の SecretNamePrefix（comegin/<EnvName>）
   PostgresEndpoint:
     Type: String
     Description: data.yaml の PostgresEndpoint
@@ -76,187 +34,193 @@ Parameters:
   GoogleClientId:
     Type: String
     Default: ''
-    Description: Google の OAuth クライアント ID（Workspace の「内部」）。本番（NODE_ENV=production）では必須。人間が Google Cloud で発行して入れる。
+    Description: Google の OAuth クライアント ID（Workspace の「内部」）。本体では必須。人間が Google Cloud で発行して入れる。
   AdminBootstrapEmails:
     Type: String
     Default: ''
-    Description: 管理者の許可リストの初期値（カンマ区切り。起動時に表へ追加するだけ）。以後の追加と削除は README の SQL で行う。
+    Description: 管理者の許可リストの初期値（カンマ区切り）。運用の Lambda の migrate の最後に表へ追加するだけ。以後の追加と削除は README の SQL で行う。
   AlbClientId:
     Type: String
     Default: alb
     Description: ALB の OIDC のクライアント ID（edge.yaml の AlbOidcClientId と同じ値）
   AlbProtectedHosts:
     Type: String
-    Description: edge.yaml の AlbProtectedHosts（/oauth2/idpresponse を登録するホスト。カンマ区切り）
+    Description: /oauth2/idpresponse を登録するホスト（カンマ区切り。親が ChatHost と MktHost から組み立てる）
+  ReservedConcurrency:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: 本体の予約同時実行数（管理者だけが使う。RDS の接続数の上限にもなる。暫定値。仕様 12 節）
+  ProvisionedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: 本体のプロビジョニングされた同時実行数（0 なら付けない）。Wave 4 の実測で ALB の IdP の呼び出しが遅ければ 1 にする（仕様の D1）
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: ロググループの保持日数（cluster.yaml と同じ暫定値）
+
+Conditions:
+  HasProvisionedConcurrency: !Not [!Equals [!Ref ProvisionedConcurrency, '0']]
 
 Resources:
-  # 実行ロール（ECS のエージェントが使う）。イメージの取得、ログの書き込み、このサービスの Secret の読み取りだけ。
-  # RDS のマスターの資格情報は読めない（ops-tasks.yaml の実行ロールだけが読める）。
-  ExecutionRole:
-    Type: AWS::IAM::Role
+  LogGroup:
+    Type: AWS::Logs::LogGroup
     Properties:
-      RoleName: !Sub 'comegin-${EnvName}-admin-auth-execution'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: { Service: ecs-tasks.amazonaws.com }
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals:
-                'aws:SourceAccount': !Ref AWS::AccountId
+      LogGroupName: !Sub '/aws/lambda/comegin-${EnvName}-admin-auth'
+      RetentionInDays: !Ref LogRetentionDays
 
-  ExecutionPolicy:
-    Type: AWS::IAM::ManagedPolicy
+  OpsLogGroup:
+    Type: AWS::Logs::LogGroup
     Properties:
-      ManagedPolicyName: !Sub 'comegin-${EnvName}-admin-auth-execution'
-      Roles:
-        - !Ref ExecutionRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          # cfn-guard の Resource '*' の指摘は意図した例外（リソースレベルの権限に対応しないアクション）:
-          #   ecr:GetAuthorizationToken、タスクロールの ssmmessages（ECS Exec）。
-          - Sid: EcrAuthorization
-            Effect: Allow
-            Action: ecr:GetAuthorizationToken
-            Resource: '*'
-          - Sid: EcrPull
-            Effect: Allow
-            Action:
-              - ecr:BatchCheckLayerAvailability
-              - ecr:GetDownloadUrlForLayer
-              - ecr:BatchGetImage
-            Resource:
-              - !Sub
-                - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}'
-                - RepositoryName: !Select [1, !Split ['.amazonaws.com/', !Ref ImageRepositoryUri]]
-          - Sid: WriteLogs
-            Effect: Allow
-            Action:
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${LogGroupName}:*'
-          - Sid: ReadOwnSecrets
-            Effect: Allow
-            Action: secretsmanager:GetSecretValue
-            Resource:
-              - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/*'
+      LogGroupName: !Sub '/aws/lambda/comegin-${EnvName}-admin-auth-ops'
+      RetentionInDays: !Ref LogRetentionDays
 
-  # タスクロール（アプリのコードが使う）。アクセスキーは発行しない。
-  # Secrets Manager の読み取りは付けない（エージェントとワークフローに渡さない。TA-04 の 1 節）。
-  # ECS Exec の ssmmessages はリソースを絞れない（公式の要件）。
-  TaskRole:
-    Type: AWS::IAM::Role
+  AdminAuthFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      # backend/admin-auth/Makefile の build-AdminAuthFunction（pnpm と esbuild。npm を使わない）
+      BuildMethod: makefile
     Properties:
-      RoleName: !Sub 'comegin-${EnvName}-admin-auth-task'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: { Service: ecs-tasks.amazonaws.com }
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals:
-                'aws:SourceAccount': !Ref AWS::AccountId
+      FunctionName: !Sub 'comegin-${EnvName}-admin-auth'
+      Description: Admin gate (Better Auth OIDC provider for the ALB) (ADR-26)
+      CodeUri: ../../../backend/admin-auth
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      # Better Auth と pg が重い。メモリに比例して CPU が増え、コールドスタートが短くなる（仕様 2.2）
+      MemorySize: 512
+      # DB の接続（5 秒）と問い合わせ（5 秒）の上限。ALB の IdP の呼び出しを長く待たせない
+      Timeout: 10
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      AutoPublishAlias: live
+      ProvisionedConcurrencyConfig: !If
+        - HasProvisionedConcurrency
+        - ProvisionedConcurrentExecutions: !Ref ProvisionedConcurrency
+        - !Ref AWS::NoValue
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        SubnetIds: !Ref PrivateSubnetIds
+      Environment:
+        Variables:
+          NODE_ENV: production
+          NODE_EXTRA_CA_CERTS: /var/runtime/ca-cert.pem
+          BETTER_AUTH_URL: !Sub 'https://${AuthHost}'
+          DATABASE_HOST: !Ref PostgresEndpoint
+          DATABASE_PORT: '5432'
+          DATABASE_NAME: admin_auth
+          DATABASE_USERNAME: admin_auth
+          DATABASE_SSL: 'true'
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          GOOGLE_HOSTED_DOMAIN: !Ref DomainName
+          # 秘密値（BETTER_AUTH_SECRET・DB_PASSWORD・GOOGLE_CLIENT_SECRET）はコールドスタートで Secrets Manager から読む（src/lambda.ts）
+          SECRETS_PREFIX: !Sub '${SecretNamePrefix}/admin-auth'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # ALB_CLIENT_SECRET は読めない（本体は使わない。運用の Lambda だけが読む）
+            - Sid: ReadOwnSecrets
+              Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/BETTER_AUTH_SECRET-*'
+                - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/DB_PASSWORD-*'
+                - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/GOOGLE_CLIENT_SECRET-*'
 
-  TaskPolicy:
-    Type: AWS::IAM::ManagedPolicy
+  # 運用の Lambda（migrate・register-alb-client）。ALB に登録しない。運用者の IAM の主体が lambda:InvokeFunction で呼ぶ
+  AdminAuthOpsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
     Properties:
-      ManagedPolicyName: !Sub 'comegin-${EnvName}-admin-auth-task'
-      Roles:
-        - !Ref TaskRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: EcsExec
-            Effect: Allow
-            Action:
-              - ssmmessages:CreateControlChannel
-              - ssmmessages:CreateDataChannel
-              - ssmmessages:OpenControlChannel
-              - ssmmessages:OpenDataChannel
-            Resource: '*'
+      FunctionName: !Sub 'comegin-${EnvName}-admin-auth-ops'
+      Description: Admin gate one-off operations (migrate, register the ALB client) (ADR-26)
+      CodeUri: ../../../backend/admin-auth
+      Handler: ops.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 512
+      # 移行は時間がかかりうる
+      Timeout: 60
+      # 移行と登録が重ねて走らないように
+      ReservedConcurrentExecutions: 1
+      LoggingConfig:
+        LogGroup: !Ref OpsLogGroup
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        SubnetIds: !Ref PrivateSubnetIds
+      Environment:
+        Variables:
+          NODE_ENV: production
+          NODE_EXTRA_CA_CERTS: /var/runtime/ca-cert.pem
+          BETTER_AUTH_URL: !Sub 'https://${AuthHost}'
+          DATABASE_HOST: !Ref PostgresEndpoint
+          DATABASE_PORT: '5432'
+          DATABASE_NAME: admin_auth
+          DATABASE_USERNAME: admin_auth
+          DATABASE_SSL: 'true'
+          GOOGLE_HOSTED_DOMAIN: !Ref DomainName
+          ADMIN_BOOTSTRAP_EMAILS: !Ref AdminBootstrapEmails
+          ALB_CLIENT_ID: !Ref AlbClientId
+          ALB_PROTECTED_HOSTS: !Ref AlbProtectedHosts
+          SECRETS_PREFIX: !Sub '${SecretNamePrefix}/admin-auth'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Google の秘密値は読めない（移行と登録に要らない）
+            - Sid: ReadOpsSecrets
+              Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/BETTER_AUTH_SECRET-*'
+                - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/DB_PASSWORD-*'
+                - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET-*'
 
-  TaskDefinition:
-    Type: AWS::ECS::TaskDefinition
+  # ALB からの呼び出しの許可。SourceArn にターゲットグループの !Ref を使うと、許可とターゲットグループが
+  # 互いを待つ循環になる（登録は許可が先に要る）ため、固定の名前とワイルドカードで絞る（② と同じ）
+  AlbInvokePermission:
+    Type: AWS::Lambda::Permission
     Properties:
-      Family: !Sub 'comegin-${EnvName}-admin-auth'
-      RequiresCompatibilities: [FARGATE]
-      NetworkMode: awsvpc
-      Cpu: !Ref Cpu
-      Memory: !Ref Memory
-      RuntimePlatform: { CpuArchitecture: X86_64, OperatingSystemFamily: LINUX }
-      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
-      TaskRoleArn: !GetAtt TaskRole.Arn
-      ContainerDefinitions:
-        - Name: admin-auth
-          Image: !Sub '${ImageRepositoryUri}:${ImageTag}'
-          Essential: true
-          PortMappings:
-            - { Name: http, ContainerPort: !Ref ContainerPort, Protocol: tcp, AppProtocol: http }
-          Environment:
-            - { Name: NODE_ENV, Value: production }
-            - { Name: HOST, Value: 0.0.0.0 }
-            - { Name: PORT, Value: !Ref ContainerPort }
-            - { Name: BETTER_AUTH_URL, Value: !Sub 'https://${AuthHost}' }
-            - { Name: DATABASE_HOST, Value: !Ref PostgresEndpoint }
-            - { Name: DATABASE_PORT, Value: '5432' }
-            - { Name: DATABASE_NAME, Value: admin_auth }
-            - { Name: DATABASE_USERNAME, Value: admin_auth }
-            - { Name: DATABASE_SSL, Value: 'true' }
-            - { Name: GOOGLE_CLIENT_ID, Value: !Ref GoogleClientId }
-            - { Name: GOOGLE_HOSTED_DOMAIN, Value: !Ref DomainName }
-            - { Name: ADMIN_BOOTSTRAP_EMAILS, Value: !Ref AdminBootstrapEmails }
-            - { Name: ALB_CLIENT_ID, Value: !Ref AlbClientId }
-            - { Name: ALB_PROTECTED_HOSTS, Value: !Ref AlbProtectedHosts }
-          Secrets:
-            - { Name: BETTER_AUTH_SECRET, ValueFrom: !Sub '${SecretNamePrefix}/admin-auth/BETTER_AUTH_SECRET' }
-            - { Name: DATABASE_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/admin-auth/DB_PASSWORD' }
-            - { Name: GOOGLE_CLIENT_SECRET, ValueFrom: !Sub '${SecretNamePrefix}/admin-auth/GOOGLE_CLIENT_SECRET' }
-            - { Name: ALB_CLIENT_SECRET, ValueFrom: !Sub '${SecretNamePrefix}/admin-auth/ALB_CLIENT_SECRET' }
-          LinuxParameters:
-            InitProcessEnabled: true
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref LogGroupName
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: admin-auth
+      FunctionName: !Ref AdminAuthFunction.Alias
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/comegin-${EnvName}-admin-auth/*'
 
-  Service:
-    Type: AWS::ECS::Service
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: AlbInvokePermission
     Properties:
-      ServiceName: !Sub 'comegin-${EnvName}-admin-auth'
-      Cluster: !Ref ClusterArn
-      LaunchType: FARGATE
-      DesiredCount: !Ref DesiredCount
-      TaskDefinition: !Ref TaskDefinition
-      EnableExecuteCommand: !Ref EnableExecuteCommand
-      PropagateTags: SERVICE
-      # デプロイのサーキットブレーカー: 新しいタスクが起動に失敗し続けたら、直前のリビジョンに戻す。
-      DeploymentConfiguration:
-        MaximumPercent: 200
-        MinimumHealthyPercent: 100
-        DeploymentCircuitBreaker:
-          Enable: true
-          Rollback: true
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          SecurityGroups:
-            - !Ref SecurityGroupId
-          Subnets: !Ref PrivateSubnetIds
-      HealthCheckGracePeriodSeconds: !Ref HealthCheckGracePeriodSeconds
-      LoadBalancers:
-        - ContainerName: admin-auth
-          ContainerPort: !Ref ContainerPort
-          TargetGroupArn: !Ref TargetGroupArn
+      # 名前を固定している（上の許可の SourceArn で使う）。置き換えの要る変更（TargetType など）は、名前の衝突で更新が失敗する。
+      # そのときは名前を変えてデプロイする（許可の SourceArn も同じ名前から作られるので一緒に変わる）
+      Name: !Sub 'comegin-${EnvName}-admin-auth'
+      TargetType: lambda
+      # ヘルスチェックは無効（lambda の既定。有効にすると呼び出しの料金がかかる。/healthz は開発用）
+      HealthCheckEnabled: false
+      Targets:
+        - Id: !Ref AdminAuthFunction.Alias
+      TargetGroupAttributes:
+        # Better Auth はログインの途中で Set-Cookie を複数返すため有効にする（無効だと 1 つしか返せない。仕様 2.1）
+        - { Key: lambda.multi_value_headers.enabled, Value: 'true' }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-admin-auth' }
 
 Outputs:
-  ServiceName:
-    Value: !GetAtt Service.Name
-  TaskRoleArn:
-    Value: !GetAtt TaskRole.Arn
-  TaskDefinitionArn:
-    Value: !Ref TaskDefinition
+  FunctionName:
+    Value: !Ref AdminAuthFunction
+  AliasArn:
+    Value: !Ref AdminAuthFunction.Alias
+  OpsFunctionName:
+    Description: 運用の Lambda（cloud/README の 4.19 の手順で aws lambda invoke する）
+    Value: !Ref AdminAuthOpsFunction
+  TargetGroupArn:
+    Description: edge.yaml のルール 300 の転送先
+    Value: !Ref TargetGroup
+  TargetGroupFullName:
+    Description: alarms.yaml の admin-auth-target-5xx の次元（targetgroup/<名前>/<ID>）
+    Value: !GetAtt TargetGroup.TargetGroupFullName
