@@ -132,6 +132,14 @@ export interface PricingPageCopy {
   readonly table: SectionCopy & {
     readonly columns: readonly [string, string, string, string];
   };
+  /** 4-5a 見積もりの計算のしかた（2026-10-13 に追加。Desktop・Mobile とも 2 列の表） */
+  readonly estimate: SectionCopy & {
+    readonly lead: readonly string[];
+    readonly columns: readonly [string, string];
+    readonly rows: readonly { readonly key: PricingKey; readonly formula: string }[];
+    /** 表の直下の計算例。1 行目が条件、2 行目が式 */
+    readonly example: readonly [string, string];
+  };
   /** 4-6 お支払いと契約について */
   readonly paymentAndContract: SectionCopy & {
     readonly payment: {
@@ -144,6 +152,8 @@ export interface PricingPageCopy {
       /** Mobile では行ごとに Card にし、2〜4 列目の見出しをラベルとして縦積みにする */
       readonly columns: readonly [string, string, string, string];
       readonly rows: readonly { readonly key: PricingKey; readonly cells: readonly [string, string, string] }[];
+      /** 表の直下の箇条書き（創業計画書 第3項「体験の約束」1。2026-10-13 に追加） */
+      readonly notes: readonly string[];
     };
   };
   /** 4-7 無料 DL ブロックの文言は 2-7（services.ts の SOURCE_DL_NEUTRAL）と同じ */
@@ -207,6 +217,24 @@ export const PRICING_PAGE: PricingPageCopy = {
     heading: '料金一覧',
     columns: ['プロダクト', '金額（税別）', '期間', '備考'],
   },
+  // 4-5a（2026-10-13。創業計画書 別紙1 第8章「料金表と見積の計算式を Web で公開し、業務棚卸しの当日に概算を示す」）
+  estimate: {
+    heading: '見積もりの計算のしかた',
+    lead: ['見積もりは、料金表の金額を次の式に当てはめて出します。', '無料の業務棚卸しの当日に、この式で費用の概算をお伝えします。'],
+    columns: ['プロダクト', '計算のしかた'],
+    rows: [
+      { key: 'environment-setup', formula: `${ENVIRONMENT_SETUP_PRICE}（定額）` },
+      { key: 'development-vibe', formula: `${PRICING['development-vibe'].price}（定額）` },
+      { key: 'development-full', formula: `${DEVELOPMENT_FULL_PRICE} × 開発の月数 ＋ ${MAINTENANCE_PRICE} × 保守の月数` },
+      { key: 'consulting', formula: `${PRICING.consulting.price} × 回数（4回から）` },
+      { key: 'partnership', formula: 'レベニューシェアによる回収計画を、個別に決めます。' },
+    ],
+    // 1-4c のカード 1 の 285万円と同じ例
+    example: [
+      '例: 受託開発を 3か月、保守を 9か月ご契約の場合',
+      `${DEVELOPMENT_FULL_PRICE} × 3か月 ＋ ${MAINTENANCE_PRICE} × 9か月 ＝ 2,850,000円`,
+    ],
+  },
   // 4-6
   paymentAndContract: {
     heading: 'お支払いと契約について',
@@ -242,6 +270,13 @@ export const PRICING_PAGE: PricingPageCopy = {
           key: 'partnership',
           cells: ['業務提携契約書 ＋ 発注書', '1年（自動更新）', '契約解除合意書のお申し出による'],
         },
+      ],
+      // 業務提携はレベニューシェアの回収計画と結びつくため、違約金なしの対象から外した（§4.4 の 4-6。10.2 の C24）
+      notes: [
+        '環境構築、受託開発、コンサルの解約に、違約金はいただきません。業務提携は、回収の計画とあわせて個別に決めます。',
+        '解約のお申し出は、解約する月の前月末までにお願いします。',
+        'ご契約の後に料金を改定しても、締結済みのご契約には適用しません。',
+        '解約のときは、ソースコード、CSV などの標準形式のデータ、手順書、設定情報をお渡しします。',
       ],
     },
   },

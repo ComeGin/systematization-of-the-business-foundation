@@ -12,7 +12,7 @@ import { ctaHref, SOURCE_DL_NEUTRAL, SOURCE_DL_NEUTRAL_KEEP_TOGETHER, type CtaCo
 
 const seo = SEO.pricing;
 const from = Astro.url.pathname;
-const { h1, breadcrumb, intro, cards, table, paymentAndContract, sourceDlCtaId, faq, banner } = PRICING_PAGE;
+const { h1, breadcrumb, intro, cards, table, estimate, paymentAndContract, sourceDlCtaId, faq, banner } = PRICING_PAGE;
 const { payment, contract } = paymentAndContract;
 
 // 料金カード 5 枚。主ボタンは /contact?service=<プロダクト>。同じ cta_id（consult_pricing_card）を 5 枚で使うので service で内訳を分ける（§6.3）
@@ -99,6 +99,37 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
     <p class="type-small mt-12 text-text-muted">{TAX_NOTE}</p>
   </Section>
 
+  {/* 4-5a 見積もりの計算のしかた（2026-10-13。Mobile も 2 列の表のまま。お支払いの表と同じ組み方） */}
+  <Section labelledby="pricing-estimate" class="phrase">
+    <SectionHeading id="pricing-estimate" title={estimate.heading} lead={estimate.lead.join('')} />
+    <div class="mt-8 md:mt-12">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-border hover:bg-transparent">
+            <TableHead className={`${headCell} w-[152px] md:w-[320px]`}>{estimate.columns[0]}</TableHead>
+            <TableHead className={headCell}>{estimate.columns[1]}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {
+            estimate.rows.map((row) => (
+              <TableRow className={bodyRow}>
+                <TableHead scope="row" className={`${paymentCell} h-auto font-normal`}>
+                  {PRICING[row.key].product}
+                </TableHead>
+                <TableCell className={paymentCell}>{row.formula}</TableCell>
+              </TableRow>
+            ))
+          }
+        </TableBody>
+      </Table>
+    </div>
+    <div class="type-body mt-6 text-text-body">
+      {estimate.example.map((line) => <p>{line}</p>)}
+    </div>
+    <p class="type-small mt-6 text-text-muted">{TAX_NOTE}</p>
+  </Section>
+
   {/* 4-6 お支払いと契約について */}
   <Section labelledby="pricing-payment" class="phrase">
     <SectionHeading id="pricing-payment" title={paymentAndContract.heading} />
@@ -165,6 +196,11 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
           </li>
         ))
       }
+    </ul>
+
+    {/* 契約の表の直下の箇条書き（違約金・お申し出の期限・料金の改定・解約のときにお渡しするもの） */}
+    <ul class="type-body mt-6 flex list-disc flex-col gap-2 pl-6 text-text-body">
+      {contract.notes.map((note) => <li>{note}</li>)}
     </ul>
 
     <p class="type-small mt-8 text-text-muted md:mt-12">{TAX_NOTE}</p>
