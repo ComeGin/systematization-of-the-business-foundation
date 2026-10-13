@@ -33,12 +33,6 @@ Parameters:
   ChatwootWebPort:
     Type: Number
     Default: 3000
-  AdminAuthPort:
-    Type: Number
-    Default: 3103
-  ConsentApiPort:
-    Type: Number
-    Default: 3104
   # WireGuard（ADR-21）。オンプレの n8n の Webhook の受け口は、WireGuard のアドレス（10.99.0.2）の 5680 だけ。
   WireguardPort:
     Type: Number
@@ -217,8 +211,6 @@ Resources:
         - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: OIDC IdP endpoints }
         - { IpProtocol: tcp, FromPort: !Ref MauticWebPort, ToPort: !Ref MauticWebPort, DestinationSecurityGroupId: !Ref MauticWebSecurityGroup, Description: To mautic-web }
         - { IpProtocol: tcp, FromPort: !Ref ChatwootWebPort, ToPort: !Ref ChatwootWebPort, DestinationSecurityGroupId: !Ref ChatwootWebSecurityGroup, Description: To chatwoot-web }
-        - { IpProtocol: tcp, FromPort: !Ref AdminAuthPort, ToPort: !Ref AdminAuthPort, DestinationSecurityGroupId: !Ref AdminAuthSecurityGroup, Description: To admin-auth }
-        - { IpProtocol: tcp, FromPort: !Ref ConsentApiPort, ToPort: !Ref ConsentApiPort, DestinationSecurityGroupId: !Ref ConsentApiSecurityGroup, Description: To consent-api }
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-alb' }
 
@@ -363,12 +355,8 @@ Resources:
   ChatwootWebFromAlb:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref ChatwootWebSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref ChatwootWebPort, ToPort: !Ref ChatwootWebPort, Description: From ALB }
-  AdminAuthFromAlb:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref AdminAuthSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref AdminAuthPort, ToPort: !Ref AdminAuthPort, Description: From ALB }
-  ConsentApiFromAlb:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref ConsentApiSecurityGroup, SourceSecurityGroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: !Ref ConsentApiPort, ToPort: !Ref ConsentApiPort, Description: From ALB }
+  # admin-auth は Lambda（ADR-26）。ALB は Lambda をネットワークを通さずに呼ぶため、ALB からの許可は要らない
+  # consent-api は Lambda（ADR-26）。ALB は Lambda をネットワークを通さずに呼ぶため、ALB からの許可は要らない
 
   # ---------------------------------------------------------------- ingress: WireGuard の EC2（ADR-21）
   # AWS → オンプレ: クラウドの Mautic・Chatwoot が、オンプレの n8n の Webhook の受け口（10.99.0.2:5680）へ送る。

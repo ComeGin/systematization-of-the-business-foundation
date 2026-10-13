@@ -53,17 +53,37 @@ const EnvSchema = BaseSchema.superRefine((env, ctx) => {
 
 export type Config = z.infer<typeof EnvSchema>;
 
-function reportAndExit(error: z.ZodError): never {
-  // 値そのもの（シークレット）は出力せず、変数名と理由だけを表示する
-  const issues = error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`);
-  console.error(`[config] 環境変数が不正です:\n${issues.join("\n")}`);
-  process.exit(1);
+/** 設定が不正。メッセージは変数名と理由だけ（値は入れない） */
+export class ConfigError extends Error {}
+
+// 値そのもの（シークレット）は入れず、変数名と理由だけにする
+const describeIssues = (error: z.ZodError): string =>
+  `環境変数が不正です:\n${error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`).join("\n")}`;
+
+/** 開発の入口と CLI のための終了。ConfigError のときだけ、メッセージを出して exit(1) する */
+function exitOnConfigError<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    console.error(`[config] ${error.message}`);
+    process.exit(1);
+  }
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const result = EnvSchema.safeParse(env);
-  if (!result.success) reportAndExit(result.error);
+/**
+ * 検証して返す。不正なら ConfigError を投げる（Lambda の入口が使う。プロセスを終了させない）。
+ * requireGoogle: false なら、NODE_ENV=production でも Google の設定を求めない（運用の入口。移行と登録に Google は要らない）
+ */
+export function parseConfig(env: NodeJS.ProcessEnv = process.env, options: { requireGoogle?: boolean } = {}): Config {
+  const result = (options.requireGoogle === false ? BaseSchema : EnvSchema).safeParse(env);
+  if (!result.success) throw new ConfigError(describeIssues(result.error));
   return result.data;
+}
+
+/** 開発の入口と CLI が使う。不正なら変数名と理由だけを stderr に出して終了する */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  return exitOnConfigError(() => parseConfig(env));
 }
 
 // ALB のクライアント登録スクリプトだけが使う設定
@@ -88,8 +108,13 @@ const AlbSchema = z.object({
 
 export type AlbConfig = z.infer<typeof AlbSchema>;
 
-export function loadAlbConfig(env: NodeJS.ProcessEnv = process.env): AlbConfig {
+/** ALB の設定を検証して返す。不正なら ConfigError を投げる（運用の入口が使う） */
+export function parseAlbConfig(env: NodeJS.ProcessEnv = process.env): AlbConfig {
   const result = AlbSchema.safeParse(env);
-  if (!result.success) reportAndExit(result.error);
+  if (!result.success) throw new ConfigError(describeIssues(result.error));
   return result.data;
+}
+
+export function loadAlbConfig(env: NodeJS.ProcessEnv = process.env): AlbConfig {
+  return exitOnConfigError(() => parseAlbConfig(env));
 }

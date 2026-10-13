@@ -1,23 +1,29 @@
 # admin-auth
 
-本番の管理画面（Mautic・Chatwoot）の手前にかける**関門**（ADR-21 で Strapi・n8n はオンプレに移り、ADR-24 で Cal.com は SaaS になり、ADR-25 で Umami は廃止したため、いずれも対象から外れた）。Better Auth を OAuth 2.1 / OIDC Provider として動かし、ALB の `authenticate-oidc` の IdP にする（開発ポート 3103。本番は ALB 配下の ECS on Fargate、ホスト名 `auth.comegin.com`）。
+本番の管理画面（Mautic・Chatwoot）の手前にかける**関門**（ADR-21 で Strapi・n8n はオンプレに移り、ADR-24 で Cal.com は SaaS になり、ADR-25 で Umami は廃止したため、いずれも対象から外れた）。Better Auth を OAuth 2.1 / OIDC Provider として動かし、ALB の `authenticate-oidc` の IdP にする（開発ポート 3103。本番は ALB 配下の Lambda〈VPC の中。ADR-26。2026-10-12 に ECS on Fargate から移した〉、ホスト名 `auth.comegin.com`）。
 
 - ログインは **Google Workspace**（認証）。誰を通すかは **管理者の許可リスト**（認可。`admin_auth` データベースの表）が決める。
 - 製品の SSO ではない。関門を通ったあとも、各製品のアカウントでログインする。
 - **管理画面への通信は admin-auth を通らない。** 関わるのはログインのときだけで、その後は ALB が自分のセッション Cookie（12 時間）で判定する。admin-auth が止まっても、新しいログインができなくなるだけで、既存のセッションと訪問者向けの機能は影響を受けない。
 
-設計の出典: `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13、`TA/06-aws-runtime.md` の 5.2・5.2.1、`TA/04-security-and-secrets.md` の 6 節。
+設計の出典: `docs/RequirementDefinition/AA/05-application-decisions.md` の ADR-13、`TA/06-aws-runtime.md` の 5.2・5.2.1、`TA/04-security-and-secrets.md` の 6 節、Lambda 化は `docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md`。
 
 ## 構成
 
 ```
-src/index.ts                      素の Node http。Better Auth・内蔵の画面・ヘルスチェックへの振り分けだけ
-src/config.ts                     zod で環境変数を検証（失敗したら変数名と理由だけを出して終了）
+src/handler.ts                    入口に依存しない本体（Request → Response）。Better Auth・内蔵の画面・ヘルスチェックへの振り分け。例外を投げない
+src/server.ts                     開発の入口（3103）。toNodeHandler で handler を包む
+src/lambda.ts                     本番の入口（ALB のマルチバリューのイベント ⇄ Request/Response）。秘密値の読み込み、60 秒のアイドルのあとの DB の接続の作り直し
+src/ops.ts                        運用の入口（admin-auth-ops。{"action":"migrate"}・{"action":"register-alb-client",…}）
+src/operations.ts                 migrate と ALB クライアントの登録の本体（開発の CLI と ops.ts で共有）
+src/index.ts                      開発の起動と停止
+src/config.ts                     zod で環境変数を検証（loadConfig は終了、parseConfig は例外）
 src/auth.ts                       Better Auth の設定（Google ログイン、hd・許可リストの検査、jwt・oauthProvider プラグイン）
 src/allowlist.ts                  許可リストの表（admin_allowlist）の操作
 src/pages.ts                      ログイン画面・同意画面・エラー画面（外部のスクリプトや画像を読み込まない。nonce 付きの CSP）
-src/scripts/migrate.ts            DB のスキーマを作る・更新する（冪等）
-src/scripts/register-alb-client.ts  ALB を信頼済みクライアントとして登録する（冪等）
+src/secrets.ts                    Secrets Manager の読み込み（本番の 2 つの入口）
+src/scripts/migrate.ts            開発の CLI（pnpm db:migrate・compose の migrate）
+src/scripts/register-alb-client.ts  開発の CLI（pnpm alb:register）
 ```
 
 依存は `better-auth`・`@better-auth/oauth-provider`（どちらも `1.7.6`。7 日の待機〈`minimumReleaseAge`〉を満たす最新）・`pg`・`zod` だけ。
@@ -36,7 +42,7 @@ src/scripts/register-alb-client.ts  ALB を信頼済みクライアントとし�
 | `GET /sign-in` | ログイン画面（認可フローから遷移してくる） |
 | `GET /consent` | 同意画面（`skip_consent` で通るため通常は出ない） |
 | `GET /error` | ログイン失敗の画面 |
-| `GET /healthz` | ALB のターゲットのヘルスチェック（200）。**DB は見ない**（DB の瞬断でタスクが外れて、新しいログインだけでなく ALB の判定まで巻き込むのを避ける） |
+| `GET /healthz` | 開発のヘルスチェック（200）。**DB は見ない**。本番の ALB ではヘルスチェックを使わない（Lambda。ADR-26） |
 
 `/api/auth/token`（JWT プラグインの素のトークン発行）は `disabledPaths` で無効にしている（OAuth Provider を使うときの必須設定）。メールとパスワードのログイン・サインアップも無効。
 
@@ -56,8 +62,8 @@ src/scripts/register-alb-client.ts  ALB を信頼済みクライアントとし�
 
 ### 許可リストの運用
 
-- 初期値は `ADMIN_BOOTSTRAP_EMAILS`（カンマ区切り）。**起動時に表へ追加するだけ**で、削除はしない。
-- 追加と削除は人が SQL で行う（本番では ECS Exec か Session Manager のポートフォワードで RDS に入る。踏み台サーバーは置かない。TA-06 の 5.6）。BA-05 の参加時・離任時のチェックリストに含める。
+- 初期値は `ADMIN_BOOTSTRAP_EMAILS`（カンマ区切り）。**`migrate` の最後に表へ追加するだけ**で、削除はしない（2026-10-12 に起動時から移した。本番は運用の Lambda の migrate）。
+- 追加と削除は人が SQL で行う（本番では Session Manager のポートフォワードで RDS に入る。admin-auth は Lambda で、ECS Exec の入り口にならない。踏み台サーバーは置かない。TA-06 の 5.6）。BA-05 の参加時・離任時のチェックリストに含める。
 
 ```sql
 -- 追加（小文字で書く。表の CHECK 制約が小文字以外を拒否する）
@@ -104,8 +110,8 @@ ALB は discovery を読まず、URL を人（SAM）が明示する。**issuer �
 
 | 変数 | 内容 | secret |
 |---|---|---|
-| `HOST` / `PORT` | `0.0.0.0` / `3103` | |
-| `NODE_ENV` | `production` では `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` が必須。Docker イメージの既定は `production`、compose は `development` | |
+| `HOST` / `PORT` | `0.0.0.0` / `3103`（開発の入口だけ） | |
+| `NODE_ENV` | `production` では `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` が必須（運用の Lambda は除く。Google を使わない）。本番の Lambda は `production`（テンプレートで渡す）、compose は `development` | |
 | `BETTER_AUTH_URL` | `https://auth.comegin.com`（開発 `http://localhost:3103`）。issuer は `${BETTER_AUTH_URL}/api/auth` | |
 | `BETTER_AUTH_SECRET` | 32 文字以上。**変えると既存のセッションと、暗号化して DB に置いた値（JWKS の秘密鍵・Google のトークン）が使えなくなる** | ✔ |
 | `DATABASE_HOST` `DATABASE_PORT` `DATABASE_NAME` `DATABASE_USERNAME` `DATABASE_SSL` | PostgreSQL（DB 名 `admin_auth`）。RDS では `DATABASE_SSL=true`（証明書を検証する） | |
@@ -113,14 +119,15 @@ ALB は discovery を読まず、URL を人（SAM）が明示する。**issuer �
 | `GOOGLE_CLIENT_ID` | | |
 | `GOOGLE_CLIENT_SECRET` | | ✔ |
 | `GOOGLE_HOSTED_DOMAIN` | 既定 `comegin.com`（ID トークンの `hd` と照合） | |
-| `ADMIN_BOOTSTRAP_EMAILS` | 許可リストの初期値（カンマ区切り。起動時に表へ追加するだけ） | |
-| `ALB_CLIENT_ID` | ALB の OIDC クライアント ID（登録スクリプトだけが使う） | |
+| `ADMIN_BOOTSTRAP_EMAILS` | 許可リストの初期値（カンマ区切り。migrate のときに表へ追加するだけ） | |
+| `ALB_CLIENT_ID` | ALB の OIDC クライアント ID（登録（開発の CLI と運用の Lambda）だけが使う） | |
 | `ALB_CLIENT_SECRET` | 同上（32 文字以上） | ✔ |
-| `ALB_PROTECTED_HOSTS` | `/oauth2/idpresponse` を登録するホスト（カンマ区切り。登録スクリプトだけが使う） | |
+| `ALB_PROTECTED_HOSTS` | `/oauth2/idpresponse` を登録するホスト（カンマ区切り。登録（開発の CLI と運用の Lambda）だけが使う） | |
+| `SECRETS_PREFIX` | 本番の 2 つの入口だけ。秘密値の Secret の接頭辞（`comegin/<env>/admin-auth`）。開発は使わない | |
 
-設定が不正なときは、変数名と理由だけを stderr に出して終了する（値は出さない）。
+設定が不正なときは、変数名と理由だけを stderr に出して終了する（値は出さない）。Lambda の入口は終了せず例外を投げる（本体は ALB が 502、運用は `FunctionError`）。
 
-Docker イメージには `NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem`（RDS の CA 束。イメージのビルド時に取得）が固定で入っている。Node は Amazon の CA を持たないため、`DATABASE_SSL=true` で RDS に証明書を検証してつなぐのに要る。タスク定義から渡す必要は無い。
+本番の Lambda は、実行環境にある Amazon の CA（RDS を含む）を `NODE_EXTRA_CA_CERTS=/var/runtime/ca-cert.pem` で読む（Node 20 以降の Lambda は既定では読み込まないため）。`DATABASE_SSL=true` で RDS に証明書を検証してつなぐのに要る。開発の Docker イメージには入れない（開発の PostgreSQL は TLS を使わない）。
 
 ## 起動（ローカル）
 
@@ -128,22 +135,30 @@ Docker イメージには `NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem`
 pnpm install
 dev/init-env.sh                   # .env.example を写して、秘密値（BETTER_AUTH_SECRET・DATABASE_PASSWORD・ALB_CLIENT_ID・ALB_CLIENT_SECRET）を生成する。冪等で、値は表示しない
 # 生成された環境変数ファイルに GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / ADMIN_BOOTSTRAP_EMAILS を人が入れる
-docker compose up -d --build      # postgres → migrate（一度だけ）→ admin-auth の順に起動。admin-auth は 127.0.0.1:3103 だけに開く
+docker compose up -d --build      # postgres → migrate（一度だけ）→ admin-auth の順に起動。admin-auth は 127.0.0.1:3103 だけに開く。migrate が許可リストの初期値も入れる
 curl -s localhost:3103/.well-known/openid-configuration
 curl -s localhost:3103/api/auth/jwks
 ```
 
-- PostgreSQL はホストに公開しない。compose の中だけで動く。
+- PostgreSQL は `127.0.0.1:5434` にだけ開いている（結合テストが Lambda の入口から直接つなぐため）。
 - Google の ID とシークレットが空でも、discovery と JWKS は返る（ログインはできない）。
 - ALB を信頼済みクライアントとして登録する:
 
 ```bash
 docker compose run --rm --no-deps admin-auth node dist/scripts/register-alb-client.js
-# 本番の ECS では、DB の移行（node dist/scripts/migrate.js）のあとに、同じイメージで同じコマンドを 1 回だけのタスクとして実行する
+# 本番は運用の Lambda（admin-auth-ops）で {"action":"migrate"} のあとに {"action":"register-alb-client"} を呼ぶ（cloud/README の 4.19）
+```
+
+### テスト
+
+```bash
+pnpm test               # 単体（外部はモック）
+pnpm test:integration   # 結合: ALB の形のイベントで lambda.ts（本体）と ops.ts（運用）を呼び、開発の PostgreSQL（127.0.0.1:5434）を本物として使う。PostgreSQL を数秒 docker pause する
 ```
 
 ## ALB クライアントの登録（`register-alb-client.ts`）
 
+- 本番は運用の Lambda で行う（`{"action":"register-alb-client"}` を送る。呼び出し方は `cloud/README.md` の 4.19。`authMethod`・`requirePkce` で下のオプションと同じ指定ができる）。
 - `ALB_CLIENT_ID` が無ければ作成し（`created`）、あれば内容を比べて、違うときだけ更新する（`updated`）。**同じ内容なら何も書かない**（`unchanged`。`updatedAt` も変わらない）。`ALB_PROTECTED_HOSTS` にホストを足して再実行すれば、リダイレクト URI だけが増える。**`ALB_CLIENT_SECRET` を変えて再実行すれば、シークレットが入れ替わる**（前のシークレットは即座に使えなくなる。ALB のリスナールールの `ClientSecret` も同時に更新すること）。
 - 登録する内容: 機密クライアント、`grant_types=authorization_code`、`scope=openid profile email`、`skip_consent=true`（同意画面を省略）、`enable_end_session=false`、リダイレクト URI は `ALB_PROTECTED_HOSTS` の各ホストの `https://<host>/oauth2/idpresponse`。シークレットは Better Auth の既定と同じ SHA-256（base64url）で保存し、表示しない。
 - Better Auth の公開 API（`adminCreateOAuthClient`）はログイン済みのユーザーのセッションを要求し、`client_id` も指定できない。ALB と同じ ID・シークレットを Secrets Manager から両方に渡す構成にするため、**Better Auth のアダプターで `oauthClient` の行を直接書く**。plugin のバージョンを上げたときは、このスクリプトが書く列とシークレットの保存方式が変わっていないかを確かめる。
@@ -180,9 +195,10 @@ docker compose run --rm --no-deps admin-auth node dist/scripts/register-alb-clie
 
 - ログは stderr に JSON の 1 行（時刻・メソッド・パス・ステータス・所要時間）。クエリ（認可コードや署名を含む）とメールアドレスは記録しない。
 - JWKS の鍵のローテーションは有効にしていない（`rotationInterval` なし）。鍵の秘密鍵は `BETTER_AUTH_SECRET` で暗号化して DB に置く。
-- SIGTERM で処理中のリクエストを終えてから DB を閉じる（猶予 10 秒）。
-- 起動時に許可リストの表が無い、または DB に届かないときは、プロセスが終了する（`migrate` を先に実行する）。
+- SIGTERM での停止（猶予 10 秒）は開発の入口だけ。本番の Lambda は、前の呼び出しから 60 秒以上空いたら処理の前に DB の接続（プール）と auth を作り直す（凍結のあいだに切れた接続で固まらないように）。
+- **`migrate` の前は許可リストの表が無く、ログインの判定が 500 になる**（起動時の検査はやめた。`migrate` を先に実行する）。
 - 本番のバックアップは RDS の自動バックアップとポイントインタイムリカバリ（TA-06 の 4.5）。許可リストの表も同じ DB にある。
+- Better Auth のレート制限はメモリ上にあり、Lambda では実行環境ごとに分かれる。実効のあるレート制限は ALB の WAF に頼る（上の「ALB 配下でのレート制限」と同じ）。
 
 ## TODO
 

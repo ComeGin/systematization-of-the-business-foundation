@@ -8,10 +8,15 @@ const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
   createValkey: vi.fn(),
   createServer: vi.fn(),
+  createHandler: vi.fn(),
 }));
 vi.mock("../src/config.js", () => ({ loadConfig: mocks.loadConfig }));
 vi.mock("../src/valkey.js", () => ({ createValkey: mocks.createValkey }));
 vi.mock("../src/server.js", () => ({ createServer: mocks.createServer }));
+vi.mock("../src/handler.js", () => ({ createHandler: mocks.createHandler }));
+
+/** createHandler が返す handle の代わり */
+const HANDLE = () => Promise.resolve({ status: 200, headers: {}, body: "" });
 
 const config = makeConfig({ HOST: "0.0.0.0", PORT: 3104, VALKEY_KEY_PREFIX: "consent:" });
 
@@ -55,6 +60,7 @@ beforeEach(() => {
   mocks.loadConfig.mockReturnValue(config);
   mocks.createValkey.mockReturnValue(valkey);
   mocks.createServer.mockReturnValue(server);
+  mocks.createHandler.mockReturnValue(HANDLE);
   exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as typeof process.exit);
   stderr = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -65,18 +71,19 @@ afterEach(() => {
 
 describe("起動", () => {
   describe("正常系", () => {
-    it("設定を読み、その設定で Valkey とサーバーを作る", async () => {
+    it("設定を読み、その設定で Valkey・handler・サーバーを作る", async () => {
       await boot();
       expect(mocks.loadConfig).toHaveBeenCalledTimes(1);
       expect(mocks.createValkey).toHaveBeenCalledWith(config);
       // resetModules 後の index.ts と同じモジュールのクラスで照合する
       const { ConsentStore } = await import("../src/store.js");
-      expect(mocks.createServer).toHaveBeenCalledWith(config, expect.any(ConsentStore));
+      expect(mocks.createHandler).toHaveBeenCalledWith({ config, store: expect.any(ConsentStore) });
+      expect(mocks.createServer).toHaveBeenCalledWith(HANDLE);
     });
 
     it("ストアは作った Valkey と VALKEY_KEY_PREFIX を使う", async () => {
       await boot();
-      const store = mocks.createServer.mock.calls[0]![1] as ConsentStore;
+      const { store } = mocks.createHandler.mock.calls[0]![0] as { store: ConsentStore };
       await store.append("eAd5tbgdBQH8cAOA_oELjQ", { state: "granted", at: "t", policy: "p" });
       expect(valkey.xadd).toHaveBeenCalledWith(
         "consent:c:eAd5tbgdBQH8cAOA_oELjQ",
@@ -123,6 +130,7 @@ describe("起動", () => {
       await expect(boot()).rejects.toThrow("process.exit(1)");
       expect(mocks.createValkey).not.toHaveBeenCalled();
       expect(mocks.createServer).not.toHaveBeenCalled();
+      expect(mocks.createHandler).not.toHaveBeenCalled();
       expect(handlers.size).toBe(0);
     });
 
@@ -132,6 +140,7 @@ describe("起動", () => {
       });
       await expect(boot()).rejects.toThrow("ERR invalid URL");
       expect(mocks.createServer).not.toHaveBeenCalled();
+      expect(mocks.createHandler).not.toHaveBeenCalled();
       expect(server.listen).not.toHaveBeenCalled();
     });
   });

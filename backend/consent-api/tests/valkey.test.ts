@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
-import { createValkey } from "../src/valkey.js";
+import type { Redis } from "ioredis";
+import { createValkey, waitReady } from "../src/valkey.js";
 import { makeConfig } from "./helpers/config.js";
 
 // 実接続しないよう、ioredis の Redis を EventEmitter だけの偽物に差し替える
@@ -51,6 +52,14 @@ describe("createValkey", () => {
       const { options } = instances[0]!;
       expect(options.commandTimeout).toBe(2_000);
       expect(typeof options.connectTimeout).toBe("number");
+    });
+
+    it("Lambda の入口が追加の設定（socketTimeout）を渡せる。渡さなければ付けない（開発の入口は今のまま）", () => {
+      createValkey(makeConfig(), { socketTimeout: 2_000 });
+      createValkey(makeConfig());
+      expect(instances[0]!.options.socketTimeout).toBe(2_000);
+      expect(instances[1]!.options.socketTimeout).toBeUndefined();
+      expect(instances[0]!.options.enableOfflineQueue).toBe(false);
     });
 
     it("作っただけではログを出さない", () => {
@@ -124,6 +133,81 @@ describe("createValkey", () => {
       a.emit("error", new Error("a"));
       b.emit("error", new Error("b"));
       expect(stderr).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
+/** status を持つ EventEmitter（ioredis の Redis の、waitReady が使う部分だけ） */
+function fakeClient(status: string): EventEmitter & { status: string } {
+  return Object.assign(new EventEmitter(), { status });
+}
+
+describe("waitReady", () => {
+  describe("正常系", () => {
+    it("すでに ready なら、待たずに true", async () => {
+      const client = fakeClient("ready");
+      await expect(waitReady(client as unknown as Redis, 3_000)).resolves.toBe(true);
+      expect(client.listenerCount("ready")).toBe(0);
+    });
+
+    it("接続中なら ready のイベントを待って true", async () => {
+      vi.useFakeTimers();
+      try {
+        const client = fakeClient("connecting");
+        const result = waitReady(client as unknown as Redis, 3_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+        client.status = "ready";
+        client.emit("ready");
+        await expect(result).resolves.toBe(true);
+        expect(client.listenerCount("ready")).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("空入力: 待ち時間 0 でも ready なら true", async () => {
+      await expect(waitReady(fakeClient("ready") as unknown as Redis, 0)).resolves.toBe(true);
+    });
+  });
+
+  describe("異常系", () => {
+    it("サーバ: 時間内に ready が来なければ false で、リスナーを残さない", async () => {
+      vi.useFakeTimers();
+      try {
+        const client = fakeClient("reconnecting");
+        const result = waitReady(client as unknown as Redis, 3_000);
+        await vi.advanceTimersByTimeAsync(2_999);
+        expect(client.listenerCount("ready")).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(result).resolves.toBe(false);
+        expect(client.listenerCount("ready")).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("サーバ: 時間切れのあとに ready が来ても、結果は false のまま", async () => {
+      vi.useFakeTimers();
+      try {
+        const client = fakeClient("connecting");
+        const result = waitReady(client as unknown as Redis, 10);
+        await vi.advanceTimersByTimeAsync(10);
+        client.emit("ready");
+        await expect(result).resolves.toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("入力: 接続が閉じた（end）状態でも、時間まで待って false", async () => {
+      vi.useFakeTimers();
+      try {
+        const result = waitReady(fakeClient("end") as unknown as Redis, 100);
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(result).resolves.toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

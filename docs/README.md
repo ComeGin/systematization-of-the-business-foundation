@@ -107,7 +107,7 @@ SaaS 販売事業の「事業経営基盤」を、再帰的自己改善型のシ
 | `CAP-07` コンテンツ公開・配信 | `R1` | `E-04` `E-05` | Strapi の `publishedAt`（**`R2` が本番の管理画面で公開**。ADR-17）+ Astro 再ビルド（ローカル。本番の Strapi を読む。**監視アプリの定期実行が公開を見つけて起こす**。ADR-17。案）＋ **人間の承認で配信**（ADR-15・ADR-16） | AWS（Strapi）＋ オンプレ（ビルド・監視アプリ）＋ AWS S3 + CloudFront | `未着手` |
 | `CAP-08` エッジ配信・可用性 | `R1` | `E-05` | CloudFront（Cloudflare の代替） | AWS | `未着手` |
 | `CAP-09` テクニカル SEO | `R1` | `E-12` | Lighthouse CI + Astro ＋ **OpenSEO**（GSC・サイト監査） | ローカル ＋ Google | **`実装済み`**（Lighthouse のみ。GSC は未接続） |
-| `CAP-10` 行動観測・効果測定 | `R3` | `E-07` `E-08` `E-12` | **GA4**（母数。ADR-25。旧 Umami）+ PostHog（AB テスト・実測の CWV）＋ **`consent-api`**（Cookie 同意の受け口。**GA4・PostHog・Chatwoot は同意後にだけ動く**。2026-10-01、GA4 は ADR-25） | **AWS**（ECS + RDS + **ElastiCache**〈同意の記録〉+ ALB。TA-06）+ SaaS | `未着手` |
+| `CAP-10` 行動観測・効果測定 | `R3` | `E-07` `E-08` `E-12` | **GA4**（母数。ADR-25。旧 Umami）+ PostHog（AB テスト・実測の CWV）＋ **`consent-api`**（Cookie 同意の受け口。**GA4・PostHog・Chatwoot は同意後にだけ動く**。2026-10-01、GA4 は ADR-25） | **AWS**（ECS + RDS + **ElastiCache**〈同意の記録〉+ ALB。TA-06。**2026-10-12 ADR-26: `consent-api` は ECS ではなく VPC の中の Lambda〈ALB のターゲット〉**）+ SaaS | `未着手` |
 | `CAP-11` リード獲得・育成 | `R3` | `E-06` `E-09` | Mautic + mautic-mcp + **Amazon SNS**（通知）+ **Amazon SES**（顧客向けメール） | **AWS**（ECS + RDS + EFS + ALB、n8n。Webhook は VPC の中。TA-06・ADR-16）＋ オンプレ（MCP） | `未配線` |
 | `CAP-12` Web 接客 | `R3` | `E-10` **`E-16`** | Chatwoot + chatwoot-mcp + **Amazon SNS**（通知）＋ **Cal.com**（セルフホスト。オンライン面談の予約。商談プロセスの段 2。2026-10-01） | **AWS**（ECS + RDS + ElastiCache + S3 + ALB、n8n、**calcom**。Webhook は VPC の中。TA-06・ADR-16）＋ オンプレ（MCP） | `未配線` |
 | `CAP-13` 監視・障害対応 | `R1` | `E-12` | PostHog（Error Tracking） + **Amazon SNS**（障害通知）+ CloudWatch（本番の AWS 側）+ **監視アプリ（表示。TA-07）** | SaaS + healthcheck + AWS + オンプレ（監視アプリ） | `未配線` |

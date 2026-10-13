@@ -8,11 +8,12 @@ const mocks = vi.hoisted(() => ({
   getMigrations: vi.fn(),
   runMigrations: vi.fn(),
   ensureAllowlistTable: vi.fn(),
+  bootstrapAllowlist: vi.fn(),
   createAuthOptions: vi.fn((..._args: unknown[]) => ({ options: true })),
   pool: { end: vi.fn() },
 }));
 vi.mock("better-auth/db/migration", () => ({ getMigrations: mocks.getMigrations }));
-vi.mock("../../src/allowlist.js", () => ({ ensureAllowlistTable: mocks.ensureAllowlistTable }));
+vi.mock("../../src/allowlist.js", () => ({ ensureAllowlistTable: mocks.ensureAllowlistTable, bootstrapAllowlist: mocks.bootstrapAllowlist }));
 vi.mock("../../src/auth.js", () => ({ createAuthOptions: mocks.createAuthOptions }));
 vi.mock("../../src/db.js", () => ({ createPool: () => mocks.pool }));
 
@@ -24,11 +25,15 @@ async function run() {
 }
 
 beforeEach(() => {
-  stubValidEnv();
+  stubValidEnv({ ADMIN_BOOTSTRAP_EMAILS: "a@comegin.com" });
   stderr = captureStderr();
   mocks.order.length = 0;
   mocks.runMigrations.mockReset().mockImplementation(async () => void mocks.order.push("runMigrations"));
   mocks.ensureAllowlistTable.mockReset().mockImplementation(async () => void mocks.order.push("ensureAllowlistTable"));
+  mocks.bootstrapAllowlist.mockReset().mockImplementation(async () => {
+    mocks.order.push("bootstrapAllowlist");
+    return 1;
+  });
   mocks.getMigrations.mockReset().mockResolvedValue({
     toBeCreated: [{ table: "user" }, { table: "session" }],
     toBeAdded: [],
@@ -46,7 +51,7 @@ describe("migrate", () => {
   describe("正常系", () => {
     it("Better Auth のスキーマを移行してから許可リストの表を作り、最後に接続を閉じる", async () => {
       await run();
-      expect(mocks.order).toEqual(["runMigrations", "ensureAllowlistTable", "end"]);
+      expect(mocks.order).toEqual(["runMigrations", "ensureAllowlistTable", "bootstrapAllowlist", "end"]);
       expect(mocks.ensureAllowlistTable).toHaveBeenCalledWith(mocks.pool);
       expect(process.exitCode).toBeUndefined();
     });
@@ -67,8 +72,14 @@ describe("migrate", () => {
       mocks.getMigrations.mockResolvedValue({ toBeCreated: [], toBeAdded: [], runMigrations: mocks.runMigrations });
       await run();
       expect(stderr.text()).toContain("create tables: - / add columns: -");
-      expect(mocks.order).toEqual(["runMigrations", "ensureAllowlistTable", "end"]);
+      expect(mocks.order).toEqual(["runMigrations", "ensureAllowlistTable", "bootstrapAllowlist", "end"]);
       expect(process.exitCode).toBeUndefined();
+    });
+
+    it("最後に許可リストの初期値を追加し、件数を出す（起動時から移した。仕様 3.5）", async () => {
+      await run();
+      expect(mocks.bootstrapAllowlist).toHaveBeenCalledWith(mocks.pool, ["a@comegin.com"]);
+      expect(stderr.text()).toContain("[migrate] allowlist bootstrap: 1 added");
     });
 
     it("ログにシークレットと DB のパスワードを出さない", async () => {
@@ -103,6 +114,14 @@ describe("migrate", () => {
       expect(stderr.text()).toContain("[migrate] failed: connect ECONNREFUSED");
       expect(stderr.text()).not.toContain(DB_PASSWORD);
       expect(process.exitCode).toBe(1);
+      expect(mocks.pool.end).toHaveBeenCalledTimes(1);
+    });
+
+    it("サーバ: 初期値の追加に失敗しても exitCode=1 にし、done を出さない", async () => {
+      mocks.bootstrapAllowlist.mockRejectedValue(new Error("check constraint"));
+      await run();
+      expect(process.exitCode).toBe(1);
+      expect(stderr.text()).not.toContain("[migrate] done");
       expect(mocks.pool.end).toHaveBeenCalledTimes(1);
     });
 

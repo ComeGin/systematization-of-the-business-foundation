@@ -2,20 +2,22 @@
   "name": "admin-auth",
   "version": "0.1.0",
   "private": true,
-  "description": "Better Auth as an OIDC provider for the ALB authenticate-oidc gate (Google Workspace login, admin allowlist)",
+  "description": "Better Auth as an OIDC provider for the ALB authenticate-oidc gate (Google Workspace login, admin allowlist. AWS Lambda behind the ALB in production)",
   "type": "module",
   "main": "dist/index.js",
   "packageManager": "pnpm@11.17.0",
   "scripts": {
     "build": "tsc",
+    "bundle": "esbuild index=src/lambda.ts ops=src/ops.ts --bundle --platform=node --target=node22 --format=esm --sourcemap --outdir=dist-lambda --out-extension:.js=.mjs --external:@aws-sdk/* --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "node --env-file-if-exists=.env dist/scripts/migrate.js",
     "alb:register": "node --env-file-if-exists=.env dist/scripts/register-alb-client.js",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist dist-lambda"
   },
   "engines": {
     "node": ">=22.18"
@@ -27,8 +29,10 @@
     "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1146.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "5.0.1"
