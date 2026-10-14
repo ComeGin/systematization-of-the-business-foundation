@@ -10,12 +10,20 @@ export interface NavLink {
 }
 
 /**
- * 公開リポジトリの URL（§1.4 の列 3・§6.3.1）。【要記入】（03-handoff.md §0.3 の F3-R。URL・公開時期・公開範囲が未定）。
- * null の間は「ソースコード（GitHub）」「ソースコードを見る（GitHub）」のリンクを出さない
- * （F3-R「公開前の画面に『公開しています』と出さない」。仮の URL をリンクとして公開しない）。
+ * 公開リポジトリの URL（§1.4 の列 3・§6.3.1）。2026-10-14 にユーザーが決めた（03-handoff.md §0.3 の F3-R の URL）。
+ * null にすると「ソースコード（GitHub）」「ソースコードを見る（GitHub）」のリンクを出さない
+ * （F3-R「公開前の画面に『公開しています』と出さない」）。
  * フッターと無料 DL ブロック（forms）の両方がこの値を使う。
  */
-export const SOURCE_REPO_URL: string | null = null;
+const REPOSITORY = 'https://github.com/kamegin4-aws/systematization-of-the-business-foundation';
+export const SOURCE_REPO_URL: string | null = REPOSITORY;
+
+/**
+ * 「ソースコードを無料 DL」を押したときにダウンロードさせる zip（GitHub のタグのアーカイブ）。2026-10-14 にユーザーが決めた。
+ * 押すと別のタブでこの zip を開き（GitHub が添付ファイルとして返すのでダウンロードが始まる）、元のタブは無料相談（/contact）へ移る。
+ * 動きは source-dl モジュール。新しいタグを切ったら、ここを差し替える。
+ */
+export const SOURCE_ZIP_URL = `${REPOSITORY}/archive/refs/tags/test-v0.1.zip`;
 
 /** ヘッダーのナビ（§1.3。Mobile の Sheet のリンク 4 つも同じ） */
 export const headerNav: readonly NavLink[] = [
@@ -43,7 +51,7 @@ export const sheetSourceDl = {
  * つなげると仕様書の文と一字一句同じになる。
  */
 export const footerDescriptionLines: readonly string[] = [
-  '社内に IT がいなくても、',
+  '社内に IT 人材がいなくても、',
   '1人分の予算で実現する業務改善。',
   'システム開発と IT コンサルティング。',
 ];

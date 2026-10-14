@@ -12,6 +12,7 @@ import {
 } from "./pricing";
 import type { BreakableHeading } from "@/modules/marketing-ui";
 import type { CtaId } from "./cta";
+import type { PhotoKey } from "@/modules/media";
 import type {
   CtaBannerCopy,
   CtaCopy,
@@ -62,9 +63,9 @@ export const TOP = {
     tagline: "現場の言葉と、技術の言葉を。",
     // 見出しの指定改行（H-19）。Desktop「…、／1人分の予算で業務を変える。」、Mobile「…、／1人分の予算で／業務を変える。」
     h1: {
-      text: "社内に IT がいなくても、1人分の予算で業務を変える。",
+      text: "社内に IT 人材がいなくても、1人分の予算で業務を変える。",
       segments: [
-        { text: "社内に IT がいなくても、", breakAfter: "both" },
+        { text: "社内に IT 人材がいなくても、", breakAfter: "both" },
         { text: "1人分の予算で", breakAfter: "mobile" },
         { text: "業務を変える。" },
       ],
@@ -89,8 +90,8 @@ export const TOP = {
     } satisfies CtaCopy,
     /** ボタンの下の小さい文字 */
     note: "相談は無料です。しつこい営業はいたしません。",
-    /** 画像枠（右側。4:3）。Mobile は本文の下 */
-    imagePlaceholder: "画像（準備中）：ループの図",
+    /** 写真（右側。4:3）。Mobile は本文の下。写真と alt は media モジュールの PHOTOS（2026-10-14 に画像枠から差し替え） */
+    photo: "workOfficeWheelchair" satisfies PhotoKey,
   },
 
   // 1-4a 業務理念と、それを実現する 5つの方法。Desktop は 3 列 ＋ 2 列（上段 1〜3、下段 4〜5）、Mobile 1 列
@@ -100,9 +101,9 @@ export const TOP = {
     /** 創業計画書 第1項の業務理念と一字一句同じ（句点まで） */
     // 見出しの指定改行（H-19）。Desktop「…、／1人分の予算で実現する業務改善。」、Mobile「…、／1人分の予算で実現する／業務改善。」
     heading: {
-      text: "社内に IT がいなくても、1人分の予算で実現する業務改善。",
+      text: "社内に IT 人材がいなくても、1人分の予算で実現する業務改善。",
       segments: [
-        { text: "社内に IT がいなくても、", breakAfter: "both" },
+        { text: "社内に IT 人材がいなくても、", breakAfter: "both" },
         { text: "1人分の予算で実現する", breakAfter: "mobile" },
         { text: "業務改善。" },
       ],

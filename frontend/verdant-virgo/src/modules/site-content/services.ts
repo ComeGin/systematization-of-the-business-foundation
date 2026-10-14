@@ -13,6 +13,7 @@ import {
   type PricingKey,
 } from './pricing';
 import type { SearchIntent } from '@/modules/blog';
+import type { PhotoKey } from '@/modules/media';
 import { contactHref, type CtaId, type ServiceInterest } from './cta';
 
 // ---------------------------------------------------------------------------
@@ -199,7 +200,7 @@ export const SERVICES_INDEX = {
   breadcrumb: [{ label: 'ホーム', href: '/' }, { label: 'サービス' }] satisfies readonly BreadcrumbItem[],
   // 2-3 導入ヒーロー（PageIntro。ボタンなし）
   intro: [
-    'ComeGin のサービスは 4つです。ソースコードを使ってご自身で立ち上げる、構築を任せる、自社向けに作り込む、運用を一緒に回す。いまの状況に合わせてお選びください。',
+    'ComeGin のサービスは 4つです。ソースコードを使ってご自身で立ち上げる、構築を任せる、自社向けに作り込む、DX の進め方を一緒に決める。いまの状況に合わせてお選びください。',
   ],
   // 2-4 サービスカード（中身は SERVICE_CARDS）
   cards: {
@@ -215,7 +216,7 @@ export const SERVICES_INDEX = {
       { situation: 'まずは自分の手で試してみたい', recommend: 'ソースコードの無料 DL' },
       { situation: '基盤の立ち上げを任せたい', recommend: '環境構築' },
       { situation: '自社の業務に合わせて作り込みたい', recommend: '受託開発' },
-      { situation: '立ち上げた基盤の運用を一緒に回してほしい', recommend: 'コンサル' },
+      { situation: 'DX を何から進めるか、一緒に決めてほしい', recommend: 'コンサル' },
       { situation: '福祉・介護・教育の事業者として、提携して取り組みたい', recommend: '業務提携' },
     ],
   },
@@ -281,7 +282,14 @@ export interface ServiceDetailCopy {
     /** 1 要素 ＝ 1 段落（Figma の組み方に合わせた） */
     readonly body: readonly string[];
     readonly cta: CtaCopy;
+    /** 右側の写真（Desktop は右 480px、Mobile は本文の下）。写真と alt は media モジュールの PHOTOS（2026-10-14 に追加） */
+    readonly photo: PhotoKey;
   };
+  /**
+   * 写真の並び（Desktop 3 列、Mobile 1 列。写真の下に短いラベル）。業務提携のページだけ（2026-10-14 に追加）。
+   * ヒーローの直後に置き、対象の事業（福祉・介護・教育）を写真で示す
+   */
+  readonly gallery?: SectionCopy & { readonly items: readonly { readonly photo: PhotoKey; readonly label: string }[] };
   /** プラン（PricingCard）。カードの直下に TAX_NOTE */
   readonly plans: SectionCopy & { readonly cards: readonly PlanCardCopy[] };
   /** こんな方に向いています（見出しに Badge「要確認」） */
@@ -327,6 +335,7 @@ const ENVIRONMENT_SETUP_DETAIL: ServiceDetailCopy = {
       ctaId: 'consult_environment_setup_hero',
       target: { type: 'contact', service: 'environment-setup' },
     },
+    photo: 'techSmartwatch',
   },
   plans: {
     heading: PLANS_HEADING,
@@ -390,7 +399,7 @@ const ENVIRONMENT_SETUP_DETAIL: ServiceDetailCopy = {
       },
       {
         question: '構築した後の運用は誰が行いますか？',
-        answer: 'お客さまです。運用を一緒に回したい場合はコンサルをご利用ください。',
+        answer: 'お客さまです。基盤を使った DX の進め方を一緒に決めたい場合は、コンサルをご利用ください。',
       },
       {
         question: '契約の期間と解約を教えてください',
@@ -429,6 +438,7 @@ const DEVELOPMENT_DETAIL: ServiceDetailCopy = {
       ctaId: 'consult_development_hero',
       target: { type: 'contact', service: 'development' },
     },
+    photo: 'techSmartglasses',
   },
   // 3-4。Desktop 2 列、Mobile 1 列。同じ cta_id を 2 枚で使い、cta_clicked の service で分ける（§6.3）
   plans: {
@@ -523,6 +533,11 @@ const DEVELOPMENT_DETAIL: ServiceDetailCopy = {
         answer: '代金のお支払いを確認した時点で、開発したソースコードの著作権をお客さまに譲渡します。',
       },
       {
+        question: '『バイブコーディングのみ』の契約の期間と解約を教えてください',
+        answer:
+          '業務委託基本契約書と発注書を取り交わします。契約期間は 1年で、自動更新です。解約は契約解除合意書のお申し出によります。',
+      },
+      {
         question: '解約するときは、どうなりますか？',
         answer:
           '違約金はいただきません。解約のお申し出は、解約する月の前月末までにお願いします。解約のときは、ソースコード、CSV などの標準形式のデータ、手順書、設定情報をお渡しします。ほかの開発会社や社内に、そのまま引き継げます。',
@@ -548,21 +563,24 @@ const DEVELOPMENT_DETAIL: ServiceDetailCopy = {
   },
 };
 
-// 4.3.2 コンサル
+// 4.3.2 コンサル（2026-10-14 に内容を差し替え。このソースコードの運用ではなく、DX 推進を主軸にする。
+// バイブコーディングなら作って確かめるまでの工数が小さく済む点を軸にする。「初回相談は無料」は無料相談と重なるので書かない）
 const CONSULTING_DETAIL: ServiceDetailCopy = {
   slug: 'consulting',
-  h1: 'コンサル：改善のループを、毎月一緒に回します',
+  h1: 'コンサル：DX を、小さく作って確かめながら進めます',
   breadcrumb: servicesCrumb('コンサル'),
   hero: {
-    badge: 'コンサル',
+    badge: 'DX 推進',
     body: [
-      'KPI の設計、検索意図に合わせた記事と CTA の設計、月次の改善会議の運営を支援します。基盤を立ち上げた後、何を見て何を直すかを決め続ける部分をご一緒します。',
+      'DX の推進を、計画書づくりで終わらせないための伴走です。AI コーディングエージェントと対話しながら作るバイブコーディングなら、試作品ができるまでの工数を小さく抑えられます。',
+      '業務の棚卸しから、どの業務から置き換えるかの判断、試作と現場での検証、社内への定着までを、1回 4時間でご一緒します。',
     ],
     cta: {
       label: CONSULT_LABEL,
       ctaId: 'consult_consulting_hero',
       target: { type: 'contact', service: 'consulting' },
     },
+    photo: 'techVr',
   },
   plans: {
     heading: PLANS_HEADING,
@@ -586,9 +604,9 @@ const CONSULTING_DETAIL: ServiceDetailCopy = {
       {
         title: null,
         items: [
-          '基盤は立ち上げたが、何を見て何を直すかが決まらない',
-          '月次の改善会議を、続く形にしたい',
-          '記事と CTA の設計を、相談しながら進めたい',
+          'DX を進めたいが、何から手を付ければよいかが決まらない',
+          '開発会社に頼む前に、まず小さく作って効果を確かめたい',
+          '社内に IT 人材がいないまま、DX の判断をしなければならない',
         ],
       },
     ],
@@ -597,11 +615,14 @@ const CONSULTING_DETAIL: ServiceDetailCopy = {
     heading: '進め方',
     desktopLayout: '3+2',
     items: [
-      { title: '現状の確認', body: 'いまの計測と、記事・CTA の状態を確認します。' },
-      { title: 'KPI の設計', body: '見る指標と、その数字の正本をそれぞれ 1つに決めます。' },
-      { title: '施策の設計', body: '検索意図ごとの記事と CTA の出し分けを設計します。' },
-      { title: '月次の改善会議', body: '観測結果を持ち寄り、次の 1か月に反映する改善を決めます。' },
-      { title: '検証', body: '反映からおよそ 30日後に効果を測り、次の改善の根拠にします。' },
+      { title: '業務の棚卸し', body: '業務ごとの時間と手順を数え、置き換えの候補を洗い出します。' },
+      { title: '優先順位づけ', body: '効果と手間の見込みから、最初に手を付ける業務を 1つ決めます。' },
+      {
+        title: '小さく試作',
+        body: 'バイブコーディングで、その業務の試作品を作ります。大きな開発を始める前に、使えるかどうかを確かめられます。',
+      },
+      { title: '現場で検証', body: '試作品を現場で使っていただき、業務時間がどれだけ減るかを測ります。' },
+      { title: '定着と次の一手', body: '効果を確かめられたものを社内に定着させ、次に置き換える業務を決めます。' },
     ],
   },
   sourceDl: null,
@@ -610,27 +631,33 @@ const CONSULTING_DETAIL: ServiceDetailCopy = {
     items: [
       {
         question: '1回 4時間の使い方は決まっていますか？',
-        answer: '決まっていません。月次の改善会議と、その準備と振り返りに充てる想定で、配分はご相談のうえ決めます。',
+        answer: '決まっていません。業務の棚卸し、試作、検証の振り返りなど、その時点で必要なことに充てます。配分はご相談のうえ決めます。',
+      },
+      {
+        question: 'バイブコーディングとは何ですか？',
+        answer:
+          'AI コーディングエージェントと対話しながら、短いサイクルで実装を進める開発のやり方です。仕様を固めてから開発するやり方に比べて、試作品ができるまでの工数を小さく抑えられます。',
+      },
+      {
+        question: '社内に IT 人材がいなくても依頼できますか？',
+        answer: 'はい。社内に IT の担当者がいない企業さまを前提にしています。専門用語に頼らず、現場の言葉で進めます。',
+      },
+      {
+        question: '受託開発とは何が違いますか？',
+        answer:
+          'コンサルでは、DX の進め方を決め、小さく作って確かめるところまでをご一緒します。本番で使うシステムの開発をまとめて任せたい場合は、受託開発をご利用ください。',
       },
       {
         question: '契約の期間と解約を教えてください',
         answer:
           'コンサルティング契約書と発注書を取り交わします。契約期間は 1か月で、自動更新です。解約は契約解除合意書のお申し出によります。お申し出は、解約する月の前月末までにお願いします。違約金はいただきません。料金を改定しても、締結済みのご契約には適用しません。',
       },
-      {
-        question: '基盤を構築していなくても依頼できますか？',
-        answer: '無料相談で状況を伺います。先に環境構築からのほうがよい場合は、その旨をお伝えします。',
-      },
-      {
-        question: '記事の執筆も依頼できますか？',
-        answer: 'コンサルに含まれるのは設計と会議の運営の支援です。制作そのものを任せたい場合は受託開発をご利用ください。',
-      },
     ],
   },
   related: RELATED,
   banner: {
-    title: 'いま何を見ているかを、お聞かせください',
-    body: '指標が決まっていない段階からご一緒します。相談は無料です。',
+    title: 'DX を、どこから始めるかをお聞かせください',
+    body: 'まだ何も決まっていない段階からご一緒します。相談は無料です。',
     cta: {
       label: CONSULT_LABEL,
       ctaId: 'consult_consulting_banner',
@@ -653,6 +680,15 @@ const PARTNERSHIP_DETAIL: ServiceDetailCopy = {
       ctaId: 'consult_partnership_hero',
       target: { type: 'contact', service: 'partnership' },
     },
+    photo: 'careHands',
+  },
+  gallery: {
+    heading: '提携する事業',
+    items: [
+      { photo: 'welfareWorkSupport', label: '福祉（障がい福祉・就労支援）' },
+      { photo: 'careRecreation', label: '介護' },
+      { photo: 'educationChildren', label: '教育（児童・放課後の支援）' },
+    ],
   },
   plans: {
     heading: PLANS_HEADING,

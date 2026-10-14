@@ -4,6 +4,7 @@
  * 上から 小さい画像枠（avatar。96 角）→ 横いっぱいの画像枠（image）→ アイコン枠 → 見出し → 本文 → 出典（caption）→ slot="actions"。
  * アイコンは lucide-react の部品を渡す（icon={FileText}）。文言の既定値は持たない（H-16）。
  * 本文にリンクなどを含めるときは slot="body" を使う（body は省く）。
+ * 画像があるときは slot="avatar"（96 角の枠の中身）に渡す。無ければ「画像（準備中）」の枠を出す。
  */
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -25,12 +26,20 @@ interface Props {
 
 const { title, body, caption, icon: Icon, avatar = false, image = false, level = 'h3', class: className } = Astro.props;
 const Heading = level;
+const hasAvatar = Astro.slots.has('avatar');
 const captionLines = caption === undefined ? [] : Array.isArray(caption) ? caption : [caption];
 ---
 
 <article class={cn('not-typeset flex flex-col items-start gap-4 rounded-md border border-border bg-surface p-6', className)}>
   {
-    avatar && (
+    avatar && hasAvatar && (
+      <div class="size-24 shrink-0 overflow-hidden rounded-md">
+        <slot name="avatar" />
+      </div>
+    )
+  }
+  {
+    avatar && !hasAvatar && (
       <div class="type-caption flex size-24 flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface-subtle p-4 text-center text-text-body">
         <span>画像</span>
         <span>（準備中）</span>

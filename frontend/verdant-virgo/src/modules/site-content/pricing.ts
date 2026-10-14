@@ -62,7 +62,7 @@ export const PRICING: Readonly<Record<PricingKey, PricingRow>> = {
     product: 'コンサル',
     price: '31,250円／回',
     period: '4時間／回',
-    note: '初回相談は無料・4回から',
+    note: '4回から',
   },
   partnership: {
     key: 'partnership',
@@ -84,6 +84,15 @@ export const PRICING_ORDER: readonly PricingKey[] = [
 
 export const PRICING_ROWS: readonly PricingRow[] = PRICING_ORDER.map((key) => PRICING[key]);
 
+/**
+ * お支払いの時期（4-6 の表・4-8 の FAQ・特商法 10-B で同じ文にする）。2026-10-14 にユーザー判断でクレジットカード払いを追加
+ */
+export const PAYMENT_TIMING =
+  '銀行振込は、月末締め、翌月末払いです。クレジットカード払いは、お申し込みの日に初回を決済し、その後は 1か月ごとに決済します。';
+
+/** 月額のプランの料金が発生し始める起点（4-8 の FAQ・特商法 10-B）。2026-10-14 にユーザー判断で決まった */
+export const BILLING_START = '契約締結日または発注日の、いずれか遅い日';
+
 /** 料金を出すすべての箇所（料金カード群・比較表・サービスカード群の直下など）に置く注記 */
 export const TAX_NOTE = '表示価格はすべて税別です。';
 
@@ -99,7 +108,7 @@ export const PRICING_DESCRIPTIONS: Readonly<Record<PricingKey, string>> = {
   'development-full':
     '定期常駐で、何を作るかの整理から、設計、開発、テスト、リリース、リリース後の運用保守までを担当します。',
   consulting:
-    'KPI の設計、検索意図に合わせた記事と CTA の設計、月次の改善会議の運営を支援します。初回のご相談は無料で、4回からお申し込みいただけます。',
+    'DX の推進を、バイブコーディングで小さく作って確かめながら進めます。業務の棚卸しから試作、検証、社内への定着までを伴走します。4回からお申し込みいただけます。',
   partnership:
     '福祉・介護・教育事業を行う中小企業、社会福祉法人、非営利団体の皆さまと提携します。回収の計画は個別にご相談のうえ決めます。',
 };
@@ -242,7 +251,7 @@ export const PRICING_PAGE: PricingPageCopy = {
       heading: 'お支払いについて',
       rows: [
         ['お支払い方法', 'クレジットカード、銀行振込'],
-        ['お支払いの時期', '月末締め、翌月末払い'],
+        ['お支払いの時期', PAYMENT_TIMING],
         ['料金以外に必要な費用', 'クラウド（サードパーティのライセンスを含む）の利用料は、お客さまのご負担です。'],
       ],
     },
@@ -255,9 +264,11 @@ export const PRICING_PAGE: PricingPageCopy = {
           key: 'environment-setup',
           cells: ['業務委託基本契約書 ＋ 発注書', '1年（自動更新）', '契約解除合意書のお申し出による'],
         },
-        // 契約条件が未決（10.2 の C12'）。行ごと消さず【要記入】のまま置く。
-        // Figma（116:13248）にはこの行に仕様書に無い値が入っているが、正本は仕様書なので採らない
-        { key: 'development-vibe', cells: ['【要記入】', '【要記入】', '【要記入】'] },
+        // 10.2 の C12' は 2026-10-14 にユーザー判断で決まった（環境構築と同じ条件）
+        {
+          key: 'development-vibe',
+          cells: ['業務委託基本契約書 ＋ 発注書', '1年（自動更新）', '契約解除合意書のお申し出による'],
+        },
         {
           key: 'development-full',
           cells: ['システム開発委託契約書 ＋ 発注書', '成果物の納品（検収終了）まで', '契約解除合意書による'],
@@ -289,12 +300,11 @@ export const PRICING_PAGE: PricingPageCopy = {
       { question: '表示価格は税込ですか？', answer: 'いいえ。表示価格はすべて税別です。' },
       {
         question: 'お支払いの方法と時期を教えてください',
-        answer: 'クレジットカードまたは銀行振込でお願いしています。お支払いは月末締め、翌月末払いです。',
+        answer: `クレジットカードまたは銀行振込でお願いしています。${PAYMENT_TIMING}`,
       },
       {
         question: '月額のプランの料金は、いつから発生しますか？',
-        answer: 'お支払いは月末締め、翌月末払いです。料金が発生し始める起点は【要記入】。',
-        marker: '要記入',
+        answer: `料金が発生し始める起点は、${BILLING_START}です。${PAYMENT_TIMING}`,
       },
       {
         question: 'クラウドの利用料は料金に含まれますか？',

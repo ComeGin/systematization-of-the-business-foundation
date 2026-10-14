@@ -1,0 +1,11 @@
+---
+// 「ソースコードを無料 DL」の CTA の動き（zip のダウンロード ＋ 無料相談へ遷移）の差し込み口。BaseLayout の <body> の末尾に置く（props なし）。
+// 実体は lib/redirect.ts。同意（Cookie）とは関係なく動かす（計測ではないため）。
+---
+
+<script>
+  import { SOURCE_ZIP_URL } from '@/modules/site-content/nav';
+  import { installSourceDlRedirect } from '../lib/redirect';
+
+  installSourceDlRedirect(SOURCE_ZIP_URL);
+</script>

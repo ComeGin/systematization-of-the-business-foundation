@@ -29,13 +29,13 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { SourceDownloadBlock } from '@/modules/forms';
 import { AnnouncementBanner, BaseLayout } from '@/modules/layout';
+import { Photo } from '@/modules/media';
 import {
   BrokenHeading,
   CTABanner,
   CTAButton,
   FAQItem,
   IconCard,
-  ImagePlaceholder,
   LogoCloud,
   Section,
   SectionHeading,
@@ -112,7 +112,14 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
           {hero.body.map((sentence) => <p>{sentence}</p>)}
         </div>
       </div>
-      <ImagePlaceholder label={hero.imagePlaceholder} class="aspect-[4/3] w-full md:col-start-2 md:row-span-2 md:row-start-1 md:self-center" />
+      {/* ヒーローの写真（4:3）。LCP になりうるので先に読む */}
+      <Photo
+        photo={hero.photo}
+        sizes="(min-width: 768px) 480px, 100vw"
+        loading="eager"
+        fetchpriority="high"
+        class="aspect-[4/3] w-full md:col-start-2 md:row-span-2 md:row-start-1 md:self-center"
+      />
       <div class="flex flex-col items-start gap-4 md:self-start">
         <div class="flex w-full flex-col gap-4 md:w-auto md:flex-row md:items-center">
           <CTAButton ctaId={hero.primaryCta.ctaId} href={hrefOf(hero.primaryCta)} size="lg" fullWidth="mobile">

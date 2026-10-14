@@ -4,6 +4,7 @@
 
 import { link, type RichText } from "@/modules/legal";
 import type { BreakableHeading } from "@/modules/marketing-ui";
+import type { PhotoKey } from "@/modules/media";
 
 // 改行位置の指定がある見出しの型（H-19）の正本は marketing-ui。top.ts がここから import しているので再エクスポートする
 export type { BreakableHeading, LineBreakAt } from "@/modules/marketing-ui";
@@ -56,14 +57,14 @@ export const about = {
     // 本文の下、引用の体裁。小見出しは Small・role/text-brand
     mission: {
       label: "ミッション",
-      quote: "社内に IT がいなくても、1人分の予算で業務を変える。",
+      quote: "社内に IT 人材がいなくても、1人分の予算で業務を変える。",
       notes: [
         "業務改善の仕事で積んだ実績と収益を、福祉・介護・教育の事業者さまとの業務提携に注ぎます。",
         "工賃は事業所の収益から支払われます。だから、先に事業所の収益力を上げます。",
       ],
     },
-    // Desktop のみ右側。Mobile は置かない
-    imagePlaceholder: "画像（準備中）",
+    // Desktop のみ右側。Mobile は置かない。写真と alt は media モジュールの PHOTOS（2026-10-14 に画像枠から差し替え）
+    photo: "workRemoteWheelchair" satisfies PhotoKey,
   },
 
   // 5-4 運営方針（CONTENT）。Desktop 2 列 ×2 段、Mobile 1 列。並びは GL の番号順（1・2・3・6）
@@ -136,20 +137,23 @@ export const about = {
       { label: "メールアドレス", value: "kamegin4@comegin.com" },
       // CTA ではないページ間のリンク（§6.3 の cta_id を持たない）。?from= はフォームの page_url に渡す（DD-02 5.3。2026-10-09 リード判断）
       { label: "お問い合わせ", value: [link("無料相談フォーム", "/contact?from=/about")] },
-      // 法人でない場合は「法人番号」の行を削除する（10.1 の U11）
-      { label: "法人番号", value: "【要記入】" },
+      // 「法人番号」の行は置かない（10.1 の U11。法人成りは未定のため。2026-10-14 ユーザー判断）
       { label: "適格請求書発行事業者の登録番号", value: "【要記入】" },
     ] satisfies readonly TableRowCopy[],
   },
 
-  // 5-7 メンバー（TRUST、ダミー）。人名・肩書きを入れない。
-  // 「Card ×2 に『画像（準備中）』と『メンバー紹介（準備中）』」は、Figma（45:2592）では 2 枚とも両方を持つ
+  // 5-7 メンバー（TRUST）。2026-10-14 にダミーの 2 枚から代表 1名のカードに差し替えた（写真はユーザーが用意したもの）。
+  // 経歴の 2 文は 5-5a・8-7 と同じ careerSentences を使う（3 か所で一字一句同じにする）
   members: {
     heading: "メンバー",
-    body: "メンバー紹介（準備中）",
+    body: "ComeGin は、代表 1名で運営しています。",
     cards: [
-      { image: "画像（準備中）", body: "メンバー紹介（準備中）" },
-      { image: "画像（準備中）", body: "メンバー紹介（準備中）" },
+      {
+        photo: "memberKamegin" satisfies PhotoKey,
+        role: "代表",
+        name: "亀谷 銀大",
+        body: [...careerSentences],
+      },
     ],
   },
 
@@ -163,7 +167,7 @@ export const about = {
 
 // 8-7 ブログ記事の著者カード（TRUST）。FDE の職種の説明は 5-5a にだけ置く
 export const author = {
-  imagePlaceholder: "画像（準備中）",
+  photo: "memberKamegin" satisfies PhotoKey,
   name: "亀谷 銀大",
   bio: ["ComeGin 代表。", ...careerSentences],
 } as const;
