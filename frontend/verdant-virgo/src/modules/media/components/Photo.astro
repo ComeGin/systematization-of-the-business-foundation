@@ -1,0 +1,40 @@
+---
+// 写真 1 枚（lib/photos.ts の PHOTOS から選ぶ）。Astro の <Image> でビルド時に WebP の srcset を作る（blog の StrapiImage と同じ作り）。
+// 大きさ・縦横比は置いた先の class で決め、写真は枠いっぱいに切り抜く（object-cover）。角丸は ImagePlaceholder と同じ 8px。
+// ヒーローの写真は LCP になりうるので loading="eager"・fetchpriority="high" を渡す。それ以外は既定の lazy。
+import { Image } from 'astro:assets';
+import { cn } from '@/lib/utils';
+import { PHOTOS, type PhotoAsset, type PhotoKey } from '../lib/photos';
+
+interface Props {
+  photo: PhotoKey;
+  /** 表示幅の目安（<img sizes>）。既定は本文幅 */
+  sizes?: string;
+  widths?: number[];
+  loading?: 'eager' | 'lazy';
+  fetchpriority?: 'high' | 'auto';
+  class?: string;
+}
+
+const {
+  photo,
+  sizes = '(min-width: 768px) 720px, 100vw',
+  widths = [360, 720, 1080, 1440],
+  loading = 'lazy',
+  fetchpriority,
+  class: className,
+} = Astro.props;
+const { src, alt, focus }: PhotoAsset = PHOTOS[photo];
+---
+
+<Image
+  src={src}
+  alt={alt}
+  sizes={sizes}
+  widths={widths.filter((w) => w <= src.width)}
+  format="webp"
+  loading={loading}
+  fetchpriority={fetchpriority}
+  class={cn('not-typeset rounded-md object-cover', className)}
+  style={focus ? `object-position: ${focus}` : undefined}
+/>

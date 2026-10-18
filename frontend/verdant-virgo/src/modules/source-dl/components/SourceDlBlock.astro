@@ -1,0 +1,61 @@
+---
+// 無料 DL ブロックの CTA 版（トップの 1-9。01-content-spec.md §4.1）。id="source-dl"。2026-10-18 にユーザーが決めた。
+// メールのフォーム（forms の SourceDownloadBlock）の代わりに「ソースコードを無料 DL」の CTA を 1 つ置く。
+// 押すと zip のダウンロードと無料相談（/contact）への遷移が同時に起きる（動きは lib/redirect.ts。cta_type が source_dl の <a> をすべて拾う）。
+// JS が動かない環境では href の zip がそのまま開く（ダウンロードだけ起きる）。
+// 見た目は SourceDownloadBlock の控えめ版と同じ枠（面は card ＋ border、影なし、見出しは H3 の大きさ、ボタンは Outline）。
+// Desktop は左に見出し・本文・GitHub のリンク、右に CTA と注記（440px 固定）。Mobile は縦積みで、ボタンは全幅。
+// 見出し・本文・ボタン・注記の文言は site-content（top.ts）から受け取る（既定値を持たない。H-16）。
+import { ExternalLink } from 'lucide-react';
+import { CTAButton } from '@/modules/marketing-ui';
+import type { CtaId } from '@/modules/site-content/cta';
+import { SOURCE_REPO_URL, SOURCE_ZIP_URL } from '@/modules/site-content/nav';
+
+interface Props {
+  ctaId: CtaId;
+  title: string;
+  /** 本文。要素ごとに行を分ける。Body 16px・role/text-muted */
+  body: readonly string[];
+  /** ボタンのラベル（「ソースコードを無料 DL」） */
+  buttonLabel: string;
+  /** ボタンの下の小さい文字（押したら何が起きるか） */
+  note: string;
+  /** GitHub のリンクの文言（CTA ではない。§6.3.1） */
+  repositoryLinkLabel: string;
+  class?: string;
+}
+
+const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, class: className } = Astro.props;
+---
+
+<section
+  id="source-dl"
+  class:list={[
+    'scroll-mt-20 rounded-xl border border-border bg-card p-6 md:grid md:grid-cols-[minmax(0,1fr)_440px] md:items-center md:gap-12 md:p-12',
+    className,
+  ]}
+>
+  <div class="grid content-start gap-3">
+    <h2 class="phrase text-xl leading-normal font-bold text-text-heading md:text-2xl">{title}</h2>
+    <p class="phrase text-base leading-[1.75] text-muted-foreground">{body.map((line) => <span class="block">{line}</span>)}</p>
+    {
+      SOURCE_REPO_URL && (
+        <a
+          href={SOURCE_REPO_URL}
+          target="_blank"
+          rel="noopener"
+          class="inline-flex w-fit items-center gap-1.5 py-1.5 text-sm leading-5 font-medium text-text-link underline hover:text-text-link-hover"
+        >
+          {repositoryLinkLabel}
+          <ExternalLink aria-hidden="true" className="size-4" />
+        </a>
+      )
+    }
+  </div>
+  <div class="mt-6 grid gap-3 md:mt-0">
+    <CTAButton ctaId={ctaId} href={SOURCE_ZIP_URL} variant="outline" size="lg" fullWidth icon="download">
+      {buttonLabel}
+    </CTAButton>
+    <p class="phrase type-small text-text-muted">{note}</p>
+  </div>
+</section>

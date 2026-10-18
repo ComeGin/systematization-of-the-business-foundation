@@ -1,12 +1,12 @@
 ---
 // 画面 3 サービス詳細（/services/<slug>）。01-content-spec.md §4.3（受託開発）・§4.3+（環境構築・コンサル・業務提携）。
 // Figma は受託開発だけ（Service detail / Desktop 1440〈46:9432〉・Mobile 390〈47:8950〉）。残り 3 件は同じ型に §4.3+ の文言を入れる。
-// 枠: パンくず → 導入ヒーロー → プラン → こんな方に → 進め方 →（環境構築だけ 無料 DL ブロック）→ よくある質問 → 関連記事 → CTA バナー。
+// 枠: パンくず → 導入ヒーロー（写真つき）→（業務提携だけ 写真の並び）→ プラン → こんな方に → 進め方 → よくある質問 → 関連記事 → CTA バナー。
 // 短い文が並ぶセクションには phrase（文節で折り返す）を付ける（H-18。トップと同じ）。
 import { Check } from 'lucide-react';
 import { BLOG_CATEGORIES } from '@/modules/blog';
-import { SourceDownloadBlock } from '@/modules/forms';
 import { BaseLayout, PageIntro } from '@/modules/layout';
+import { Photo } from '@/modules/media';
 import {
   BlogCard,
   CTABanner,
@@ -25,8 +25,6 @@ import {
   ctaHref,
   SERVICE_DETAILS,
   SERVICE_ORDER,
-  SOURCE_DL_NEUTRAL,
-  SOURCE_DL_NEUTRAL_KEEP_TOGETHER,
   type ServiceDetailCopy,
   type ServiceSlug,
 } from '@/modules/site-content/services';
@@ -46,7 +44,7 @@ const slug = Astro.params.slug as ServiceSlug;
 const detail: ServiceDetailCopy = SERVICE_DETAILS[slug];
 const seo = SEO_BY_SLUG[slug];
 const from = Astro.url.pathname;
-const { h1, breadcrumb, hero, plans, fit, steps, sourceDl, faq, related, banner } = detail;
+const { h1, breadcrumb, hero, gallery, plans, fit, steps, faq, related, banner } = detail;
 
 const categoryLabel = (intent: (typeof related.cardIntents)[number]) => {
   const category = BLOG_CATEGORIES.find((c) => c.intent === intent);
@@ -58,7 +56,7 @@ const categoryLabel = (intent: (typeof related.cardIntents)[number]) => {
 const splitByService = plans.cards.length > 1;
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} sourceDlOnPage={sourceDl !== null}>
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)}>
   {/* 導入ヒーロー（Badge・h1・本文・主 CTA） */}
   <PageIntro title={h1} badge={hero.badge}>
     <div slot="body" class="type-body-lg phrase max-w-[720px] text-text-muted">
@@ -67,9 +65,27 @@ const splitByService = plans.cards.length > 1;
     <CTAButton slot="actions" ctaId={hero.cta.ctaId} href={ctaHref(hero.cta, from)} size="lg" fullWidth="mobile">
       {hero.cta.label}
     </CTAButton>
+    <Photo slot="media" photo={hero.photo} sizes="(min-width: 768px) 480px, 100vw" loading="eager" fetchpriority="high" class="aspect-[4/3] w-full" />
   </PageIntro>
 
-  {/* プラン（PricingCard。カードの直下に税別の注記） */}
+  {/* 写真の並び（業務提携だけ。Desktop 3 列、Mobile 1 列） */}
+  {
+    gallery && (
+      <Section labelledby="detail-gallery" class="phrase">
+        <SectionHeading id="detail-gallery" title={gallery.heading} />
+        <ul class="mt-8 grid gap-6 md:mt-12 md:grid-cols-3">
+          {gallery.items.map((item) => (
+            <li class="flex flex-col gap-3">
+              <Photo photo={item.photo} sizes="(min-width: 768px) 360px, 100vw" widths={[360, 720, 1080]} class="aspect-[4/3] w-full" />
+              <p class="type-card-title text-text-heading">{item.label}</p>
+            </li>
+          ))}
+        </ul>
+      </Section>
+    )
+  }
+
+  {/* プラン（PricingCard。カードの直下に税込の注記） */}
   <Section labelledby="detail-plans" class="phrase">
     <SectionHeading id="detail-plans" title={plans.heading} />
     {/* カードが 1 枚のページも、2 列の型の左の列に置く（Figma の 2 列のカード幅のまま） */}
@@ -142,15 +158,6 @@ const splitByService = plans.cards.length > 1;
     <SectionHeading id="detail-steps" title={steps.heading} />
     <Steps items={[...steps.items]} columns={steps.desktopLayout === '2x2' ? 2 : 3} class="mt-8 md:mt-12" />
   </Section>
-
-  {/* 無料 DL ブロック（環境構築だけ。中立版の文言。部品が id="source-dl" を持つ） */}
-  {
-    sourceDl && (
-      <Section>
-        <SourceDownloadBlock ctaId={sourceDl.ctaId} emphasis="subtle" title={SOURCE_DL_NEUTRAL.title} body={SOURCE_DL_NEUTRAL.body} keepTogether={SOURCE_DL_NEUTRAL_KEEP_TOGETHER} />
-      </Section>
-    )
-  }
 
   {/* よくある質問（最初の 1 件だけ開く） */}
   <Section labelledby="detail-faq">

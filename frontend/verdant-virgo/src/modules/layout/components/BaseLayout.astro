@@ -7,12 +7,14 @@
  * - OGP 画像は全画面共通の 1 枚（public/og.png。§7.1）。og:title・og:description は title・description と同じ
  * - canonical はクエリを外した URL（/contact?cta=… も /contact にする。§7 の注）
  * - 計測・同意・チャットは integrations の部品を body の末尾と head に置く（ページ側は何もしない）
+ * - 「ソースコードを無料 DL」の CTA の動き（zip のダウンロード ＋ 無料相談へ遷移）は source-dl の部品が body の末尾で全画面に効かせる
  * - 告知帯（トップだけ）は slot="announcement"、ページ固有の head 要素（JSON-LD など）は slot="head"
  */
 import '@/styles/global.css';
 import { AnalyticsHead, CtaTracking } from '@/modules/analytics';
 import { ChatLoader } from '@/modules/chat';
 import { ConsentBanner } from '@/modules/consent';
+import { SourceDlRedirect } from '@/modules/source-dl';
 import type { BreadcrumbItem, BreadcrumbTone, HeaderCta } from '../lib/types';
 import { HOME_CRUMB } from '../lib/types';
 import Breadcrumb from './Breadcrumb.astro';
@@ -116,5 +118,6 @@ const breadcrumbJsonLd = breadcrumb && {
     <ConsentBanner />
     <ChatLoader />
     <CtaTracking />
+    <SourceDlRedirect />
   </body>
 </html>

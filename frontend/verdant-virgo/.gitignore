@@ -26,3 +26,7 @@ pnpm-debug.log*
 # lighthouse ci reports
 .lighthouse/
 .lighthouseci/
+
+# 画像の原本（数十 MB の PNG）。配信しないので public/ の外に置き、追跡しない。
+# サイトで使う縮小版は src/modules/media/assets にある
+assets-original/

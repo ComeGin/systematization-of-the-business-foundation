@@ -5,7 +5,9 @@
 // 短い文が並ぶセクションには phrase（文節で折り返す）を付ける。Figma が U+2028 で避けている語中・数字と単位の間の改行を CSS で避ける（H-18）。
 // 長い回答文が続く FAQ には付けない。
 import {
+  Accessibility,
   Coins,
+  DoorOpen,
   FileText,
   Gift,
   Handshake,
@@ -14,6 +16,7 @@ import {
   Repeat,
   Ruler,
   Scale,
+  Smartphone,
   Target,
   Unplug,
   UserRound,
@@ -24,15 +27,15 @@ import {
 import { ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import { SourceDownloadBlock } from '@/modules/forms';
+import { SourceDlBlock } from '@/modules/source-dl';
 import { AnnouncementBanner, BaseLayout } from '@/modules/layout';
+import { Photo } from '@/modules/media';
 import {
   BrokenHeading,
   CTABanner,
   CTAButton,
   FAQItem,
   IconCard,
-  ImagePlaceholder,
   LogoCloud,
   Section,
   SectionHeading,
@@ -67,6 +70,9 @@ const ICONS: Record<string, LucideIcon> = {
   'key-round': KeyRound,
   target: Target,
   handshake: Handshake,
+  'door-open': DoorOpen,
+  smartphone: Smartphone,
+  accessibility: Accessibility,
 };
 const iconOf = (name: string) => {
   const icon = ICONS[name];
@@ -77,7 +83,7 @@ const iconOf = (name: string) => {
 // 1-7 のサービスカード。金額・期間・備考は §2（pricing.ts）から引く
 const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], ...serviceCardPrices(SERVICE_CARDS[slug]) }));
 
-const { announcement, hero, philosophy, problems, promises, loop, tools, services, cases, sourceDl, faq, banner } = TOP;
+const { announcement, hero, philosophy, problems, promises, experience, loop, tools, services, cases, sourceDl, faq, banner } = TOP;
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} sourceDlOnPage>
@@ -106,7 +112,14 @@ const { announcement, hero, philosophy, problems, promises, loop, tools, service
           {hero.body.map((sentence) => <p>{sentence}</p>)}
         </div>
       </div>
-      <ImagePlaceholder label={hero.imagePlaceholder} class="aspect-[4/3] w-full md:col-start-2 md:row-span-2 md:row-start-1 md:self-center" />
+      {/* ヒーローの写真（4:3）。LCP になりうるので先に読む */}
+      <Photo
+        photo={hero.photo}
+        sizes="(min-width: 768px) 480px, 100vw"
+        loading="eager"
+        fetchpriority="high"
+        class="aspect-[4/3] w-full md:col-start-2 md:row-span-2 md:row-start-1 md:self-center"
+      />
       <div class="flex flex-col items-start gap-4 md:self-start">
         <div class="flex w-full flex-col gap-4 md:w-auto md:flex-row md:items-center">
           <CTAButton ctaId={hero.primaryCta.ctaId} href={hrefOf(hero.primaryCta)} size="lg" fullWidth="mobile">
@@ -168,6 +181,17 @@ const { announcement, hero, philosophy, problems, promises, loop, tools, service
       }
     </div>
     <p class="type-small mt-8 md:mt-12 text-text-muted">{TAX_NOTE}</p>
+  </Section>
+
+  {/* 1-4d 体験の約束（2026-10-13 に新設。小見出しは 1-4a と同じ組み方） */}
+  <Section labelledby="top-experience" class="phrase">
+    <div class="flex flex-col gap-4">
+      <p class="type-small text-text-brand">{experience.eyebrow}</p>
+      <SectionHeading id="top-experience" title={experience.heading} lead={experience.lead} />
+    </div>
+    <div class="mt-8 md:mt-12 grid gap-4 md:gap-6 md:grid-cols-3">
+      {experience.cards.map((card) => <IconCard icon={iconOf(card.icon)} title={card.title} body={card.body} />)}
+    </div>
   </Section>
 
   {/* 1-5 仕組み */}
@@ -253,9 +277,16 @@ const { announcement, hero, philosophy, problems, promises, loop, tools, service
     </div>
   </Section>
 
-  {/* 1-9 無料 DL ブロック（控えめ版。部品が id="source-dl" を持つ） */}
+  {/* 1-9 無料 DL ブロック（控えめ版。CTA ＝ zip のダウンロード ＋ 無料相談への遷移。部品が id="source-dl" を持つ） */}
   <Section>
-    <SourceDownloadBlock ctaId={sourceDl.ctaId} emphasis="subtle" title={sourceDl.copy.title} body={sourceDl.copy.body} />
+    <SourceDlBlock
+      ctaId={sourceDl.ctaId}
+      title={sourceDl.copy.title}
+      body={sourceDl.copy.body}
+      buttonLabel={sourceDl.buttonLabel}
+      note={sourceDl.note}
+      repositoryLinkLabel={sourceDl.repositoryLinkLabel}
+    />
   </Section>
 
   {/* 1-10 よくある質問（最初の 1 件だけ開く） */}

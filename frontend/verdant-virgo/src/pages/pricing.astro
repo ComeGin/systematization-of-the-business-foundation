@@ -1,18 +1,17 @@
 ---
 // 画面 4 料金（/pricing）。01-content-spec.md §4.4（料金の正本は §2）。Figma は Pricing / Desktop 1440（44:6574）・Mobile 390（46:486）。
-// ページは組み立てだけ。料金と文言は site-content/pricing.ts、無料 DL ブロックの文言は services.ts の中立版（2-7）から読む。
+// ページは組み立てだけ。料金と文言は site-content/pricing.ts から読む（4-7 の無料 DL ブロックは 2026-10-18 にやめた）。
 // 短い文が並ぶセクションには phrase（文節で折り返す）を付ける（H-18。トップと同じ）。
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { SourceDownloadBlock } from '@/modules/forms';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { CTABanner, CTAButton, FAQItem, IconCard, PricingCard, Section, SectionHeading } from '@/modules/marketing-ui';
 import { PRICING, PRICING_DESCRIPTIONS, PRICING_PAGE, PRICING_ROWS, TAX_NOTE } from '@/modules/site-content/pricing';
 import { SEO } from '@/modules/site-content/seo';
-import { ctaHref, SOURCE_DL_NEUTRAL, SOURCE_DL_NEUTRAL_KEEP_TOGETHER, type CtaCopy } from '@/modules/site-content/services';
+import { ctaHref, type CtaCopy } from '@/modules/site-content/services';
 
 const seo = SEO.pricing;
 const from = Astro.url.pathname;
-const { h1, breadcrumb, intro, cards, table, paymentAndContract, sourceDlCtaId, faq, banner } = PRICING_PAGE;
+const { h1, breadcrumb, intro, cards, table, estimate, paymentAndContract, faq, banner } = PRICING_PAGE;
 const { payment, contract } = paymentAndContract;
 
 // 料金カード 5 枚。主ボタンは /contact?service=<プロダクト>。同じ cta_id（consult_pricing_card）を 5 枚で使うので service で内訳を分ける（§6.3）
@@ -33,7 +32,7 @@ const bodyCell = 'type-body px-2 py-2 align-middle whitespace-normal text-text-b
 const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-normal text-text-body';
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} sourceDlOnPage>
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)}>
   {/* 4-3 導入ヒーロー（ボタンなし） */}
   <PageIntro title={h1} body={intro.join('')} />
 
@@ -56,7 +55,7 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
                   {cta.label}
                 </CTAButton>
                 {item.sourceDlLink && (
-                  <CTAButton slot="sub-link" ctaId={item.sourceDlLink.ctaId} href="#source-dl" variant="link" icon="download">
+                  <CTAButton slot="sub-link" ctaId={item.sourceDlLink.ctaId} href="/#source-dl" variant="link" icon="download">
                     {item.sourceDlLink.label}
                   </CTAButton>
                 )}
@@ -97,6 +96,37 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
       </Table>
     </div>
     <p class="type-small mt-12 text-text-muted">{TAX_NOTE}</p>
+  </Section>
+
+  {/* 4-5a 見積もりの計算のしかた（2026-10-13。Mobile も 2 列の表のまま。お支払いの表と同じ組み方） */}
+  <Section labelledby="pricing-estimate" class="phrase">
+    <SectionHeading id="pricing-estimate" title={estimate.heading} lead={estimate.lead.join('')} />
+    <div class="mt-8 md:mt-12">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-border hover:bg-transparent">
+            <TableHead className={`${headCell} w-[152px] md:w-[320px]`}>{estimate.columns[0]}</TableHead>
+            <TableHead className={headCell}>{estimate.columns[1]}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {
+            estimate.rows.map((row) => (
+              <TableRow className={bodyRow}>
+                <TableHead scope="row" className={`${paymentCell} h-auto font-normal`}>
+                  {PRICING[row.key].product}
+                </TableHead>
+                <TableCell className={paymentCell}>{row.formula}</TableCell>
+              </TableRow>
+            ))
+          }
+        </TableBody>
+      </Table>
+    </div>
+    <div class="type-body mt-6 text-text-body">
+      {estimate.example.map((line) => <p>{line}</p>)}
+    </div>
+    <p class="type-small mt-6 text-text-muted">{TAX_NOTE}</p>
   </Section>
 
   {/* 4-6 お支払いと契約について */}
@@ -167,15 +197,15 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
       }
     </ul>
 
+    {/* 契約の表の直下の箇条書き（違約金・お申し出の期限・料金の改定・解約のときにお渡しするもの） */}
+    <ul class="type-body mt-6 flex list-disc flex-col gap-2 pl-6 text-text-body">
+      {contract.notes.map((note) => <li>{note}</li>)}
+    </ul>
+
     <p class="type-small mt-8 text-text-muted md:mt-12">{TAX_NOTE}</p>
   </Section>
 
-  {/* 4-7 無料 DL ブロック（控えめ版。2-7 の中立版と同じ文言。部品が id="source-dl" を持つ） */}
-  <Section>
-    <SourceDownloadBlock ctaId={sourceDlCtaId} emphasis="subtle" title={SOURCE_DL_NEUTRAL.title} body={SOURCE_DL_NEUTRAL.body} keepTogether={SOURCE_DL_NEUTRAL_KEEP_TOGETHER} />
-  </Section>
-
-  {/* 4-8 よくある質問（最初の 1 件だけ開く。回答に【要記入】を含む Q3 は「要記入」のマーカー） */}
+  {/* 4-8 よくある質問（最初の 1 件だけ開く。回答に【要記入】を含む項目は「要記入」のマーカー） */}
   <Section labelledby="pricing-faq">
     <SectionHeading id="pricing-faq" title={faq.heading} />
     <div class="mt-8 md:mt-12">

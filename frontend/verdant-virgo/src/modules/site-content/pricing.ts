@@ -18,7 +18,7 @@ export interface PricingRow {
   readonly key: PricingKey;
   /** プロダクト名（「本プロジェクトの環境構築」は原文のまま。言い換えない） */
   readonly product: string;
-  /** 金額（税別） */
+  /** 金額（税込） */
   readonly price: string;
   readonly period: string;
   /** 備考。無い行は null（表では空欄） */
@@ -62,7 +62,7 @@ export const PRICING: Readonly<Record<PricingKey, PricingRow>> = {
     product: 'コンサル',
     price: '31,250円／回',
     period: '4時間／回',
-    note: '初回相談は無料・4回から',
+    note: '4回から',
   },
   partnership: {
     key: 'partnership',
@@ -84,8 +84,17 @@ export const PRICING_ORDER: readonly PricingKey[] = [
 
 export const PRICING_ROWS: readonly PricingRow[] = PRICING_ORDER.map((key) => PRICING[key]);
 
+/**
+ * お支払いの時期（4-6 の表・4-8 の FAQ・特商法 10-B で同じ文にする）。2026-10-14 にユーザー判断でクレジットカード払いを追加
+ */
+export const PAYMENT_TIMING =
+  '銀行振込は、月末締め、翌月末払いです。クレジットカード払いは、お申し込みの日に初回を決済し、その後は 1か月ごとに決済します。';
+
+/** 月額のプランの料金が発生し始める起点（4-8 の FAQ・特商法 10-B）。2026-10-14 にユーザー判断で決まった */
+export const BILLING_START = '契約締結日または発注日の、いずれか遅い日';
+
 /** 料金を出すすべての箇所（料金カード群・比較表・サービスカード群の直下など）に置く注記 */
-export const TAX_NOTE = '表示価格はすべて税別です。';
+export const TAX_NOTE = '表示価格はすべて税込です。';
 
 /**
  * プロダクトごとの 1 行説明（§4.4 の 4-4 の表）。
@@ -99,7 +108,7 @@ export const PRICING_DESCRIPTIONS: Readonly<Record<PricingKey, string>> = {
   'development-full':
     '定期常駐で、何を作るかの整理から、設計、開発、テスト、リリース、リリース後の運用保守までを担当します。',
   consulting:
-    'KPI の設計、検索意図に合わせた記事と CTA の設計、月次の改善会議の運営を支援します。初回のご相談は無料で、4回からお申し込みいただけます。',
+    'DX の推進を、バイブコーディングで小さく作って確かめながら進めるための伴走です。ComeGin は調査と知見をご提供し、実務はお客さまに進めていただきます。4回からお申し込みいただけます。',
   partnership:
     '福祉・介護・教育事業を行う中小企業、社会福祉法人、非営利団体の皆さまと提携します。回収の計画は個別にご相談のうえ決めます。',
 };
@@ -132,6 +141,14 @@ export interface PricingPageCopy {
   readonly table: SectionCopy & {
     readonly columns: readonly [string, string, string, string];
   };
+  /** 4-5a 見積もりの計算のしかた（2026-10-13 に追加。Desktop・Mobile とも 2 列の表） */
+  readonly estimate: SectionCopy & {
+    readonly lead: readonly string[];
+    readonly columns: readonly [string, string];
+    readonly rows: readonly { readonly key: PricingKey; readonly formula: string }[];
+    /** 表の直下の計算例。1 行目が条件、2 行目が式 */
+    readonly example: readonly [string, string];
+  };
   /** 4-6 お支払いと契約について */
   readonly paymentAndContract: SectionCopy & {
     readonly payment: {
@@ -144,10 +161,10 @@ export interface PricingPageCopy {
       /** Mobile では行ごとに Card にし、2〜4 列目の見出しをラベルとして縦積みにする */
       readonly columns: readonly [string, string, string, string];
       readonly rows: readonly { readonly key: PricingKey; readonly cells: readonly [string, string, string] }[];
+      /** 表の直下の箇条書き（創業計画書 第3項「体験の約束」1。2026-10-13 に追加） */
+      readonly notes: readonly string[];
     };
   };
-  /** 4-7 無料 DL ブロックの文言は 2-7（services.ts の SOURCE_DL_NEUTRAL）と同じ */
-  readonly sourceDlCtaId: CtaId;
   /** 4-8 よくある質問 */
   readonly faq: FaqSection;
   /** 4-9 CTA バナー */
@@ -165,7 +182,7 @@ export const PRICING_PAGE: PricingPageCopy = {
   // 4-2 パンくず
   breadcrumb: [{ label: 'ホーム', href: '/' }, { label: '料金' }],
   // 4-3
-  intro: ['すべてのサービスの金額と期間です。表示価格はすべて税別です。'],
+  intro: ['すべてのサービスの金額と期間です。表示価格はすべて税込です。'],
   // 4-4
   cards: {
     periodLabel: '期間',
@@ -205,7 +222,25 @@ export const PRICING_PAGE: PricingPageCopy = {
   // 4-5
   table: {
     heading: '料金一覧',
-    columns: ['プロダクト', '金額（税別）', '期間', '備考'],
+    columns: ['プロダクト', '金額（税込）', '期間', '備考'],
+  },
+  // 4-5a（2026-10-13。創業計画書 別紙1 第8章「料金表と見積の計算式を Web で公開し、業務棚卸しの当日に概算を示す」）
+  estimate: {
+    heading: '見積もりの計算のしかた',
+    lead: ['見積もりは、料金表の金額を次の式に当てはめて出します。', '無料の業務棚卸しの当日に、この式で費用の概算をお伝えします。'],
+    columns: ['プロダクト', '計算のしかた'],
+    rows: [
+      { key: 'environment-setup', formula: `${ENVIRONMENT_SETUP_PRICE}（定額）` },
+      { key: 'development-vibe', formula: `${PRICING['development-vibe'].price}（定額）` },
+      { key: 'development-full', formula: `${DEVELOPMENT_FULL_PRICE} × 開発の月数 ＋ ${MAINTENANCE_PRICE} × 保守の月数` },
+      { key: 'consulting', formula: `${PRICING.consulting.price} × 回数（4回から）` },
+      { key: 'partnership', formula: 'レベニューシェアによる回収計画を、個別に決めます。' },
+    ],
+    // 1-4c のカード 1 の 285万円と同じ例
+    example: [
+      '例: 受託開発を 3か月、保守を 9か月ご契約の場合',
+      `${DEVELOPMENT_FULL_PRICE} × 3か月 ＋ ${MAINTENANCE_PRICE} × 9か月 ＝ 2,850,000円`,
+    ],
   },
   // 4-6
   paymentAndContract: {
@@ -214,7 +249,7 @@ export const PRICING_PAGE: PricingPageCopy = {
       heading: 'お支払いについて',
       rows: [
         ['お支払い方法', 'クレジットカード、銀行振込'],
-        ['お支払いの時期', '月末締め、翌月末払い'],
+        ['お支払いの時期', PAYMENT_TIMING],
         ['料金以外に必要な費用', 'クラウド（サードパーティのライセンスを含む）の利用料は、お客さまのご負担です。'],
       ],
     },
@@ -227,9 +262,11 @@ export const PRICING_PAGE: PricingPageCopy = {
           key: 'environment-setup',
           cells: ['業務委託基本契約書 ＋ 発注書', '1年（自動更新）', '契約解除合意書のお申し出による'],
         },
-        // 契約条件が未決（10.2 の C12'）。行ごと消さず【要記入】のまま置く。
-        // Figma（116:13248）にはこの行に仕様書に無い値が入っているが、正本は仕様書なので採らない
-        { key: 'development-vibe', cells: ['【要記入】', '【要記入】', '【要記入】'] },
+        // 10.2 の C12' は 2026-10-14 にユーザー判断で決まった（環境構築と同じ条件）
+        {
+          key: 'development-vibe',
+          cells: ['業務委託基本契約書 ＋ 発注書', '1年（自動更新）', '契約解除合意書のお申し出による'],
+        },
         {
           key: 'development-full',
           cells: ['システム開発委託契約書 ＋ 発注書', '成果物の納品（検収終了）まで', '契約解除合意書による'],
@@ -243,23 +280,28 @@ export const PRICING_PAGE: PricingPageCopy = {
           cells: ['業務提携契約書 ＋ 発注書', '1年（自動更新）', '契約解除合意書のお申し出による'],
         },
       ],
+      // 業務提携はレベニューシェアの回収計画と結びつくため、違約金なしの対象から外した（§4.4 の 4-6。10.2 の C24）
+      notes: [
+        '環境構築、受託開発、コンサルの解約に、違約金はいただきません。業務提携は、回収の計画とあわせて個別に決めます。',
+        '解約のお申し出は、解約する月の前月末までにお願いします。',
+        'ご契約の後に料金を改定しても、締結済みのご契約には適用しません。',
+        '解約のときは、ソースコード、CSV などの標準形式のデータ、手順書、設定情報をお渡しします。',
+      ],
     },
   },
   // 4-7
-  sourceDlCtaId: 'dl_pricing_section',
   // 4-8。見出しは仕様書に無く、Figma（45:7931）の「よくある質問」を採った
   faq: {
     heading: 'よくある質問',
     items: [
-      { question: '表示価格は税込ですか？', answer: 'いいえ。表示価格はすべて税別です。' },
+      { question: '表示価格は税込ですか？', answer: 'はい。表示価格はすべて税込です。' },
       {
         question: 'お支払いの方法と時期を教えてください',
-        answer: 'クレジットカードまたは銀行振込でお願いしています。お支払いは月末締め、翌月末払いです。',
+        answer: `クレジットカードまたは銀行振込でお願いしています。${PAYMENT_TIMING}`,
       },
       {
         question: '月額のプランの料金は、いつから発生しますか？',
-        answer: 'お支払いは月末締め、翌月末払いです。料金が発生し始める起点は【要記入】。',
-        marker: '要記入',
+        answer: `料金が発生し始める起点は、${BILLING_START}です。${PAYMENT_TIMING}`,
       },
       {
         question: 'クラウドの利用料は料金に含まれますか？',

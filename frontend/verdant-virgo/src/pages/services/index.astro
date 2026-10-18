@@ -3,7 +3,6 @@
 // ページは組み立てだけ。文言は site-content/services.ts（料金は pricing.ts）、部品は layout・marketing-ui・forms から読む。
 // 短い文が並ぶセクションには phrase（文節で折り返す）を付ける（H-18。トップと同じ）。
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { SourceDownloadBlock } from '@/modules/forms';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { CTABanner, CTAButton, IconCard, Section, SectionHeading, ServiceCard, Steps } from '@/modules/marketing-ui';
 import { TAX_NOTE } from '@/modules/site-content/pricing';
@@ -14,19 +13,17 @@ import {
   SERVICE_ORDER,
   SERVICES_INDEX,
   serviceCardPrices,
-  SOURCE_DL_NEUTRAL,
-  SOURCE_DL_NEUTRAL_KEEP_TOGETHER,
 } from '@/modules/site-content/services';
 
 const seo = SEO.services;
 const from = Astro.url.pathname;
-const { h1, breadcrumb, intro, cards, chooser, flow, sourceDlCtaId, banner } = SERVICES_INDEX;
+const { h1, breadcrumb, intro, cards, chooser, flow, banner } = SERVICES_INDEX;
 
 // 2-4 のサービスカード。金額・期間・備考は §2（pricing.ts）から引く
 const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], ...serviceCardPrices(SERVICE_CARDS[slug]) }));
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} sourceDlOnPage>
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)}>
   {/* 2-3 導入ヒーロー（ボタンなし。主 CTA はページ下部に集める） */}
   <PageIntro title={h1} body={intro.join('')} />
 
@@ -45,7 +42,7 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
             detailLabel={card.detailLink.label}
           >
             {card.sourceDlLinkLabel && (
-              <CTAButton slot="sub-link" ctaId={cards.sourceDlCtaId} href="#source-dl" variant="link" icon="download">
+              <CTAButton slot="sub-link" ctaId={cards.sourceDlCtaId} href="/#source-dl" variant="link" icon="download">
                 {card.sourceDlLinkLabel}
               </CTAButton>
             )}
@@ -99,11 +96,6 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
   <Section labelledby="services-flow" class="phrase">
     <SectionHeading id="services-flow" title={flow.heading} />
     <Steps items={[...flow.items]} columns={3} class="mt-8 md:mt-12" />
-  </Section>
-
-  {/* 2-7 無料 DL ブロック（控えめ版。中立版の文言。部品が id="source-dl" を持つ） */}
-  <Section>
-    <SourceDownloadBlock ctaId={sourceDlCtaId} emphasis="subtle" title={SOURCE_DL_NEUTRAL.title} body={SOURCE_DL_NEUTRAL.body} keepTogether={SOURCE_DL_NEUTRAL_KEEP_TOGETHER} />
   </Section>
 
   {/* 2-8 CTA バナー（主 CTA） */}

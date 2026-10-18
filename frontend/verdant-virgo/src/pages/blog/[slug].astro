@@ -20,6 +20,7 @@ import {
 import { BaseLayout } from '@/modules/layout';
 import { LegalToc } from '@/modules/legal';
 import { CTABanner, CTAButton, IconCard, ImagePlaceholder, Section, SectionHeading } from '@/modules/marketing-ui';
+import { Photo } from '@/modules/media';
 import { Badge } from '@/components/ui/badge';
 import { author } from '@/modules/site-content/about';
 import { blogArticle } from '@/modules/site-content/blog';
@@ -106,7 +107,9 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
       </ArticleBlocks>
 
       {/* 8-7 著者（5-5a と一字一句そろえた紹介文。about.ts の author） */}
-      <IconCard avatar title={author.name} body={author.bio.join('')} />
+      <IconCard avatar title={author.name} body={author.bio.join('')}>
+        <Photo slot="avatar" photo={author.photo} sizes="96px" widths={[96, 192]} class="size-full" />
+      </IconCard>
     </article>
 
     {/* 8-4 目次（Desktop は本文の右。スクロールに追従） */}

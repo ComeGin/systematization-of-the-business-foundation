@@ -6,7 +6,8 @@ import { FileCheck, Footprints, LockOpen, MessagesSquare, type LucideIcon } from
 import { Badge } from '@/components/ui/badge';
 import { isLink, RichTextView, toInlines, type RichText } from '@/modules/legal';
 import { BaseLayout, PageIntro } from '@/modules/layout';
-import { CTABanner, CTAButton, IconCard, ImagePlaceholder, KeepTogether, Section, SectionHeading } from '@/modules/marketing-ui';
+import { CTABanner, CTAButton, IconCard, KeepTogether, Section, SectionHeading } from '@/modules/marketing-ui';
+import { Photo } from '@/modules/media';
 import { about } from '@/modules/site-content/about';
 import { contactHref } from '@/modules/site-content/cta';
 import { SEO } from '@/modules/site-content/seo';
@@ -39,7 +40,7 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
   {/* 5-3 導入ヒーロー。h1 はビジョン（Desktop 2 行・Mobile 4 行。H-19）。画像枠は Desktop だけ */}
   <PageIntro title={hero.h1} badge={hero.badge}>
     <p slot="body" class="type-body-lg phrase max-w-[720px] text-text-muted">{hero.body.join('')}</p>
-    <ImagePlaceholder slot="media" label={hero.imagePlaceholder} class="hidden h-[360px] w-full md:flex" />
+    <Photo slot="media" photo={hero.photo} sizes="480px" widths={[480, 960]} loading="eager" class="hidden h-[360px] w-full md:block" />
   </PageIntro>
 
   {/* 5-3 の続き: ミッション（引用の体裁）と、ビジョンへつなぐ補足 2 文。地はヒーローと同じ */}
@@ -111,11 +112,22 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
     </table>
   </Section>
 
-  {/* 5-7 メンバー（ダミー。人名・肩書きを入れない） */}
+  {/* 5-7 メンバー（代表 1名。Desktop は写真左・紹介文右、Mobile は縦積み） */}
   <Section labelledby="about-members" class="phrase">
     <SectionHeading id="about-members" title={members.heading} lead={members.body} />
-    <div class="mt-8 grid gap-4 md:grid-cols-2 md:gap-8">
-      {members.cards.map((card) => <IconCard image title={card.body} />)}
+    <div class="mt-8 grid gap-4 md:gap-8">
+      {
+        members.cards.map((card) => (
+          <article class="not-typeset grid gap-6 rounded-md border border-border bg-surface p-6 md:grid-cols-[240px_minmax(0,1fr)] md:items-center md:gap-8 md:p-8">
+            <Photo photo={card.photo} sizes="(min-width: 768px) 240px, 100vw" widths={[240, 480, 720]} class="aspect-[3/4] w-full max-w-[320px] md:max-w-none" />
+            <div class="flex flex-col gap-3">
+              <p class="type-small text-text-brand">{card.role}</p>
+              <h3 class="type-card-title text-text-heading">{card.name}</h3>
+              <p class="type-body text-text-muted">{card.body.join('')}</p>
+            </div>
+          </article>
+        ))
+      }
     </div>
   </Section>
 
