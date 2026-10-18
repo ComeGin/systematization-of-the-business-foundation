@@ -18,7 +18,7 @@ export interface PricingRow {
   readonly key: PricingKey;
   /** プロダクト名（「本プロジェクトの環境構築」は原文のまま。言い換えない） */
   readonly product: string;
-  /** 金額（税別） */
+  /** 金額（税込） */
   readonly price: string;
   readonly period: string;
   /** 備考。無い行は null（表では空欄） */
@@ -94,7 +94,7 @@ export const PAYMENT_TIMING =
 export const BILLING_START = '契約締結日または発注日の、いずれか遅い日';
 
 /** 料金を出すすべての箇所（料金カード群・比較表・サービスカード群の直下など）に置く注記 */
-export const TAX_NOTE = '表示価格はすべて税別です。';
+export const TAX_NOTE = '表示価格はすべて税込です。';
 
 /**
  * プロダクトごとの 1 行説明（§4.4 の 4-4 の表）。
@@ -108,7 +108,7 @@ export const PRICING_DESCRIPTIONS: Readonly<Record<PricingKey, string>> = {
   'development-full':
     '定期常駐で、何を作るかの整理から、設計、開発、テスト、リリース、リリース後の運用保守までを担当します。',
   consulting:
-    'DX の推進を、バイブコーディングで小さく作って確かめながら進めます。業務の棚卸しから試作、検証、社内への定着までを伴走します。4回からお申し込みいただけます。',
+    'DX の推進を、バイブコーディングで小さく作って確かめながら進めるための伴走です。ComeGin は調査と知見をご提供し、実務はお客さまに進めていただきます。4回からお申し込みいただけます。',
   partnership:
     '福祉・介護・教育事業を行う中小企業、社会福祉法人、非営利団体の皆さまと提携します。回収の計画は個別にご相談のうえ決めます。',
 };
@@ -165,8 +165,6 @@ export interface PricingPageCopy {
       readonly notes: readonly string[];
     };
   };
-  /** 4-7 無料 DL ブロックの文言は 2-7（services.ts の SOURCE_DL_NEUTRAL）と同じ */
-  readonly sourceDlCtaId: CtaId;
   /** 4-8 よくある質問 */
   readonly faq: FaqSection;
   /** 4-9 CTA バナー */
@@ -184,7 +182,7 @@ export const PRICING_PAGE: PricingPageCopy = {
   // 4-2 パンくず
   breadcrumb: [{ label: 'ホーム', href: '/' }, { label: '料金' }],
   // 4-3
-  intro: ['すべてのサービスの金額と期間です。表示価格はすべて税別です。'],
+  intro: ['すべてのサービスの金額と期間です。表示価格はすべて税込です。'],
   // 4-4
   cards: {
     periodLabel: '期間',
@@ -224,7 +222,7 @@ export const PRICING_PAGE: PricingPageCopy = {
   // 4-5
   table: {
     heading: '料金一覧',
-    columns: ['プロダクト', '金額（税別）', '期間', '備考'],
+    columns: ['プロダクト', '金額（税込）', '期間', '備考'],
   },
   // 4-5a（2026-10-13。創業計画書 別紙1 第8章「料金表と見積の計算式を Web で公開し、業務棚卸しの当日に概算を示す」）
   estimate: {
@@ -292,12 +290,11 @@ export const PRICING_PAGE: PricingPageCopy = {
     },
   },
   // 4-7
-  sourceDlCtaId: 'dl_pricing_section',
   // 4-8。見出しは仕様書に無く、Figma（45:7931）の「よくある質問」を採った
   faq: {
     heading: 'よくある質問',
     items: [
-      { question: '表示価格は税込ですか？', answer: 'いいえ。表示価格はすべて税別です。' },
+      { question: '表示価格は税込ですか？', answer: 'はい。表示価格はすべて税込です。' },
       {
         question: 'お支払いの方法と時期を教えてください',
         answer: `クレジットカードまたは銀行振込でお願いしています。${PAYMENT_TIMING}`,

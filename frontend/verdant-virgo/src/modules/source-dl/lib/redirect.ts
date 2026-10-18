@@ -5,15 +5,15 @@
 // - 別のタブにするのは、同じタブでダウンロードを始めてすぐ /contact へ移ると、ダウンロードが取り消されることがあるため
 // - /contact と /contact/thanks では 2 をしない（すでに無料相談の画面にいる）
 // - 押した印（cta_clicked）は analytics が capture の段階で sendBeacon で送るので、ここで遷移しても途切れない
-// - JS が動かない環境では <a> の href のまま（同じページか、トップの #source-dl〈手順書を受け取るフォーム〉）へ移る
+// - JS が動かない環境では <a> の href のまま（同じページか、トップの #source-dl〈SourceDlBlock。そのボタンの href は zip〉）へ移る
 // - 修飾キー付き・中ボタンのクリックはブラウザに任せる（新しいタブで #source-dl を開くなど）
 import { contactHref, isCtaId } from "@/modules/site-content/cta";
 
 const SELECTOR = 'a[data-cta-type="source_dl"]';
 
 /**
- * cta_type は source_dl でも、ラベルが「手順書を受け取る」もの（メール登録のフォーム #source-dl へ移るのが正しい）。
- * 1-1 告知バナーの「受け取る」と、8-6 記事中 CTA の「構築の手順書を受け取る」
+ * cta_type は source_dl でも、ページの中の #source-dl へ移るだけのもの（ダウンロードはしない）。
+ * 1-1 告知バナーの「受け取る」（トップの 1-9 へ移る）と、8-6 記事中 CTA の「構築の手順書を受け取る」（記事末のメール登録のフォームへ移る）
  */
 const MANUAL_CTA_IDS: ReadonlySet<string> = new Set([
   "dl_top_banner",

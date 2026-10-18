@@ -24,7 +24,8 @@ import { contactHref, type CtaId, type ServiceInterest } from './cta';
 /** CTA の行き先。/contact へのリンクの ?cta=・?from= はページ側で contactHref() が付ける */
 export type CtaTarget =
   | { readonly type: 'contact'; readonly service?: ServiceInterest }
-  | { readonly type: 'anchor'; readonly hash: '#source-dl' };
+  // '/#source-dl' はトップの無料 DL ブロック。ページの中にブロックが無い画面で使う（JS が動けば source-dl の動きになる）
+  | { readonly type: 'anchor'; readonly hash: '#source-dl' | '/#source-dl' };
 
 export interface CtaCopy {
   readonly label: string;
@@ -91,27 +92,12 @@ const CONSULT_LABEL = '無料で相談する';
 const SOURCE_DL_LABEL = 'ソースコードを無料 DL';
 
 // ---------------------------------------------------------------------------
-// 無料 DL ブロック（共通の部分）
+// 無料 DL ブロック
 // ---------------------------------------------------------------------------
 
-// 無料 DL ブロックのボタン・注記・フォーム・GitHub のリンクの文言は、部品（forms の SourceDownloadBlock）が持つ。
-// ここに置くのはページごとに変わる見出しと本文だけ。
-
-/**
- * 中立版の本文で、語の途中で折り返さない語（Q2 の指摘。Mobile で「立ち上げたい方｜へ。」と切れたため）。文言は変えない
- */
-export const SOURCE_DL_NEUTRAL_KEEP_TOGETHER: readonly string[] = ['方へ。'];
-
-/**
- * 2-7 無料 DL ブロック（中立版）。中立版の文言の正本はここ。
- * 料金（4-7）と環境構築の詳細ページ（§4.3.1）もこれを使う。トップ（1-9）は top.ts に別の文言がある。
- */
-export const SOURCE_DL_NEUTRAL: SourceDlCopy = {
-  title: '環境構築のソースコードを無料で公開しています',
-  body: [
-    `この基盤をご自身の手で立ち上げたい方へ。構築の手順書を、メールアドレスだけでお渡しします。構築を任せたい場合は、環境構築サービス（${ENVIRONMENT_SETUP_PRICE}・${ENVIRONMENT_SETUP_PERIOD}、税別）もご利用いただけます。`,
-  ],
-};
+// 無料 DL ブロック（forms の SourceDownloadBlock）はトップ（1-9。文言は top.ts）とブログ（7-5・8-8。blog.ts）だけに置く。
+// 2026-10-18 にユーザー判断で、サービス一覧（2-7）・料金（4-7）・環境構築の詳細に置いていた中立版をやめた。
+// 「ソースコードを無料 DL」の CTA が zip のダウンロードと無料相談への遷移になり、無料相談と役目が重なるため。主 CTA は無料相談。
 
 // ---------------------------------------------------------------------------
 // サービスカード（一覧 2-4・トップ 1-7 で共有）
@@ -137,7 +123,7 @@ export interface ServiceCardCopy {
   /** ボタン「詳しく見る」（Link、Lucide / arrow-right）→ /services/<slug>。CTA ではない */
   readonly detailLink: LinkCopy;
   /**
-   * 追加リンク（副）「ソースコードを無料 DL」（Link、Lucide / download）→ #source-dl。
+   * 追加リンク（副）「ソースコードを無料 DL」（Link、Lucide / download）→ #source-dl（一覧はブロックが無いのでトップの /#source-dl）。
    * cta_id は置く画面ごとに違う（トップ dl_top_card、一覧 dl_services_card）ので、ページ側で渡す
    */
   readonly sourceDlLinkLabel: string | null;
@@ -238,8 +224,6 @@ export const SERVICES_INDEX = {
       { title: '実施と振り返り', body: '実施後に結果を一緒に確かめ、次の改善につなげます。' },
     ],
   } satisfies StepsSection,
-  // 2-7 無料 DL ブロック（控えめ版。文言は SOURCE_DL_NEUTRAL）
-  sourceDlCtaId: 'dl_services_section' satisfies CtaId,
   // 2-8 CTA バナー
   banner: {
     title: 'どのサービスが合うか、一緒に考えます',
@@ -250,8 +234,8 @@ export const SERVICES_INDEX = {
 
 // ---------------------------------------------------------------------------
 // 画面 3 サービス詳細（/services/<slug>）。§4.3・§4.3+
-// 枠: パンくず → 導入ヒーロー → プラン → こんな方に → 進め方 →（環境構築だけ 無料 DL ブロック）
-//     → よくある質問 → 関連記事 → CTA バナー
+// 枠: パンくず → 導入ヒーロー → プラン → こんな方に → 進め方
+//     → よくある質問 → 関連記事 → CTA バナー（無料 DL ブロックは置かない。2026-10-18）
 // ---------------------------------------------------------------------------
 
 export interface PlanCardCopy {
@@ -295,8 +279,6 @@ export interface ServiceDetailCopy {
   /** こんな方に向いています（見出しに Badge「要確認」） */
   readonly fit: SectionCopy & { readonly groups: readonly FitGroupCopy[] };
   readonly steps: StepsSection;
-  /** 無料 DL ブロック（控えめ版。文言は SOURCE_DL_NEUTRAL）。環境構築のページだけ */
-  readonly sourceDl: { readonly ctaId: CtaId } | null;
   readonly faq: FaqSection;
   /**
    * 関連記事（BlogCard ×3。ダミーの中身は blog.ts の blogCardSample、Badge の語は blog モジュールの BLOG_CATEGORIES の label）。
@@ -352,7 +334,7 @@ const ENVIRONMENT_SETUP_DETAIL: ServiceDetailCopy = {
         sourceDlLink: {
           label: SOURCE_DL_LABEL,
           ctaId: 'dl_environment_setup_card',
-          target: { type: 'anchor', hash: '#source-dl' },
+          target: { type: 'anchor', hash: '/#source-dl' },
         },
       },
     ],
@@ -380,7 +362,6 @@ const ENVIRONMENT_SETUP_DETAIL: ServiceDetailCopy = {
       { title: 'お引き渡し', body: '起動と停止の手順をお伝えし、運用を引き継ぎます。' },
     ],
   },
-  sourceDl: { ctaId: 'dl_environment_setup_section' },
   faq: {
     heading: FAQ_HEADING,
     items: [
@@ -510,7 +491,6 @@ const DEVELOPMENT_DETAIL: ServiceDetailCopy = {
       },
     ],
   },
-  sourceDl: null,
   // 3-7
   faq: {
     heading: FAQ_HEADING,
@@ -565,6 +545,7 @@ const DEVELOPMENT_DETAIL: ServiceDetailCopy = {
 
 // 4.3.2 コンサル（2026-10-14 に内容を差し替え。このソースコードの運用ではなく、DX 推進を主軸にする。
 // バイブコーディングなら作って確かめるまでの工数が小さく済む点を軸にする。「初回相談は無料」は無料相談と重なるので書かない）
+// 2026-10-18 にユーザー判断で役割分担を明記: ComeGin は調査と既存の知見を提供し、実務（棚卸し・判断・試作・検証・定着）はお客さまが担う
 const CONSULTING_DETAIL: ServiceDetailCopy = {
   slug: 'consulting',
   h1: 'コンサル：DX を、小さく作って確かめながら進めます',
@@ -572,8 +553,8 @@ const CONSULTING_DETAIL: ServiceDetailCopy = {
   hero: {
     badge: 'DX 推進',
     body: [
-      'DX の推進を、計画書づくりで終わらせないための伴走です。AI コーディングエージェントと対話しながら作るバイブコーディングなら、試作品ができるまでの工数を小さく抑えられます。',
-      '業務の棚卸しから、どの業務から置き換えるかの判断、試作と現場での検証、社内への定着までを、1回 4時間でご一緒します。',
+      'DX の推進を、計画書づくりで終わらせないための伴走です。ComeGin は、業務に合うツールや進め方の調査と、バイブコーディング（AI コーディングエージェントと対話しながら作るやり方）の知見をご提供します。',
+      '業務の棚卸し、どの業務から置き換えるかの判断、試作と現場での検証、社内への定着といった実務は、お客さまに進めていただきます。1回 4時間で、調べた結果と知見をもとに、その進め方を一緒に確かめます。',
     ],
     cta: {
       label: CONSULT_LABEL,
@@ -615,23 +596,34 @@ const CONSULTING_DETAIL: ServiceDetailCopy = {
     heading: '進め方',
     desktopLayout: '3+2',
     items: [
-      { title: '業務の棚卸し', body: '業務ごとの時間と手順を数え、置き換えの候補を洗い出します。' },
-      { title: '優先順位づけ', body: '効果と手間の見込みから、最初に手を付ける業務を 1つ決めます。' },
+      {
+        title: '業務の棚卸し',
+        body: 'お客さまが業務ごとの時間と手順を数えます。ComeGin は、置き換えの候補になる事例とツールを調べてお伝えします。',
+      },
+      {
+        title: '優先順位づけ',
+        body: '効果と手間の見込みから、最初に手を付ける業務をお客さまが 1つ決めます。判断の材料は ComeGin がそろえます。',
+      },
       {
         title: '小さく試作',
-        body: 'バイブコーディングで、その業務の試作品を作ります。大きな開発を始める前に、使えるかどうかを確かめられます。',
+        body: 'お客さまがバイブコーディングで、その業務の試作品を作ります。ComeGin は、作り方とつまずきやすい点をお伝えします。',
       },
-      { title: '現場で検証', body: '試作品を現場で使っていただき、業務時間がどれだけ減るかを測ります。' },
-      { title: '定着と次の一手', body: '効果を確かめられたものを社内に定着させ、次に置き換える業務を決めます。' },
+      {
+        title: '現場で検証',
+        body: '試作品を現場で使い、業務時間がどれだけ減るかをお客さまが測ります。測り方は ComeGin がご提案します。',
+      },
+      {
+        title: '定着と次の一手',
+        body: '効果を確かめられたものをお客さまが社内に定着させ、次に置き換える業務を決めます。ComeGin は、ほかの事例をもとに助言します。',
+      },
     ],
   },
-  sourceDl: null,
   faq: {
     heading: FAQ_HEADING,
     items: [
       {
         question: '1回 4時間の使い方は決まっていますか？',
-        answer: '決まっていません。業務の棚卸し、試作、検証の振り返りなど、その時点で必要なことに充てます。配分はご相談のうえ決めます。',
+        answer: '決まっていません。調べた結果のご報告、棚卸しや試作、検証の振り返りなど、その時点で必要なことに充てます。配分はご相談のうえ決めます。',
       },
       {
         question: 'バイブコーディングとは何ですか？',
@@ -645,7 +637,7 @@ const CONSULTING_DETAIL: ServiceDetailCopy = {
       {
         question: '受託開発とは何が違いますか？',
         answer:
-          'コンサルでは、DX の進め方を決め、小さく作って確かめるところまでをご一緒します。本番で使うシステムの開発をまとめて任せたい場合は、受託開発をご利用ください。',
+          'コンサルでは、ComeGin が調査と知見をご提供し、DX の進め方の判断や試作などの実務はお客さまに進めていただきます。開発の実務を任せたい場合は、受託開発をご利用ください。',
       },
       {
         question: '契約の期間と解約を教えてください',
@@ -731,7 +723,6 @@ const PARTNERSHIP_DETAIL: ServiceDetailCopy = {
       { title: '実施と振り返り', body: '進めながら、定期的に結果を一緒に確かめます。' },
     ],
   },
-  sourceDl: null,
   faq: {
     heading: FAQ_HEADING,
     items: [

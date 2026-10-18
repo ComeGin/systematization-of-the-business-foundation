@@ -26,7 +26,7 @@ Figma でのデザインを `frontend/verdant-virgo`（Astro ＋ shadcn/ui `base
 | 画面 | 変わったこと | ファイル |
 |---|---|---|
 | トップ | **1-4d「体験の約束」を新設**（1-4c の直後。小見出し「体験のお約束」＋ h2 ＋ リード ＋ `IconCard` ×3。Desktop 3 列、Mobile 1 列）／1-10 の Q6 に「振り返りでは、費用の概算もお伝えします。」 | `site-content/top.ts`、`pages/index.astro`（アイコン `door-open`・`smartphone`・`accessibility` を対応表に追加） |
-| 料金 | **4-5a「見積もりの計算のしかた」を新設**（2 列の表 ＋ 例 2 行 ＋ 税別の注記。Mobile も表のまま）／4-6 の契約の表の下に箇条書き 4 行（違約金・お申し出の期限〈前月末まで〉・料金の改定・解約のときにお渡しするもの） | `site-content/pricing.ts`（`estimate`、`contract.notes`）、`pages/pricing.astro` |
+| 料金 | **4-5a「見積もりの計算のしかた」を新設**（2 列の表 ＋ 例 2 行 ＋ 税込の注記。Mobile も表のまま）／4-6 の契約の表の下に箇条書き 4 行（違約金・お申し出の期限〈前月末まで〉・料金の改定・解約のときにお渡しするもの） | `site-content/pricing.ts`（`estimate`、`contract.notes`）、`pages/pricing.astro` |
 | サービス詳細 | 受託開発: 3-6 の「定着」に研修、3-7 に Q5「解約するときは、どうなりますか？」・Q6「研修や手順書には、別の料金がかかりますか？」／環境構築の Q5・コンサルの Q2 に「お申し出は、解約する月の前月末までにお願いします。違約金はいただきません。料金を改定しても、締結済みのご契約には適用しません。」（業務提携は変えていない。C24） | `site-content/services.ts` |
 | 無料相談 | 業務棚卸しの「現場の観察」に LINE など使い慣れたもの・支援技術、「振り返り」に費用の概算 | `site-content/contact.ts` |
 | ブログ | 7-3 の介護の数字を令和7年度版に（72.2%「日常的に使われています」／53.8%、出典の年度） | `site-content/blog.ts` |

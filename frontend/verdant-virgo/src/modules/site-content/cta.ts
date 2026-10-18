@@ -40,7 +40,6 @@ export const CTAS = {
   consult_top_banner: consult('トップ'),
   // サービス一覧（11〜13）
   dl_services_card: dl('サービス一覧', false),
-  dl_services_section: dl('サービス一覧', true),
   consult_services_banner: consult('サービス一覧'),
   // サービス詳細・受託開発（14〜16）
   consult_development_hero: consult('受託開発'),
@@ -50,7 +49,6 @@ export const CTAS = {
   consult_environment_setup_hero: consult('環境構築'),
   consult_environment_setup_card: consult('環境構築'),
   dl_environment_setup_card: dl('環境構築', false),
-  dl_environment_setup_section: dl('環境構築', true),
   consult_environment_setup_banner: consult('環境構築'),
   // サービス詳細・コンサル（§4.3.4）
   consult_consulting_hero: consult('コンサル'),
@@ -63,7 +61,6 @@ export const CTAS = {
   // 料金（17〜20）
   consult_pricing_card: consult('料金'),
   dl_pricing_card: dl('料金', false),
-  dl_pricing_section: dl('料金', true),
   consult_pricing_banner: consult('料金'),
   // 会社概要（21）
   consult_about_banner: consult('会社概要'),

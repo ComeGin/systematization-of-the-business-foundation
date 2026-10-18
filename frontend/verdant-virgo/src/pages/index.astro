@@ -27,7 +27,7 @@ import {
 import { ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import { SourceDownloadBlock } from '@/modules/forms';
+import { SourceDlBlock } from '@/modules/source-dl';
 import { AnnouncementBanner, BaseLayout } from '@/modules/layout';
 import { Photo } from '@/modules/media';
 import {
@@ -277,9 +277,16 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
     </div>
   </Section>
 
-  {/* 1-9 無料 DL ブロック（控えめ版。部品が id="source-dl" を持つ） */}
+  {/* 1-9 無料 DL ブロック（控えめ版。CTA ＝ zip のダウンロード ＋ 無料相談への遷移。部品が id="source-dl" を持つ） */}
   <Section>
-    <SourceDownloadBlock ctaId={sourceDl.ctaId} emphasis="subtle" title={sourceDl.copy.title} body={sourceDl.copy.body} />
+    <SourceDlBlock
+      ctaId={sourceDl.ctaId}
+      title={sourceDl.copy.title}
+      body={sourceDl.copy.body}
+      buttonLabel={sourceDl.buttonLabel}
+      note={sourceDl.note}
+      repositoryLinkLabel={sourceDl.repositoryLinkLabel}
+    />
   </Section>
 
   {/* 1-10 よくある質問（最初の 1 件だけ開く） */}
