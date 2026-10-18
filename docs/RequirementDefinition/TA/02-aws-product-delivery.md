@@ -224,6 +224,25 @@ Premium の上には使用量を増やした段（$1,450 / $2,250 / $3,500 / $6,
 
 **上の見積り（$0/月）は Astro の配信だけの費用である。**（2026-10-06 の注記: ADR-21 で Strapi・n8n は ECS から外れ、オンプレに移った。固定費の増減は TA-06 の 9 節と `cloud/README.md`。）ADR-12 で Mautic・Chatwoot・Umami（**ADR-25 で廃止**）を、ADR-16 で Strapi・n8n を AWS に置くことになり、ALB・Fargate・RDS・ElastiCache・NAT Gateway・ALB 用の WAF などの固定費が別に発生する。見積りは TA-06 の 9 節で扱う（未実施）。
 
+## 8'. 非機能要件: アクセシビリティ（2026-10-18 に追加。ADR-27）
+
+製品（公開サイト `frontend/verdant-virgo`）の非機能要件のうち、アクセシビリティの要件をここに置く。**設計書にアクセシビリティの非機能要件が無かった**ため、製品の配信を扱うこのファイルに節を足した（番号は後の節の参照を動かさないため 8' にした）。基準ごとの対応と試験の方法の正本は `docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md`、動きの正本は同じディレクトリの `05-motion-spec.md`。
+
+| # | 要件 | 測り方 | 根拠 |
+|---|---|---|---|
+| NFR-A11Y-1 | **JIS X 8341-3:2016 の適合レベル AA を目標にし、自社で作る部分は 38 基準をすべて満たす。** 対応度の表記は WAIC の対応度表記ガイドラインの「一部準拠」（第三者の埋め込みに部分適合に関する記述を付けたため。2026-10-19） | 自動（axe）・手動・スクリーンリーダーの試験で、全ページが全基準を満たす | ADR-27（U-1・U-4） |
+| NFR-A11Y-2 | WCAG 2.1・2.2 の AA で増えた 18 基準も満たす（表明には含めない） | 同上 | ADR-27（U-4） |
+| NFR-A11Y-3 | **対象は全ページ**（ブログの公開済みの全記事を含む）。ページを抽出しない | `04-accessibility-spec.md` の §4.1 | ADR-27（P-1） |
+| NFR-A11Y-4 | axe（`wcag2a`・`wcag2aa`・`wcag21a`・`wcag21aa`・`wcag22aa`）の違反が全ルート × Desktop・Mobile × 状態で **0** | `pnpm a11y`（週次は builtin `a11y`。TA-05 の 7.1） | ADR-27 |
+| NFR-A11Y-5 | Lighthouse の accessibility は **1.0 を保つ**（しきい値は 0.9 のまま）。performance・best-practices は 0.9 以上、**SEO は 1.0** | `pnpm lh`（TA-05 の 7 節） | ADR-27・ADR-28 |
+| NFR-A11Y-6 | **動きは止められ、`prefers-reduced-motion: reduce` で静止し、WebGL が無くても内容が欠けない。** 1 秒に 3 回を超えて点滅しない | e2e（`requestAnimationFrame` が止まる、一時停止、WebGL なし）と目視 | ADR-28 |
+| NFR-A11Y-7 | 文字・枠・フォーカスリングのコントラストは役割トークンで保つ（文字 4.5:1、大きい文字と UI 部品 3:1） | 単体テスト（`contrastRatio()`） | ADR-27（P-3） |
+| NFR-A11Y-8 | **UI を変える公開の前に、変えたページを試験し直す**（自動・手動、人のスクリーンリーダー）。年に 1 回は全ページを試験し直し、`/accessibility/` の試験日を更新する | BA-04 の 3b、`04-accessibility-spec.md` の §6 | ADR-27 |
+| NFR-A11Y-9 | **AWS に新しいリソースを足さない**（試験の生データはローカルの `.a11y/`、公開する結果は静的なページ） | — | ADR-27（P-9） |
+
+- **配信の構成（CloudFront・S3）には影響が無い**（静的なページが 2 つ〈`/accessibility/`・`/sitemap/`〉増えるだけ）。
+- **NFR-A11Y-1 は試験の結果であって、宣言ではない。** 試験を終えるまで `/accessibility/` を公開しない。
+
 ## 9. 未決定事項
 
 - **`SITE_URL` に使うホスト名が未定。** ドメイン `comegin.com` は取得済みだが、apex（`comegin.com`）で配信するか `www` を使うかが決まっていない。**フラットレートプランは 1 プランにつき 1 apex ドメインまで**のため、ここで決めた形がプランの単位になる。`frontend/verdant-virgo/.env.example` の `SITE_URL` は `https://example.com` のままである。

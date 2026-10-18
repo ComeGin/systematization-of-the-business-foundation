@@ -48,6 +48,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 1337 | Strapi（開発環境） |
 | 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |
+| 4323 | a11y の自動検査（`pnpm a11y`。Playwright ＋ axe）が使う preview（`playwright.config.ts` で固定。builtin の `a11y` ジョブも同じ。計画は `docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`） |
 | 5432 | Chatwoot の PostgreSQL |
 | 5433 | n8n の PostgreSQL |
 | 5434 | admin-auth の開発の PostgreSQL（`127.0.0.1` だけ。admin-auth の結合テストが Lambda の入口から直接つなぐ） |

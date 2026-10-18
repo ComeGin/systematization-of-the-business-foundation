@@ -30,13 +30,18 @@ module.exports = {
   ci: {
     collect: {
       // dist/ を配信するだけ。ビルドは npm script 側 (pnpm lh) で先に済ませる。
-      startServerCommand: `pnpm exec astro preview --port ${PORT}`,
+      // Astro 7.3 の preview は AI エージェントの環境を検出すると自動でバックグラウンドに回り、
+      // ロック（.astro/preview.json）で 1 プロジェクト 1 つに制限する。LHCI が止められる前景で起動し、
+      // a11y の検査（4323）と同時に動けるよう、検出を飛ばしてロックも読み書きしない。
+      startServerCommand: `ASTRO_PREVIEW_BACKGROUND=1 pnpm exec astro preview --port ${PORT} --ignore-lock`,
       startServerReadyPattern: `localhost:${PORT}`,
       // トップ＋ブログ一覧＋代表記事 1 本（DD-05 の 2.6 の案 B）。
       // 記事の slug は Strapi の中身で変わるため固定せず、ビルド済みの dist/blog から 1 本選ぶ。
+      // 無料相談（フォームのあるページ）も測る（2026-10-18。JIS X 8341-3 の改修の計画の検証 8）。
       url: [
         `http://localhost:${PORT}/`,
         `http://localhost:${PORT}/blog/`,
+        `http://localhost:${PORT}/contact/`,
         ...firstArticlePath().map((p) => `http://localhost:${PORT}${p}`),
       ],
 

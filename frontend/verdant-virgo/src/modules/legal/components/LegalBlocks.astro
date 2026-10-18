@@ -8,9 +8,11 @@ import RichTextView from './RichTextView.astro';
 
 interface Props {
   blocks: readonly LegalBlock[];
+  /** 中の表の名前にする見出しの id（節の h2）。LegalTable の labelledBy にそのまま渡す */
+  labelledBy?: string;
 }
 
-const { blocks } = Astro.props;
+const { blocks, labelledBy } = Astro.props;
 ---
 
 {
@@ -25,7 +27,7 @@ const { blocks } = Astro.props;
       case 'list':
         return <LegalList items={block.items} />;
       case 'table':
-        return <LegalTable table={block.table} />;
+        return <LegalTable table={block.table} labelledBy={labelledBy} />;
       case 'subheading':
         return <h3 class="type-h3 text-text-heading">{block.text}</h3>;
     }

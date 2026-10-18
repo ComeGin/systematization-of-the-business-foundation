@@ -36,6 +36,7 @@
   --color-text-inverse: var(--color-role-text-inverse);
   --color-text-link: var(--color-role-text-link);
   --color-text-link-hover: var(--color-role-text-link-hover);
+  --color-text-link-on-subtle: var(--color-role-text-link-on-subtle);
   --color-text-brand: var(--color-role-text-brand);
   --color-text-accent-subtle: var(--color-role-text-accent-subtle);
   --color-surface: var(--color-role-surface);
@@ -46,7 +47,9 @@
   --color-surface-accent-subtle: var(--color-role-surface-accent-subtle);
   --color-border-strong: var(--color-role-border-strong);
   --color-border-brand: var(--color-role-border-brand);
+  --color-border-input: var(--color-role-border-input);
   --color-focus-ring: var(--color-role-focus-ring);
+  --color-ring-on-dark: var(--color-role-focus-ring-on-dark);
   --color-success: var(--color-semantic-success);
   --color-warning: var(--color-semantic-warning);
   --color-danger: var(--color-semantic-danger);
@@ -266,6 +269,22 @@
   button {
     word-break: auto-phrase;
   }
+  /*
+   * 幅 360px 未満（320px のリフロー。WCAG 1.4.10）だけ、文節やメールアドレスが 1 行に収まらないときに途中で折り返す。
+   * 前回の計画（2026-10-09 の P-3）の「anywhere を当てない」を、この幅に限って覆す（2026-10-18）。
+   * 全幅に当てると、表の列幅（min-content）が縮んで Desktop・390px でも列と改行が変わる（/legal/privacy・/accessibility・/pricing で実測）。
+   * 360px 以上では anywhere が無くてもはみ出さないことを、主なページで確かめた。
+   */
+  @media (width < 22.5rem) {
+    h1,
+    h2,
+    h3,
+    h4,
+    th,
+    td {
+      overflow-wrap: anywhere;
+    }
+  }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
@@ -289,6 +308,63 @@
 [aria-invalid="true"] {
   outline-color: var(--color-semantic-danger);
 }
+/* 暗い地（navy.700）の面の中は白いリング（blue.500 は 2.91:1。P-3）。面に data-surface="dark" を付ける（CTABanner・Section） */
+[data-surface="dark"],
+[data-surface="dark"] * {
+  outline-color: var(--color-role-focus-ring-on-dark);
+}
 :focus-visible {
   outline-style: solid;
+}
+/* スキップリンクで移る先（tabindex="-1"）。操作する部品ではないので、本文全体を囲む枠は出さない */
+#main:focus-visible {
+  outline-style: none;
+}
+
+/*
+ * Cookie バナー（下端に固定）の表示中は、フォーカスした要素がバナーに隠れないよう下に余白を取る（WCAG 2.2 の 2.4.11）。
+ * 高さは consent モジュールが --consent-banner-height に出す。出ていなければ 20rem（Mobile の全幅のパネルの高さの目安）。
+ * scroll-padding だけでは、ページの末尾（フッターの最後のリンク）はそれ以上スクロールできずに隠れたままになる。
+ * そのため body の下にも同じ高さの余白を足し、末尾までバナーの上へ出せるようにする。
+ * 余白の地は html の role/surface（白）で、フッターの地と同じなので境目は見えない。バナーを閉じると :has が外れて余白も消える。
+ */
+html:has(#cookie-banner:not([hidden])) {
+  scroll-padding-bottom: calc(var(--consent-banner-height, 20rem) + 1rem);
+}
+html:has(#cookie-banner:not([hidden])) body {
+  padding-bottom: calc(var(--consent-banner-height, 20rem) + 1rem);
+}
+
+/*
+ * ページ遷移（同じオリジンの移動）を CSS の View Transitions でつなぐ（計画書の「迷わず進む」）。
+ * ヘッダーは view-transition-name: site-header で、ナビの現在地の形が次のページへ続く。対応していないブラウザは通常の遷移。
+ */
+@view-transition {
+  navigation: auto;
+}
+
+/*
+ * 動きを減らす設定（計画書 P-5）。transition・animation を実質 0 にし、スムーズスクロールとページ遷移の動きもやめる。
+ * JS で動かすもの（WebGL・gsap など）は a11y モジュールの prefersReducedMotion／useReducedMotion で静止させる（P-6）。
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-micro: 0.01ms;
+    --motion-duration-small: 0.01ms;
+    --motion-duration-medium: 0.01ms;
+    --motion-duration-large: 0.01ms;
+  }
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

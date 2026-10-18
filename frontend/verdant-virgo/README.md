@@ -7,15 +7,17 @@ ComeGin の公開サイト。Astro 7 の静的出力（SSG）で、CloudFront �
 
 ## コマンド
 
-| コマンド           | 内容                                                                                                                                |
-| :----------------- | :---------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install`     | 依存を入れる                                                                                                                        |
-| `pnpm dev`         | dev サーバー（`localhost:4321`）。エージェントは `astro dev --background` で起動する（`AGENTS.md`）                                 |
-| `pnpm build`       | `./dist/` に静的出力。`SITE_URL` が未設定なら止まる。Strapi に届かない・記事が 0 件・`dist` に Strapi／S3 の URL が残る場合も止まる |
-| `pnpm preview`     | ビルド結果を配信して確かめる                                                                                                        |
-| `pnpm astro check` | 型の検査                                                                                                                            |
-| `pnpm lh`          | ビルドして Lighthouse CI（トップ・`/blog/`・記事 1 本を 3 回ずつ。performance／accessibility／best-practices 0.9、SEO 1.0）         |
-| `pnpm lh:report`   | 直近の Lighthouse のレポートを開く                                                                                                  |
+| コマンド           | 内容                                                                                                                                                                                                                    |
+| :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install`     | 依存を入れる                                                                                                                                                                                                            |
+| `pnpm dev`         | dev サーバー（`localhost:4321`）。エージェントは `astro dev --background` で起動する（`AGENTS.md`）                                                                                                                     |
+| `pnpm build`       | `./dist/` に静的出力。`SITE_URL` が未設定なら止まる。Strapi に届かない・記事が 0 件・`dist` に Strapi／S3 の URL が残る場合も止まる                                                                                     |
+| `pnpm preview`     | ビルド結果を配信して確かめる                                                                                                                                                                                            |
+| `pnpm astro check` | 型の検査                                                                                                                                                                                                                |
+| `pnpm lh`          | ビルドして Lighthouse CI（トップ・`/blog/`・`/contact/`・記事 1 本を 5 回ずつ。performance／accessibility／best-practices 0.9、SEO 1.0）                                                                                |
+| `pnpm lh:report`   | 直近の Lighthouse のレポートを開く                                                                                                                                                                                      |
+| `pnpm a11y`        | ビルド済みの `dist` を preview（`localhost:4323`）で配信し、Playwright ＋ axe で全ルートを Desktop・Mobile で検査する（WCAG 2.0〜2.2 の A・AA のタグ）。結果は `./.a11y/`（`summary.json`・`results.json`。追跡しない） |
+| `pnpm a11y:ci`     | ビルドしてから `pnpm a11y`。control-plane の builtin `a11y` ジョブが使う（Lighthouse とは別に走らせるため）                                                                                                             |
 
 ## ディレクトリ
 
@@ -27,7 +29,8 @@ src/
 │   ├── pricing.astro・about.astro・404.astro
 │   ├── contact/           無料相談・完了（thanks）
 │   ├── blog/              一覧・ページ送り・カテゴリ別・記事（[slug].astro）
-│   └── legal/             プライバシーポリシー・特定商取引法に基づく表記
+│   ├── legal/             プライバシーポリシー・特定商取引法に基づく表記
+│   └── accessibility.astro・sitemap.astro  ウェブアクセシビリティ方針（対応度と試験結果）・HTML のサイトマップ
 ├── modules/               機能ごとのモジュール。他モジュールは index.ts（ブラウザ側は client.ts）経由で使う
 │   ├── brand/             ロゴ、和文フォントのサブセット化（integration.ts）
 │   ├── layout/            BaseLayout・ヘッダー・Mobile メニュー・フッター・パンくず・告知帯・ページ導入
@@ -39,11 +42,18 @@ src/
 │   ├── forms/             無料相談・無料 DL のフォーム、Mautic への送信、入力の検証
 │   ├── booking/           完了画面の Cal.com の埋め込み
 │   ├── blog/              Strapi の記事の取得（ビルド時だけ）・本文の描画・ビルドの失敗条件（integration.ts）
-│   └── legal/             法務 2 ページの本文と表・目次の部品
+│   ├── legal/             法務 2 ページの本文と表・目次の部品
+│   ├── a11y/              新しいタブの告知・VisuallyHidden・MotionPause・reduced-motion の判定・contrastRatio
+│   └── motion/            React Bits のモーフィング（vendor/react-bits に原本）と、ページが使うラッパー
 ├── components/ui/         shadcn/ui（base-nova）
-├── styles/                tokens.css（ブランドのトークンの写し）・theme.css・fonts.css・global.css・typeset.css
+├── styles/                tokens.css（ブランドのトークンの写し）・theme.css（役割トークン・モーションのトークン）・fonts.css・global.css・typeset.css
 └── lib/
+e2e/a11y/                  axe の全ルート検査と、状態・キーボード・表示・フォーム・構造・モーションの検査（playwright.config.ts）
+tests/modules/a11y/        a11y モジュールとトークンの組み合わせのコントラストの単体テスト
 ```
+
+アクセシビリティ（JIS X 8341-3:2016 の AA に一部準拠）の仕様は `docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md`、
+モーションの仕様は `05-motion-spec.md`、決定は ADR-27・ADR-28。改修の計画は `docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`。
 
 ## 環境変数
 
@@ -68,5 +78,7 @@ src/
 
 - island（`.tsx`）で新しい依存を import したら、`astro.config.mjs` の `vite.optimizeDeps.include` にも足す。足さないと、途中で依存の事前最適化がやり直され、island が 504（Outdated Optimize Dep）で水和しなくなる。
 - 依存の追加や `astro check` のあとに 504 や古い CSS が出たら、`astro dev stop` → `node_modules/.vite` を消す → `astro dev --background` で直る。
+- `pnpm build` の後に dev の island が水和しなくなる（`_jsxDEV is not a function`）ことがある。ビルドで依存の事前最適化が production 版になるため。上と同じ手順（stop → `node_modules/.vite` を消す → 起動）で直る。
+- Astro 7.3 の preview は AI エージェントの環境を検出すると自動で背景に回り、ロック（`.astro/preview.json`）で 1 プロジェクト 1 つに制限する。`lighthouserc.cjs`（4322）と `playwright.config.ts`（4323）は `ASTRO_PREVIEW_BACKGROUND=1` と `--ignore-lock` で前景に起動し、同時に動けるようにしている。
 - 和文フォントは dev では `@fontsource` の分割フォントのまま。ビルドのときだけ、使っている字のサブセット（400・500・700 を各 1 ファイル）に差し替わる。
 - **スマホの実機で試すとき**は、サイトを ngrok（`https://comegin-astro-dev.ngrok.app`）で開くだけでなく、ブラウザから届く受け口も https の ngrok にする。`PUBLIC_CHATWOOT_BASE`・`PUBLIC_CONSENT_BASE` が `localhost` のままだと、スマホからは届かず（https のページから http も読めない）、チャットが開かない。Chatwoot は `FRONTEND_URL` を、consent-api は `SITE_URL` をそれぞれ ngrok の URL に合わせる。`ngrok.yml` を変えたら ngrok を起動し直す（起動し直すまで `ERR_NGROK_3200` になる）。

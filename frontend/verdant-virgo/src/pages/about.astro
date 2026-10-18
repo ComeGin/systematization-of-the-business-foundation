@@ -76,7 +76,7 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
     <article class="flex flex-col items-start gap-6 rounded-md border border-border bg-surface p-6 md:p-8">
       <h2 id="about-self" class="type-h3 text-text-heading">{selfOperation.heading}</h2>
       <p class="type-body max-w-[720px] text-text-body">{selfOperation.body.join('')}</p>
-      <Badge variant="secondary" className="h-6 py-1">{selfOperation.badge}</Badge>
+      <Badge variant="secondary" className="min-h-6 py-[3px]">{selfOperation.badge}</Badge>
     </article>
   </Section>
 
@@ -99,7 +99,7 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
               </th>
               <td
                 class:list={[
-                  'type-body p-2 align-middle text-text-body [overflow-wrap:anywhere]',
+                  'type-body p-2 align-middle text-text-body',
                   hasLink(row.value) ? 'bg-surface' : 'bg-surface-subtle',
                 ]}
               >

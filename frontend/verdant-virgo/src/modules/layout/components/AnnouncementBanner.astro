@@ -1,8 +1,9 @@
 ---
 /**
  * ヘッダーの上の告知帯（01-content-spec.md §4.1 の 1-1、Figma の AnnouncementBanner）。閉じるボタンは付けない。
- * BaseLayout の slot="announcement" に置く。
- * Desktop: 強調バッジ ＋ 本文 ＋ リンク。Mobile: バッジを省き、短い本文 ＋ リンクを 1 行に。
+ * BaseLayout の slot="announcement" に置く。ランドマーク（aside）にはしない（名前の無い complementary が CTA バナーと重なるため。短い 1 行の告知で、ヘッダーの直前にあり見つけやすい）。
+ * Desktop: 強調バッジ ＋ 本文 ＋ リンク。Mobile: バッジを省き、短い本文 ＋ リンク。
+ * 本文は「…」で省かず折り返す（拡大・狭い幅でも全文を読めるように。WCAG 1.4.4・1.4.10）。
  * リンクは slot="cta" に CTAButton（variant="link"・icon="arrow-right"・iconPosition="end"）を置く。
  * 文言はすべて props で渡す（既定値を持たない。H-16）。
  */
@@ -20,12 +21,12 @@ interface Props {
 const { badge, text, shortText } = Astro.props;
 ---
 
-<aside class="border-b border-border bg-surface-subtle">
+<div class="border-b border-border bg-surface-subtle">
   <div class="site-container flex items-center justify-center gap-2 py-2 md:gap-3">
     <Badge variant="accent" className="hidden md:inline-flex">{badge}</Badge>
-    <p class="type-ui-text hidden text-text-body md:block md:min-w-0 md:truncate">{text}</p>
-    {/* Mobile は 1 行に収める（§4.1 の 1-1）。390px で収まる長さだが、幅が足りない端末では折り返さず「…」で省く */}
-    <p class="type-ui-text min-w-0 truncate text-text-body md:hidden">{shortText}</p>
+    <p class="type-ui-text phrase hidden text-text-body md:block md:min-w-0">{text}</p>
+    {/* Mobile は短い本文（§4.1 の 1-1）。390px では 1 行に収まる長さで、幅が足りない・拡大したときは折り返す */}
+    <p class="type-ui-text phrase min-w-0 text-text-body md:hidden">{shortText}</p>
     <div class="shrink-0"><slot name="cta" /></div>
   </div>
-</aside>
+</div>

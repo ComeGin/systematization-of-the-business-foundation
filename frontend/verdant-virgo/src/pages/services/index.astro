@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { CTABanner, CTAButton, IconCard, Section, SectionHeading, ServiceCard, Steps } from '@/modules/marketing-ui';
 import { TAX_NOTE } from '@/modules/site-content/pricing';
+import { detailLinkTarget } from '@/modules/site-content/a11y';
 import { SEO } from '@/modules/site-content/seo';
 import {
   ctaHref,
@@ -27,12 +28,13 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
   {/* 2-3 導入ヒーロー（ボタンなし。主 CTA はページ下部に集める） */}
   <PageIntro title={h1} body={intro.join('')} />
 
-  {/* 2-4 サービスカード（Desktop 2×2、Mobile 1 列） */}
+  {/* 2-4 サービスカード（Desktop 2×2、Mobile 1 列）。見出しの上に h2 が無いので、カードの見出しを h2 にする（見た目は変えない。1.3.1） */}
   <Section class="phrase">
     <div class="grid gap-4 md:grid-cols-2 md:gap-6">
       {
         serviceCards.map(({ card, prices, note }) => (
           <ServiceCard
+            level="h2"
             title={card.title}
             badge={card.badge ?? undefined}
             body={card.body}
@@ -40,6 +42,7 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
             note={note}
             detailHref={card.detailLink.href}
             detailLabel={card.detailLink.label}
+            detailTarget={detailLinkTarget(card.title)}
           >
             {card.sourceDlLinkLabel && (
               <CTAButton slot="sub-link" ctaId={cards.sourceDlCtaId} href="/#source-dl" variant="link" icon="download">

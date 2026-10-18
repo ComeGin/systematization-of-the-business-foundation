@@ -24,6 +24,28 @@
   --color-role-surface-accent-subtle: var(--color-brand-blue-50);
   --color-role-border-brand: var(--color-brand-navy-700);
 
+  /*
+   * アクセシビリティの役割トークン（計画書 2026-10-18 の P-3。ブランドの色は変えず、primitive から選ぶ）。
+   * ブランドガイドライン §5 への追記は申し送り（03-handoff.md）。
+   * - 薄い地（neutral.50）の上のリンク: text-link（#0579CE）は 4.22:1 で AA に届かないので blue.600（4.74:1 以上）
+   * - 入力欄の枠: border（#DCE3EA）は白地で 1.29:1 なので neutral.500（3:1 以上。WCAG 2.1 の 1.4.11）
+   * - 暗い地（navy.700）の上のフォーカスリング: focus-ring（blue.500）は 2.91:1 なので白
+   */
+  --color-role-text-link-on-subtle: var(--color-brand-blue-600);
+  --color-role-border-input: var(--color-neutral-500);
+  --color-role-focus-ring-on-dark: var(--color-neutral-0);
+
+  /*
+   * モーションのトークン（計画書の動きの規則 7。motion/lib/tokens.ts と同じ値）。部品ごとに数値を書かない。
+   * reduced-motion のときは global.css で時間を 0.01ms に上書きする（P-5）。
+   */
+  --motion-duration-micro: 120ms;
+  --motion-duration-small: 200ms;
+  --motion-duration-medium: 320ms;
+  --motion-duration-large: 600ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+
   /* shadcn/ui の変数（02-component-map.md §9.1） */
   --background: var(--color-role-surface);
   --foreground: var(--color-role-text-body);
@@ -42,7 +64,8 @@
   --accent-foreground: var(--color-role-text-accent-subtle);
   --destructive: var(--color-semantic-danger);
   --border: var(--color-role-border);
-  --input: var(--color-role-border);
+  /* 入力欄・チェックボックス・ラジオの枠は 3:1 以上（P-3。カードなどの枠の --border とは分ける） */
+  --input: var(--color-role-border-input);
   /* フォーカスリングは blue.500 のまま（UI 部品の境界は 3:1 で足りる。H-7・H-8） */
   --ring: var(--color-role-focus-ring);
   --radius: var(--radius-md);

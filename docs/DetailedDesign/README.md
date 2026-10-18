@@ -61,6 +61,7 @@
 | [06-proposal-loop-flows.md](06-proposal-loop-flows.md) | **提案と承認。** `I-13` `I-15` と、ループ 6 段階の実行仕様。**`I-14` の廃止**（通知は GitHub の PR に一本化）。**`I-15` は OpenSEO 経由に変更**。**`I-13` はローカル（監視アプリの定期実行）から起票する**（ADR-17） |
 | [07-failure-and-degradation.md](07-failure-and-degradation.md) | **異常系。** 公開経路の断（本番は ALB とその後ろ）・本番の n8n の停止（**ADR-21 でオンプレの停止・WireGuard の断**。ADR-16 の前は Webhook 用のトンネル断）・欠測・二重送信・誤った書き込み（エージェント専用ユーザーの送信の記録。ADR-17）の検出仕様と縮退運転（監視アプリと定期実行・本番と開発環境の Strapi の停止、**開発機を失ったときの `E-15` の喪失と S3 の写しからの復旧**〈ADR-18〉を含む） |
 | [08-monetization-flows.md](08-monetization-flows.md) | **（2026-10-03 に追加）収益化の 5 本**（`I-26`〜`I-30`。採掘〈XMRig → unMineable〉と譲渡不可ポイント〈thirdweb〉。`E-19` の状態遷移と月次の締め）。仕様の状態は `条件付き`（承認ゲート G-1〜G-3） |
+| [09-accessibility-audit-flows.md](09-accessibility-audit-flows.md) | **（2026-10-18 に追加。ADR-27）a11y の監査。** `weekly-a11y`（builtin）→ `weekly-observe-a11y`（`quality-checker` の項目 6）→ `E-12`（`QC-a11y-*`）→ `proposal-writer`（起票前チェックの 15）。I-ID を振らない（ローカルの中で閉じ、外部の連携点を通らない）。仕様の状態は `条件付き` |
 
 ## 連携点とファイルの対応
 

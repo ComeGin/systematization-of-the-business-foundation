@@ -3,10 +3,13 @@
  * グローバルフッター（01-content-spec.md §1.4、Figma の SiteFooter）。
  * Desktop: 列 1（ロゴ横組み 160px ＋ 説明）＋ リンク 3 列、下段に罫線とコピーライト。
  * Mobile: 縦積み（Accordion にしない）。リンクは 1 行 48px。
+ * 列の見出しは h2（見た目は UI/Label のまま）。各列の nav は aria-labelledby でその見出しを名前にする。
  * 地は role/surface（白）なのでロゴはフルカラー版（GL §4.5）。リンクは role/text-link ＋ 下線。
  * 「Cookie 設定」はページ遷移しない <button data-consent-open>（consent モジュールが拾ってバナーを再表示する）。
  */
+import { NewTabNotice } from '@/modules/a11y';
 import { Logo } from '@/modules/brand';
+import { NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 import { contactHref, ctaDataAttributes } from '@/modules/site-content/cta';
 import { copyright, footerColumns, footerDescriptionLines, type FooterItem } from '@/modules/site-content/nav';
 
@@ -40,9 +43,11 @@ const itemClass = 'type-ui-text text-text-link underline hover:text-text-link-ho
       </div>
 
       {
-        footerColumns.map((column) => (
-          <nav aria-label={column.heading} class="flex flex-col gap-1 md:flex-1 md:gap-3">
-            <p class="type-label text-text-body">{column.heading}</p>
+        footerColumns.map((column, i) => (
+          <nav aria-labelledby={`footer-column-${i}`} class="flex flex-col gap-1 md:flex-1 md:gap-3">
+            <h2 id={`footer-column-${i}`} class="type-label text-text-body">
+              {column.heading}
+            </h2>
             <ul class="flex flex-col gap-1 md:gap-3">
               {column.items.map((item) => (
                 <li class="flex min-h-12 items-center md:min-h-0">
@@ -53,7 +58,7 @@ const itemClass = 'type-ui-text text-text-link underline hover:text-text-link-ho
                   ) : item.external ? (
                     <a href={linkHref(item)} target="_blank" rel="noopener noreferrer" class={itemClass}>
                       {item.label}
-                      <span class="sr-only">（新しいタブで開きます）</span>
+                      <NewTabNotice text={NEW_TAB_NOTICE} />
                     </a>
                   ) : (
                     <a href={linkHref(item)} class={itemClass} {...(item.ctaId ? ctaDataAttributes(item.ctaId) : {})}>

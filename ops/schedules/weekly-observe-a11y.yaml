@@ -1,0 +1,20 @@
+id: weekly-observe-a11y
+description: "a11y の自動検査の結果（.a11y/summary.json）を E-12（source: quality。QC-a11y-*）に正規化する。検査（weekly-a11y）の完了を待つ"
+enabled: false
+# weekly-a11y（毎週月曜 05:45、timeout_sec 1800 → 06:15 までに終わる）の後。成功していなければ after で見送る
+cron: "30 6 * * 1"
+kind: agent
+agent: quality-checker
+builtin: null
+after:
+  - weekly-a11y
+prompt: |
+  検査の項目 6（WCAG の機械検査）だけを行う。1〜5 は行わない。
+
+  取得の範囲（変えない）:
+  - 読むのは frontend/verdant-virgo/.a11y/summary.json だけ（results.json と pages/ は読まない）
+  - summary.json の measured_at の日付（JST）が TODAY でなければ、今週の結果ではない。0 にせず fetch.outcome を unreachable にして「判定不能」と書く
+  - metrics は QC-a11y-violations・QC-a11y-serious・QC-a11y-pages-failed・QC-a11y-incomplete（totals の値をそのまま）
+  - E-12 はサイト全体で 1 ファイル（target_ref: "E-05 url_path=*"）。同じ target_ref の直前の項目 6 の E-12 と比べた前回比を本文に書く
+timeout_sec: 900
+max_turns: 40

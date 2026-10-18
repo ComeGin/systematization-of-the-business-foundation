@@ -31,8 +31,9 @@ export const CONSULT_TEXT = {
     { value: 'unknown', label: 'わからない' },
   ],
   nameLabel: '氏名',
-  lastnamePlaceholder: '姓',
-  firstnamePlaceholder: '名',
+  // 各欄の上の見えるラベル（2026-10-18。プレースホルダは置かない。§5.1 の項目 4）
+  lastnameLabel: '姓',
+  firstnameLabel: '名',
   emailLabel: 'メールアドレス',
   emailPlaceholder: 'name@example.com',
   emailHelper: 'ご連絡はこのメールアドレスにお送りします。',
@@ -42,7 +43,7 @@ export const CONSULT_TEXT = {
   submitting: '送信中…',
   noteBelowButton:
     '送信後の画面で、オンライン面談の日時をお選びいただけます。日程が決まらない場合も、通常 3営業日以内に担当者からメールでご連絡します。',
-  errorSummary: '入力内容に誤りがあります。赤字の項目をご確認ください。',
+  errorSummary: '入力内容に誤りがあります。各項目の下のメッセージをご確認ください。',
   failedTitle: '送信できませんでした',
   timeoutTitle: '応答がありませんでした',
   failedBody:

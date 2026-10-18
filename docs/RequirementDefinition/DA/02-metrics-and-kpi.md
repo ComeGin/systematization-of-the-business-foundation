@@ -154,6 +154,10 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 |---|---|---|---|---|---|
 | `LH-seo` | Lighthouse の SEO カテゴリスコア（3 回計測の中央値） | Lighthouse CI | `frontend/verdant-virgo/.lighthouse/` の JSON（`pnpm lh`） | ビルドごと | **実装済み** |
 | `LH-performance` / `LH-a11y` / `LH-best-practices` | 各カテゴリスコア | Lighthouse CI | 同上 | ビルドごと | **実装済み** |
+| `QC-a11y-violations`（2026-10-18 に追加。ADR-27） | axe（`wcag2a`・`wcag2aa`・`wcag21a`・`wcag21aa`・`wcag22aa`）の違反の件数（全ルート × Desktop・Mobile の合計） | Playwright ＋ axe（`frontend/verdant-virgo/e2e/`） | `.a11y/summary.json`（version 1。builtin `a11y` が `pnpm a11y:ci` で作り、作業ツリーに写す）の `totals.violations` を `agent/quality-checker` の項目 6 が読む（DD-09 の 3 節） | 週次（`weekly-a11y` → `weekly-observe-a11y`） | 未配線（定期実行は `enabled: false`） |
+| `QC-a11y-serious`（同上） | 違反のうち影響度が critical と serious のものの件数。**AA-04 の 3.8 の止め線** | 同上 | 同上 | 同上 | 未配線 |
+| `QC-a11y-pages-failed`（同上） | 違反が 1 件以上あったページ（ルート × 端末）の数 | 同上 | 同上 | 同上 | 未配線 |
+| `QC-a11y-incomplete`（同上） | axe が判定できず、人の判断が要るもの（`incomplete`）の件数。**合格・不合格には数えない** | 同上 | 同上 | 同上 | 未配線 |
 | `ERR-rate` | 期間内の例外発生件数 | PostHog（Error Tracking。**本番用のプロジェクト**。ADR-16） | `backend/strapi-system/src/middlewares/posthog-error.ts` 経由の例外 | 日次 | **実装済み**（Strapi のサーバ側のみ） |
 | `GSC-impressions` / `GSC-clicks` / `GSC-ctr` / `GSC-position` | 検索結果の表示回数 / クリック数 / クリック率 / 平均掲載順位（ページ単位） | Google Search Console | **OpenSEO の `get_search_console_performance`**（3 日前までの確定分） | 日次（対象期間を 3 日ずらす） | 未着手 |
 | `SERP-position` | 採用キーワードの計測時点の順位（モバイル） | DataForSEO（OpenSEO のランク追跡） | OpenSEO の `get_rank_tracker`（保存済みの結果を読むだけ。**費用は計測時に発生する**） | 週次 | 未配線 |
@@ -165,6 +169,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 | `FORM-invalid` | 入力エラーの発生数 / フォームの入力開始数 | PostHog | カスタムイベント（`form_validation_failed` / `form_started`。4.4。`fields` 別の内訳も取る） | 週次 | 未着手 |
 
 - **`GSC-position` と `SERP-position` は同じ「順位」でも定義が違う。** 前者は期間中に実際に表示されたときの平均、後者は計測した瞬間の 1 回の検索結果である。**KPI ツリーの `平均検索順位` の正本は `GSC-position`** とし、`SERP-position` は**まだ表示されていない狙いのキーワード**の進捗を見る補助に限る（GSC は表示されたクエリしか返さないため）。
+- **`QC-a11y-*` と `LH-a11y` は互いの代わりにならない**（2026-10-18。ADR-27）。`LH-a11y` は 3 ページの合成監査のスコア（0.9 が目標値）で、axe のルールの一部しか見ない。`QC-a11y-*` は全ページ・全状態の axe の違反の件数で、JIS X 8341-3 の AA の対応度の表明（`/accessibility/`。一部準拠）を守るための観測である。**どちらも機械で判定できる基準しか見ない**（手動とスクリーンリーダーの試験は `docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md` の §4）。計画の「`A11Y-*` 指標」は、`quality-checker` が `E-12` に書くキーと同じ `QC-a11y-*` の名前で持つ（2 つの名前を持たない）
 - **`LH-seo` と `SITE-issues` と `INDEX-status` は互いの代わりにならない。** `LH-seo` は 1 ページの合成監査、`SITE-issues` はサイト全体の構造監査、`INDEX-status` は Google が実際にどう扱ったかである。
 - **`CWV-*` は実測（フィールド）、`LH-performance` は合成（ラボ）であり、互いの代わりにならない。** `CWV-*` は **PostHog の `$web_vitals` を同意した訪問者だけから集めた標本**で（2026-10-06。ユーザーの決定。旧版は Umami の `get_performance`）、同意率と端末の偏りを持つ。p75 は Core Web Vitals の評価の慣例に合わせた（PostHog の Web 分析の画面も LCP を p75 で出す。https://posthog.com/docs/web-analytics/dashboard）。**プロパティ名は `$web_vitals_LCP_value` / `$web_vitals_INP_value` / `$web_vitals_CLS_value`**（posthog-js の `packages/browser/src/extensions/web-vitals/index.ts` が `` `$web_vitals_${metric.name}_value` `` の形で送る。同リポジトリのテスト `web-vitals.test.ts` にも `$web_vitals_LCP_value` がある。`.claude/agents/analytics-reporter.md` の集計もこの名前を使う。PostHog の docs〈https://posthog.com/docs/web-analytics/web-vitals〉にはイベント名 `$web_vitals` だけが載り、プロパティ名は載っていない）。**値の単位（LCP・INP はミリ秒）は実データで確かめる。** 日付は JST でそろえる（`toDate(toTimeZone(timestamp, 'Asia/Tokyo'))`）。
 - **`VISITOR-count` は廃止した**（2026-10-06。ADR-25。定期実行の定義〈`ops/schedules/daily-observe-analytics.yaml`〉にあった）。GA4 のユーザー数はチャネル別の行を足すと重複し、OpenSEO のツールに全体のユーザー数を返すものが無い。

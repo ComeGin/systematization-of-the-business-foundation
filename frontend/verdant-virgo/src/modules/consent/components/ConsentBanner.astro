@@ -26,10 +26,11 @@ const buttonClass = `${buttonVariants({ variant: 'outline' })} h-11 w-full md:h-
   id="cookie-banner"
   hidden
   aria-labelledby="cookie-banner-heading"
+  aria-describedby="cookie-banner-body"
   class="fixed inset-x-0 bottom-0 z-50 grid gap-4 border border-border bg-card p-4 text-card-foreground shadow-md md:inset-x-auto md:bottom-6 md:left-6 md:w-[420px] md:rounded-lg md:p-6"
 >
   <h2 id="cookie-banner-heading" tabindex="-1" class="text-xl leading-normal font-bold text-foreground outline-none">Cookie の利用について</h2>
-  <p class="phrase text-sm leading-[1.75] text-muted-foreground">
+  <p id="cookie-banner-body" class="phrase text-sm leading-[1.75] text-muted-foreground">
     サイトの改善とチャットでのお問い合わせのために、Cookie などを使います。同意いただいた場合に限り、Google アナリティクスと PostHog で閲覧の記録を取り、チャット（Chatwoot）を読み込みます。記録したデータは米国のサーバーに送られます。
   </p>
   <p class="text-sm leading-5">
@@ -63,6 +64,15 @@ const buttonClass = `${buttonVariants({ variant: 'outline' })} h-11 w-full md:h-
   const banner = document.getElementById('cookie-banner') as HTMLElement;
   const heading = document.getElementById('cookie-banner-heading') as HTMLElement;
   let opener: HTMLElement | null = null;
+
+  // 表示中のバナーの高さを --consent-banner-height に出す（global.css が scroll-padding-bottom に使い、
+  // フォーカスした要素がバナーの下に隠れないようにする。2.4.11）。hidden の間は 0 になるので消す
+  const root = document.documentElement;
+  new ResizeObserver(() => {
+    const height = banner.hidden ? 0 : banner.getBoundingClientRect().height;
+    if (height > 0) root.style.setProperty('--consent-banner-height', `${Math.ceil(height)}px`);
+    else root.style.removeProperty('--consent-banner-height');
+  }).observe(banner);
 
   setConsentBannerVisible(!banner.hidden);
 

@@ -21,7 +21,8 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
   {/* 6-3 導入ヒーロー（本文は 2 段落） */}
-  <PageIntro title={hero.h1}>
+  {/* h1 の id は相談フォームの名前（ContactFormBlock の labelledBy）が指す */}
+  <PageIntro title={hero.h1} titleId="contact-heading">
     <div slot="body" class="type-body-lg phrase flex max-w-[720px] flex-col text-text-muted">
       {hero.body.map((paragraph) => <p>{paragraph.join('')}</p>)}
     </div>
@@ -39,7 +40,7 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
   <Section class="phrase">
     <div class="grid gap-8 md:grid-cols-[minmax(0,736fr)_minmax(0,384fr)]">
       <div class="w-full max-w-[640px]">
-        <ContactFormBlock />
+        <ContactFormBlock labelledBy="contact-heading" />
       </div>
 
       <div class="flex flex-col gap-8">

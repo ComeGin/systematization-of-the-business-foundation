@@ -14,6 +14,8 @@ import { SOURCE_DL_TEXT } from '../lib/messages';
 import { ctaDataAttributes, type CtaId, type CtaRole } from '@/modules/site-content/cta';
 import { SOURCE_REPO_URL } from '@/modules/site-content/nav';
 import { KeepTogether } from '@/modules/marketing-ui';
+import { NewTabNotice } from '@/modules/a11y';
+import { NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 
 interface Props {
   ctaId: CtaId;
@@ -37,6 +39,8 @@ const Heading = `h${headingLevel ?? 2}` as 'h2' | 'h3';
 const formId = readFormId('MAUTIC_FORM_ID_SOURCE_DL');
 const policyVersion = readPolicyVersion();
 const lines = typeof body === 'string' ? [body] : body;
+// 見出しの id。フォームの名前にする（aria-labelledby。新しい文言を足さない）。cta_id は 1 ページに 1 つなので重ならない
+const headingId = `${ctaId}-heading`;
 const attrs = { ...ctaDataAttributes(ctaId, { ctaRole }), 'data-cta-click': 'false' };
 ---
 
@@ -50,7 +54,7 @@ const attrs = { ...ctaDataAttributes(ctaId, { ctaRole }), 'data-cta-click': 'fal
   {...attrs}
 >
   <div class="grid content-start gap-3">
-    <Heading class:list={['phrase font-bold text-text-heading', emphasis === 'strong' ? 'text-2xl leading-[1.3] md:text-3xl' : 'text-xl leading-normal md:text-2xl']}>
+    <Heading id={headingId} class:list={['phrase font-bold text-text-heading', emphasis === 'strong' ? 'text-2xl leading-[1.3] md:text-3xl' : 'text-xl leading-normal md:text-2xl']}>
       <KeepTogether text={title} words={keepTogether} />
     </Heading>
     <p class="phrase text-base leading-[1.75] text-muted-foreground">{lines.map((line) => <span class="block"><KeepTogether text={line} words={keepTogether} /></span>)}</p>
@@ -63,12 +67,13 @@ const attrs = { ...ctaDataAttributes(ctaId, { ctaRole }), 'data-cta-click': 'fal
           class="inline-flex w-fit items-center gap-1.5 py-1.5 text-sm leading-5 font-medium text-text-link underline hover:text-text-link-hover"
         >
           {SOURCE_DL_TEXT.repositoryLink}
+          <NewTabNotice text={NEW_TAB_NOTICE} />
           <ExternalLink aria-hidden="true" className="size-4" />
         </a>
       )
     }
   </div>
   <div class="mt-6 md:mt-0">
-    <SourceDownloadForm client:visible formId={formId} policyVersion={policyVersion} ctaId={ctaId} emphasis={emphasis} />
+    <SourceDownloadForm client:visible formId={formId} policyVersion={policyVersion} ctaId={ctaId} emphasis={emphasis} labelledBy={headingId} />
   </div>
 </section>

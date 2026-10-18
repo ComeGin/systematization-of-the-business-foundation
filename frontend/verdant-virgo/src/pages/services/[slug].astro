@@ -7,6 +7,7 @@ import { Check } from 'lucide-react';
 import { BLOG_CATEGORIES } from '@/modules/blog';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { Photo } from '@/modules/media';
+import { MorphGallery } from '@/modules/motion';
 import {
   BlogCard,
   CTABanner,
@@ -68,19 +69,12 @@ const splitByService = plans.cards.length > 1;
     <Photo slot="media" photo={hero.photo} sizes="(min-width: 768px) 480px, 100vw" loading="eager" fetchpriority="high" class="aspect-[4/3] w-full" />
   </PageIntro>
 
-  {/* 写真の並び（業務提携だけ。Desktop 3 列、Mobile 1 列） */}
+  {/* 写真の並び（業務提携だけ）。MorphGallery が 3 分野の写真をラジオで切り替える。名前は見出しを指す（新しい文言を足さない） */}
   {
     gallery && (
       <Section labelledby="detail-gallery" class="phrase">
         <SectionHeading id="detail-gallery" title={gallery.heading} />
-        <ul class="mt-8 grid gap-6 md:mt-12 md:grid-cols-3">
-          {gallery.items.map((item) => (
-            <li class="flex flex-col gap-3">
-              <Photo photo={item.photo} sizes="(min-width: 768px) 360px, 100vw" widths={[360, 720, 1080]} class="aspect-[4/3] w-full" />
-              <p class="type-card-title text-text-heading">{item.label}</p>
-            </li>
-          ))}
-        </ul>
+        <MorphGallery items={[...gallery.items]} labelledby="detail-gallery" class="mt-8 md:mt-12" />
       </Section>
     )
   }

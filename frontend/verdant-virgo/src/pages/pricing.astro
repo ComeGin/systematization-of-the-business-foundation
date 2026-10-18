@@ -36,7 +36,7 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
   {/* 4-3 導入ヒーロー（ボタンなし） */}
   <PageIntro title={h1} body={intro.join('')} />
 
-  {/* 4-4 料金カード（Desktop は 3 列 ＋ 2 列、Mobile は 1 列） */}
+  {/* 4-4 料金カード（Desktop は 3 列 ＋ 2 列、Mobile は 1 列）。見出しの上に h2 が無いので、カードの見出しを h2 にする（見た目は変えない。1.3.1） */}
   <Section class="phrase">
     <div class="flex flex-col gap-4 md:gap-6">
       {
@@ -44,6 +44,7 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
           <div class:list={['grid gap-4 md:gap-6', i === 0 ? 'md:grid-cols-3' : 'md:grid-cols-2']}>
             {group.map(({ item, row, description, cta }) => (
               <PricingCard
+                level="h2"
                 product={row.product}
                 badge={item.badge ?? undefined}
                 description={description}
@@ -153,7 +154,7 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
     </div>
 
     <h3 class="type-h3 mt-8 text-text-heading md:mt-12">{contract.heading}</h3>
-    {/* Desktop は 4 列の表、Mobile は行ごとのカード（上にサービス名、下に「ラベル：値」を縦積み） */}
+    {/* Desktop は 4 列の表、Mobile は行ごとのカード（上にサービス名、下に「ラベル：値」を縦積み）。カードは h3「ご契約について」の下なので h4 */}
     <div class="mt-4 hidden md:block">
       <Table>
         <TableHeader>
@@ -182,7 +183,7 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
       {
         contract.rows.map((row) => (
           <li>
-            <IconCard title={PRICING[row.key].product}>
+            <IconCard level="h4" title={PRICING[row.key].product}>
               <dl slot="body" class="type-body text-text-muted">
                 {row.cells.map((cell, i) => (
                   <div>

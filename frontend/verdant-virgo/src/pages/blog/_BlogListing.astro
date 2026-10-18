@@ -65,9 +65,11 @@ const pageLinkClass = (current: boolean) =>
 
   {/* 7-4 カテゴリと記事一覧（Desktop 3 列 ×3 行、Mobile 1 列） */}
   <Section>
-    {/* Mobile は横スクロール（折り返さない） */}
-    <nav aria-label="カテゴリ" class="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-      <ul class="flex w-max gap-2">
+    {/* 狭い幅ではタブを折り返す（§4.7 の 7-4 の「Mobile は横スクロール」から変えた。2026-10-18）。
+        横スクロールの枠では、幅 320px で最後のタブ「導入を検討する」が枠から 76px はみ出し、Tab でフォーカスしても
+        Chromium は枠を送らなかった（一部が見えているため）。フォーカスしたタブが欠けて見えるので折り返す（2.4.7・2.4.11） */}
+    <nav aria-label="カテゴリ">
+      <ul class="flex flex-wrap gap-2">
         {
           tabs.map((tab) => (
             <li>

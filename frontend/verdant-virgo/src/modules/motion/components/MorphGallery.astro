@@ -1,0 +1,168 @@
+---
+/**
+ * MorphGallery（体験の筋書き「知る」）。React Bits の MorphSlider の描画（vendor/react-bits/MorphSlider/engine.ts）＋ 静的な <img> とラジオ。
+ *
+ * - 操作はネイティブのラジオ（矢印キー・選択状態の読み上げが標準で付く）。グループの名前は aria-labelledby で既存の見出しを指す。
+ *   切り替わったことはラジオの選択状態の読み上げで足りるので、aria-live は使わない（G-1 前の承認 B）。
+ * - JS が無い・失敗したとき: CSS（:has(:checked)）だけで写真が切り替わる。WebGL が無い・reduced-motion: 短いフェードで切り替える。
+ * - 見えている間だけ素の <script> が ogl を読み込み、選んだときだけ 2 枚を溶けるようにつなぐ（自動再生しない。動きの規則 3・6）。
+ * - React を使わない（perf: このページに React を足さない）。写真は DOM の <img> をそのままテクスチャにする。
+ */
+import { Photo } from '@/modules/media';
+import { cn } from '@/lib/utils';
+import type { MorphGalleryProps } from '../lib/types';
+
+type Props = MorphGalleryProps;
+
+const { items, labelledby, class: className } = Astro.props;
+if (items.length < 2) throw new Error('MorphGallery: 写真は 2 枚以上を渡してください。');
+
+const uid = `morph-gallery-${labelledby}`;
+// JS が無いときの切り替え（選んだラジオに対応する写真だけを見せる）。JS が動いたら data-enhanced で止め、script が data-active で切り替える
+const noScriptRules = items
+  .map(
+    (_, i) =>
+      `#${uid}:not([data-enhanced]):has(#${uid}-${i}:checked) [data-slide="${i}"]{visibility:visible;opacity:1}`,
+  )
+  .join('');
+---
+
+<div id={uid} class={cn('motion-gallery grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-center md:gap-8', className)} data-motion-gallery data-motion="gallery">
+  <style is:inline set:html={noScriptRules} />
+  {/* 写真の枠。大きさを先に確保する（CLS 0）。canvas は script がこの中に absolute で足す */}
+  <div class="relative aspect-[4/3] w-full overflow-hidden md:aspect-[3/2] rounded-md bg-surface-subtle" data-stage>
+    {
+      items.map((item, i) => (
+        <div class="motion-gallery-slide absolute inset-0" data-slide={i} data-active={i === 0 ? '' : undefined}>
+          <Photo photo={item.photo} sizes="(min-width: 768px) 760px, 100vw" class="h-full w-full" />
+        </div>
+      ))
+    }
+  </div>
+
+  <div role="radiogroup" aria-labelledby={labelledby} class="flex flex-col gap-3">
+    {
+      items.map((item, i) => (
+        <label
+          for={`${uid}-${i}`}
+          class="motion-gallery-choice type-card-title flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-4 py-3 text-text-heading"
+        >
+          <input
+            type="radio"
+            id={`${uid}-${i}`}
+            name={uid}
+            value={i}
+            checked={i === 0}
+            class="size-5 shrink-0 accent-[var(--color-role-text-heading)]"
+          />
+          <span class="phrase">{item.label}</span>
+        </label>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  /* 選ばれていない写真は見せない（visibility で支援技術からも外す）。切り替えは短いフェード（reduced-motion では global.css が 0 にする） */
+  .motion-gallery-slide {
+    visibility: hidden;
+    opacity: 0;
+    transition:
+      opacity var(--motion-duration-small) var(--motion-ease-standard),
+      visibility 0s linear var(--motion-duration-small);
+  }
+  .motion-gallery-slide[data-active] {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity var(--motion-duration-small) var(--motion-ease-standard);
+  }
+  /* JS が動くまで（と JS が無いとき）は :has の規則（noScriptRules）に任せる */
+  .motion-gallery:not([data-enhanced]) .motion-gallery-slide[data-active] {
+    visibility: hidden;
+    opacity: 0;
+  }
+  /* 選んでいる項目の見た目（色だけに頼らず、枠を太くする） */
+  .motion-gallery-choice:has(input:checked) {
+    border-color: var(--color-role-text-heading);
+    box-shadow: inset 0 0 0 1px var(--color-role-text-heading);
+    background: var(--color-role-surface-accent-subtle);
+  }
+  /* 溶ける遷移の終わりに canvas を外すときは、下の写真をフェードさせずに一瞬で差し替える（ちらつかせない） */
+  .motion-gallery[data-instant] .motion-gallery-slide {
+    transition: none;
+  }
+  .motion-gallery-choice:hover {
+    border-color: var(--color-role-text-heading);
+  }
+</style>
+
+<script>
+  import { prefersReducedMotion } from '@/modules/a11y/client';
+  import { runWhenVisible } from '../lib/run-when-visible';
+  import { DURATION, easing } from '../lib/tokens';
+
+  type Engine = import('../vendor/react-bits/MorphSlider/engine').MorphEngine;
+
+  const ease = easing('emphasized');
+
+  function enhance(root: HTMLElement) {
+    const stage = root.querySelector<HTMLElement>('[data-stage]');
+    const slides = Array.from(root.querySelectorAll<HTMLElement>('[data-slide]'));
+    const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
+    if (!stage || slides.length === 0) return;
+
+    const show = (index: number) => {
+      slides.forEach((slide, i) => slide.toggleAttribute('data-active', i === index));
+    };
+    const checkedIndex = () => Math.max(0, inputs.findIndex((input) => input.checked));
+    // ここから先は script が切り替える（戻る操作などで checked が初期値と違う場合にも合わせる）
+    show(checkedIndex());
+    root.setAttribute('data-enhanced', '');
+
+    let engine: Engine | null = null;
+    let loading = false;
+
+    // 見えている間だけ WebGL を用意する（画面外では作らない。作ったものは見えなくなっても残すが、rAF は遷移中だけ）
+    runWhenVisible(
+      root,
+      (active) => {
+        if (!active || engine || loading || prefersReducedMotion()) return;
+        loading = true;
+        import('../vendor/react-bits/MorphSlider/engine')
+          .then(({ MorphEngine }) => {
+            engine = MorphEngine.create(stage, {
+              images: slides.map((slide) => slide.querySelector('img')).filter((img): img is HTMLImageElement => img !== null),
+              startIndex: checkedIndex(),
+              transition: 'melt',
+              intensity: 0.55,
+              scale: 2.4,
+              aberration: 0,
+              dprCap: 2,
+            });
+          })
+          .catch(() => {
+            // 読み込みに失敗したら CSS の切り替えのまま（規則 5）
+          });
+      },
+      { rootMargin: '200px' },
+    );
+
+    root.addEventListener('change', (event) => {
+      const input = event.target as HTMLInputElement;
+      if (input.type !== 'radio') return;
+      const index = Number(input.value);
+      const swap = () => {
+        root.setAttribute('data-instant', '');
+        show(index);
+        requestAnimationFrame(() => root.removeAttribute('data-instant'));
+      };
+      const morphed = !prefersReducedMotion() && engine?.goTo(index, { duration: DURATION.large, ease }, swap);
+      if (!morphed) {
+        engine?.jump(index);
+        show(index);
+      }
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-motion-gallery]').forEach(enhance);
+</script>

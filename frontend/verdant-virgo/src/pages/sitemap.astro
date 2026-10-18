@@ -1,0 +1,47 @@
+---
+// 画面 12 サイトマップ（/sitemap）。01-content-spec.md §4.12。JIS X 8341-3 の 2.4.5「複数の手段」の 2 つ目の手段。
+// 枠: パンくず → h1 → リード → 4 つのまとまり（h2 ＋ リンクの ul）。CTA は置かない。
+// ページは組み立てだけ。文言とリンクの一覧は site-content/sitemap.ts（フッターのリンクから作る）。
+// D/M: Desktop は 2 列 ×2 段、Mobile は 1 列。Mobile のリンクは 1 行 48px 以上（フッターと同じ）。
+import { BaseLayout } from '@/modules/layout';
+import { SEO } from '@/modules/site-content/seo';
+import { sitemapPage } from '@/modules/site-content/sitemap';
+
+const seo = SEO.sitemap;
+const { h1, lead, groups } = sitemapPage;
+// ホームはパンくずの部品が先頭に足す
+const breadcrumb = sitemapPage.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
+---
+
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
+  <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
+    <div class="flex flex-col gap-3">
+      <h1 class="type-h1 text-text-heading">{h1}</h1>
+      <p class="type-body-lg text-text-muted">{lead}</p>
+    </div>
+
+    <div class="grid gap-8 md:grid-cols-2 md:gap-12">
+      {
+        groups.map((group, i) => (
+          <section aria-labelledby={`sitemap-group-${i}`} class="flex flex-col gap-3">
+            <h2 id={`sitemap-group-${i}`} class="type-h2 text-text-heading">
+              {group.heading}
+            </h2>
+            <ul class="flex flex-col">
+              {group.links.map((link) => (
+                <li>
+                  <a
+                    href={link.href}
+                    class="type-body flex min-h-12 items-center text-text-link underline underline-offset-4 hover:text-text-link-hover md:min-h-0 md:py-1"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
+  </div>
+</BaseLayout>

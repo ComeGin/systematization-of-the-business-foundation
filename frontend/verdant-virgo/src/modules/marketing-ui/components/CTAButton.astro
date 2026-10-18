@@ -8,10 +8,12 @@
  * - Mobile の主 CTA は実効 44px にする（03-handoff.md H-13。Figma の Large 40px に縦の余白を足す）
  * - ラベルは既定のスロットで渡す（既定値を持たない。H-16）
  * - フォームの送信ボタンはこの部品ではない（forms モジュールが <button> で作る）
+ * - external（新しいタブ）のときは newTabNotice（site-content/a11y.ts の NEW_TAB_NOTICE）を必ず渡す。ラベルの後ろに sr-only で読ませる（H-22）
  */
 import { ArrowRight, Download, ExternalLink } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { NewTabNotice } from '@/modules/a11y';
 import { ctaDataAttributes, type CtaId, type CtaRole, type ServiceInterest } from '@/modules/site-content/cta';
 import type { CTAButtonIcon, CTAButtonSize, CTAButtonVariant } from '../lib/types';
 
@@ -30,8 +32,12 @@ export interface Props {
   service?: ServiceInterest;
   /** 一覧の既定（cta_viewed を送るか）を変えるとき */
   trackView?: boolean;
-  /** 外部のサイトへ新しいタブで開く */
+  /** 外部のサイトへ新しいタブで開く。newTabNotice と一緒に渡す */
   external?: boolean;
+  /** 新しいタブで開くことの告知（sr-only。site-content/a11y.ts の NEW_TAB_NOTICE）。external のときは必須 */
+  newTabNotice?: string;
+  /** 押したときの動きを説明する、見えている注記の id（aria-describedby。無料 DL の「押すとダウンロードが始まり…」など） */
+  describedBy?: string;
   class?: string;
   /** 親の名前付きスロットに置くときの slot 名（<a> には出さない） */
   slot?: string;
@@ -51,6 +57,8 @@ const {
   service,
   trackView,
   external = false,
+  newTabNotice,
+  describedBy,
   class: className,
   slot: _slot,
   ...rest
@@ -58,6 +66,9 @@ const {
 
 const Icon = icon === 'download' ? Download : icon === 'arrow-right' ? ArrowRight : icon === 'external-link' ? ExternalLink : null;
 const attrs = ctaDataAttributes(ctaId, { ctaRole, service, trackView });
+if (external && !newTabNotice) {
+  throw new Error(`CTAButton（${ctaId}）: external のときは newTabNotice（site-content/a11y.ts の NEW_TAB_NOTICE）を渡してください。`);
+}
 ---
 
 <a
@@ -66,6 +77,7 @@ const attrs = ctaDataAttributes(ctaId, { ctaRole, service, trackView });
   {...attrs}
   target={external ? '_blank' : undefined}
   rel={external ? 'noopener noreferrer' : undefined}
+  aria-describedby={describedBy}
   class={cn(
     buttonVariants({ variant: variant === 'primary' ? 'default' : variant, size }),
     // 記事本文（.typeset）の中に置いても、本文のリンクの見た目（下線など）を受けない
@@ -79,4 +91,5 @@ const attrs = ctaDataAttributes(ctaId, { ctaRole, service, trackView });
   {Icon && iconPosition === 'start' && <Icon aria-hidden="true" data-icon="inline-start" />}
   <slot />
   {Icon && iconPosition === 'end' && <Icon aria-hidden="true" data-icon="inline-end" />}
+  {external && newTabNotice && <NewTabNotice text={newTabNotice} />}
 </a>

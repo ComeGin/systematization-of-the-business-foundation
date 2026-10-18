@@ -39,10 +39,12 @@ ops/
 | `daily-observe-analytics` | agent | 毎日 06:00 | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
 | `daily-observe-conversations` | agent | 毎日 06:00 | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
 | `daily-observe-ops` | agent | 毎日 06:00 | `ops-watcher`。直近 24 時間の例外 |
-| `daily-propose` | agent | 毎日 07:00 | `proposal-writer`。**観測 4 本を `after` で待つ**。起票前チェック 14 項目を通したものだけ起票 |
+| `daily-propose` | agent | 毎日 07:00 | `proposal-writer`。**観測 4 本を `after` で待つ**。起票前チェック 15 項目を通したものだけ起票 |
 | `monthly-analysis` | agent | 毎月 1 日 08:00 | `proposal-writer`。順位・流入・CVR の月次の判断 |
 | `weekly-lighthouse` | builtin | 毎週月曜 05:00 | `pnpm lh`（`lighthouse`） |
 | `weekly-observe-lighthouse` | agent | 毎週月曜 06:15 | `seo-auditor`。計測の完了を `after` で待ち、`source: lighthouse` に正規化 |
+| `weekly-a11y` | builtin | 毎週月曜 05:45 | `pnpm a11y:ci`（`a11y`。`astro build` から axe の検査まで）。結果の `.a11y/*.json` を作業ツリーに写す。**`after` を持たない**（Lighthouse の揺れで止めない・古い `dist` を測らない）。`weekly-lighthouse`（05:30 までに終わる）とは時刻で重ねない。**UI を変える提案を自動で起票する前提**（下の注記） |
+| `weekly-observe-a11y` | agent | 毎週月曜 06:30 | `quality-checker` の項目 6 だけ。検査の完了を `after` で待ち、`QC-a11y-*` を `source: quality` に正規化。**UI を変える提案を自動で起票する前提**（下の注記） |
 | `weekly-observe-serp-audit` | agent | 毎週月曜 06:30 | `seo-auditor`。ランク追跡とサイト監査の保存済みの結果（`serp` `site_audit`） |
 | `weekly-keyword-research` | agent | 毎週月曜 09:00 | `keyword-researcher`。**費用が発生する**（1 回 2,000 クレジットまで） |
 | `weekly-content-draft` | agent | 毎週火曜 10:00 | `content-writer`。承認済みの企画から下書きを 1 本（公開は `R2`） |
@@ -55,6 +57,7 @@ ops/
 | `daily-n8n-export` | builtin | 毎日 08:45 | 本番の n8n のワークフローを Public API で読み、差分があれば GitHub に PR（`chore/n8n-export-YYYYMMDD`）。作業ツリーには書かない。**有効化の前に、API キーのスコープ（Enterprise のみ）を人が判断する**（`backend/control-plane/README.md` の n8n-export） |
 | `published-article-check` | builtin | 6 時間ごと（暫定） | 公開された記事の確認。あればビルドと計測を起こす |
 
+- **`weekly-a11y` を有効にする前に、人が `CONTROL_MAIN_CHECKOUT` の `frontend/verdant-virgo` で `pnpm install` と `pnpm exec playwright install chromium` を済ませておく**（Chromium は実ホームの `~/.cache/ms-playwright` に入り、builtin が `PLAYWRIGHT_BROWSERS_PATH` で渡す。無ければ `skipped`）。**a11y の 2 本（`weekly-a11y`・`weekly-observe-a11y`）を有効にすることが、UI を変える提案（`technical_seo`・`cta_swap`・`experiment_start`）を自動で起票する前提である。** 起票前チェック 15 は、最新の `QC-a11y-serious` が確認できない（`E-12` が無い・`ok` でない・14 日を超えた）ときも 0 ではない扱いにする（検査 8 の `LH-seo` と同じ安全側。AA-04 の 3.8）。有効にした後も、`QC-a11y-serious` が 0 でない間は UI を変える提案が `accessibility` だけになる。有効にする時期は DD-09 の 7 節
 - **観測 4 本は並列で走り、`proposal-writer` だけが `after` で 4 本を待つ。** 並列に走らせると同じ観測から複数の提案が同時に起票されて `proposal_id` の採番が衝突する
 - `seo-auditor` は 3 つの job で動くが、**処理する `source` を job ごとに分けてある**（1 つの `source` のディレクトリに書くエージェントは 1 本だけ。採番が衝突しない）
 - `E-13` の起票（`I-13`）は**エージェントではなく builtin** である。エージェントが PR を作れると承認機構（PR のレビュー）に到達できてしまうため
@@ -65,7 +68,7 @@ ops/
 | エージェント | 理由 |
 |---|---|
 | `knowledge-scout` | 競合ドメインの指定（1 回 5 件まで）が要るので、管理者の指示で起動する。費用が発生する |
-| `quality-checker` | 検査の対象と項目をプロンプトで指定する（指定が無ければ Lighthouse と構造化データだけ）。公開前の下書きの確認は管理者の指示で起動する |
+| `quality-checker` | 検査の対象と項目をプロンプトで指定する（指定が無ければ Lighthouse と構造化データだけ）。公開前の下書きの確認は管理者の指示で起動する。**項目 6（WCAG の機械検査）だけは `weekly-observe-a11y` で定期実行する** |
 | `design-implementer` | コードの差分を作る仕事で、仕様の指示が要る |
 | `lead-ops` | 本番の Mautic への書き込み。トスアップ対象の期間をプロンプトで固定してから、管理者の指示で起動する |
 

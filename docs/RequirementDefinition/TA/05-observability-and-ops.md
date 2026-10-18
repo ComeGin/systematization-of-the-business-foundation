@@ -392,7 +392,36 @@ BA-04 は MA へのトスアップ条件として、**ポイントの加算値�
 - **3 回計測の中央値であることを忘れない。** 計測が 1 回で終わらないため、CI に載せると相応の時間がかかる。頻度を上げるより、ビルドごと ＋ 週次の定点という 2 段構えにする（TA-03 の 3.3）。
 - **合成計測と実測を混同しない。** DA-04 は Core Web Vitals の実測を Umami（`get_performance`）、合成計測を Lighthouse CI と役割分担している（**2026-10-06 ADR-25: 実測は PostHog の `$web_vitals`〈p75〉に変わった。3 節。実測は同意した訪問者だけの標本であり、Lighthouse CI は同意の前の状態〈GA4・PostHog のタグが無い状態〉を測る**）。Lighthouse のスコアが良いことと、実ユーザーの体験が良いことは別である。
 
+### 7.1 a11y の自動検査の運用（2026-10-18 に追加。ADR-27）
+
+公開サイトの JIS X 8341-3:2016 の AA の対応度の表明（ADR-27。一部準拠）を、後の変更で落とさないための週次の観測。試験の方法の正本は `docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md` の §4、流れは DD-09。
+
+| 項目 | 値 | 理由 |
+|---|---|---|
+| 道具 | `@playwright/test` ＋ `@axe-core/playwright`（`frontend/verdant-virgo/e2e/`） | 全ルート × Desktop・Mobile × 状態で axe を回せる |
+| preview のポート | **4323**（`playwright.config.ts` の `webServer`） | 4321（dev）・4322（Lighthouse CI）と衝突させない（`.claude/CLAUDE.md` のポート表） |
+| 結果の置き場所 | `frontend/verdant-virgo/.a11y/`（Git 管理外） | AWS に新しいリソースを足さない（ADR-27 の決定 6）。`E-12` には値と参照だけを書く |
+| 定期実行 | builtin `a11y`（`weekly-a11y`、毎週月曜 05:45、`enabled: false`）が承認済みの `main` のチェックアウトで `pnpm a11y:ci` を実行する | TA-03 の 3.3 |
+| 子プロセスの env | 許可リスト（`PATH`・使い捨ての `HOME`・`npm_config_ignore_scripts`・`SITE_URL`・`PLAYWRIGHT_BROWSERS_PATH`） | builtin `lighthouse` と同じ安全設計（秘密値を渡さない） |
+| **前提: main のチェックアウトに依存と Chromium** | 人が `main` のチェックアウトの `frontend/verdant-virgo` で `pnpm install` と `pnpm exec playwright install chromium`（既定の `~/.cache/ms-playwright`）を実行しておく | `HOME` は使い捨てなので、builtin が実ホームの `~/.cache/ms-playwright` を `PLAYWRIGHT_BROWSERS_PATH` で明示して渡す。**無ければ `skipped`**（`node_modules` が無い・Chromium が無い）で、失敗にしない |
+
+**`fetch.outcome` の当てはめ**（builtin の結果。DD-01 の 4.2 の語彙）
+
+| 状況 | 結果 |
+|---|---|
+| `node_modules` が無い／Chromium が無い | `skipped` |
+| 終了コード 0 か 1 で、今回の Playwright の JSON レポートが読め、トップの `errors` が空 | `success`（`.a11y/` 直下の今回の `*.json` を作業ツリーに写す。**axe の違反でテストが落ちる終了コード 1 も success**。違反の判断は `quality-checker` の項目 6） |
+| 終了コード 0 で、写すものが無い | `partial`（`empty_but_ok`） |
+| レポートが無い（ビルドの失敗を含む）・読めない・`errors` がある・その他の終了コード | `failure`（`invalid_response`。写さない） |
+| タイムアウト・停止の要求 | `failure`（`timeout`） |
+| 起動できない | `failure`（`unreachable`） |
+
+- **axe の違反 0 は、基準を満たしたことの十分条件ではない。** 機械で判定できる基準は一部だけで、手動とスクリーンリーダーの試験（UI を変える公開の前。BA-04 の 3b）と合わせて表明を保つ。
+- **Lighthouse の定点計測と同時に走らせない**（7 節の計測環境の注意。TA-03 の 3.3）。
+
 ## 8. 未決定事項
+
+- **（2026-10-18 に追加。ADR-27）監視アプリが読む `main` のチェックアウトの `pnpm install` と `playwright install chromium` を、誰がいつやり直すか。** 依存や Playwright の版が上がると Chromium の版も変わり、やり直すまで `weekly-a11y` は `skipped` になる。`main` のチェックアウトの更新（TA-03 の 7 節）と一体で決める。判断者 `R1`。
 
 - **（2026-10-06 に追加。ADR-25）GA4 の接続が切れたことを何で知らせるか**（4 節の項目 21）。OpenSEO の `/api/health` の `checks` は環境変数の有無だけを見て、GA4 の接続の状態を含まない（`src/server/lib/setup-status.ts` で確認）。したがって `agent/analytics-reporter` の `E-12` の `fetch.outcome`（日次）だけが手がかりになる。n8n の `ops-monitor` から `measurement_health` 相当を確かめる手段は無い（OpenSEO の MCP は host-relay で中継しない）。判断者 `R1`。
 - **（2026-10-06 に追加。ADR-25）GA4 の BigQuery エクスポートを使うか。** 使えば生データを手元〈Google Cloud〉に持てるが、保管先と資格情報が増える。今は使わない。判断者 `R1`。

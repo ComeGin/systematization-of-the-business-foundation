@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "shadcn": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "-c",
+        "cd \"$(git rev-parse --show-toplevel)/frontend/verdant-virgo\" && exec pnpm dlx shadcn@latest mcp"
+      ]
+    }
+  }
+}

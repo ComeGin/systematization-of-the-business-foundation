@@ -1,0 +1,160 @@
+---
+// 画面 11 ウェブアクセシビリティ方針（/accessibility）。01-content-spec.md §4.11、表の様式は 04-accessibility-spec.md §5。
+// 枠は法務テンプレート（§4.10）と同じ: パンくず → h1 → 本文（720px）。目次と CTA は置かない。
+// ページは組み立てだけ。文言と試験の結果は site-content/accessibility.ts から読む。
+// 試験の結果の表は Desktop が表（caption・th scope 付き。1.3.1）、Mobile は 1 行を「番号 ＋ 達成基準」を見出しにした
+// まとまりに組み替える（§4.10 の法務の表と同じ扱い。幅 320px でも横にスクロールさせない）。
+import { BaseLayout } from '@/modules/layout';
+import {
+  accessibilityPage,
+  CRITERION_VALUE_LABELS,
+  PENDING,
+  type Criterion,
+} from '@/modules/site-content/accessibility';
+import { SEO } from '@/modules/site-content/seo';
+
+const seo = SEO.accessibility;
+const { h1, policy, status, external, results, contact } = accessibilityPage;
+// ホームはパンくずの部品が先頭に足す
+const breadcrumb = accessibilityPage.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
+
+const applicableText = (row: Criterion) =>
+  row.applicable ? CRITERION_VALUE_LABELS.applicable : CRITERION_VALUE_LABELS.notApplicable;
+// 適用なしの行は空欄。適用の行は、確定するまで【要記入】
+const resultText = (row: Criterion) => {
+  if (!row.applicable) return '';
+  if (row.result === null) return PENDING;
+  return CRITERION_VALUE_LABELS[row.result];
+};
+// Mobile のまとまりの dt に使う列名。「番号」「達成基準」はまとまりの見出し（h3）が持つので飛ばす
+const [, , levelColumn, applicableColumn, resultColumn, noteColumn] = results.columns;
+
+const sectionClass = 'flex flex-col gap-3';
+const headingClass = 'type-h2 text-text-heading';
+const bodyClass = 'type-body text-text-body';
+// 狭い幅（360px 未満）での途中の折り返しは global.css の規則に任せる（セルに anywhere を当てると Desktop の列幅が縮むため）
+const cellText = 'phrase';
+const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-link-hover';
+---
+
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
+  <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
+    <h1 class="type-h1 text-text-heading">{h1}</h1>
+
+    <div class="flex max-w-[720px] flex-col gap-12">
+      {/* 11-1 方針 */}
+      <section aria-labelledby={policy.id} class={sectionClass}>
+        <h2 id={policy.id} class={headingClass}>{policy.heading}</h2>
+        {policy.paragraphs.map((paragraph) => <p class={bodyClass}>{paragraph}</p>)}
+      </section>
+
+      {/* 11-2 対応の状況（dl。Desktop は項目と値を左右、Mobile は縦積み） */}
+      <section aria-labelledby={status.id} class={sectionClass}>
+        <h2 id={status.id} class={headingClass}>{status.heading}</h2>
+        <dl class="border-t border-border">
+          {
+            status.items.map((item) => (
+              <div class="flex flex-col gap-1 border-b border-border p-2 md:flex-row md:gap-4">
+                <dt class={`type-label shrink-0 text-text-body md:w-60 ${cellText}`}>{item.term}</dt>
+                <dd class={`type-body text-text-body ${cellText}`}>{item.value}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </section>
+
+      {/* 11-3 外部のサービスについて（部分適合に関する記述。G-2） */}
+      <section aria-labelledby={external.id} class={sectionClass}>
+        <h2 id={external.id} class={headingClass}>{external.heading}</h2>
+        <p class={bodyClass}>{external.intro}</p>
+        <ul class={`${bodyClass} flex list-disc flex-col gap-2 pl-6`}>
+          {external.services.map((service) => <li>{service}</li>)}
+        </ul>
+        <p class={bodyClass}>{external.statement}</p>
+        <p class={bodyClass}>
+          {external.alternatives.before}<a href={`mailto:${external.alternatives.email}`} class={linkClass}>{external.alternatives.email}</a>{external.alternatives.after}
+        </p>
+        <p class={bodyClass}>{external.followUp}</p>
+      </section>
+
+      {/* 11-4 達成基準ごとの試験の結果（表 1 は JIS の 38 基準、表 2 は WCAG 2.1・2.2 の追加の基準〈参考〉） */}
+      <section aria-labelledby={results.id} class="flex flex-col gap-8">
+        <h2 id={results.id} class={headingClass}>{results.heading}</h2>
+        {
+          results.tables.map((table) => (
+            <div class="flex flex-col gap-4">
+              <p class={bodyClass}>{table.lead}</p>
+
+              {/* Desktop: 表 */}
+              <table class="hidden w-full border-collapse md:table">
+                <caption class={`type-label pb-2 text-left text-text-heading ${cellText}`}>{table.caption}</caption>
+                <thead>
+                  <tr class="border-b border-border">
+                    {results.columns.map((column) => (
+                      <th scope="col" class={`type-label p-2 text-left align-bottom text-text-body ${cellText}`}>
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {table.rows.map((row) => (
+                    <tr class="border-b border-border">
+                      <th scope="row" class="type-small p-2 text-left align-top font-normal whitespace-nowrap text-text-body">
+                        {row.id}
+                      </th>
+                      <td class={`type-small p-2 align-top text-text-body ${cellText}`}>{row.name}</td>
+                      <td class="type-small p-2 align-top whitespace-nowrap text-text-body">{row.level}</td>
+                      <td class="type-small p-2 align-top whitespace-nowrap text-text-body">{applicableText(row)}</td>
+                      <td class="type-small p-2 align-top whitespace-nowrap text-text-body">{resultText(row)}</td>
+                      <td class={`type-small p-2 align-top text-text-body ${cellText}`}>{row.note ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Mobile: 1 行を 1 つのまとまりに（見出しは「番号 ＋ 達成基準」）。名前は表の caption と同じ文 */}
+              <div class="flex flex-col gap-4 md:hidden">
+                <p id={`${table.id}-caption`} class={`type-label text-text-heading ${cellText}`}>
+                  {table.caption}
+                </p>
+                <ul aria-labelledby={`${table.id}-caption`} class="flex flex-col gap-4">
+                  {table.rows.map((row) => (
+                    <li class="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
+                      <h3 class={`type-card-title text-text-heading ${cellText}`}>
+                        {row.id} {row.name}
+                      </h3>
+                      <dl class="flex flex-col gap-2">
+                        {[
+                          [levelColumn, row.level],
+                          [applicableColumn, applicableText(row)],
+                          [resultColumn, resultText(row)],
+                          [noteColumn, row.note ?? ''],
+                        ]
+                          .filter(([, value]) => value !== '')
+                          .map(([term, value]) => (
+                            <div class="flex flex-col gap-1">
+                              <dt class="type-caption text-text-muted">{term}</dt>
+                              <dd class={`type-body text-text-body ${cellText}`}>{value}</dd>
+                            </div>
+                          ))}
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ))
+        }
+      </section>
+
+      {/* 11-5 お気づきの点のご連絡 */}
+      <section aria-labelledby={contact.id} class={sectionClass}>
+        <h2 id={contact.id} class={headingClass}>{contact.heading}</h2>
+        <p class={bodyClass}>
+          {contact.before}<a href={`mailto:${contact.email}`} class={linkClass}>{contact.email}</a>{contact.after}
+        </p>
+      </section>
+    </div>
+  </div>
+</BaseLayout>

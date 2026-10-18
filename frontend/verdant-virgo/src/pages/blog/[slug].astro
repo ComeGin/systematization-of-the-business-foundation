@@ -61,7 +61,7 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
     <article class="flex w-full max-w-[720px] min-w-0 flex-col gap-8 md:gap-12">
       {/* 8-3 記事ヘッダー */}
       <header class="flex flex-col items-start gap-3">
-        {article.category && <Badge variant="secondary" className="h-6 py-1">{article.category.name}</Badge>}
+        {article.category && <Badge variant="secondary" className="min-h-6 py-[3px]">{article.category.name}</Badge>}
         <h1 class="type-h1 text-text-heading">{article.title}</h1>
         <p class="type-small flex flex-wrap gap-x-4 text-text-muted">
           <span>{meta.published} <time datetime={article.publishedAt}>{formatJstDate(article.publishedAt)}</time></span>
@@ -112,12 +112,12 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
       </IconCard>
     </article>
 
-    {/* 8-4 目次（Desktop は本文の右。スクロールに追従） */}
+    {/* 8-4 目次（Desktop は本文の右。スクロールに追従）。ランドマークは中の nav（名前は目次の見出し）だけにするので、枠は div */}
     {
       tocItems.length > 0 && (
-        <aside class="hidden min-w-0 flex-1 self-stretch md:block">
+        <div class="hidden min-w-0 flex-1 self-stretch md:block">
           <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="sidebar" />
-        </aside>
+        </div>
       )
     }
   </div>

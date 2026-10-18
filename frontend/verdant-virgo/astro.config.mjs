@@ -80,6 +80,10 @@ export default defineConfig({
         "@base-ui/react/select",
         "@base-ui/react/separator",
         "@base-ui/react/use-render",
+        // React Bits のモーフィング（src/modules/motion/vendor/react-bits）
+        "motion/react",
+        "ogl",
+        "gsap",
       ],
     },
 

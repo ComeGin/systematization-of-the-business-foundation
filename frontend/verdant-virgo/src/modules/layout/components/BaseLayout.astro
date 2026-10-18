@@ -6,7 +6,9 @@
  * - title・description・noindex は site-content/seo.ts の値をそのまま渡す（01-content-spec.md §7）
  * - OGP 画像は全画面共通の 1 枚（public/og.png。§7.1）。og:title・og:description は title・description と同じ
  * - canonical はクエリを外した URL（/contact?cta=… も /contact にする。§7 の注）
- * - 計測・同意・チャットは integrations の部品を body の末尾と head に置く（ページ側は何もしない）
+ * - 計測・チャットは integrations の部品を body の末尾と head に置く（ページ側は何もしない）
+ * - Cookie 同意バナーはスキップリンクの直後に置く（見た目は下端に固定のまま。DOM の順＝フォーカス順で、本文より前に操作できるようにする。WCAG 2.4.3）
+ * - <main> は tabindex="-1"。スキップリンクで本文へフォーカスを移す
  * - 「ソースコードを無料 DL」の CTA の動き（zip のダウンロード ＋ 無料相談へ遷移）は source-dl の部品が body の末尾で全画面に効かせる
  * - 告知帯（トップだけ）は slot="announcement"、ページ固有の head 要素（JSON-LD など）は slot="head"
  */
@@ -102,20 +104,21 @@ const breadcrumbJsonLd = breadcrumb && {
     <AnalyticsHead />
   </head>
   <body class="flex min-h-dvh flex-col">
+    {/* 見えたときの余白は ! 付きで当てる（focus:not-sr-only が padding を 0 に戻し、的が 70×20px になっていた。2.5.8 の 24px 以上） */}
     <a
       href="#main"
-      class="type-label sr-only z-50 rounded-md bg-surface px-4 py-2 text-text-heading shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+      class="type-label sr-only z-50 rounded-md bg-surface text-text-heading shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:px-4! focus:py-2!"
     >
       本文へ移動
     </a>
+    <ConsentBanner />
     <slot name="announcement" />
     <SiteHeader headerCta={headerCta} sourceDlOnPage={sourceDlOnPage} />
     {breadcrumb && <Breadcrumb items={breadcrumb} tone={breadcrumbTone} />}
-    <main id="main" class="flex-1">
+    <main id="main" tabindex="-1" class="flex-1">
       <slot />
     </main>
     <SiteFooter sourceDlOnPage={sourceDlOnPage} />
-    <ConsentBanner />
     <ChatLoader />
     <CtaTracking />
     <SourceDlRedirect />

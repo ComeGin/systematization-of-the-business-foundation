@@ -1,6 +1,6 @@
 ---
 name: quality-checker
-description: 機械チェック（リンク切れ・表記ゆれ・構造化データ・Lighthouse のしきい値）を行い、指摘の一覧を E-12（source は quality）として docs/audits/quality/ に記録する。記事の下書きは参照だけ。agent/quality-checker（CAP-06）。
+description: 機械チェック（リンク切れ・表記ゆれ・構造化データ・Lighthouse のしきい値・WCAG の機械検査〈axe〉）を行い、指摘の一覧を E-12（source は quality）として docs/audits/quality/ に記録する。記事の下書きは参照だけ。agent/quality-checker（CAP-06）。
 tools: Read, Glob, Grep, Write, mcp__strapi-prod__list_article, mcp__strapi-prod__get_article
 model: sonnet
 ---
@@ -22,6 +22,23 @@ model: sonnet
 | 3 | 表記ゆれ | 記事の下書きの本文 | 同じ記事の中、または既存の記事との間で、同じ語が複数の表記で出ていないか。例: `サーバー`/`サーバ`、`ユーザー`/`ユーザ`、`SaaS`/`Saas`、全角と半角の数字・英字・かっこの混在 |
 | 4 | 構造化データ | `frontend/verdant-virgo/src/`（レイアウトとページのテンプレート）と、あれば `frontend/verdant-virgo/dist/**/*.html` | `application/ld+json` の有無を Grep で調べる。記事ページに `Article` 相当の構造化データがあるか、JSON として壊れていないか |
 | 5 | 記事のメタ情報 | 記事の下書き | `title` が空でない、`description` が 80 文字以内で空でない、`slug` がある、本文に `h1` が 1 つだけ（`#` の見出しが 1 つ） |
+| 6 | WCAG の機械検査（axe。2026-10-18 に追加。ADR-27） | `frontend/verdant-virgo/.a11y/summary.json`（監視アプリの builtin `a11y` が、承認済みの `main` で `pnpm a11y:ci` を実行して作業ツリーに写したもの） | **`summary.json` だけを Read する**（`results.json` と `pages/` は読まない）。`totals` の件数をそのまま数える。件数はすべて要素の単位（1 つのルールが 3 要素で落ちれば 3）。形式の正本は `frontend/verdant-virgo/e2e/a11y/merge.ts` の冒頭のコメント（`version: 1`） |
+
+### 項目 6 の決まり
+
+- **項目 6 はほかの項目と同じ `E-12` に混ぜない。** 1 回の検査で 1 ファイル、`target_ref: "E-05 url_path=*"`。`fetch.outcome` はファイルに 1 つなので、6 の失敗がほかの項目の値を巻き込まないようにする
+- `measured_at` は `summary.json` の `measured_at`（検査の開始時刻）、`raw_ref` は `frontend/verdant-virgo/.a11y/summary.json`
+- `fetch.outcome` は下の表で決める（上から順に当てはめる。共通の 9 値の規則と同じ考え方）
+
+  | 状況 | `fetch.outcome` | `metrics` |
+  |---|---|---|
+  | `summary.json` が無い。または `measured_at` が古い（プロンプトが鮮度を指定していればそれ、無ければ今日から 7 日を超える） | `unreachable` | 空。本文に「判定不能」と理由（古い結果を今週の値として書かない） |
+  | JSON として読めない、`version` が 1 でない、`totals` の 4 つの件数のどれかが無い | `invalid_response` | 空。本文に「判定不能」と理由 |
+  | `totals.pages_errored` か `totals.pages_missing` が 0 でない（一部のページの結果が欠けている） | `truncated` | 空。欠けたページ（`pages[]` の `status` が `error`・`missing` のものの `route`・`project`・`error`）を本文に書く |
+  | 上のどれでもない | `ok`（違反が 0 件でも `ok`。`empty_but_ok` にしない） | 4 つのキーを入れる（0 も入れる） |
+
+- 本文には違反のあったページ（`pages[]` の `status` が `failed` のもの）を、`route`・`project`・`state` ごとに、ルールの `id`・`impact`・要素の数・要素のセレクタ（`nodes[].target`）で並べる。**`nodes[].html` の断片は貼らない**（長く、文言を含むため）。`incomplete` は合格・不合格に数えず、件数だけを書く
+- **「準拠」「適合」と書かない。** 機械の検査で違反が 0 でも、準拠の判定は人の試験の結果である（`docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md` の §4.5）。直し方の提案も書かない
 
 ## E-12 の単位と指標
 
@@ -37,6 +54,10 @@ model: sonnet
   | `QC-notation-variants` | 3 のゆれが見つかった語の数 |
   | `QC-structured-data-missing` | 4 の構造化データが無い、または壊れているページの数 |
   | `QC-meta-issues` | 5 の指摘の件数 |
+  | `QC-a11y-violations` | 6 の違反の要素の数（`totals.violations`） |
+  | `QC-a11y-serious` | 6 の違反のうち impact が critical か serious の要素の数（`totals.serious`）。`agent/proposal-writer` の止め線に使われる |
+  | `QC-a11y-pages-failed` | 6 の違反が 1 件以上あったページ（ルート × 端末）の数（`totals.pages_failed`） |
+  | `QC-a11y-incomplete` | 6 の axe が判定できず人の判断が要る要素の数（`totals.incomplete`）。合格・不合格には数えない |
 
 - `measured_at` は検査した対象のデータの時刻（記事なら `updatedAt`、サイト全体なら検査した時刻）。期間を持たないので `fetch.range` は付けない
 - 本文には**指摘の一覧**を書く（項目の番号・場所〈記事の `documentId` と見出し、またはファイルのパス〉・何が問題か）。**記事の本文をそのまま引用しない**（問題の語句だけを短く示す）。直し方の提案は書かない（提案は `agent/proposal-writer` の仕事）

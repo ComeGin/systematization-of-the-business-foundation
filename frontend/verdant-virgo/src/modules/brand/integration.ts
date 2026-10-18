@@ -6,6 +6,8 @@
 // - 400・500・700 の 3 ウェイトを、それぞれ 1 ファイルの woff2 にする（和文の 600 は 700。H-4）
 // - dist/ の CSS（と HTML の <style>）にある @fontsource の Noto Sans JP の @font-face（unicode-range で約 120 個 × 3）を
 //   消して 3 つに置き換え、使われなくなった @fontsource の woff2・woff を dist/ から消す
+// - あわせて、寸法を Noto Sans JP に合わせた端末のフォント（"Noto Sans JP Fallback"）の @font-face を置き、書体の並びの
+//   Noto Sans JP の直後に足す。届くまでの描画と差し替えの後で字の位置が動かない（CLS。2026-10-19）
 // - dev サーバーでは何もしない（@fontsource のまま。字形は同じ Noto Sans JP なので見た目は変わらない）
 // - 元のフォントは @expo-google-fonts/noto-sans-jp の静的な TTF、サブセットは subset-font（harfbuzzjs の WebAssembly）。
 //   Node だけで動き、Python などは要らない
@@ -105,10 +107,9 @@ function textOfJs(js: string): string {
   return [...unescaped].filter((ch) => ch.codePointAt(0)! > 0x7f).join("");
 }
 
-
 /** Noto Sans JP そのもの（"Noto Sans JP Fallback" は含まない）の @font-face か */
 const NOTO_FACE = /font-family:\s*["']?Noto Sans JP["']?\s*[;}]/;
-/** 遅らせて読むときの、端末のフォントの代わりの @font-face の名前 */
+/** Noto Sans JP が届くまで使う、寸法を合わせた端末のフォントの @font-face の名前 */
 const FALLBACK_FAMILY = `${FAMILY} Fallback`;
 
 /** @font-face のうち Noto Sans JP のものを、置き換えの CSS に差し替える（最初の 1 つの位置に入れ、残りは消す） */
@@ -140,21 +141,58 @@ function addFallbackToStacks(css: string): string {
     .map((part) =>
       part.startsWith("@font-face")
         ? part
-        : part.replace(/(["'])Noto Sans JP\1(?!\s*,\s*["']Noto Sans JP Fallback)/g, `$1${FAMILY}$1,"${FALLBACK_FAMILY}"`),
+        : part.replace(
+            /(["'])Noto Sans JP\1(?!\s*,\s*["']Noto Sans JP Fallback)/g,
+            `$1${FAMILY}$1,"${FALLBACK_FAMILY}"`,
+          ),
     )
     .join("");
 }
 
 /**
- * 遅らせて読む間に使う、端末の和文フォントの @font-face。Noto Sans JP の縦の寸法（ascent 1.16em・descent 0.288em・
+ * Noto Sans JP が届くまで（font-display: swap の差し替えの前、defer のときは遅らせて読む間）に使う、端末の和文フォントの @font-face。
+ * defer の有無にかかわらず置く（2026-10-19。置かないと差し替えで字の位置が 4〜6px 動き、トップの Mobile で CLS 0.0029 が出た）。
+ * Noto Sans JP の縦の寸法（ascent 1.16em・descent 0.288em・
  * line gap 0）に合わせて、差し替えの前後で文字の上下の位置が動かないようにする。和文の字は全角で幅がどの書体でも 1em
  * なので、折り返しの位置も変わらない（欧文は Poppins が受け持つ）。
  * local() は、端末にある順に Noto Sans JP（入っていれば）→ ヒラギノ（Mac・iOS）→ 游ゴシック・メイリオ（Windows）→ Noto Sans CJK（Android・Linux）。
  */
 const FALLBACK_LOCALS: Record<400 | 500 | 700, string[]> = {
-  400: ["Noto Sans JP", "NotoSansJP-Regular", "Hiragino Sans W3", "HiraginoSans-W3", "Hiragino Kaku Gothic ProN W3", "Yu Gothic Regular", "YuGothic-Regular", "Meiryo", "Noto Sans CJK JP Regular", "NotoSansCJKjp-Regular"],
-  500: ["Noto Sans JP Medium", "NotoSansJP-Medium", "Hiragino Sans W5", "HiraginoSans-W5", "Yu Gothic Medium", "YuGothic-Medium", "Meiryo", "Noto Sans CJK JP Medium", "NotoSansCJKjp-Medium"],
-  700: ["Noto Sans JP Bold", "NotoSansJP-Bold", "Hiragino Sans W6", "HiraginoSans-W6", "Hiragino Kaku Gothic ProN W6", "Yu Gothic Bold", "YuGothic-Bold", "Meiryo Bold", "Noto Sans CJK JP Bold", "NotoSansCJKjp-Bold"],
+  400: [
+    "Noto Sans JP",
+    "NotoSansJP-Regular",
+    "Hiragino Sans W3",
+    "HiraginoSans-W3",
+    "Hiragino Kaku Gothic ProN W3",
+    "Yu Gothic Regular",
+    "YuGothic-Regular",
+    "Meiryo",
+    "Noto Sans CJK JP Regular",
+    "NotoSansCJKjp-Regular",
+  ],
+  500: [
+    "Noto Sans JP Medium",
+    "NotoSansJP-Medium",
+    "Hiragino Sans W5",
+    "HiraginoSans-W5",
+    "Yu Gothic Medium",
+    "YuGothic-Medium",
+    "Meiryo",
+    "Noto Sans CJK JP Medium",
+    "NotoSansCJKjp-Medium",
+  ],
+  700: [
+    "Noto Sans JP Bold",
+    "NotoSansJP-Bold",
+    "Hiragino Sans W6",
+    "HiraginoSans-W6",
+    "Hiragino Kaku Gothic ProN W6",
+    "Yu Gothic Bold",
+    "YuGothic-Bold",
+    "Meiryo Bold",
+    "Noto Sans CJK JP Bold",
+    "NotoSansCJKjp-Bold",
+  ],
 };
 const FALLBACK_FACES = WEIGHTS.map(
   ({ weight }) =>
@@ -172,7 +210,8 @@ function loaderScript(cssHref: string): string {
   return `(()=>{const k="comegin-font-loaded",h=${JSON.stringify(cssHref)};let s=!1;try{s=sessionStorage.getItem(k)==="1"}catch{}const a=()=>{if(document.querySelector('link[data-comegin-font]'))return;const l=document.createElement("link");l.rel="stylesheet";l.href=h;l.dataset.comeginFont="";l.addEventListener("load",()=>{try{sessionStorage.setItem(k,"1")}catch{}});document.head.append(l)};if(s||document.readyState==="complete")a();else addEventListener("load",a,{once:!0})})();\n`;
 }
 
-const shortHash = (data: string | Buffer) => createHash("sha256").update(data).digest("hex").slice(0, 8);
+const shortHash = (data: string | Buffer) =>
+  createHash("sha256").update(data).digest("hex").slice(0, 8);
 
 export interface FontSubsetOptions {
   /**
@@ -199,7 +238,12 @@ export interface FontSubsetResult {
 /** dist/ の中で、和文フォントのサブセットを作って差し替える（integration の本体。ビルドの外でも dist の写しに当てられる） */
 export async function subsetNotoSansJp(
   distDir: string,
-  { base = "/", assetsDir = "_astro", preload = [], defer = false }: FontSubsetOptions & { base?: string; assetsDir?: string } = {},
+  {
+    base = "/",
+    assetsDir = "_astro",
+    preload = [],
+    defer = false,
+  }: FontSubsetOptions & { base?: string; assetsDir?: string } = {},
 ): Promise<FontSubsetResult> {
   const preloadWeights = new Set(preload);
   const files = await listFiles(distDir);
@@ -210,12 +254,16 @@ export async function subsetNotoSansJp(
 
   // 1. 使われている字を集める
   const chars = new Set<string>(ALWAYS_INCLUDED);
-  for (const f of htmlFiles) for (const ch of textOfHtml(await readFile(f, "utf8"))) chars.add(ch);
-  for (const f of jsFiles) for (const ch of textOfJs(await readFile(f, "utf8"))) chars.add(ch);
+  for (const f of htmlFiles)
+    for (const ch of textOfHtml(await readFile(f, "utf8"))) chars.add(ch);
+  for (const f of jsFiles)
+    for (const ch of textOfJs(await readFile(f, "utf8"))) chars.add(ch);
   const text = [...chars].filter((ch) => ch.codePointAt(0)! >= 0x20).join("");
 
   // 2. ウェイトごとにサブセットを作る
-  const pkgDir = path.dirname(require.resolve("@expo-google-fonts/noto-sans-jp/package.json"));
+  const pkgDir = path.dirname(
+    require.resolve("@expo-google-fonts/noto-sans-jp/package.json"),
+  );
   const outDir = path.join(distDir, assetsDir);
   await mkdir(outDir, { recursive: true });
   const faces: string[] = [];
@@ -230,16 +278,20 @@ export async function subsetNotoSansJp(
     written.add(name);
     totalBytes += subset.length;
     if (preloadWeights.has(weight)) {
-      preloadLinks.push(`<link rel="preload" href="${assetUrl(name)}" as="font" type="font/woff2" crossorigin>`);
+      preloadLinks.push(
+        `<link rel="preload" href="${assetUrl(name)}" as="font" type="font/woff2" crossorigin>`,
+      );
     }
     faces.push(
       `@font-face{font-family:"${FAMILY}";font-style:normal;font-display:swap;font-weight:${weight};src:url(${assetUrl(name)}) format("woff2")}`,
     );
   }
 
-  // defer のときは、3 つの @font-face を別の CSS と、それを差し込む JS に出す。本体の CSS には fallback だけを置く
+  // 本体の CSS には、3 つの @font-face と fallback（寸法を合わせた端末のフォント）を置く。
+  // defer のときは、3 つの @font-face を別の CSS と、それを差し込む JS に出す。本体の CSS には fallback だけを置く。
+  // fallback の local() の書体が端末に無ければ、その @font-face は使われず、書体の並びの次（ヒラギノ・游ゴシックなど）に進む（置かないときと同じ描き方）
   let headTags = preloadLinks.join("");
-  let replacement = faces.join("");
+  let replacement = faces.join("") + FALLBACK_FACES;
   if (defer) {
     const fontCss = faces.join("") + "\n";
     const cssName = `noto-sans-jp.${shortHash(fontCss)}.css`;
@@ -258,12 +310,15 @@ export async function subsetNotoSansJp(
   const rewrite = (css: string) => {
     const r = rewriteFontFaces(css, replacement, removedUrls);
     replaced += r.count;
-    return { css: defer && r.count > 0 ? addFallbackToStacks(r.css) : r.css, changed: r.count > 0 };
+    return {
+      css: r.count > 0 ? addFallbackToStacks(r.css) : r.css,
+      changed: r.count > 0,
+    };
   };
   for (const f of cssFiles) {
     if (written.has(path.basename(f))) continue;
     let { css, changed } = rewrite(await readFile(f, "utf8"));
-    if (!changed && defer && css.includes(`"${FAMILY}"`)) {
+    if (!changed && css.includes(`"${FAMILY}"`)) {
       // @font-face の無い CSS でも、書体の並びに fallback を足す
       const added = addFallbackToStacks(css);
       changed = added !== css;
@@ -274,12 +329,15 @@ export async function subsetNotoSansJp(
   for (const f of htmlFiles) {
     const html = await readFile(f, "utf8");
     let changed = false;
-    let out = html.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (whole, open: string, css: string, close: string) => {
-      const r = rewrite(css);
-      if (!r.changed) return whole;
-      changed = true;
-      return open + r.css + close;
-    });
+    let out = html.replace(
+      /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+      (whole, open: string, css: string, close: string) => {
+        const r = rewrite(css);
+        if (!r.changed) return whole;
+        changed = true;
+        return open + r.css + close;
+      },
+    );
     // 先に読むフォントと、遅らせて読む JS は <title> の直前（CSS より前）に置く
     if (headTags && out.includes("<title>")) {
       out = out.replace("<title>", headTags + "<title>");
@@ -289,13 +347,20 @@ export async function subsetNotoSansJp(
   }
   if (replaced === 0) {
     // 差し替える相手が無い＝@fontsource の読み込み方が変わった。黙って全部の分割フォントを配らないよう止める
-    throw new Error(`[comegin-font-subset] dist/ に ${FAMILY} の @font-face が見つかりませんでした（fonts.css の読み込みを確かめてください）。`);
+    throw new Error(
+      `[comegin-font-subset] dist/ に ${FAMILY} の @font-face が見つかりませんでした（fonts.css の読み込みを確かめてください）。`,
+    );
   }
 
   // 4. 使われなくなった Noto Sans JP のフォントのファイルを消す（いま書いたものは残す）
   let removedFiles = 0;
   for (const url of removedUrls) {
-    const file = path.join(distDir, decodeURIComponent(url.replace(/^\//, "").replace(base.replace(/^\//, ""), "")));
+    const file = path.join(
+      distDir,
+      decodeURIComponent(
+        url.replace(/^\//, "").replace(base.replace(/^\//, ""), ""),
+      ),
+    );
     const name = path.basename(file);
     if (/noto-sans-jp/i.test(name) && !written.has(name)) {
       await unlink(file).then(
@@ -306,13 +371,27 @@ export async function subsetNotoSansJp(
   }
 
   // 5. ライセンス（SIL OFL 1.1）をフォントと同じ場所に置く
-  const license = await readFile(path.join(path.dirname(require.resolve("@fontsource/noto-sans-jp/package.json")), "LICENSE"), "utf8");
+  const license = await readFile(
+    path.join(
+      path.dirname(require.resolve("@fontsource/noto-sans-jp/package.json")),
+      "LICENSE",
+    ),
+    "utf8",
+  );
   await writeFile(path.join(outDir, "NotoSansJP-OFL.txt"), license);
 
-  return { chars: chars.size, files: [...written], totalBytes, replacedFaces: replaced, removedFiles };
+  return {
+    chars: chars.size,
+    files: [...written],
+    totalBytes,
+    replacedFaces: replaced,
+    removedFiles,
+  };
 }
 
-export function comeginFontSubset(options: FontSubsetOptions = {}): AstroIntegration {
+export function comeginFontSubset(
+  options: FontSubsetOptions = {},
+): AstroIntegration {
   let base = "/";
   let assetsDir = "_astro";
 
@@ -324,11 +403,17 @@ export function comeginFontSubset(options: FontSubsetOptions = {}): AstroIntegra
         assetsDir = config.build.assets;
       },
       "astro:build:done": async ({ dir, logger }) => {
-        const r = await subsetNotoSansJp(fileURLToPath(dir), { ...options, base, assetsDir });
+        const r = await subsetNotoSansJp(fileURLToPath(dir), {
+          ...options,
+          base,
+          assetsDir,
+        });
         logger.info(
           `${FAMILY}: ${r.chars} 字 × ${WEIGHTS.length} ウェイト → ${WEIGHTS.length} ファイル（計 ${(r.totalBytes / 1024).toFixed(0)}KB）。` +
             `@font-face ${r.replacedFaces} 個を置き換え、分割フォント ${r.removedFiles} ファイルを削除` +
-            (options.defer ? "。和文フォントは最初の描画の後に読む（defer）" : ""),
+            (options.defer
+              ? "。和文フォントは最初の描画の後に読む（defer）"
+              : ""),
         );
       },
     },

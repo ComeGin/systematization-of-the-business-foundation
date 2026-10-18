@@ -18,9 +18,11 @@ interface Props {
   badge?: string;
   /** バッジの文字の前のアイコン（lucide-react の部品。完了画面の「受付完了」の circle-check など） */
   badgeIcon?: LucideIcon;
+  /** h1 の id（フォームなどの aria-labelledby の先にするとき。/contact） */
+  titleId?: string;
 }
 
-const { title, body, badge, badgeIcon: BadgeIcon } = Astro.props;
+const { title, body, badge, badgeIcon: BadgeIcon, titleId } = Astro.props;
 const hasTitleSlot = Astro.slots.has('title');
 if (!title && !hasTitleSlot) {
   throw new Error('PageIntro: title か slot="title" のどちらかを渡してください。');
@@ -39,7 +41,7 @@ const hasMedia = Astro.slots.has('media');
           </Badge>
         )
       }
-      <h1 class="type-h1 text-text-heading">
+      <h1 id={titleId} class="type-h1 text-text-heading">
         {hasTitleSlot ? <slot name="title" /> : typeof title === 'string' ? title : title && <HeadingLines heading={title} />}
       </h1>
       {body && <p class="type-body-lg phrase max-w-[720px] text-text-muted">{body}</p>}

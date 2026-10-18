@@ -4,6 +4,8 @@ Figma でのデザインを `frontend/verdant-virgo`（Astro ＋ shadcn/ui `base
 
 **2026-10-09 に `frontend/verdant-virgo` へ全画面を実装した。** 実装の状況・Figma と違えた点・公開の前にやることは末尾の §11 にある（計画は `docs/superpowers/plans/2026-10-09-website-implementation.md`）。§0〜§10 は実装の前に書いた申し送りで、§11 と食い違う場合は §11 が実装の実態。
 
+**2026-10-18 に、JIS X 8341-3:2016 の AA を目標にした改修とモーションの規則（H-22〜H-32）を §0'' に足した**（対応度は 2026-10-19 に「一部準拠」。ADR-27）。申し送りは §12。
+
 **2026-10-01 にブランドガイドラインを全面適用した。** 以下はその後の状態。
 
 | 正本 | 置き場所 |
@@ -16,6 +18,29 @@ Figma でのデザインを `frontend/verdant-virgo`（Astro ＋ shadcn/ui `base
 
 - Figma ファイル `JRYPLER6E0liA7cUurIhSo` は**派生物**。実装後に Figma を保守し続けることはしない（`BA/02-capability-map.md:106`）。
 - ただし**色・書体・寸法の正本は `tokens.json` に移った**。`global.css` は shadcn の neutral 既定値のままなので、**実装時に tokens を取り込む作業が要る**（下の §1）。
+
+## 0''. 2026-10-18 の改訂（JIS X 8341-3:2016 の AA を目標にした改修とモーション）
+
+計画は `docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`。基準ごとの対応と試験の方法は `04-accessibility-spec.md`、動きは `05-motion-spec.md`、文言は `01-content-spec.md`（§4.11・§4.12・§12、決定の一覧は §10.0.5）。決定の記録は ADR-27・ADR-28（`RequirementDefinition/AA/05-application-decisions.md`）。**この節は実装者が守る規則だけを書く。実装の状況と申し送りは、実装の後にリードが足す。**
+
+### 0''.1 実装で守る規則（a11y）
+
+| # | 規則 | 根拠 |
+|---|---|---|
+| H-22 | **`target="_blank"` のすべてのリンクに、読み上げ用の「（新しいタブで開きます）」を付ける。** 部品は `a11y` モジュールの `NewTabNotice`（文言は site-content から `text` で渡す）。リンクごとに sr-only の `<span>` を手で書かない | 2.4.4・3.2.4。2026-10-18 の調査で 7 か所が告知なしだった。フッターだけ文字を直書きしていた |
+| H-23 | **薄い地・入力欄・暗い地には、2026-10-18 に足した役割トークンを使う。** 薄い地（`role/surface-subtle`）の上のリンクは `text-link-on-subtle`（blue.600）、入力欄・チェックボックス・ラジオの枠は `border-input`（neutral.500）、暗い地のフォーカスリングは `ring-on-dark`（白。面に `data-surface="dark"` を付ける）。**`tokens.css` は直さない**（生成物。`theme.css` に足す）。**3 つのトークン（ブランドガイドラインからの逸脱）は 2026-10-18 に G-1 でユーザーが承認した。** ブランドガイドライン §5 への追加は申し送り（正本は `~/ComeGin/comegin`） | 1.4.3・1.4.11・2.4.7。改修前は 4.22:1・1.29:1・2.91:1。名前と値は `04-accessibility-spec.md` の §3.1 |
+| H-24 | **動きの有無は `a11y` の `prefersReducedMotion()`／`useReducedMotion()` だけで判定する。** `prefers-reduced-motion: reduce` のときは `global.css` が transition と animation を 0.01ms にする。部品ごとに `matchMedia` を書かない | 2.2.2・前庭障害への配慮。P-5 |
+| H-25 | **React Bits（とその他の動く部品）を足すときの規則**: `useReducedMotion()` で静止／5 秒を超えて自動で動くものに `MotionPause`／1 秒に 3 回を超えて点滅させない／装飾の canvas に `aria-hidden="true"`／文字を分割する部品は元の文を 1 回だけ読ませる／hover で起きることは focus-visible でも起きる／WebGL が無くても内容が欠けない。原本は `src/modules/motion/vendor/react-bits/` に置き、変更に `// a11y:`／`// perf:` の印。ページからは `motion/index.ts` のラッパーだけを使う | 2.2.2・2.3.1・1.3.1・2.1.1。P-6・P-10、ADR-28 |
+| H-26 | **ネイティブの HTML を先に使う。ARIA は足りないときだけ。** `div` に `role="button"` を付けない。**a11y のために React の island を増やさない**（Lighthouse の performance 0.9 と SEO 1.0 を落とさない） | 4.1.2。計画の規則 4。11.7 で Mobile に React を読ませたことが performance の最後の原因だった |
+| H-27 | **見出しの段を飛ばさない。** 見た目の大きさと段を分け、段は部品の `level` で渡す。記事本文（Strapi）の見出しは `blog/lib/body.ts` で直前の段から 1 段ずつにそろえる（執筆者に頼らない） | 1.3.1・2.4.6。`/contact`・`/services`・`/pricing` で飛んでいた |
+| H-28 | **フォームのすべての欄に見えるラベル。プレースホルダをラベルの代わりにしない。** 姓・名にも見えるラベル。`autocomplete` を付ける（会社名 `organization`、姓 `family-name`、名 `given-name`、メール `email`）。必須は Badge に加えて `aria-required` | 3.3.2・1.3.5。文言は `01-content-spec.md` §5.1 |
+| H-29 | **通知の読み上げは 1 回。** `role="alert"` とフォーカスの移動を同時に使わない。状態の通知は `role="status"`、失敗だけ `role="alert"` か `Alert` へのフォーカスのどちらか一方。文字数は残り 20 字以下と超過のときだけ読む | 4.1.3。状態ごとの表は `04-accessibility-spec.md` の §3.6 |
+| H-30 | **第三者の埋め込みも試験の対象。** Cal.com の iframe には差し込まれた後に `title` を付ける（6'-2 の見出しと同じ文字）。Chatwoot は同意の後の読み込みとランチャーの名前を確かめる。**Chatwoot が描く要素（ランチャー・`iframe`・閉じるボタン）には属性で名前を補う**（2026-10-18 の G-2 の決定。`01-content-spec.md` §8.1 の例外、§12 の S-21〜S-23）。こちらで直せない不足は、`/accessibility/` の部分適合に関する記述に書く（G-2 で決着。`04-accessibility-spec.md` の §3.8） | 4.1.2・2.1.2。P-7 |
+| H-31 | **再利用する部品の読み上げ用の文言（sr-only・`aria-label`・`title`）は、部品の既定値に入れず、使う側から渡す。** 対象は、複数の文脈で使う部品（`components/ui`・`marketing-ui`・`a11y`・`motion`・`forms` など）。文言の正本は `01-content-spec.md` §12 で、`site-content/a11y.ts` や各モジュールの messages から渡す。**例外: レイアウトに 1 つしかない部品の固定の名前は、部品の中に置いたままでよい**（スキップリンク「本文へ移動」、`nav` の名前「メイン」「パンくずリスト」、「メニューを開く」「メニューを閉じる」、`Breadcrumb` の「ホーム」）。これらは使う文脈が 1 つで、どこに置いても正しい（H-16 の「最も多く使う正しい値」と同じ扱い。`Logo` の `alt`「ComeGin」も同じ）。**移すのは文脈によって文言が変わる部品だけ**（新しいタブの告知・「詳しく見る」の補い・一時停止のボタン・Spinner など） | H-16 を読み上げの文言に当てたもの。見えない文言は誰も確かめない（`01-content-spec.md` §0.4）。範囲を絞るのは、既存のレイアウトの部品まで移すと、得るものが無いまま変更が広がるため（2026-10-18 にリードが決定） |
+| H-32 | **Cookie 同意バナーは DOM ではスキップリンクの直後（告知帯より前）、見た目は下端に固定。** フッターの「Cookie 設定」からキーボードだけで撤回まで届き、出し直したときはフォーカスをバナーの見出しに移す。表示中は `scroll-padding-bottom` でフォーカスを隠さない | 2.4.3・2.4.11。`04-accessibility-spec.md` の §3.10 |
+
+- **H 番号は 0.2 の H-21 の続き**（H-22〜H-32）。
+- **色を primitive の名前で書かない**（§2 の「仕様を書くときの 2 つの決まり」）は、新しいトークンにも同じく当てる。
 
 ## 0'. 2026-10-13 の改訂（創業計画書の体験の約束・ブランドガイドライン v1.4）
 
@@ -619,9 +644,9 @@ Agent teams（foundation・integrations・builder-sales・builder-site・qa-revi
 |---|---|---|
 | P-1 | 静的出力（SSG）。adapter なし | そのまま |
 | P-2 | 文言の正本は仕様書。和欧間は仕様書の半角スペース、`text-autospace` は使わない（H-17 の後者） | そのまま |
-| P-3 | 指定改行（H-19）だけ `<br>` を端末別に。ほかは `word-break: auto-phrase` | **範囲を広げた**。見出し・表のセル・ボタンに加え、カード・FAQ・CTA バナー・ページ導入・無料 DL・Cookie バナーなど短い文の本文、法務とブログの表のセル・目次・箇条書きにも `phrase` を当てた（語の途中・末尾 1 字の改行が実測で目立ったため）。記事本文と法務の長い段落には当てない。`phrase` でも切れる語は `keepTogether`（marketing-ui）で 1 語として扱う |
+| P-3 | 指定改行（H-19）だけ `<br>` を端末別に。ほかは `word-break: auto-phrase` | **範囲を広げた**。見出し・表のセル・ボタンに加え、カード・FAQ・CTA バナー・ページ導入・無料 DL・Cookie バナーなど短い文の本文、法務とブログの表のセル・目次・箇条書きにも `phrase` を当てた（語の途中・末尾 1 字の改行が実測で目立ったため）。記事本文と法務の長い段落には当てない。`phrase` でも切れる語は `keepTogether`（marketing-ui）で 1 語として扱う<br>**2026-10-18 に一部を覆した**（計画 2026-10-09 の P-3 の「`overflow-wrap: anywhere` を当てない」）: **幅 360px 未満（`@media (width < 22.5rem)`）に限り、h1〜h4・`th`・`td` に `overflow-wrap: anywhere` を当てる**（`src/styles/global.css` の base。foundation）。目的は 320px のリフロー（WCAG 1.4.10。`04-accessibility-spec.md` の §2.2）。当てないと 320〜340px で、`/services/development` の h1（「バイブコーディングから」の文節）が 341px、法務の表のメールアドレスが 344px、`/about` が 328px と横にはみ出していた。**全幅には当てない**: 当てると表の列幅（min-content）が縮み、1440 の `/legal/privacy`・`/accessibility` と 390 の `/pricing` で列幅と改行が変わることを実測した。360px 以上では当てなくてもはみ出さないことを主な 15 ページで確かめた。**既存の例外**（この日に足したものではない）: legal の `LegalTable`・`/accessibility` の表のセル・`/about` の表のセルは、部品の側で `[overflow-wrap:anywhere]` を持っている |
 | P-4 | 静的な部品は `.astro`、操作のある部品だけ React island | **Cookie バナーは island をやめた**（静的 HTML ＋描画の前に同期で Cookie を読むインラインのスクリプト）。LCP を遅らせていたため。**Mobile メニューも island をやめ、ネイティブの `<dialog>`（`showModal()`。JS は数百バイトの外部 script 1 本）にした**（Mobile で React 一式を最初から読んでいたことが performance の最後の原因だったため）。無料 DL のフォームは `client:visible`（水和まで送信ボタンは押せない）、計測・チャットは load の後の空き時間 |
-| P-5 | 書体は `@fontsource` で自前配信 | **ユーザー判断で変更**: ビルド時に `dist` で使っている字だけの Noto Sans JP を 400・500・700 の各 1 ファイルで作り、分割フォントと差し替える（`src/modules/brand/integration.ts`。`subset-font`）。dev は分割フォントのまま。OFL の全文を `dist/_astro/` に同梱 |
+| P-5 | 書体は `@fontsource` で自前配信 | **ユーザー判断で変更**: ビルド時に `dist` で使っている字だけの Noto Sans JP を 400・500・700 の各 1 ファイルで作り、分割フォントと差し替える（`src/modules/brand/integration.ts`。`subset-font`）。dev は分割フォントのまま。OFL の全文を `dist/_astro/` に同梱<br>**2026-10-19（R-15 改）**: `brand` の `integration.ts` は、`defer` でないときも Noto Sans JP Fallback（寸法を合わせた代わりのフォント）を入れる（foundation）。それまでは `defer` のときにしか入っておらず、トップの Mobile で和文の差し替えのたびに行の中の字の位置が動いていた（CLS 0.0029）。直した後は woff2 を 1.5 秒遅らせる条件で 3 回測り、3 回とも shift 0（verifier） |
 | P-6 | ダークモードは作らない | そのまま |
 | P-7 | 二重送信は `sessionStorage`、キーは form id ＋ `lower(email)` ＋ JST の日付 | そのまま。無料 DL の二重送信は §5.2 に文言が無いため、送らずに成功の表示にした |
 | P-8 | `MAUTIC_FORM_ID_*` は `PUBLIC_` なしでビルド時に読む | そのまま |
@@ -728,3 +753,26 @@ performance の推移（判定値）: 最初 0.56／0.58／0.59 → Cookie バ�
 - **計測環境の注意**: 同じ dist でも、機械の負荷で performance が 0.3〜0.9 の幅で動いた（Lighthouse の CPU のベンチマーク値が平常の 1,265〜1,711 から 41〜1,245 まで落ちた）。判定は、ほかの build・Lighthouse・ブラウザを止めた状態で回す。`lighthouserc.cjs` を 5 回の中央値に変えたのはこのため
 - **まだ残るぶれ**: 15 回のうち 5 回は 0.74〜0.77（FCP 4.0〜4.3s）で、和文フォントの読み込みが最初の描画より前に始まった回。中央値は余裕で通るが、5 回中 3 回が悪い形に当たると落ちる。CI で不安定なら、次の手は `defer: true`（静かな環境の比較では一貫した改善が無かったので、入れるなら CI で比べてから）
 - 計測 URL は `lighthouserc.cjs` が `dist/blog` から記事を 1 本選ぶ（slug を固定しない）
+
+## 12. 2026-10-18 の改修（JIS X 8341-3:2016 の AA に一部準拠とモーション）の申し送り
+
+Agent team（spec-writer・foundation・integrations・pages・motion・verifier・loop-engineer）で、公開サイトを JIS X 8341-3:2016 の AA を目標に改修し、React Bits のモーションを入れた。計画は `docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`、仕様は `04-accessibility-spec.md`・`05-motion-spec.md`、実装者が守る規則は §0'' の H-22〜H-32、決定は ADR-27・ADR-28（`RequirementDefinition/AA/05-application-decisions.md`）。
+
+- **対応度は「AA に一部準拠」**（2026-10-19 の A-6。第三者の埋め込みに部分適合に関する記述を付けたため。WAIC の対応度表記ガイドラインの 3.2）。自社で作った部分は AA の全基準を満たすことを目標にしている。
+- **試験の数値（違反の件数・試験日など）はこの文書に書かない。** 確定した値の正本は `src/modules/site-content/accessibility.ts`（`/accessibility/` に出る）。
+
+### 12.1 申し送り（この改修では実施しない）
+
+| 対象 | 内容 |
+|---|---|
+| ブランドガイドライン（`~/ComeGin/comegin`） | §5 に 3 つの役割トークンを足す改訂（薄い地のリンク blue.600、入力欄の枠 neutral.500、暗い地のフォーカスリング 白）。G-1 でユーザーが承認済み。あわせて、ShapeBlur がロゴのシンボルにぼかしを掛ける表現（§4.6-4 の例外）と、ぼけたときの見え方（§5.5-6 との関係）を例外として書くかを決める（`05-motion-spec.md` の MO-5） |
+| 本番のオンプレ（`main` のチェックアウト）の有効化と止め線 | この改修を `main` に入れた後、監視アプリが読む `main` のチェックアウトの `frontend/verdant-virgo` で `pnpm install` と `pnpm exec playwright install chromium` を行い、builtin `a11y` を手動で 1 回実行して `.a11y/` が作業ツリーに写ることを確かめる。そのうえで `weekly-a11y`・`weekly-observe-a11y` を有効にする。**有効にして `ok` の `E-12` ができるまで、UI を変える提案（`technical_seo`・`cta_swap`・`experiment_start`）は起票されない**（DD-06 の 1.2 の 15。DD-09 の 7 節） |
+| 再試験 | UI を変えたときは変えたページを、年に 1 回は全ページを試験し直し、`/accessibility/` の試験日を更新する。公開の前に人がスクリーンリーダーで確かめる（BA-04 の 3b。`04-accessibility-spec.md` の §6）。**VoiceOver（iOS Safari）での確認は次の再試験で行う**（2026-10-19 の G-2 は NVDA と Chrome〈Windows〉だけで確かめた。確かめたら `/accessibility/` の「試験の方法」に VoiceOver を足す） |
+| ブログの要約（Strapi の excerpt） | 一覧のカードの要約を切り詰めなくなった（1.4.4・1.4.12）ので、excerpt の長さを運用でそろえる（目安は 2〜3 行） |
+| 依存の `gsap` | MorphGallery が素の `<script>` と `ogl` で動くようになり、`gsap` を使わなくなった（依存には残した）。`@react-bits` の部品以外で使っていなければ、外すかを判断する |
+| 受託開発 | 同じ手順（axe の e2e・手動・スクリーンリーダー）を、創業計画書の別紙 1 第 8 章「納品前の確認記録」の様式として流用する（要確認事項 10 の工数見積もりの材料）。第三者の部品を使う案件では、その部分の扱い（部分適合に関する記述で対応度が「一部準拠」になりうること）を契約の前に示す（ADR-27 の帰結 8） |
+| 第三者の埋め込み | Chatwoot のウィジェットと Cal.com の予約枠は、こちらで直せない基準が残るため「一部準拠」の理由にしている（`/accessibility/` の「外部のサービスについて」に明記。`01-content-spec.md` §4.11 の 11-3）。Chatwoot はページ側から名前を補い（§8.1 の例外）、開いたときにフォーカスを `iframe` の中へ移すため、Esc では閉じられない（Shift+Tab で出て「チャットを閉じる」で閉じる）。上流の改善が入ったら、試験し直して対応度を見直す |
+| 和文フォントの重さ（`brand`）と Lighthouse の performance | **ユーザーの決定で申し送り**（計画書の G2-4）。2026-10-19 の `pnpm lh`（Mobile の模擬、5 回の中央値）は `/` 0.90・`/blog/` 0.74・`/contact/` 0.81・記事 1.0 で、**`/blog/` の assertion が失敗する**。Desktop の preset のトップは 0.98。accessibility・best-practices・SEO はすべて 1.0、CLS は 0。原因は、模擬の LCP が和文フォント 3 本（各 約 185KB、計 約 560KB）を読み終えるまで遅れる計算になること。preview の TTFB（約 460ms）も効いている。同じ配信・設定で測ると、改修前の `dist` は `/blog/` 0.68、今回は 0.87〜0.89 なので、**この改修による悪化ではない**（§11.7 の計測環境の注意のとおり、機械の負荷でも動く）。案は、使う字の見直し、ウェイトを 2 本にする、本文以外を後から読む（`brand` の integration の `defer` など。§11.2 の P-5、§11.7）。直したら、5 回の中央値で 0.9 以上を確かめる |
+| 欧文のフォント（`brand`） | 和文の fallback を直した後（§11.2 の P-5 の 2026-10-19）も、**Desktop のトップ**で 0.0001〜0.0005 の CLS が残る（Lighthouse のしきい値 0.1 には影響しない）。欧文の Poppins の差し替えで、ヘッダーの文字が 1〜3px 動くためと見ている（見込み）。案は、Poppins の寸法に合わせた fallback の `@font-face`（`src` は `local("Arial")`・`local("Liberation Sans")`、`size-adjust` と各 override を付けて実測で詰める）。直したら、woff2 を遅らせて測り直す（計画書の R-17） |
+| Cookie バナー | 表示中は `body` の下に、バナーの高さぶんの余白を取る（`global.css`）。こうしないと、ページの末尾のリンクがバナーに隠れる（2.4.11）。バナーの形や置き場所を変えるときは、`--consent-banner-height` を出す処理と合わせて確かめる |
+| Astro の preview と dev サーバー | ① Astro 7.3 の preview は、AI エージェントの環境を検出すると自動で背景に回り、ロックで 1 つに制限する。`playwright.config.ts` と `lighthouserc.cjs` は `ASTRO_PREVIEW_BACKGROUND=1` と `--ignore-lock` で前景に起動している（builtin は env を許可リストで絞るので影響を受けない）。② `pnpm build` の後に dev サーバーの依存の事前最適化が production 版になり、island が水和しなくなることがある（`_jsxDEV is not a function`）。dev を止め、`node_modules/.vite` を消して起動し直す |

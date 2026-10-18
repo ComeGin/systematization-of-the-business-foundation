@@ -4,6 +4,10 @@
  * type=standard: セクション末尾。反転面 role/surface-brand-strong（navy.700）に白の文字、ボタンは Large。
  * type=inline: ブログ記事の中。白い面 ＋ 罫線の小型、ボタンは Default。
  * Desktop は横並び、Mobile は縦積み。地にアクセント色は使わない。文言の既定値は持たない（H-16）。
+ * aside（complementary）の名前は見出しで付ける（aria-labelledby。名前の無いランドマークが重ならないように）。id は title から作る（同じページに同じ題の CTA バナーを 2 つ置かない）。
+ * standard は data-surface="dark" を付け、中のフォーカスリングを白にする（blue.500 は navy.700 の上で 2.91:1。global.css）。
+ * standard だけ slot="decoration" に装飾（motion の MotionBlobs）を置ける。aside 全体に absolute で広がり、文字とボタンの列は上に重ねる。
+ * 装飾は最後の子なので、中の一時停止ボタンは DOM の順で CTA の後にフォーカスされる。
  */
 import { cn } from '@/lib/utils';
 
@@ -19,22 +23,29 @@ interface Props {
 const { title, body, type = 'standard', level = 'h2', class: className } = Astro.props;
 const Heading = level;
 const standard = type === 'standard';
+// title から決まった id（ビルドのたびに変わらない）。FNV-1a の 32 ビット
+let hash = 0x811c9dc5;
+for (const ch of title) hash = Math.imul(hash ^ (ch.codePointAt(0) ?? 0), 0x01000193);
+const headingId = `cta-banner-${(hash >>> 0).toString(36)}`;
 ---
 
 <aside
+  aria-labelledby={headingId}
+  data-surface={standard ? 'dark' : undefined}
   class={cn(
     'not-typeset flex flex-col items-start gap-4 md:flex-row md:items-center md:gap-8',
     standard
-      ? 'rounded-xl bg-surface-brand-strong p-6 text-text-inverse md:p-12'
+      ? 'relative isolate overflow-hidden rounded-xl bg-surface-brand-strong p-6 text-text-inverse md:p-12'
       : 'rounded-md border border-border bg-surface p-6',
     className,
   )}
 >
-  <div class="flex w-full min-w-0 flex-col gap-2 md:flex-1">
-    <Heading class={cn(standard ? 'type-h2 text-text-inverse' : 'type-h4 text-text-heading')}>{title}</Heading>
+  <div class={cn('flex w-full min-w-0 flex-col gap-2 md:flex-1', standard && 'relative z-[1]')}>
+    <Heading id={headingId} class={cn(standard ? 'type-h2 text-text-inverse' : 'type-h4 text-text-heading')}>{title}</Heading>
     {body && <p class={cn('type-body phrase', standard ? 'text-text-inverse' : 'text-text-muted')}>{body}</p>}
   </div>
-  <div class="w-full md:w-auto md:shrink-0">
+  <div class={cn('w-full md:w-auto md:shrink-0', standard && 'relative z-[1]')}>
     <slot name="cta" />
   </div>
+  {standard && <slot name="decoration" />}
 </aside>

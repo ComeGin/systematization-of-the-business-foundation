@@ -10,6 +10,8 @@ import { ExternalLink } from 'lucide-react';
 import { CTAButton } from '@/modules/marketing-ui';
 import type { CtaId } from '@/modules/site-content/cta';
 import { SOURCE_REPO_URL, SOURCE_ZIP_URL } from '@/modules/site-content/nav';
+import { NewTabNotice } from '@/modules/a11y';
+import { NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 
 interface Props {
   ctaId: CtaId;
@@ -26,6 +28,8 @@ interface Props {
 }
 
 const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, class: className } = Astro.props;
+// ボタンの下の注記の id。CTA の aria-describedby で結び、押すと別のタブでダウンロードが始まり無料相談へ移ることを伝える（新しい文言を足さない）
+const noteId = `${ctaId}-note`;
 ---
 
 <section
@@ -47,15 +51,16 @@ const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, class: class
           class="inline-flex w-fit items-center gap-1.5 py-1.5 text-sm leading-5 font-medium text-text-link underline hover:text-text-link-hover"
         >
           {repositoryLinkLabel}
+          <NewTabNotice text={NEW_TAB_NOTICE} />
           <ExternalLink aria-hidden="true" className="size-4" />
         </a>
       )
     }
   </div>
   <div class="mt-6 grid gap-3 md:mt-0">
-    <CTAButton ctaId={ctaId} href={SOURCE_ZIP_URL} variant="outline" size="lg" fullWidth icon="download">
+    <CTAButton ctaId={ctaId} href={SOURCE_ZIP_URL} variant="outline" size="lg" fullWidth icon="download" describedBy={noteId}>
       {buttonLabel}
     </CTAButton>
-    <p class="phrase type-small text-text-muted">{note}</p>
+    <p id={noteId} class="phrase type-small text-text-muted">{note}</p>
   </div>
 </section>

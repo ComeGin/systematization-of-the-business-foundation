@@ -1,4 +1,4 @@
-// 小さな builtin（heartbeat・runlog-flush・published-article-check）。lighthouse は子プロセスを起動するため別ファイル。
+// 小さな builtin（heartbeat・runlog-flush・published-article-check）。lighthouse・a11y は子プロセスを起動するため別ファイル。
 import type { BuiltinHandler } from "../context.js";
 import { classifyAwsError, createCloudWatchClient, putHeartbeat } from "../integrations/aws.js";
 

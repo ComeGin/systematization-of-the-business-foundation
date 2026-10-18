@@ -140,6 +140,13 @@
     &:where(tbody td, tbody th) {
       background-color: var(--color-role-surface-subtle);
     }
+    /* 薄い地のセルの中のリンクは text-link-on-subtle（text-link は neutral.50 の上で 4.22:1。H-23）。:where は詳細度 0 なので、ホバーもここで書き直す */
+    &:where(tbody td a, tbody th a) {
+      color: var(--color-role-text-link-on-subtle);
+    }
+    &:where(tbody td a:hover, tbody th a:hover) {
+      color: var(--color-role-text-link-hover);
+    }
     &:where(.typeset-scroll) {
       overflow-x: auto;
     }

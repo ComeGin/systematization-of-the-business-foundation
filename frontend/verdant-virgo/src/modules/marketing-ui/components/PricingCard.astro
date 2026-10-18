@@ -3,7 +3,8 @@
  * 料金カード（料金 4-4 ×5、サービス詳細 3-4 ×2。Figma の PricingCard）。料金表（01-content-spec.md §2）の 1 行 ＝ 1 枚。
  * 上: バッジ・プロダクト名・説明・金額・「期間」と値・備考・罫線。下: 主ボタン（slot="cta"。CTAButton fullWidth）と副リンク（slot="sub-link"）。
  * 上と下のあいだに余白は入れない（Figma は SPACE_BETWEEN で、内容の高さで組むと罫線の直下に主ボタン）。
- * バッジとプロダクト名は同じ行に置き、幅が足りなければバッジが上の行に来る（見出しの最小幅 260px）。
+ * バッジとプロダクト名は同じ行に置き、幅が足りなければバッジが上の行に来る（見出しの基準の幅 260px。
+ * それより狭い枠〈幅 320px の画面〉では見出しも縮める。最小幅にすると横にはみ出す。WCAG 1.4.10）。
  * 値は §2 の表から一字一句写す。既定値は持たない（H-16）。カード群の直下に「表示価格はすべて税込です。」を別に置く。
  */
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +33,7 @@ const Heading = level;
     <div class="flex flex-col gap-2">
       <div class="flex flex-wrap items-center gap-3">
         {badge && <Badge variant="secondary">{badge}</Badge>}
-        <Heading class="type-card-title min-w-[260px] flex-1 text-text-heading">{product}</Heading>
+        <Heading class="type-card-title min-w-0 flex-[1_1_260px] text-text-heading">{product}</Heading>
       </div>
       {description && <p class="type-small phrase text-text-muted">{description}</p>}
     </div>

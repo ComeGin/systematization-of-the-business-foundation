@@ -26,7 +26,15 @@ export const ProposalSchema = z.object({
     also_affects: z.array(z.string()).default([]),
   }),
   change: z.object({
-    kind: z.enum(["content_rewrite", "cta_swap", "internal_link", "technical_seo", "experiment_start", "config_change"]),
+    kind: z.enum([
+      "content_rewrite",
+      "cta_swap",
+      "internal_link",
+      "technical_seo",
+      "experiment_start",
+      "config_change",
+      "accessibility", // 2026-10-18 に追加（ADR-27。AA-04 の 2.2）
+    ]),
     description: z.string().min(1),
     diff_ref: nullableString,
   }),
