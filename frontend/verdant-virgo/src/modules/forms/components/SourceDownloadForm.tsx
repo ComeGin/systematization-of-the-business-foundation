@@ -36,7 +36,7 @@ import { validateEmail, validatePrivacy } from "../lib/validate";
 import { submitToMautic } from "../lib/mautic";
 import { markSent, unmarkSent, wasSentToday } from "../lib/dedupe";
 import { jstIsoString } from "../lib/jst";
-import { createFormEvents } from "../lib/events";
+import { createFormEvents, dispatchFormSuccess } from "../lib/events";
 import FormField from "./FormField";
 import ConsentCheckbox from "./ConsentCheckbox";
 import CheckboxField from "./CheckboxField";
@@ -153,6 +153,8 @@ export default function SourceDownloadForm({
     const outcome = await submitToMautic(formId, "source_dl", fields);
     if (outcome.ok) {
       events.submitted();
+      // 実際に送れたときだけ知らせる（二重送信で送らずに成功の表示にする経路と、done → success の切り替えでは出さない）
+      dispatchFormSuccess("source_dl");
       setStatus(reducedMotion ? "success" : "done");
       return;
     }

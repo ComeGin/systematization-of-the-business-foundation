@@ -54,7 +54,7 @@ model: sonnet
 4. `jsonPath` の `.report.json` は大きい。**manifest の絶対パスは作業ツリーの外を指すことがあるので使わず**、ファイル名だけを取って `frontend/verdant-virgo/.lighthouse/<ファイル名>` を読む。全文を Read せず、必要なら `fetchTime` だけを Grep で取る。`fetchTime`（UTC）を JST に直して `measured_at` にする。取れなければ `fetch.outcome: invalid_response`
 5. `target_ref` は `"E-05 url_path=<URL のパス>"`（`http://localhost:4322/` なら `url_path=/`）。`raw_ref` は `.lighthouse/<jsonPath のファイル名>`
 6. `fetch.range` は付けない（期間を持たない観測）
-7. 同じ `target_ref` の直前の `E-12` を Glob・Read して、4 指標の前回比を本文に 1 行ずつ書く（劣化の検出）。しきい値（`LH-seo` は 1.0、他は 0.9）を下回る指標があれば、本文の先頭に事実として書く。**直し方は書かない**
+7. 同じ `target_ref` の直前の `E-12` を Glob・Read して、4 指標の前回比を本文に 1 行ずつ書く（劣化の検出）。しきい値（`LH-seo` は 1.0、`LH-a11y` と `LH-best-practices` は 0.9）を下回る指標があれば、本文の先頭に事実として書く。`LH-performance` はしきい値で判定せず（2026-10-19 に `lighthouserc.cjs` で warn にした。ADR-29）、値だけを事実として書く。**直し方は書かない**
 
 ## `gsc`
 

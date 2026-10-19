@@ -15,8 +15,11 @@ export {
   runWhenVisible,
   type RunWhenVisibleOptions,
 } from "./lib/run-when-visible";
+export { OSAKA, canUseWebGL, loadThree } from "./lib/three";
+export { formatCount } from "./lib/count";
 export type {
   SendStatusState,
   SendStatusMarkProps,
   SendStatusAnnouncerProps,
 } from "./lib/types";
+export type { MotionZone, LiveZone } from "./lib/zone";

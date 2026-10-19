@@ -4,6 +4,7 @@
  *
  * - ポインターを近づけるとピントが合い、離れるとぼける（勝手には動かない。idle・spin は 0）。キーボードでヒーローの中に入ったときもピントが合う。
  * - 色はシンボルのネイビーの単色版（ブランドガイドライン §4.2 のネイビー版）。色収差は 0（パレット外の色を出さない §5.5-1）。
+ *   navy の地の上（A のヒーロー。tone="dark"）では白の単色版に替える（ネイビーのままでは地に溶けて見えない）。形・ぼかしは同じ。
  *   ぼかしの表現が §4.6-4 に当たるかは G-1 でユーザーに確認する（計画書の判断 C）。
  * - Desktop（md 以上かつ hover あり）だけで水和する。Mobile・タッチの端末は出さない（判断 D）。
  * - 置き場所: ヒーローの左の列（relative）の中で tagline の直前。流れに入らない absolute で、列の上端の 16px 上に置く。
@@ -15,7 +16,8 @@ import type { MotionSymbolProps } from '../lib/types';
 
 type Props = MotionSymbolProps;
 
-const { class: className } = Astro.props;
+const { tone = 'light', class: className } = Astro.props;
+const SRC = tone === 'dark' ? '/brand/comegin-symbol-white.svg' : '/brand/comegin-symbol-navy.svg';
 
 // シンボルの縦横比（brand の LOGO_RATIO.symbol と同じ viewBox 264.847×236.774）。高さ 100px
 const HEIGHT = 100;
@@ -23,5 +25,5 @@ const WIDTH = Math.round((HEIGHT * 264.847) / 236.774);
 ---
 
 <div data-motion="symbol" aria-hidden="true" class={cn('pointer-events-none absolute bottom-[calc(100%+16px)] left-0 hidden md:block', className)} style={`width:${WIDTH}px;height:${HEIGHT}px`}>
-  <SymbolBlur client:media="(min-width: 768px) and (hover: hover)" src="/brand/comegin-symbol-navy.svg" width={WIDTH} height={HEIGHT} />
+  <SymbolBlur client:media="(min-width: 768px) and (hover: hover)" src={SRC} tone={tone} width={WIDTH} height={HEIGHT} />
 </div>

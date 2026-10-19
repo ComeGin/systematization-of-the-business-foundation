@@ -2,12 +2,15 @@
 // 画面 6 無料相談（/contact）。01-content-spec.md §4.6。Figma は Contact / Desktop / 通常（42:132）・Contact / Mobile / 通常（42:3423）。
 // 状態の派生（入力エラー・送信中・送信失敗・二重送信）はフォームの部品（forms の ContactFormBlock）が持つ。
 // ページは組み立てだけ。文言は site-content/contact.ts（フォームの文言は forms モジュール）。
+// 動き（B〈calm〉）: サイドの 3 枚の案内カードが画面に入るとき、下から静かに上がる（motion の Reveal）。フォームと導入には動きを付けない（入力の邪魔をしない）。
 import { ArrowDown, MessageCircle } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ContactFormBlock } from '@/modules/forms';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { CTAButton, Section } from '@/modules/marketing-ui';
+import { Reveal } from '@/modules/motion';
+import { VT } from '@/modules/page-transition';
 import { contact } from '@/modules/site-content/contact';
 import { ctaDataAttributes } from '@/modules/site-content/cta';
 import { SEO } from '@/modules/site-content/seo';
@@ -22,7 +25,8 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
   {/* 6-3 導入ヒーロー（本文は 2 段落） */}
   {/* h1 の id は相談フォームの名前（ContactFormBlock の labelledBy）が指す */}
-  <PageIntro title={hero.h1} titleId="contact-heading">
+  {/* h1 は vt-contact-title を静的に持つ（前のページで押した CTA ボタンから形がつながる。page-transition） */}
+  <PageIntro title={hero.h1} titleId="contact-heading" titleViewTransitionName={VT.contactTitle}>
     <div slot="body" class="type-body-lg phrase flex max-w-[720px] flex-col text-text-muted">
       {hero.body.map((paragraph) => <p>{paragraph.join('')}</p>)}
     </div>
@@ -45,7 +49,7 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 
       <div class="flex flex-col gap-8">
         {/* カード 1 ご相談の流れ（6 段。体言止め） */}
-        <section aria-labelledby="contact-flow" class="flex flex-col gap-4 rounded-md border border-border bg-surface p-6">
+        <Reveal as="section" aria-labelledby="contact-flow" class="flex flex-col gap-4 rounded-md border border-border bg-surface p-6">
           <h2 id="contact-flow" class="type-card-title text-text-heading">{aside.flow.heading}</h2>
           <ol class="flex flex-col gap-2">
             {
@@ -70,10 +74,10 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
             }
           </ol>
           <p class="type-caption text-text-muted">{aside.flow.note}</p>
-        </section>
+        </Reveal>
 
         {/* カード 2 チャット（§6.3 の #23）。同意の前は押すと同意バナーを再表示する（chat モジュールが data-chat-open を拾う。K3） */}
-        <div class="flex flex-col gap-2">
+        <Reveal step={1} class="flex flex-col gap-2">
           <section aria-labelledby="contact-chat" class="flex flex-col gap-4 rounded-md border border-border bg-surface p-6">
             <div class="flex flex-col gap-3">
               <h2 id="contact-chat" class="type-card-title text-text-heading">{aside.chat.heading}</h2>
@@ -90,10 +94,10 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
             </button>
           </section>
           <p class="type-caption text-text-muted">{aside.chat.note}</p>
-        </div>
+        </Reveal>
 
         {/* カード 3 まずは自分で試したい方へ（§6.3 の #24。副 CTA → /#source-dl） */}
-        <section aria-labelledby="contact-self" class="flex flex-col items-start gap-4 rounded-md border border-border bg-surface p-6">
+        <Reveal as="section" step={2} aria-labelledby="contact-self" class="flex flex-col items-start gap-4 rounded-md border border-border bg-surface p-6">
           <div class="flex flex-col gap-3">
             <h2 id="contact-self" class="type-card-title text-text-heading">{aside.selfTry.heading}</h2>
             <p class="type-body text-text-muted">{aside.selfTry.body}</p>
@@ -101,7 +105,7 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
           <CTAButton ctaId="dl_contact_aside" href="/#source-dl" variant="link" size="sm" class="h-auto px-0">
             {aside.selfTry.link}
           </CTAButton>
-        </section>
+        </Reveal>
       </div>
     </div>
   </Section>

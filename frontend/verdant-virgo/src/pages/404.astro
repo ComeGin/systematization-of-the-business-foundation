@@ -1,11 +1,13 @@
 ---
 // 画面 9 404（存在しない URL すべて。noindex）。01-content-spec.md §4.9。Figma は 404 / Desktop（46:7561）・Mobile（46:7655）。
 // パンくずは置かない。本文に CTA（無料相談・無料 DL）を置かない（ヘッダーからは辿れる）。2 つのボタンは CTA ではないので計測しない。
+// 動き（B〈calm〉）: h1・本文は最初の描画から動かさない。その下のボタンの列だけが、画面に入るとき下から静かに上がる（motion の Reveal。最初から見える位置にあれば最終の位置）。
 // 「404」の数字は Display（Poppins Bold）。仕様書は Inter だが、計画 P-5 で Inter を外したため Poppins にした（2026-10-09 リード判断）。
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BaseLayout } from '@/modules/layout';
 import { Section } from '@/modules/marketing-ui';
+import { Reveal } from '@/modules/motion';
 import { SEO } from '@/modules/site-content/seo';
 import { notFound } from '@/modules/site-content/system';
 
@@ -20,7 +22,7 @@ const seo = SEO.notFound;
       <h1 class="type-h1 text-text-heading">{notFound.h1}</h1>
       <p class="type-body max-w-[640px] text-text-muted">{notFound.body}</p>
     </div>
-    <div class="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+    <Reveal class="flex w-full flex-col gap-2 md:w-auto md:flex-row">
       {
         notFound.buttons.map((button) => (
           <a
@@ -34,6 +36,6 @@ const seo = SEO.notFound;
           </a>
         ))
       }
-    </div>
+    </Reveal>
   </Section>
 </BaseLayout>

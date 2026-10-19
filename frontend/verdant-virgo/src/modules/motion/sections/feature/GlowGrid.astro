@@ -1,0 +1,130 @@
+---
+/**
+ * GlowGrid（A〈vivid〉の Feature Sections。トップ 1-4a・1-4c・1-4d とサービス詳細「こんな方に向いています」）。2026-10-19。
+ *
+ * カードの並び（grid）を包み、子の [data-glow-card] に「ポインターに沿う光の縁」を出す。Aceternity の Glowing Effect の見せ方
+ * （縁だけが、ポインターの近くで光る）を、CSS の変数 --glow-x／--glow-y と小さな素の script で再現した。
+ * 原本（vendor/aceternity/GlowingEffect）は使わない。理由は vendor/aceternity/README.md の表のとおり
+ * （body 全体の pointermove と scroll を常に聞き、motion/react の animate で毎フレーム --start を書く作りで、reduced-motion でも rAF が回るため）。
+ *
+ * - 光の縁: カードの ::before（縁だけを mask で抜いた放射状のグラデーション）。色は palette の brand.sky／blue.300 だけ。
+ * - ポインター: hover のある細かいポインター（マウス・ペン）で、reduced-motion でないときだけ。位置を rAF 1 回にまとめて書く。動かしていないときは何も回らない。
+ * - キーボード: カードの中の要素に focus-visible が当たったら、縁の全体を静かに（動かさず）光らせる。ポインターで光る縁と同じ「光る」変化を、キーボードの訪問者にも。
+ *   :focus-within ではなく :has(:focus-visible) にしたのは、マウスでリンクを押したときに光が残らないため（AGENTS.md「focus-visible でも起こす」）。
+ * - 子は直接の子として並べる。カード側は data-glow-card を付ける（IconCard は属性を受け取る）。カードに操作できる要素が無ければ、フォーカスの光は出ない（フォーカスが来ないため）。
+ * - JS が無いとき・水和前: 光は出ない（data-glow-ready が付かないと hover の光を出さない）。内容は何も変わらない。
+ * - 一時停止ボタンは要らない（ポインターに反応するだけで、自動では動かない）。
+ */
+import type { GlowGridProps } from '../../lib/types';
+
+type Props = GlowGridProps;
+
+const { class: className } = Astro.props;
+---
+
+<div data-glow-grid data-motion="glow" class={className}>
+  <slot />
+</div>
+
+<style is:global>
+  /* カードの下地。isolation で積み重ねの文脈を作り、::after（z-index:-1）をカードの地の上・中身の下に置く */
+  [data-glow-grid] > [data-glow-card] {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* 光の縁。縁（padding の幅 2px）だけを mask で抜く。pointer-events なし（カードの中のリンクの当たり判定を崩さない） */
+  [data-glow-grid] > [data-glow-card]::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    padding: 2px;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(
+      var(--glow-radius, 220px) circle at var(--glow-x, 50%) var(--glow-y, 50%),
+      var(--color-brand-sky),
+      color-mix(in srgb, var(--color-brand-blue-300) 55%, transparent) 45%,
+      transparent 100%
+    );
+    /* mask は不透明度だけを使う（色は何でもよい。値の直書きを避けてパレットの変数を渡す） */
+    -webkit-mask:
+      linear-gradient(var(--color-brand-navy-900) 0 0) content-box,
+      linear-gradient(var(--color-brand-navy-900) 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(var(--color-brand-navy-900) 0 0) content-box exclude,
+      linear-gradient(var(--color-brand-navy-900) 0 0);
+    transition: opacity var(--motion-duration-small) var(--motion-ease-standard);
+  }
+
+  /* 縁の内側のごく薄い光（カードの地の上・中身の下）。文字の読みやすさを変えない薄さ */
+  [data-glow-grid] > [data-glow-card]::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(
+      calc(var(--glow-radius, 220px) * 1.2) circle at var(--glow-x, 50%) var(--glow-y, 50%),
+      color-mix(in srgb, var(--color-brand-sky) 10%, transparent),
+      transparent 70%
+    );
+    transition: opacity var(--motion-duration-small) var(--motion-ease-standard);
+  }
+
+  /* a11y: キーボード（focus-visible）。縁の全体を静かに光らせる。動かさないので reduced-motion でも出す（transition は global.css が 0 にする） */
+  [data-glow-grid] > [data-glow-card]:has(:focus-visible)::before {
+    opacity: 0.85;
+    background: linear-gradient(135deg, var(--color-brand-sky), var(--color-brand-blue-300) 55%, var(--color-brand-sky));
+  }
+
+  /* ポインター。細かいポインターで、動きを減らす設定でなく、script が来ているときだけ */
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    [data-glow-grid][data-glow-ready] > [data-glow-card]:hover::before {
+      opacity: 1;
+    }
+    [data-glow-grid][data-glow-ready] > [data-glow-card]:hover::after {
+      opacity: 1;
+    }
+  }
+</style>
+
+<script>
+  // perf: 常に聞くのは grid ごとの pointermove だけ（原本は body と window に常駐）。位置は rAF 1 回にまとめ、動かしていないときは何も回らない。
+  // a11y: reduced-motion・タッチ・hover の無い端末では何もしない（CSS 側も同じ条件）。
+  import { glowFromPointer } from '../../lib/pointer-vars';
+
+  const pointerOk = () =>
+    matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.querySelectorAll<HTMLElement>('[data-glow-grid]').forEach((grid) => {
+    grid.setAttribute('data-glow-ready', '');
+    let frame = 0;
+    let pending: { card: HTMLElement; x: number; y: number } | null = null;
+
+    grid.addEventListener(
+      'pointermove',
+      (event) => {
+        if (event.pointerType === 'touch' || !pointerOk()) return;
+        const card = (event.target as Element | null)?.closest<HTMLElement>('[data-glow-card]');
+        if (!card || card.parentElement !== grid) return;
+        pending = { card, x: event.clientX, y: event.clientY };
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          if (!pending) return;
+          const { card: target, x, y } = pending;
+          pending = null;
+          const glow = glowFromPointer(target.getBoundingClientRect(), x, y);
+          target.style.setProperty('--glow-x', glow.x);
+          target.style.setProperty('--glow-y', glow.y);
+        });
+      },
+      { passive: true },
+    );
+  });
+</script>

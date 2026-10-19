@@ -59,9 +59,11 @@ module.exports = {
 
     assert: {
       assertions: {
-        // 本番ビルドの実測ベースラインは 0.98〜1.00（3 回計測）。
-        // 十分な余裕があるため error に昇格済み。
-        "categories:performance": ["error", { minScore: 0.9 }],
+        // performance は warn（2026-10-19。ADR-29）。動きと performance 0.9 がぶつかったら動きを優先する
+        // ユーザーの決定（U-3・U-5）による。計測は続け、0.9 未満は警告として残す（ビルドは落とさない）。
+        // 実ユーザーの体験は PostHog の CWV（LCP の p75）で見る（ADR-29 の見直しの条件）。
+        "categories:performance": ["warn", { minScore: 0.9 }],
+        // 本番ビルドの実測ベースラインは 0.98〜1.00（3 回計測）。十分な余裕があるため error に昇格済み。
         "categories:accessibility": ["error", { minScore: 0.9 }],
         "categories:best-practices": ["error", { minScore: 0.9 }],
         // SEO 対策が本設定の目的なので満点を死守ラインとする。

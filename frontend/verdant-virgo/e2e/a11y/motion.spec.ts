@@ -12,70 +12,21 @@ import { CONSULT_TEXT, consultForm, fillConsult } from "../support/forms";
 import { focusStep, liveRegionTexts, markTabbables } from "../support/dom";
 import { open } from "./axe";
 import { MOTION_PAUSE } from "../../src/modules/site-content/a11y";
+import { cls, instrument, rafDuring } from "../support/motion";
 
 const PAUSE_KEY = "motion:cta-blobs";
-const GALLERY_ROUTE = "/services/partnership/";
 
 /**
- * rAF のコールバックの数と、レイアウトのずれ（CLS）を数える仕掛けを、ページの読み込みの前に入れる。
- * ずれは合計（__cls。参考）と、要因（sources）がすべて motion のラッパーの中の要素であるずれの合計（__motionCls。判定）を分けて数える
- * （リードの決定 R-17。フォントの差し替えでヘッダーの箱が縮み、canvas が付いて動くように、ほかの要素と一緒に動いたずれは
- *  motion が起こしたものではないので判定から外す。欧文の差し替えによる残りのずれは申し送り）
+ * CTA バナーの一時停止のボタン。トップには A のヒーロー（HeroBackdrop。2026-10-19）の一時停止のボタンもあり、
+ * 名前（MOTION_PAUSE）が同じなので、blobs を持つバナー（aside）の中に絞る。ヒーローの側は motion-vivid.spec.ts が見る。
+ * ボタンの持ち主は、A（トップ）では CtaGlow（Task 7。判断 R1。MotionBlobs は externalPause で自前のボタンを出さない）、B では MotionBlobs の island。
+ * どちらでも 1 つのバナーに 1 つだけ
  */
-async function instrument(page: Page) {
-  await page.addInitScript(() => {
-    const w = window as unknown as {
-      __raf: number;
-      __cls: number;
-      __motionCls: number;
-    };
-    w.__raf = 0;
-    w.__cls = 0;
-    w.__motionCls = 0;
-    const original = window.requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = (callback) =>
-      original((time) => {
-        w.__raf++;
-        callback(time);
-      });
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as (PerformanceEntry & {
-        value: number;
-        hadRecentInput: boolean;
-        sources?: { node: Node | null }[];
-      })[]) {
-        if (entry.hadRecentInput) continue;
-        w.__cls += entry.value;
-        const sources = entry.sources ?? [];
-        const fromMotion =
-          sources.length > 0 &&
-          sources.every((source) => {
-            const node = source.node;
-            const el = node instanceof Element ? node : node?.parentElement;
-            return !!el?.closest(
-              "[data-motion], astro-island:has([data-motion])",
-            );
-          });
-        if (fromMotion) w.__motionCls += entry.value;
-      }
-    }).observe({ type: "layout-shift", buffered: true });
-  });
-}
-
-/** ms の間に呼ばれた rAF のコールバックの数 */
-async function rafDuring(page: Page, ms: number): Promise<number> {
-  await page.evaluate(
-    () => ((window as unknown as { __raf: number }).__raf = 0),
-  );
-  await page.waitForTimeout(ms);
-  return page.evaluate(() => (window as unknown as { __raf: number }).__raf);
-}
-
-const cls = (page: Page) =>
-  page.evaluate(() => {
-    const w = window as unknown as { __cls: number; __motionCls: number };
-    return { total: w.__cls, motion: w.__motionCls };
-  });
+const blobsButton = (page: Page, name: string) =>
+  page
+    .locator('aside:has([data-motion="blobs"])')
+    .getByRole("button", { name });
+const GALLERY_ROUTE = "/services/partnership/";
 
 /**
  * CTA バナーの中の MotionBlobs（トップの 1-11）を画面に入れ、水和を待つ（client:visible なので画面に入ってから水和する）。
@@ -125,11 +76,12 @@ test.describe("モーション", () => {
           '[data-motion="symbol"] canvas, [data-motion="blobs"] canvas',
         ),
       ).toHaveCount(0);
+      // ヒーローの一時停止のボタンも含め、ページに 1 つも無い
       await expect(
         page.getByRole("button", { name: MOTION_PAUSE.pause }),
       ).toHaveCount(0);
       await expect(
-        page.locator('[data-motion="symbol"] img[src*="comegin-symbol-navy"]'),
+        page.locator('[data-motion="symbol"] img[src*="comegin-symbol-"]'),
       ).toBeVisible();
       await open(page, GALLERY_ROUTE);
       expect(await rafDuring(page, 1_500), "MorphGallery").toBe(0);
@@ -141,7 +93,7 @@ test.describe("モーション", () => {
       desktopOnly(testInfo.project.name);
       await open(page, "/");
       await showBlobs(page);
-      const pause = page.getByRole("button", { name: MOTION_PAUSE.pause });
+      const pause = blobsButton(page, MOTION_PAUSE.pause);
       await expect(pause).toBeVisible();
       // Tab の順に入っている
       await markTabbables(page);
@@ -150,7 +102,7 @@ test.describe("モーション", () => {
 
       await pause.focus();
       await page.keyboard.press("Enter");
-      const resume = page.getByRole("button", { name: MOTION_PAUSE.resume });
+      const resume = blobsButton(page, MOTION_PAUSE.resume);
       await expect(resume).toBeFocused();
       expect(
         await page.evaluate((key) => sessionStorage.getItem(key), PAUSE_KEY),
@@ -161,14 +113,14 @@ test.describe("モーション", () => {
       await open(page, "/");
       await showBlobs(page);
       await expect(
-        page.getByRole("button", { name: MOTION_PAUSE.resume }),
+        blobsButton(page, MOTION_PAUSE.resume),
       ).toBeVisible();
       expect(await rafDuring(page, 1_500), "ページを移った後").toBe(0);
 
-      await page.getByRole("button", { name: MOTION_PAUSE.resume }).focus();
+      await blobsButton(page, MOTION_PAUSE.resume).focus();
       await page.keyboard.press("Space");
       await expect(
-        page.getByRole("button", { name: MOTION_PAUSE.pause }),
+        blobsButton(page, MOTION_PAUSE.pause),
       ).toBeFocused();
     });
 

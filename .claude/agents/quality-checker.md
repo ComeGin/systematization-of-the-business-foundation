@@ -17,7 +17,7 @@ model: sonnet
 
 | # | 項目 | 対象 | 判定の方法（Bash が無いので、ファイルを Read・Grep・Glob で調べる） |
 |---|---|---|---|
-| 1 | Lighthouse のしきい値 | `docs/audits/lighthouse/` の `target_ref` ごとの最新の `E-12` | `LH-seo` が 1.0 未満、`LH-performance` `LH-a11y` `LH-best-practices` が 0.9 未満を違反として数える。`fetch.outcome` が `ok` でないものは判定せず「判定不能」と書く |
+| 1 | Lighthouse のしきい値 | `docs/audits/lighthouse/` の `target_ref` ごとの最新の `E-12` | `LH-seo` が 1.0 未満、`LH-a11y` `LH-best-practices` が 0.9 未満を違反として数える。**`LH-performance` は違反に数えず**、値を「参考（warn）」として書く（2026-10-19 に `lighthouserc.cjs` で warn にした。ADR-29）。`fetch.outcome` が `ok` でないものは判定せず「判定不能」と書く |
 | 2 | リンク切れ（サイト内） | 記事の下書き（`get_article`）の本文中のサイト内リンク（`/` で始まるパス）と、`frontend/verdant-virgo/src/` のリンク | リンク先が `frontend/verdant-virgo/src/pages/` のルートか `frontend/verdant-virgo/dist/` のページとして存在するかを Glob で確かめる。**外部リンクはネットワークを使えないので確かめられない。「未検証」として件数だけ数え、切れていないとは書かない** |
 | 3 | 表記ゆれ | 記事の下書きの本文 | 同じ記事の中、または既存の記事との間で、同じ語が複数の表記で出ていないか。例: `サーバー`/`サーバ`、`ユーザー`/`ユーザ`、`SaaS`/`Saas`、全角と半角の数字・英字・かっこの混在 |
 | 4 | 構造化データ | `frontend/verdant-virgo/src/`（レイアウトとページのテンプレート）と、あれば `frontend/verdant-virgo/dist/**/*.html` | `application/ld+json` の有無を Grep で調べる。記事ページに `Article` 相当の構造化データがあるか、JSON として壊れていないか |

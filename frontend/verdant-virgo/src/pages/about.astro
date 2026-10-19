@@ -2,12 +2,16 @@
 // 画面 5 会社概要（/about）。01-content-spec.md §4.5。Figma は About / Desktop（45:2592）・About / Mobile（45:7683）。
 // ページは組み立てだけ。文言は site-content/about.ts、部品は layout・marketing-ui・legal から読む。
 // ヘッダー・パンくず・フッター・Cookie 同意バナー・チャットは BaseLayout が置く。
+// 動き（B〈calm〉）: ミッション以降の各節（運営方針のカード・これまで・自社での運用・会社情報の表・メンバー）が画面に入るとき、下から静かに上がる（motion の Reveal）。
+// 導入ヒーロー（h1・本文・写真）は最初の描画から動かさない。締めの CTA バナーには粒のゆっくりした動き（MotionBlobs）。
 import { FileCheck, Footprints, LockOpen, MessagesSquare, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { isLink, RichTextView, toInlines, type RichText } from '@/modules/legal';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { CTABanner, CTAButton, IconCard, KeepTogether, Section, SectionHeading } from '@/modules/marketing-ui';
 import { Photo } from '@/modules/media';
+import { MotionBlobs, Reveal } from '@/modules/motion';
+import { MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import { about } from '@/modules/site-content/about';
 import { contactHref } from '@/modules/site-content/cta';
 import { SEO } from '@/modules/site-content/seo';
@@ -45,46 +49,53 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 
   {/* 5-3 の続き: ミッション（引用の体裁）と、ビジョンへつなぐ補足 2 文。地はヒーローと同じ */}
   <Section tone="subtle" class="phrase pt-0 md:pt-0" labelledby="about-mission">
-    <div class="flex flex-col gap-4">
+    <Reveal class="flex flex-col gap-4">
       <p id="about-mission" class="type-small text-text-brand">{hero.mission.label}</p>
       <blockquote class="border-l-3 border-border-brand pl-4">
         <p class="type-h3 text-text-heading">{hero.mission.quote}</p>
       </blockquote>
       {hero.mission.notes.map((note) => <p class="type-body max-w-[720px] text-text-body">{note}</p>)}
-    </div>
+    </Reveal>
   </Section>
 
   {/* 5-4 運営方針（2 列 ×2 段。Mobile 1 列） */}
   <Section labelledby="about-values" class="phrase">
     <SectionHeading id="about-values" title={values.heading} />
     <div class="mt-8 grid gap-4 md:grid-cols-2 md:gap-8">
-      {values.cards.map((card) => <IconCard icon={iconOf(card.icon)} title={card.title} body={card.body} />)}
+      {
+        values.cards.map((card, i) => (
+          <Reveal step={i % 2 === 0 ? 0 : 1}>
+            <IconCard class="h-full" icon={iconOf(card.icon)} title={card.title} body={card.body} />
+          </Reveal>
+        ))
+      }
     </div>
   </Section>
 
   {/* 5-5a これまでにやってきたこと（面は白＋枠） */}
   <Section labelledby="about-career" class="phrase">
-    <article class="flex flex-col gap-4 rounded-md border border-border bg-surface p-6 md:p-8">
+    <Reveal as="article" class="flex flex-col gap-4 rounded-md border border-border bg-surface p-6 md:p-8">
       <h2 id="about-career" class="type-h3 text-text-heading">{career.heading}</h2>
       <p class="type-body max-w-[720px] text-text-body">{career.body.join('')}</p>
       <p class="type-small max-w-[720px] text-text-muted">{career.note}</p>
-    </article>
+    </Reveal>
   </Section>
 
   {/* 5-5b 自社での運用（「準備中」の Badge） */}
   <Section labelledby="about-self" class="phrase">
-    <article class="flex flex-col items-start gap-6 rounded-md border border-border bg-surface p-6 md:p-8">
+    <Reveal as="article" class="flex flex-col items-start gap-6 rounded-md border border-border bg-surface p-6 md:p-8">
       <h2 id="about-self" class="type-h3 text-text-heading">{selfOperation.heading}</h2>
       <p class="type-body max-w-[720px] text-text-body">{selfOperation.body.join('')}</p>
       <Badge variant="secondary" className="min-h-6 py-[3px]">{selfOperation.badge}</Badge>
-    </article>
+    </Reveal>
   </Section>
 
   {/* 5-6 会社情報（2 列の表。項目列 Desktop 240px・Mobile 96px）。
       リンクのあるセルだけ地を白にする（role/text-link は role/surface-subtle の上で 4.22:1 になり AA に届かないため。text-link の色は変えない。H-15） */}
   <Section labelledby="about-company">
     <SectionHeading id="about-company" title={company.heading} />
-    <table class="mt-8 w-full table-fixed border-collapse">
+    <Reveal class="mt-8">
+    <table class="w-full table-fixed border-collapse">
       <caption class="sr-only">{company.heading}</caption>
       <colgroup>
         <col class="w-24 md:w-60" />
@@ -110,22 +121,23 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
         }
       </tbody>
     </table>
+    </Reveal>
   </Section>
 
   {/* 5-7 メンバー（代表 1名。Desktop は写真左・紹介文右、Mobile は縦積み） */}
   <Section labelledby="about-members" class="phrase">
     <SectionHeading id="about-members" title={members.heading} lead={members.body} />
-    <div class="mt-8 grid gap-4 md:gap-8">
+    <div class="mt-8 grid gap-4 md:gap-8" data-avatar-cue="team">
       {
         members.cards.map((card) => (
-          <article class="not-typeset grid gap-6 rounded-md border border-border bg-surface p-6 md:grid-cols-[240px_minmax(0,1fr)] md:items-center md:gap-8 md:p-8">
+          <Reveal as="article" class="not-typeset grid gap-6 rounded-md border border-border bg-surface p-6 md:grid-cols-[240px_minmax(0,1fr)] md:items-center md:gap-8 md:p-8">
             <Photo photo={card.photo} sizes="(min-width: 768px) 240px, 100vw" widths={[240, 480, 720]} class="aspect-[3/4] w-full max-w-[320px] md:max-w-none" />
             <div class="flex flex-col gap-3">
               <p class="type-small text-text-brand">{card.role}</p>
               <h3 class="type-card-title text-text-heading">{card.name}</h3>
               <p class="type-body text-text-muted">{card.body.join('')}</p>
             </div>
-          </article>
+          </Reveal>
         ))
       }
     </div>
@@ -143,6 +155,7 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
       >
         {ctaBanner.button}
       </CTAButton>
+      <MotionBlobs slot="decoration" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.cta} />
     </CTABanner>
   </Section>
 </BaseLayout>

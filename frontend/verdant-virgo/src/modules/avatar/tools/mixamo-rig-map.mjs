@@ -1,0 +1,63 @@
+// Mixamo の骨の名前 → VRM の humanoid の骨の名前。
+// 出典: three-vrm の公式サンプル packages/three-vrm/examples/humanoidAnimation/mixamoVRMRigMap.js（v3.5.5）
+//   https://github.com/pixiv/three-vrm/blob/v3.5.5/packages/three-vrm/examples/humanoidAnimation/mixamoVRMRigMap.js
+//   Copyright (c) 2019-2026 pixiv Inc. MIT License（https://github.com/pixiv/three-vrm/blob/v3.5.5/LICENSE）
+// 取り込み日: 2026-10-19
+// こちらの変更: キーを FBX の中の名前（`mixamorig:` の接頭辞付き）にした。three の FBXLoader は `:` を落として
+//   `mixamorigHips` にするので、convert-mixamo.mjs の toMixamoKey で付け直してから引く。対応そのものはサンプルと同じ。
+
+/** @type {Record<string, import("@pixiv/three-vrm").VRMHumanBoneName>} */
+export const MIXAMO_TO_VRM = {
+  "mixamorig:Hips": "hips",
+  "mixamorig:Spine": "spine",
+  "mixamorig:Spine1": "chest",
+  "mixamorig:Spine2": "upperChest",
+  "mixamorig:Neck": "neck",
+  "mixamorig:Head": "head",
+  "mixamorig:LeftShoulder": "leftShoulder",
+  "mixamorig:LeftArm": "leftUpperArm",
+  "mixamorig:LeftForeArm": "leftLowerArm",
+  "mixamorig:LeftHand": "leftHand",
+  "mixamorig:LeftHandThumb1": "leftThumbMetacarpal",
+  "mixamorig:LeftHandThumb2": "leftThumbProximal",
+  "mixamorig:LeftHandThumb3": "leftThumbDistal",
+  "mixamorig:LeftHandIndex1": "leftIndexProximal",
+  "mixamorig:LeftHandIndex2": "leftIndexIntermediate",
+  "mixamorig:LeftHandIndex3": "leftIndexDistal",
+  "mixamorig:LeftHandMiddle1": "leftMiddleProximal",
+  "mixamorig:LeftHandMiddle2": "leftMiddleIntermediate",
+  "mixamorig:LeftHandMiddle3": "leftMiddleDistal",
+  "mixamorig:LeftHandRing1": "leftRingProximal",
+  "mixamorig:LeftHandRing2": "leftRingIntermediate",
+  "mixamorig:LeftHandRing3": "leftRingDistal",
+  "mixamorig:LeftHandPinky1": "leftLittleProximal",
+  "mixamorig:LeftHandPinky2": "leftLittleIntermediate",
+  "mixamorig:LeftHandPinky3": "leftLittleDistal",
+  "mixamorig:RightShoulder": "rightShoulder",
+  "mixamorig:RightArm": "rightUpperArm",
+  "mixamorig:RightForeArm": "rightLowerArm",
+  "mixamorig:RightHand": "rightHand",
+  "mixamorig:RightHandPinky1": "rightLittleProximal",
+  "mixamorig:RightHandPinky2": "rightLittleIntermediate",
+  "mixamorig:RightHandPinky3": "rightLittleDistal",
+  "mixamorig:RightHandRing1": "rightRingProximal",
+  "mixamorig:RightHandRing2": "rightRingIntermediate",
+  "mixamorig:RightHandRing3": "rightRingDistal",
+  "mixamorig:RightHandMiddle1": "rightMiddleProximal",
+  "mixamorig:RightHandMiddle2": "rightMiddleIntermediate",
+  "mixamorig:RightHandMiddle3": "rightMiddleDistal",
+  "mixamorig:RightHandIndex1": "rightIndexProximal",
+  "mixamorig:RightHandIndex2": "rightIndexIntermediate",
+  "mixamorig:RightHandIndex3": "rightIndexDistal",
+  "mixamorig:RightHandThumb1": "rightThumbMetacarpal",
+  "mixamorig:RightHandThumb2": "rightThumbProximal",
+  "mixamorig:RightHandThumb3": "rightThumbDistal",
+  "mixamorig:LeftUpLeg": "leftUpperLeg",
+  "mixamorig:LeftLeg": "leftLowerLeg",
+  "mixamorig:LeftFoot": "leftFoot",
+  "mixamorig:LeftToeBase": "leftToes",
+  "mixamorig:RightUpLeg": "rightUpperLeg",
+  "mixamorig:RightLeg": "rightLowerLeg",
+  "mixamorig:RightFoot": "rightFoot",
+  "mixamorig:RightToeBase": "rightToes",
+};

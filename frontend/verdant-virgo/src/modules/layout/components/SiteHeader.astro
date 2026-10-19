@@ -5,11 +5,12 @@
  * Desktop: ロゴ ＋ ナビ 4 つ ＋「無料相談」（Small）。Mobile: ロゴ ＋ ハンバーガー（Sheet の中に無料相談）。
  * 「無料相談」の強さはブログ一覧・記事だけ Outline（headerCta）。ヘッダーの無料相談は主 CTA の数に入れない。
  * Desktop のナビは motion の MotionNav（GooeyNav。SSR で <nav>・<a>・aria-current が出る。Desktop だけ水和）。
- * ページ遷移で現在地の形を次のページへつなぐため、ヘッダーに view-transition-name: site-header を付ける（global.css の @view-transition）。
+ * C（motionZone が none）のページでは水和せず、同じ印の静的な <nav> だけを出す（R20。規約・ポリシーには動きを出さない）。
+ * ページ遷移で現在地の形を次のページへつなぐため、ヘッダーに view-transition-name: site-header を付ける（opt-in は page-transition の PageTransitionHead。C のページでは遷移しない）。
  */
 import { Logo } from '@/modules/brand';
 import { CTAButton } from '@/modules/marketing-ui';
-import { MotionNav } from '@/modules/motion';
+import { MotionNav, type MotionZone } from '@/modules/motion';
 import { contactHref, ctaDataAttributes } from '@/modules/site-content/cta';
 import { headerCta, headerNav, sheetSourceDl } from '@/modules/site-content/nav';
 import type { HeaderCta } from '../lib/types';
@@ -20,9 +21,11 @@ interface Props {
   headerCta: HeaderCta;
   /** ページの中に無料 DL ブロック（#source-dl）があるか。無ければ Sheet の DL はトップの #source-dl へ */
   sourceDlOnPage: boolean;
+  /** 動きの区分。none（C のページ）ならナビを水和しない */
+  motionZone: MotionZone;
 }
 
-const { headerCta: ctaStrength, sourceDlOnPage } = Astro.props;
+const { headerCta: ctaStrength, sourceDlOnPage, motionZone } = Astro.props;
 const path = Astro.url.pathname;
 
 const links = headerNav.map((link) => ({ ...link, current: currentState(path, link.href) }));
@@ -36,7 +39,11 @@ const consultHref = (ctaId: typeof headerCta.desktopCtaId | typeof headerCta.she
     </a>
 
     <div class="hidden items-center gap-6 md:flex">
-      <MotionNav links={links.map(({ label, href, current }) => ({ label, href, current }))} label="メイン" />
+      <MotionNav
+        links={links.map(({ label, href, current }) => ({ label, href, current }))}
+        label="メイン"
+        interactive={motionZone !== 'none'}
+      />
       <CTAButton
         ctaId={headerCta.desktopCtaId}
         href={consultHref(headerCta.desktopCtaId)}

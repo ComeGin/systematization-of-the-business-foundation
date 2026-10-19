@@ -118,7 +118,7 @@ BA-05 は「本番環境へのデプロイ」を `承認`（承認者 `R1`）に
 **`LH-seo` が 1.0 未満になった時点で、ループの作用（ステップ 5）を全面的に停止する。**
 
 - しきい値は `frontend/verdant-virgo/lighthouserc.cjs` に定義されており、`pnpm lh` は未達でコマンドが失敗する。**この失敗を無視して適用を続けない。**
-- SEO が 1.0 の死守ラインであるのは、SEO 対策がこの計測の目的そのものだから（`.claude/CLAUDE.md`）。performance / accessibility / best-practices の 0.9 は目標値だが、SEO の 1.0 は**前提条件**である。
+- SEO が 1.0 の死守ラインであるのは、SEO 対策がこの計測の目的そのものだから（`.claude/CLAUDE.md`）。accessibility / best-practices の 0.9 は目標値だが、SEO の 1.0 は**前提条件**である。performance の 0.9 は 2026-10-19 から**参考の値**（`lighthouserc.cjs` で `warn`。ADR-29）で、未達でも止めない。
 - 停止中にできるのは「`LH-seo` を 1.0 に戻す提案」だけ。それ以外の `change.kind` の適用を再開しない。
 - 停止は `agent/seo-auditor` が検知し、`agent/proposal-writer` が起票を絞る。**検知するエージェントと止めるエージェントが同じにならないようにする**（自分で検知して自分で判断すると、検知の基準ごと緩められる余地が生まれる）。
 

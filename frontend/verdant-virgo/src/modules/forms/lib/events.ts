@@ -27,3 +27,18 @@ export function createFormEvents(formKey: FormKey, formId: number | null, ctaId:
     },
   };
 }
+
+/**
+ * 送信の成功を document に知らせるイベントの名前（送り手の正本。設計書 §9）。
+ * 受け手はアバターの watchTriggers（avatar/lib/triggers.ts に同じ値の定数があり、単体テストで一致を見る）。
+ * avatar はこのファイルを import しない（analytics を引き込み、アバターの island が重くなるため）。
+ */
+export const FORM_SUCCESS_EVENT = 'comegin:form-success';
+
+/** 送信が成功したことを document に出す（forms は avatar を直接呼ばない）。document が無い環境では何もしない */
+export function dispatchFormSuccess(formKey: FormKey): void {
+  if (typeof document === 'undefined') return;
+  document.dispatchEvent(
+    new CustomEvent<{ formKey: FormKey }>(FORM_SUCCESS_EVENT, { detail: { formKey } }),
+  );
+}

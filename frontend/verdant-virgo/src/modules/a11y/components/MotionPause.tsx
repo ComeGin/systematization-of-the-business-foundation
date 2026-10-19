@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { MotionPauseProps } from "../lib/types";
+import VisuallyHidden from "./VisuallyHidden";
 
 function readPaused(key: string): boolean {
   try {
@@ -26,6 +27,7 @@ function writePaused(key: string, paused: boolean): void {
  * ネイティブの <button>。名前を「一時停止」⇔「再開」で入れ替える（名前が変わるので aria-pressed は付けない）。
  * 押した結果は sessionStorage に覚え、ページを移っても止まったままにする。戻したときはマウントの時点で onToggle(true) を呼ぶ。
  * reduced-motion のときは部品が最初から静止するので、このボタンを出すかどうかは呼び出し側（motion）が決める。
+ * 対象名（target）を渡すと、見える文字の後ろに sr-only で足す（名前は「動きを止める（ヒーロー）」。見える文字で始まるので 2.5.3 を満たす）。
  * 文言は props で受ける（既定値を持たない。H-16）。
  */
 export default function MotionPause({
@@ -34,6 +36,7 @@ export default function MotionPause({
   onToggle,
   storageKey,
   tone = "light",
+  target,
   className,
 }: MotionPauseProps) {
   const [paused, setPaused] = useState(false);
@@ -69,6 +72,7 @@ export default function MotionPause({
     >
       <Icon aria-hidden="true" data-icon="inline-start" className="size-4" />
       {paused ? resumeLabel : pauseLabel}
+      {target && <VisuallyHidden>{target}</VisuallyHidden>}
     </button>
   );
 }

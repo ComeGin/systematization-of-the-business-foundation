@@ -2,9 +2,11 @@
 // 画面 11 ウェブアクセシビリティ方針（/accessibility）。01-content-spec.md §4.11、表の様式は 04-accessibility-spec.md §5。
 // 枠は法務テンプレート（§4.10）と同じ: パンくず → h1 → 本文（720px）。目次と CTA は置かない。
 // ページは組み立てだけ。文言と試験の結果は site-content/accessibility.ts から読む。
+// 動き（B〈calm〉）: h1 の下の 5 つの節が、画面に入るとき下から静かに上がる（motion の Reveal。節の見出し・本文は最初から 100% の濃さで読める）。
 // 試験の結果の表は Desktop が表（caption・th scope 付き。1.3.1）、Mobile は 1 行を「番号 ＋ 達成基準」を見出しにした
 // まとまりに組み替える（§4.10 の法務の表と同じ扱い。幅 320px でも横にスクロールさせない）。
 import { BaseLayout } from '@/modules/layout';
+import { Reveal } from '@/modules/motion';
 import {
   accessibilityPage,
   CRITERION_VALUE_LABELS,
@@ -43,13 +45,13 @@ const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-l
 
     <div class="flex max-w-[720px] flex-col gap-12">
       {/* 11-1 方針 */}
-      <section aria-labelledby={policy.id} class={sectionClass}>
+      <Reveal as="section" aria-labelledby={policy.id} class={sectionClass}>
         <h2 id={policy.id} class={headingClass}>{policy.heading}</h2>
         {policy.paragraphs.map((paragraph) => <p class={bodyClass}>{paragraph}</p>)}
-      </section>
+      </Reveal>
 
       {/* 11-2 対応の状況（dl。Desktop は項目と値を左右、Mobile は縦積み） */}
-      <section aria-labelledby={status.id} class={sectionClass}>
+      <Reveal as="section" aria-labelledby={status.id} class={sectionClass}>
         <h2 id={status.id} class={headingClass}>{status.heading}</h2>
         <dl class="border-t border-border">
           {
@@ -61,10 +63,10 @@ const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-l
             ))
           }
         </dl>
-      </section>
+      </Reveal>
 
       {/* 11-3 外部のサービスについて（部分適合に関する記述。G-2） */}
-      <section aria-labelledby={external.id} class={sectionClass}>
+      <Reveal as="section" aria-labelledby={external.id} class={sectionClass}>
         <h2 id={external.id} class={headingClass}>{external.heading}</h2>
         <p class={bodyClass}>{external.intro}</p>
         <ul class={`${bodyClass} flex list-disc flex-col gap-2 pl-6`}>
@@ -75,10 +77,10 @@ const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-l
           {external.alternatives.before}<a href={`mailto:${external.alternatives.email}`} class={linkClass}>{external.alternatives.email}</a>{external.alternatives.after}
         </p>
         <p class={bodyClass}>{external.followUp}</p>
-      </section>
+      </Reveal>
 
       {/* 11-4 達成基準ごとの試験の結果（表 1 は JIS の 38 基準、表 2 は WCAG 2.1・2.2 の追加の基準〈参考〉） */}
-      <section aria-labelledby={results.id} class="flex flex-col gap-8">
+      <Reveal as="section" aria-labelledby={results.id} class="flex flex-col gap-8">
         <h2 id={results.id} class={headingClass}>{results.heading}</h2>
         {
           results.tables.map((table) => (
@@ -146,15 +148,15 @@ const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-l
             </div>
           ))
         }
-      </section>
+      </Reveal>
 
       {/* 11-5 お気づきの点のご連絡 */}
-      <section aria-labelledby={contact.id} class={sectionClass}>
+      <Reveal as="section" aria-labelledby={contact.id} class={sectionClass}>
         <h2 id={contact.id} class={headingClass}>{contact.heading}</h2>
         <p class={bodyClass}>
           {contact.before}<a href={`mailto:${contact.email}`} class={linkClass}>{contact.email}</a>{contact.after}
         </p>
-      </section>
+      </Reveal>
     </div>
   </div>
 </BaseLayout>

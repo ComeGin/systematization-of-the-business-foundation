@@ -11,6 +11,10 @@ import { useVisible } from "../lib/use-visible";
 interface Props {
   pauseLabel: string;
   resumeLabel: string;
+  /** 一時停止のボタンの対象名（名前を、ヒーローの一時停止のボタンと分ける） */
+  pauseTarget: string;
+  /** true のとき、自前の一時停止のボタンを出さず、最寄りの [data-motion-paused] に従って止まる（A の CTA。CtaGlow のボタンが付け外しする） */
+  externalPause?: boolean;
 }
 
 const STORAGE_KEY = "motion:cta-blobs";
@@ -48,7 +52,7 @@ function measureArea(root: HTMLElement): Area | null {
   return { left: center - half - hostRect.left, width: half * 2 };
 }
 
-export default function BlobsIsland({ pauseLabel, resumeLabel }: Props) {
+export default function BlobsIsland({ pauseLabel, resumeLabel, pauseTarget, externalPause = false }: Props) {
   const reduced = useReducedMotion();
   const rootRef = useRef<HTMLDivElement>(null);
   const visible = useVisible(rootRef);
@@ -56,6 +60,9 @@ export default function BlobsIsland({ pauseLabel, resumeLabel }: Props) {
     null,
   );
   const [userPaused, setUserPaused] = useState(false);
+  // externalPause のとき、止める手段（CtaGlow の一時停止のボタン）が水和して aside に data-motion-ready="true" が付くまでは動かさない
+  // （光の縁・粒の CSS が ready まで止まっているのと同じ。止められない動きを出さない。2.2.2）。externalPause でなければ常に true
+  const [externalReady, setExternalReady] = useState(!externalPause);
   const [ready, setReady] = useState(false);
   // 一度でも動き始めたか。止めた状態で開いたページ（sessionStorage）では、動かないまま canvas を出さず静止の SVG を見せる
   const [started, setStarted] = useState(false);
@@ -90,16 +97,45 @@ export default function BlobsIsland({ pauseLabel, resumeLabel }: Props) {
   }, []);
 
   useEffect(() => {
-    if (ready && !userPaused) setStarted(true);
-  }, [ready, userPaused]);
+    if (ready && !userPaused && externalReady) setStarted(true);
+  }, [ready, userPaused, externalReady]);
+
+  // externalPause: 一時停止のボタンは別の部品（CtaGlow）にある。最寄りの [data-motion-paused] の値に従って止める。
+  // 属性はボタンが水和して初めて付くので、まだ無いうちは何もしない（前のページで止めた記憶は上の sessionStorage の読みが先に反映する）。
+  // 属性が付く前は最寄りが無いので、バナーの aside を見張る（属性は aside に付く）。data-motion-ready="true" が付くまでは動かさない
+  useEffect(() => {
+    if (!externalPause) return undefined;
+    const root = rootRef.current;
+    const host = root?.closest("aside");
+    if (!root || !host) return undefined;
+    const sync = () => {
+      const value = root
+        .closest("[data-motion-paused]")
+        ?.getAttribute("data-motion-paused");
+      if (value === "true") setUserPaused(true);
+      else if (value === "false") setUserPaused(false);
+      setExternalReady(host.getAttribute("data-motion-ready") === "true");
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(host, {
+      attributes: true,
+      attributeFilter: ["data-motion-paused", "data-motion-ready"],
+    });
+    sync();
+    return () => observer.disconnect();
+  }, [externalPause]);
 
   // 置き場所のバナーに hover・フォーカスが入ったら寄り合う（一時停止のボタンへのフォーカスは除く）
   useEffect(() => {
     const host = rootRef.current?.closest("aside");
     if (!host) return undefined;
     // 一時停止のボタンは準備ができてから出るので、その都度探す
+    // externalPause のときのボタンは CtaGlow の中にある
     const isPause = (el: EventTarget | null) =>
-      el !== null && el === rootRef.current?.querySelector("button");
+      el !== null &&
+      (el === rootRef.current?.querySelector("button") ||
+        (el instanceof Element &&
+          el.closest('[data-motion="cta-glow"]') !== null));
     const onEnter = () => setGathered(true);
     const onLeave = () =>
       setGathered(
@@ -168,7 +204,7 @@ export default function BlobsIsland({ pauseLabel, resumeLabel }: Props) {
               variant="solid"
               motion="orbit"
               clickBurst={false}
-              paused={userPaused || !visible}
+              paused={userPaused || !visible || !externalReady}
               dpr={1.5}
               onReady={() => setReady(true)}
             />
@@ -176,13 +212,14 @@ export default function BlobsIsland({ pauseLabel, resumeLabel }: Props) {
         )}
       </div>
       )}
-      {live && ready && (
+      {live && ready && !externalPause && (
         <div className="pointer-events-auto absolute right-3 bottom-3 z-[2]">
           <MotionPause
             pauseLabel={pauseLabel}
             resumeLabel={resumeLabel}
             storageKey={STORAGE_KEY}
             tone="dark"
+            target={pauseTarget}
             onToggle={setUserPaused}
           />
         </div>

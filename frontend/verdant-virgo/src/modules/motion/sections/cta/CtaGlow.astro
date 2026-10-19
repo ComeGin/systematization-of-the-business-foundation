@@ -1,0 +1,153 @@
+---
+/**
+ * CtaGlow（A〈vivid〉の CTA バナーの光の縁と粒）。Aceternity の Moving Border ＋ Sparkles の手触り。2026-10-19。
+ *
+ * - 縁を光が巡る（conic-gradient の角度を 1 周 --motion-duration-glow〈2.4 秒〉。@property の --cta-glow-angle を動かす）。
+ *   中の粒（sparkles）は上端・下端の余白の帯だけに置き、1 秒以上の周期（--motion-duration-glow の 1〜1.5 倍）でゆっくり明滅する。点滅は 1 秒に 3 回までの規則（2.3.1）の内側。
+ * - CSS の animation だけ。JS・rAF を使わない。最初の HTML で描かれる（一時停止のボタンだけが island）。
+ * - 動くのは md 以上で、reduced-motion でなく、JS が使えるとき（scripting: enabled）だけ。Mobile（縦積みで一時停止のボタンの置き場所が無い）・reduced-motion・JS なしは何も出さない
+ *   （バナーは今までと同じ面）。動く層は display:none で、animation も回らない。
+ * - 5 秒を超えて自動で動くので、一時停止のボタンを右下に 1 つだけ置く（MotionPauseFor。storageKey は MotionBlobs と共有の motion:cta-blobs）。
+ *   target は CTA バナーの aside（bannerId）。押すと aside に data-motion-paused が付き、global.css の規則で光の縁・粒の animation が止まり、
+ *   MotionBlobs（externalPause）は同じ属性を MutationObserver で読んで粒を止める。1 つのボタンで両方が止まり、ボタンは 1 つだけ。
+ * - 動く層は、止める手段のボタンが水和して出る（aside に data-motion-ready="true" が付く）まで見せず、動かさない（HeroBackdrop と同じ。2.2.2）。
+ * - 根は流れに入らない absolute inset-0 で、クリックを受けない。文字とボタンの列（relative z-[1]）の下に回る。装飾は aria-hidden。
+ *   一時停止のボタンだけが aria-hidden の外にあり、DOM の最後（CTA の後）。
+ * - 根の data-motion="cta-glow" は部品の印。B（calm）のページには置かない（光り物を出さない）。
+ *
+ * 置き方（CTABanner の装飾の slot）: CTABanner に id（bannerId と同じ）を渡し、slot="decoration" に置く。MotionBlobs を並べるときはその前（粒の下）。
+ * 文言（MOTION_PAUSE・MOTION_PAUSE_TARGETS）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import MotionPauseFor from '../../components/MotionPauseFor.astro';
+import type { CtaGlowProps } from '../../lib/types';
+
+type Props = CtaGlowProps;
+
+const { pauseLabel, resumeLabel, pauseTarget, bannerId = 'cta-banner', class: className } = Astro.props;
+
+// 粒の置き場所: バナーの上端と下端の余白（md:p-12 の 48px）の帯の中だけ。x は左からの %、o は上端（top）または下端（bottom）からの px（8〜32px）。
+// 文字の後ろに置かない（粒の光で白い文字の地が明るくなり、4.5:1 を割るため。MotionBlobs と同じ理由）。バナーの高さが変わっても、帯は余白の中に収まる。
+// s は大きさ（px）、p は明滅の周期の倍率（1〜1.5）、d は始まりのずれ（負の秒）
+const sparkles = [
+  { x: 12, edge: 'top', o: 14, s: 3, p: 1, d: 0 },
+  { x: 27, edge: 'bottom', o: 18, s: 2, p: 1.25, d: -0.8 },
+  { x: 41, edge: 'top', o: 26, s: 4, p: 1.5, d: -1.6 },
+  { x: 55, edge: 'bottom', o: 12, s: 3, p: 1.1, d: -0.4 },
+  { x: 68, edge: 'top', o: 10, s: 2, p: 1.4, d: -2.2 },
+  { x: 78, edge: 'bottom', o: 28, s: 4, p: 1.2, d: -1.2 },
+  { x: 88, edge: 'top', o: 22, s: 2, p: 1.35, d: -2.8 },
+  { x: 94, edge: 'bottom', o: 16, s: 3, p: 1.5, d: -3.2 },
+] as const;
+---
+
+<div data-motion="cta-glow" class:list={['cta-glow pointer-events-none absolute inset-0', className]}>
+  <div aria-hidden="true" class="cta-glow__live absolute inset-0">
+    <div class="cta-glow__edge"></div>
+    {
+      sparkles.map((sparkle) => (
+        <span
+          class="cta-glow__sparkle"
+          style={`--x:${sparkle.x}%;${sparkle.edge}:${sparkle.o}px;--s:${sparkle.s}px;--p:${sparkle.p};--d:${sparkle.d}s`}
+        />
+      ))
+    }
+  </div>
+  <MotionPauseFor
+    target={bannerId}
+    storageKey="motion:cta-blobs"
+    pauseLabel={pauseLabel}
+    resumeLabel={resumeLabel}
+    tone="dark"
+    targetName={pauseTarget}
+    class="pointer-events-auto absolute right-3 bottom-3 z-[2] hidden md:inline-flex"
+  />
+</div>
+
+<style is:global>
+  /* 光の縁の角度（動かす値）。登録しておくと、角度として補間できる */
+  @property --cta-glow-angle {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  /* 動く層: 既定では出さない。動かしてよい端末（md 以上・動きを減らす設定でない）で、JS が使えるとき（scripting: enabled）だけ出す */
+  .cta-glow__live {
+    display: none;
+    border-radius: inherit;
+  }
+  @media (min-width: 768px) and (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+    .cta-glow__live {
+      display: block;
+    }
+  }
+
+  /* 止める手段（一時停止のボタン）が水和して出る（CTA バナーに data-motion-ready="true" が付く）まで、動く層は見せず、動かさない。
+     水和の前・水和に失敗したときに、止められない動きを出さない（2.2.2）。付くと、止まっていた animation がその時点から動き出す */
+  :not([data-motion-ready='true']) > [data-motion='cta-glow'] .cta-glow__live {
+    visibility: hidden;
+  }
+  :not([data-motion-ready='true']) > [data-motion='cta-glow'] .cta-glow__live * {
+    animation-play-state: paused !important;
+  }
+
+  /* 光の縁: 2px の輪郭だけを conic-gradient で光らせる（mask で内側をくり抜く）。光は尾を引き、先頭が明るい */
+  .cta-glow__edge {
+    position: absolute;
+    inset: 0;
+    padding: 2px;
+    border-radius: inherit;
+    background: conic-gradient(
+      from var(--cta-glow-angle),
+      transparent 0deg,
+      transparent 200deg,
+      color-mix(in srgb, var(--color-brand-sky) 55%, transparent) 300deg,
+      var(--color-brand-sky) 359deg,
+      transparent 360deg
+    );
+    /* mask の色は透明度の指定だけで、見える色ではない */
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    animation-name: cta-glow-orbit;
+    animation-duration: var(--motion-duration-glow);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+  @keyframes cta-glow-orbit {
+    to {
+      --cta-glow-angle: 360deg;
+    }
+  }
+
+  /* 粒: 小さな丸が淡く光り、ゆっくり明滅する。周期は --motion-duration-glow の 1〜1.5 倍（2.4 秒以上） */
+  .cta-glow__sparkle {
+    position: absolute;
+    left: var(--x);
+    width: var(--s);
+    height: var(--s);
+    border-radius: 9999px;
+    background-color: var(--color-brand-sky);
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-brand-sky) 70%, transparent);
+    animation-name: cta-glow-twinkle;
+    animation-duration: calc(var(--motion-duration-glow) * var(--p));
+    animation-delay: var(--d);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+  @keyframes cta-glow-twinkle {
+    0%,
+    100% {
+      opacity: 0.12;
+      transform: scale(0.6);
+    }
+    50% {
+      opacity: 0.9;
+      transform: scale(1);
+    }
+  }
+</style>

@@ -6,8 +6,10 @@ import { useReducedMotion } from "@/modules/a11y/client";
 import ShapeBlur from "../vendor/react-bits/ShapeBlur/ShapeBlur";
 
 interface Props {
-  /** 静止の形と、ShapeBlur に読ませる形（シンボルのネイビー版） */
+  /** 静止の形と、ShapeBlur に読ませる形（シンボルのネイビー版。dark の地の上は白版） */
   src: string;
+  /** 置く面。dark は navy の地の上（ShapeBlur の色を白にする）。既定は light */
+  tone?: "light" | "dark";
   /** 静止の <img> の大きさ（px） */
   width: number;
   height: number;
@@ -23,7 +25,7 @@ const REST_BLUR = 8;
 // GL を作るのを待つ上限（ms）。ヒーローの描画を先に済ませるための待ちで、動きの時間ではない
 const IDLE_TIMEOUT = 2000;
 
-export default function SymbolBlur({ src, width, height }: Props) {
+export default function SymbolBlur({ src, tone = "light", width, height }: Props) {
   const reduced = useReducedMotion();
   const rootRef = useRef<HTMLSpanElement>(null);
   const [idle, setIdle] = useState(false);
@@ -103,7 +105,11 @@ export default function SymbolBlur({ src, width, height }: Props) {
             src={src}
             fill
             size={Math.max(width, height) / boxWidth}
-            color="var(--color-brand-navy-700)"
+            color={
+              tone === "dark"
+                ? "var(--color-neutral-0)"
+                : "var(--color-brand-navy-700)"
+            }
             blur={REST_BLUR}
             lensSize={0.45}
             lensSoftness={0.7}

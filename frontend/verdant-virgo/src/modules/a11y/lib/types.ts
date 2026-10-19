@@ -27,5 +27,10 @@ export interface MotionPauseProps {
   storageKey: string;
   /** 置く面。dark は反転面（navy.700）の上 */
   tone?: "light" | "dark";
+  /**
+   * 対象名（sr-only で見える文字の後ろに足す。例「（ヒーロー）」）。1 つのページに一時停止のボタンが複数並ぶとき、名前を分ける。
+   * 「一時停止」⇔「再開」のどちらの名前にも付く。文言は site-content の MOTION_PAUSE_TARGETS から渡す（既定値を持たない。H-16）
+   */
+  target?: string;
   className?: string;
 }

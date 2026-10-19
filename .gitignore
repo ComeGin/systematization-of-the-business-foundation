@@ -10,3 +10,5 @@ docs/data/
 
 # Playwright MCP（プラグイン版）の出力（スクリーンショット・スナップショット）
 .playwright-mcp/
+
+.superpowers

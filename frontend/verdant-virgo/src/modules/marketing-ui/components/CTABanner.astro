@@ -8,6 +8,7 @@
  * standard は data-surface="dark" を付け、中のフォーカスリングを白にする（blue.500 は navy.700 の上で 2.91:1。global.css）。
  * standard だけ slot="decoration" に装飾（motion の MotionBlobs）を置ける。aside 全体に absolute で広がり、文字とボタンの列は上に重ねる。
  * 装飾は最後の子なので、中の一時停止ボタンは DOM の順で CTA の後にフォーカスされる。
+ * id は aside に付ける（A のページの CtaGlow の一時停止のボタンが、止める対象として aside の id を指す。standard だけ）。
  */
 import { cn } from '@/lib/utils';
 
@@ -17,10 +18,12 @@ interface Props {
   type?: 'standard' | 'inline';
   /** 見出しの要素。記事の中の inline は本文の見出しの階層を崩さないよう p にしてよい */
   level?: 'h2' | 'h3' | 'p';
+  /** aside の id（standard で装飾の一時停止のボタンが対象にするとき） */
+  id?: string;
   class?: string;
 }
 
-const { title, body, type = 'standard', level = 'h2', class: className } = Astro.props;
+const { title, body, type = 'standard', level = 'h2', id, class: className } = Astro.props;
 const Heading = level;
 const standard = type === 'standard';
 // title から決まった id（ビルドのたびに変わらない）。FNV-1a の 32 ビット
@@ -30,6 +33,7 @@ const headingId = `cta-banner-${(hash >>> 0).toString(36)}`;
 ---
 
 <aside
+  id={id}
   aria-labelledby={headingId}
   data-surface={standard ? 'dark' : undefined}
   class={cn(

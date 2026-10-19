@@ -5,6 +5,7 @@
  * アイコンは lucide-react の部品を渡す（icon={FileText}）。文言の既定値は持たない（H-16）。
  * 本文にリンクなどを含めるときは slot="body" を使う（body は省く）。
  * 画像があるときは slot="avatar"（96 角の枠の中身）に渡す。無ければ「画像（準備中）」の枠を出す。
+ * data-* 属性は根の article に渡す（A のページの GlowGrid が data-glow-card を付ける。文言・見た目は変わらない）。
  */
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -22,15 +23,17 @@ interface Props {
   image?: boolean;
   level?: HeadingLevel;
   class?: string;
+  /** 根の article に渡す data-*（例: data-glow-card） */
+  [dataAttribute: `data-${string}`]: string | boolean | undefined;
 }
 
-const { title, body, caption, icon: Icon, avatar = false, image = false, level = 'h3', class: className } = Astro.props;
+const { title, body, caption, icon: Icon, avatar = false, image = false, level = 'h3', class: className, ...attrs } = Astro.props;
 const Heading = level;
 const hasAvatar = Astro.slots.has('avatar');
 const captionLines = caption === undefined ? [] : Array.isArray(caption) ? caption : [caption];
 ---
 
-<article class={cn('not-typeset flex flex-col items-start gap-4 rounded-md border border-border bg-surface p-6', className)}>
+<article class={cn('not-typeset flex flex-col items-start gap-4 rounded-md border border-border bg-surface p-6', className)} {...attrs}>
   {
     avatar && hasAvatar && (
       <div class="size-24 shrink-0 overflow-hidden rounded-md">

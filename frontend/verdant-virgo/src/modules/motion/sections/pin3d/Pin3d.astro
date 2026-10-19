@@ -1,0 +1,122 @@
+---
+/**
+ * Pin3d（A〈vivid〉の 3D Animated Pin。トップ 1-8 導入事例の 3 枚と 1-9 無料 DL のカード）。2026-10-19。
+ *
+ * hover とフォーカスで、カードが奥へ倒れ、上にピン（線と点。brand.sky）が立つ。CSS だけ（JS を読まない。水和も rAF も無い）。
+ * Aceternity の 3D Animated Pin の見せ方（rotateX で倒れる面と、上に立つ線と点）を再現した。
+ * 原本（vendor/aceternity/ThreeDPin）は使わない。理由は vendor/aceternity/README.md の表のとおり
+ * （hover を React の状態で持つ。ピンの波紋が motion/react の無限の animation〔6 秒〕で、止められない。カードが黒地・外部リンク専用）。
+ *
+ * - 構成: 根（ポインターを聞く。動かない）→ 倒れる面（[data-pin3d-body]）→ slot のカード。ピン（[data-pin3d-pin]）は倒れる面の中にあり、
+ *   カードの上の辺の真ん中に立つ。面ごと倒れるので、ピンの根元がカードの辺から離れない。倒れる面でなく根が hover を聞くので、縁でちらつかない（Tilt3d と同じ）。
+ * - hover（hover のある端末）: ピンが opacity 1 になり、立つ（scaleY）。細かいポインターで動きを減らす設定でないときは、カードが奥へ倒れる。
+ * - フォーカス（:has(:focus-visible)）: 同じ見た目の変化。hover と同じ変化を、キーボードでも起こす（マウスでリンクを押したときは残らない）。
+ *   倒れるのは動きを減らす設定でないときだけ。ピンの出現は静止の変化なので reduced-motion でも出す（時間は global.css が 0.01ms にする）。
+ * - ピンは装飾（aria-hidden）で、操作を受けない（pointer-events: none）。意味は持たせない。
+ * - 当たり判定とフォーカスリング: 面と祖先に overflow／filter／clip を付けない。傾きは 8 度までで、リンクは面と一緒に動く（リングは要素に付いたまま）。
+ * - ロゴの禁止例（回転・傾斜）: 導入事例の枠と無料 DL にロゴは無い。ロゴを入れるカードをこの中に置かない。
+ * - 高さ: 外側の grid の高さをそろえるため、根と面は grid にして、中のカードを引き伸ばす。
+ * - ピンが立つ高さ（2.5rem）は、カードの上の余白（セクションの見出しとの間 32〜48px）の中に収まる。
+ */
+import type { Pin3dProps } from '../../lib/types';
+
+type Props = Pin3dProps;
+
+const { class: className } = Astro.props;
+---
+
+<div data-pin3d data-motion="pin3d" class={className}>
+  <div data-pin3d-body>
+    <slot />
+    <div data-pin3d-pin aria-hidden="true"></div>
+  </div>
+</div>
+
+<style is:global>
+  [data-pin3d],
+  [data-pin3d-body] {
+    display: grid;
+  }
+  [data-pin3d] {
+    position: relative;
+    --pin-height: 2.5rem;
+  }
+  [data-pin3d-body] {
+    position: relative;
+  }
+
+  /* ピン: 線は上へ向けて消え、根元に点（と薄い輪）。brand.sky だけ。静止時は見えない（opacity 0。立っていない） */
+  [data-pin3d-pin] {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    z-index: 1;
+    width: 0;
+    height: var(--pin-height);
+    opacity: 0;
+    pointer-events: none;
+    transform: scaleY(0.4);
+    transform-origin: 50% 100%;
+    transition:
+      opacity var(--motion-duration-medium) var(--motion-ease-standard),
+      transform var(--motion-duration-medium) var(--motion-ease-emphasized);
+  }
+  [data-pin3d-pin]::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: -1px;
+    width: 2px;
+    height: 100%;
+    border-radius: 1px;
+    background: linear-gradient(to top, var(--color-brand-sky), transparent);
+  }
+  [data-pin3d-pin]::after {
+    content: '';
+    position: absolute;
+    bottom: -0.25rem;
+    left: -0.25rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background-color: var(--color-brand-sky);
+    box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--color-brand-sky) 22%, transparent);
+  }
+
+  /* 立つ: hover（hover のある端末）とフォーカス（キーボード）。同じ変化 */
+  @media (hover: hover) {
+    [data-pin3d]:hover [data-pin3d-pin] {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  [data-pin3d]:has(:focus-visible) [data-pin3d-pin] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* 倒れる: 動きを減らす設定でないときだけ。hover は細かいポインターのとき、フォーカスは常に。
+     静止時は transform: none（常時 3D の層を作らない）。倒れる量は perspective() 込みの 1 つの transform で、根に perspective を持たせない */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-pin3d-body] {
+      transition: transform var(--motion-duration-medium) var(--motion-ease-emphasized);
+    }
+    [data-pin3d-body] > :not([data-pin3d-pin]) {
+      transition: box-shadow var(--motion-duration-medium) var(--motion-ease-standard);
+    }
+    [data-pin3d]:has(:focus-visible) [data-pin3d-body] {
+      transform: perspective(1000px) rotateX(8deg) scale(0.985);
+    }
+    [data-pin3d]:has(:focus-visible) [data-pin3d-body] > :not([data-pin3d-pin]) {
+      box-shadow: var(--shadow-lg);
+    }
+    @media (hover: hover) and (pointer: fine) {
+      [data-pin3d]:hover [data-pin3d-body] {
+        transform: perspective(1000px) rotateX(8deg) scale(0.985);
+      }
+      [data-pin3d]:hover [data-pin3d-body] > :not([data-pin3d-pin]) {
+        box-shadow: var(--shadow-lg);
+      }
+    }
+  }
+</style>

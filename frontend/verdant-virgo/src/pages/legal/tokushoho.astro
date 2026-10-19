@@ -12,7 +12,7 @@ const { title, dates, table, after } = tokushoho;
 const breadcrumb = tokushoho.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface" motionZone="none">
   <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
     <LegalPageHeader id="tokushoho-heading" title={title} dates={dates} />
     <div class="flex max-w-[720px] flex-col gap-12">

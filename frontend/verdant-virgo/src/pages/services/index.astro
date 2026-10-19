@@ -4,9 +4,10 @@
 // 短い文が並ぶセクションには phrase（文節で折り返す）を付ける（H-18。トップと同じ）。
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BaseLayout, PageIntro } from '@/modules/layout';
+import { CtaGlow, GlobeOsaka, HeroBackdrop, Tilt3d } from '@/modules/motion';
 import { CTABanner, CTAButton, IconCard, Section, SectionHeading, ServiceCard, Steps } from '@/modules/marketing-ui';
 import { TAX_NOTE } from '@/modules/site-content/pricing';
-import { detailLinkTarget } from '@/modules/site-content/a11y';
+import { detailLinkTarget, MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import { SEO } from '@/modules/site-content/seo';
 import {
   ctaHref,
@@ -24,32 +25,38 @@ const { h1, breadcrumb, intro, cards, chooser, flow, banner } = SERVICES_INDEX;
 const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], ...serviceCardPrices(SERVICE_CARDS[slug]) }));
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)}>
-  {/* 2-3 導入ヒーロー（ボタンなし。主 CTA はページ下部に集める） */}
-  <PageIntro title={h1} body={intro.join('')} />
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} breadcrumbTone="surface" motionZone="vivid">
+  {/* 2-3 導入ヒーロー（ボタンなし。主 CTA はページ下部に集める）。A（vivid）なので地は navy（HeroBackdrop。Desktop だけ動く）。パンくずの帯は白（surface） */}
+  <PageIntro tone="dark" title={h1} body={intro.join('')}>
+    {/* 右の媒体の枠: 日本が正面の地球儀（大阪にだけ点。「大阪の現場から」を表す装飾。弧は出さない）。Mobile・reduced-motion・WebGL なしは静止画 */}
+    <GlobeOsaka slot="media" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.globe} />
+    <HeroBackdrop slot="backdrop" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.hero} />
+  </PageIntro>
 
   {/* 2-4 サービスカード（Desktop 2×2、Mobile 1 列）。見出しの上に h2 が無いので、カードの見出しを h2 にする（見た目は変えない。1.3.1） */}
   <Section class="phrase">
     <div class="grid gap-4 md:grid-cols-2 md:gap-6">
       {
         serviceCards.map(({ card, prices, note }) => (
-          <ServiceCard
-            level="h2"
-            title={card.title}
-            badge={card.badge ?? undefined}
-            body={card.body}
-            prices={prices}
-            note={note}
-            detailHref={card.detailLink.href}
-            detailLabel={card.detailLink.label}
-            detailTarget={detailLinkTarget(card.title)}
-          >
-            {card.sourceDlLinkLabel && (
-              <CTAButton slot="sub-link" ctaId={cards.sourceDlCtaId} href="/#source-dl" variant="link" icon="download">
-                {card.sourceDlLinkLabel}
-              </CTAButton>
-            )}
-          </ServiceCard>
+          <Tilt3d>
+            <ServiceCard
+              level="h2"
+              title={card.title}
+              badge={card.badge ?? undefined}
+              body={card.body}
+              prices={prices}
+              note={note}
+              detailHref={card.detailLink.href}
+              detailLabel={card.detailLink.label}
+              detailTarget={detailLinkTarget(card.title)}
+            >
+              {card.sourceDlLinkLabel && (
+                <CTAButton slot="sub-link" ctaId={cards.sourceDlCtaId} href="/#source-dl" variant="link" icon="download">
+                  {card.sourceDlLinkLabel}
+                </CTAButton>
+              )}
+            </ServiceCard>
+          </Tilt3d>
         ))
       }
     </div>
@@ -103,10 +110,11 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
 
   {/* 2-8 CTA バナー（主 CTA） */}
   <Section>
-    <CTABanner title={banner.title} body={banner.body}>
+    <CTABanner id="cta-banner" title={banner.title} body={banner.body}>
       <CTAButton slot="cta" ctaId={banner.cta.ctaId} href={ctaHref(banner.cta, from)} size="lg" fullWidth="mobile">
         {banner.cta.label}
       </CTAButton>
+      <CtaGlow slot="decoration" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.cta} />
     </CTABanner>
   </Section>
 </BaseLayout>

@@ -2,12 +2,16 @@
 // CSS で書けるところは CSS 変数（var(--motion-duration-medium) など）を使い、JS（WebGL・rAF）の側だけここを使う。
 // reduced-motion のときは、JS で動かす部品そのものを静止させる（a11y の prefersReducedMotion）。ここで時間を 0 にはしない。
 
-/** 時間（ms）。theme.css の --motion-duration-{micro,small,medium,large} */
+/** 時間（ms）。theme.css の --motion-duration-{micro,small,medium,large,ambient,glow} */
 export const DURATION = {
   micro: 120,
   small: 200,
   medium: 320,
   large: 600,
+  /** ゆっくり漂う動き（背景の光線・スポットライトなど）の 1 周。--motion-duration-ambient */
+  ambient: 8000,
+  /** 光の明るさ（光の縁・ピンの光）の 1 周。1 秒以上（点滅は 1 秒に 3 回まで。2.3.1）。--motion-duration-glow */
+  glow: 2400,
 } as const;
 
 /** 緩急（cubic-bezier の 4 つの値）。theme.css の --motion-ease-{standard,emphasized} */

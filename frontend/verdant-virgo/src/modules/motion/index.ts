@@ -5,6 +5,20 @@ export { default as MotionSymbol } from "./components/MotionSymbol.astro";
 export { default as MotionNav } from "./components/MotionNav.astro";
 export { default as MorphGallery } from "./components/MorphGallery.astro";
 export { default as MotionBlobs } from "./components/MotionBlobs.astro";
+export { default as MotionPauseFor } from "./components/MotionPauseFor.astro";
+export { default as HeroBackdrop } from "./sections/hero/HeroBackdrop.astro";
+export { default as HeroHeading } from "./sections/hero/HeroHeading.astro";
+export { default as GlowGrid } from "./sections/feature/GlowGrid.astro";
+export { default as Tilt3d } from "./sections/card3d/Tilt3d.astro";
+export { default as ToolMarquee } from "./sections/marquee3d/ToolMarquee.astro";
+export { default as Pin3d } from "./sections/pin3d/Pin3d.astro";
+export { default as StatRow } from "./sections/stats/StatRow.astro";
+export { default as GlobeOsaka } from "./sections/globe3d/GlobeOsaka.astro";
+export { default as Reveal } from "./sections/reveal/Reveal.astro";
+export { default as CountUp } from "./sections/stats/CountUp.astro";
+export { default as CtaGlow } from "./sections/cta/CtaGlow.astro";
+export { default as ReadingProgress } from "./sections/blog-content/ReadingProgress.astro";
+export { default as TocTracker } from "./sections/blog-content/TocTracker.astro";
 export * from "./client";
 export type {
   MotionNavLink,
@@ -13,4 +27,18 @@ export type {
   MorphGalleryProps,
   MotionSymbolProps,
   MotionBlobsProps,
+  MotionPauseForProps,
+  HeroBackdropProps,
+  HeroHeadingProps,
+  GlowGridProps,
+  Tilt3dProps,
+  ToolMarqueeProps,
+  Pin3dProps,
+  StatRowProps,
+  GlobeOsakaProps,
+  RevealProps,
+  CountUpProps,
+  CtaGlowProps,
+  TocTrackerProps,
 } from "./lib/types";
+export type { MotionZone, LiveZone } from "./lib/zone";

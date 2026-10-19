@@ -1,0 +1,13 @@
+---
+/**
+ * ページ移動の形のつながり（遷移元の側）。BaseLayout が motionZone が none 以外のときだけ body の末尾に置く（C のページでは JS も読まない）。
+ * 押したリンクを覚え、pageswap で行き先に一致するカード・CTA にだけ view-transition-name を付ける（lib/morph.ts）。
+ * pageswap は移動の直前に起きるので、遅延実行の module の script で間に合う。戻るときの pagereveal は PageTransitionHead が head で登録する。
+ */
+---
+
+<script>
+  import { installPageSwap } from '../client';
+
+  installPageSwap(window);
+</script>

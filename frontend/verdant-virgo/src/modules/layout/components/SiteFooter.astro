@@ -6,6 +6,7 @@
  * 列の見出しは h2（見た目は UI/Label のまま）。各列の nav は aria-labelledby でその見出しを名前にする。
  * 地は role/surface（白）なのでロゴはフルカラー版（GL §4.5）。リンクは role/text-link ＋ 下線。
  * 「Cookie 設定」はページ遷移しない <button data-consent-open>（consent モジュールが拾ってバナーを再表示する）。
+ * id="site-footer" は page-transition が使う（詳細から一覧へ戻るとき、本文を読み終えるまで最初の描画を待たせる rel=expect の目印）。
  */
 import { NewTabNotice } from '@/modules/a11y';
 import { Logo } from '@/modules/brand';
@@ -30,7 +31,7 @@ const linkHref = (item: Extract<FooterItem, { kind: 'link' }>): string => {
 const itemClass = 'type-ui-text text-text-link underline hover:text-text-link-hover';
 ---
 
-<footer class="border-t border-border bg-surface">
+<footer id="site-footer" class="border-t border-border bg-surface">
   <div class="site-container flex flex-col gap-8 pt-12 pb-8 md:gap-12 md:pt-16">
     <div class="flex flex-col gap-8 md:flex-row md:gap-12">
       <div class="flex flex-col gap-6 md:w-[360px] md:shrink-0">

@@ -23,6 +23,7 @@ React Bits の部品を足すときは、次を守る（ADR-28・`05-motion-spec
 - 静的な HTML（SVG・`<img>`・`<a>`）で内容が完結するようにし、WebGL と React はその上に載せる。WebGL が無くても内容が欠けないこと。
 - hover で起きることは focus-visible でも起こす。
 - 1 つの画面で目を引く動きは 1 つまで。時間と緩急は `theme.css` の `--motion-duration-*`・`--motion-ease-*` を使う。
+  - 例外: A（vivid）のページ（`/`・`/services/`・サービス詳細 4 本）では、目を引く動きを 1 つの画面に複数置いてよい（ADR-29・`05-motion-spec.md` §2 の規則 1）。B のページはこの規則のまま。
 - island で新しい依存を import したら `astro.config.mjs` の `vite.optimizeDeps.include` に足す。
 
 ## Documentation

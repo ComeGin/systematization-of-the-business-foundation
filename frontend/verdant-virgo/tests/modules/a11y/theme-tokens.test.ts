@@ -64,6 +64,12 @@ const PAIRS: [string, string, number][] = [
   ["text-inverse", "surface-brand", TEXT],
   ["text-inverse", "surface-brand-hover", TEXT],
   ["text-inverse", "surface-brand-strong", TEXT],
+  // A（vivid）のヒーロー（navy.900 の地。Task 3）。見出し・本文・補足・上の 1 行、主ボタンの地との境界、白いフォーカスリング
+  ["text-inverse", "surface-hero", TEXT],
+  ["text-on-hero-muted", "surface-hero", TEXT],
+  ["text-on-hero-accent", "surface-hero", TEXT],
+  ["surface-brand", "surface-hero", UI],
+  ["focus-ring-on-dark", "surface-hero", UI],
   // 入力欄の枠（P-3）
   ["border-input", "surface", UI],
   ["border-input", "surface-subtle", UI],

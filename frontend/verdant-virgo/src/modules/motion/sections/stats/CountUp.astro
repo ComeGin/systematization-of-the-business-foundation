@@ -1,0 +1,75 @@
+---
+/**
+ * CountUp（B〈calm〉の数え上げ。ブログ一覧 7-3 の 72.2%・53.8%・50.8%）。2026-10-19。
+ *
+ * 最終値を見える文字として HTML に入れる（読み上げはこれだけ）。画面に入ったとき 1 回だけ、aria-hidden の重ねた数字が 0 から最終値まで上がる
+ * （時間は --motion-duration-large の 2 倍）。料金のページには使わない（金額が切り替わると誤読を招く）。
+ *
+ * - 文の中に置く（インラインの <span>）。最終値の文字が幅を決め、重ねた数字は幅に影響しない（絶対配置）ので、数え上げ中も行が動かない（CLS 0）。
+ * - 数え上げの間、最終値の文字は clip-path で見えなくするだけ（読み上げのツリーには残る。display や visibility で消さない）。
+ * - JS が無い・reduced-motion・印刷は最終値だけ。水和は画面に入る 200px 手前（client:visible の rootMargin）で済ませ、
+ *   画面に入ったときには 0 から始まっているようにする。
+ * - 水和の前（data-count-state がまだ無い）は、JS が使えて reduced-motion でないときだけ、最終値の文字を clip-path で見えなくする
+ *   （最終値が一瞬見えてから 0 に戻る揺れを出さない。display・visibility では消さないので、読み上げには最終値が残る）。
+ *   安全策: 水和が来ないまま COUNT_FAILSAFE（4 秒）が過ぎたら、最終値を見せる（CSS の animation が clip-path を外す。
+ *   水和すれば state が付いてこの規則から外れ、animation も消える）。水和に失敗しても数字が永久に見えない状態にならない。
+ *   画面の外にある数字は水和が遅い（client:visible）ので 4 秒で見える状態に戻るが、画面に入る 200px 手前で水和して 0 から数え直す。
+ * - 色は触らない（本文と同じ色。opacity も使わない）。数字の幅がそろうよう tabular-nums。
+ */
+import CountUpIsland from '../../islands/CountUpIsland';
+import type { CountUpProps } from '../../lib/types';
+
+type Props = CountUpProps;
+
+const { value, class: className } = Astro.props;
+---
+
+<CountUpIsland client:visible={{ rootMargin: '200px' }} value={value} className={className} />
+
+<style is:global>
+  [data-count-up] {
+    position: relative;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 重ねた数字: 最終値の文字の上に、同じ位置・同じ書体で。幅を取らない */
+  [data-count-up] > [data-count-ticker] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  /* 水和の前（state が無い）: JS が使えて reduced-motion でないときだけ、最終値の文字を隠す。4 秒たっても水和しなければ外す（安全策） */
+  @media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+    [data-count-up]:not([data-count-state]) > [data-count-final] {
+      clip-path: inset(50%);
+      animation-name: count-up-failsafe;
+      animation-duration: 1ms;
+      animation-delay: 4s;
+      animation-timing-function: linear;
+      animation-fill-mode: forwards;
+    }
+  }
+  @keyframes count-up-failsafe {
+    to {
+      clip-path: none;
+    }
+  }
+
+  /* 数えている間、最終値の文字は見えなくする（読み上げには残す）。armed（水和済み・画面の外）も同じ */
+  [data-count-up][data-count-state='armed'] > [data-count-final],
+  [data-count-up][data-count-state='counting'] > [data-count-final] {
+    clip-path: inset(50%);
+  }
+
+  @media print {
+    [data-count-up] > [data-count-ticker] {
+      display: none;
+    }
+    [data-count-up] > [data-count-final] {
+      clip-path: none !important;
+    }
+  }
+</style>

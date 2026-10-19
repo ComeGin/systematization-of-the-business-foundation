@@ -234,7 +234,7 @@ Premium の上には使用量を増やした段（$1,450 / $2,250 / $3,500 / $6,
 | NFR-A11Y-2 | WCAG 2.1・2.2 の AA で増えた 18 基準も満たす（表明には含めない） | 同上 | ADR-27（U-4） |
 | NFR-A11Y-3 | **対象は全ページ**（ブログの公開済みの全記事を含む）。ページを抽出しない | `04-accessibility-spec.md` の §4.1 | ADR-27（P-1） |
 | NFR-A11Y-4 | axe（`wcag2a`・`wcag2aa`・`wcag21a`・`wcag21aa`・`wcag22aa`）の違反が全ルート × Desktop・Mobile × 状態で **0** | `pnpm a11y`（週次は builtin `a11y`。TA-05 の 7.1） | ADR-27 |
-| NFR-A11Y-5 | Lighthouse の accessibility は **1.0 を保つ**（しきい値は 0.9 のまま）。performance・best-practices は 0.9 以上、**SEO は 1.0** | `pnpm lh`（TA-05 の 7 節） | ADR-27・ADR-28 |
+| NFR-A11Y-5 | Lighthouse の accessibility は **1.0 を保つ**（しきい値は 0.9 のまま）。best-practices は 0.9 以上、**SEO は 1.0**。**performance は 0.9 を目安に測り続けるが、合否の条件にしない**（2026-10-19 に `warn` へ変えた。動きと performance がぶつかったら動きを優先する。U-3・U-5。実ユーザーの体験は PostHog の CWV の LCP〈p75〉で見る） | `pnpm lh`（TA-05 の 7 節） | ADR-27・ADR-28・ADR-29 |
 | NFR-A11Y-6 | **動きは止められ、`prefers-reduced-motion: reduce` で静止し、WebGL が無くても内容が欠けない。** 1 秒に 3 回を超えて点滅しない | e2e（`requestAnimationFrame` が止まる、一時停止、WebGL なし）と目視 | ADR-28 |
 | NFR-A11Y-7 | 文字・枠・フォーカスリングのコントラストは役割トークンで保つ（文字 4.5:1、大きい文字と UI 部品 3:1） | 単体テスト（`contrastRatio()`） | ADR-27（P-3） |
 | NFR-A11Y-8 | **UI を変える公開の前に、変えたページを試験し直す**（自動・手動、人のスクリーンリーダー）。年に 1 回は全ページを試験し直し、`/accessibility/` の試験日を更新する | BA-04 の 3b、`04-accessibility-spec.md` の §6 | ADR-27 |

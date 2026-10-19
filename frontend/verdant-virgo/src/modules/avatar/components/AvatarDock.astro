@@ -1,0 +1,196 @@
+---
+/**
+ * AvatarDock（アバターの置き場所。BaseLayout が body の末尾に 1 つだけ置く）。設計書 §7。
+ * 画面の左下 16px に固定し、A（vivid）は高さ 280px、B（calm）は 180px（Mobile はどちらも 180px の枠で、出した後の絵は 120px に縮める）の枠に、背景が透明な canvas で全身を描く。
+ *
+ * - zone が none（C。規約・ポリシー）なら何も出さない（DOM も JS も無い）。
+ * - island（AvatarStage）は client:idle。最初の描画と読み込みの後に水和する。JS が無いときは何も出さない。
+ * - 資産（.vrm・クリップの JSON・静止画）は ?url で読む。ビルドでは _astro/ にハッシュ付きの名前で出て、1 年キャッシュされる（設計書 §4.4）。
+ *   クリップの長さ（duration。秒）はビルド時にここで JSON から読み、エモートごとに ms へ切り上げて durationsMs として渡す（その間は次の合図を受けない。R18。JSON を JS に入れない）。
+ * - 根は data-motion="avatar"。island が data-avatar-state（none・loading・ready・failed）と data-avatar-small を付け外しする。
+ * - 同意バナーが出ている間は、その高さの分だけ上へ逃がす（global.css の html:has(#cookie-banner:not([hidden])) の規則。translate なのでレイアウトのずれにならない）。
+ * - Mobile で出した後（R19）は高さ 120px（data-avatar-small）。スクロールしている間は island が data-avatar-away を付け、左の画面の外へ逃がす。
+ *   横は transform、同意バナーの縦は translate と、別のプロパティで動かす（合成されて、どちらも消えない）。
+ * - 右下は Chatwoot のランチャーなので使わない。印刷では出さない。
+ * 文言は site-content の AVATAR_LABELS・MOTION_PAUSE_TARGETS（既定値を持たない。H-16）。
+ */
+import type { MotionZone } from '@/modules/motion';
+import type { EmoteId } from '../lib/types';
+import { AVATAR_LABELS, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
+import AvatarStage from '../islands/AvatarStage';
+import modelUrl from '../assets/avatar.vrm?url';
+import greetingUrl from '../assets/motions/greeting.json?url';
+import idleUrl from '../assets/motions/idle.json?url';
+import nodUrl from '../assets/motions/nod.json?url';
+import peaceUrl from '../assets/motions/peace.json?url';
+import pointUrl from '../assets/motions/point.json?url';
+import showFullBodyUrl from '../assets/motions/show-full-body.json?url';
+import thinkUrl from '../assets/motions/think.json?url';
+import stillUrl from '../assets/still.webp?url&no-inline';
+// perf: 小さい画像（icon は約 3KB）も data URL にせず、ファイルとして出す（全ページの HTML に埋め込まれるのを避け、1 年キャッシュに載せる）
+import iconUrl from '../assets/icon.webp?url&no-inline';
+
+interface Props {
+  zone: MotionZone;
+}
+
+const { zone } = Astro.props;
+
+const motionUrls = {
+  idle: idleUrl,
+  greeting: greetingUrl,
+  nod: nodUrl,
+  point: pointUrl,
+  think: thinkUrl,
+  peace: peaceUrl,
+  'show-full-body': showFullBodyUrl,
+};
+
+// エモート（待機を除く）のクリップの長さ（ms。切り上げ）。キーはファイル名（＝エモートの名前）。ビルド時に読むだけで、JSON はページの JS に入らない
+const clipDurations = import.meta.glob<number>(['../assets/motions/*.json', '!../assets/motions/idle.json'], { eager: true, import: 'duration' });
+const durationsMs = Object.fromEntries(
+  Object.entries(clipDurations).map(([file, seconds]) => [file.replace(/^.*\/|\.json$/g, ''), Math.ceil(seconds * 1000)]),
+) as Partial<Record<EmoteId, number>>;
+---
+
+{
+  zone !== 'none' && (
+    <div data-motion="avatar" data-avatar-zone={zone} class="avatar-dock">
+      <AvatarStage
+        client:idle
+        zone={zone}
+        modelUrl={modelUrl}
+        motionUrls={motionUrls}
+        stillUrl={stillUrl}
+        iconUrl={iconUrl}
+        labels={AVATAR_LABELS}
+        pauseTarget={MOTION_PAUSE_TARGETS.avatar}
+        durationsMs={durationsMs}
+      />
+    </div>
+  )
+}
+
+<style is:global>
+  /*
+   * 枠の大きさ。--avatar-h は絵の高さ、幅はその 0.6 倍（待機の姿勢の全身が、Desktop の 1440px で本文の列の左の余白に収まる幅）。下に操作のボタンの列（32px ＋ 間 8px）を置く。
+   * 根と枠はポインターを通し（下の本文を押せる）、ボタンだけが受ける。
+   */
+  .avatar-dock {
+    --avatar-h: 180px;
+    --avatar-small-scale: 0.6667; /* 120px ÷ 180px（会社紹介のメンバーが見えている間〈§7.4〉と、Mobile で出した後〈R19〉） */
+    position: fixed;
+    left: 1rem;
+    bottom: 1rem;
+    z-index: 40;
+    pointer-events: none;
+    transition:
+      translate var(--motion-duration-medium) var(--motion-ease-standard),
+      transform var(--motion-duration-medium) var(--motion-ease-standard);
+  }
+
+  /*
+   * Mobile でスクロールしている間（R19）。枠の幅＋左の余白（1rem）＋影とフォーカスリングの分（1rem）だけ左へ出し、画面の外に置く。
+   * transform なのでレイアウトのずれ（CLS）にならない。reduced-motion では global.css がトランジションの時間を 0 にする（瞬時に出し入れ）
+   */
+  .avatar-dock[data-avatar-away='true'] {
+    transform: translateX(calc(-100% - 2rem));
+  }
+
+  @media (min-width: 768px) {
+    .avatar-dock[data-avatar-zone='vivid'] {
+      --avatar-h: 280px;
+      --avatar-small-scale: 0.4286; /* 120px ÷ 280px（768px 以上でも pointer: coarse なら Mobile の扱いで、これで 120px になる） */
+    }
+  }
+
+  .avatar-dock__frame {
+    position: relative;
+    width: max(calc(var(--avatar-h) * 0.6), 11.25rem);
+    height: calc(var(--avatar-h) + 2.5rem);
+  }
+
+  .avatar-dock__panel {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .avatar-dock__panel[hidden] {
+    display: none;
+  }
+
+  .avatar-dock__stage {
+    position: relative;
+    width: calc(var(--avatar-h) * 0.6);
+    height: var(--avatar-h);
+    transform-origin: bottom left;
+    transition: transform var(--motion-duration-medium) var(--motion-ease-standard);
+  }
+
+  .avatar-dock[data-avatar-small='true'] .avatar-dock__stage {
+    transform: scale(var(--avatar-small-scale));
+  }
+
+  .avatar-dock__still,
+  .avatar-dock__canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: bottom left;
+    pointer-events: none;
+  }
+
+  .avatar-dock__canvas {
+    transition: opacity var(--motion-duration-medium) var(--motion-ease-standard);
+  }
+
+  .avatar-dock__controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+  }
+
+  /* たたんだとき・Mobile の最初のアイコン（56px 四方の丸。顔の静止画） */
+  .avatar-dock__icon {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    display: block;
+    width: 3.5rem;
+    height: 3.5rem;
+    overflow: hidden;
+    border-radius: 9999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-md);
+  }
+
+  /*
+   * フォーカスした要素と重なる間は見えなくする。visibility: hidden にしないのは、Tab の順から外さないため
+   * （直前の要素に重なったまま Tab で来られなくなる）。フォーカスが来たら island が data-hidden を外す
+   */
+  .avatar-dock__icon[data-hidden='true'] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .avatar-dock__icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  @media print {
+    .avatar-dock {
+      display: none !important;
+    }
+  }
+</style>

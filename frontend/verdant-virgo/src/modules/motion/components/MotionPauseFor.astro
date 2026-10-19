@@ -1,0 +1,32 @@
+---
+/**
+ * MotionPauseFor。5 秒を超えて自動で動く部品（背景の光線・地球・マーキーなど）の一時停止ボタン（WCAG 2.2.2。動きの規則 3）。
+ *
+ * - target の id を持つ要素に data-motion-paused="true"|"false" を付け外しする。
+ *   - CSS の動き: global.css の [data-motion-paused="true"] が animation-play-state: paused で止める。
+ *   - JS の部品（rAF・WebGL）: この属性を MutationObserver で読んで止める。
+ * - 名前は pauseLabel ⇔ resumeLabel。押した結果は storageKey で sessionStorage に覚え、ページを移っても止まったままにする（a11y の MotionPause）。
+ * - 水和して止める手段が出たら、target に data-motion-ready="true" も付ける（動きを始めてよい印。使う側の CSS が、この印が付くまで動かさないようにする）。
+ * - targetName は対象名（例「（ヒーロー）」。site-content の MOTION_PAUSE_TARGETS）。1 つのページに一時停止のボタンが複数あるとき、名前を分ける。
+ * - reduced-motion・JS が無いときは何も描かない（動きが止まっている、または押しても効かないため）。
+ * - 文言は props で受ける（既定値を持たない。H-16）。文言は site-content の MOTION_PAUSE を渡す。
+ * - client:idle なので最初の描画の後に水和する。ボタンの置き場所は class（absolute など）で決め、描画の前後でレイアウトを動かさない。
+ */
+import PauseToggle from '../islands/PauseToggle';
+import type { MotionPauseForProps } from '../lib/types';
+
+type Props = MotionPauseForProps;
+
+const { target, storageKey, pauseLabel, resumeLabel, tone, targetName, class: className } = Astro.props;
+---
+
+<PauseToggle
+  client:idle
+  target={target}
+  storageKey={storageKey}
+  pauseLabel={pauseLabel}
+  resumeLabel={resumeLabel}
+  tone={tone}
+  targetName={targetName}
+  className={className}
+/>

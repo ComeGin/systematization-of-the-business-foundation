@@ -45,6 +45,9 @@
   --color-surface-brand-hover: var(--color-role-surface-brand-hover);
   --color-surface-brand-strong: var(--color-role-surface-brand-strong);
   --color-surface-accent-subtle: var(--color-role-surface-accent-subtle);
+  --color-surface-hero: var(--color-role-surface-hero);
+  --color-text-on-hero-muted: var(--color-role-text-on-hero-muted);
+  --color-text-on-hero-accent: var(--color-role-text-on-hero-accent);
   --color-border-strong: var(--color-role-border-strong);
   --color-border-brand: var(--color-role-border-brand);
   --color-border-input: var(--color-role-border-input);
@@ -334,13 +337,38 @@ html:has(#cookie-banner:not([hidden])) {
 html:has(#cookie-banner:not([hidden])) body {
   padding-bottom: calc(var(--consent-banner-height, 20rem) + 1rem);
 }
+/*
+ * アバター（avatar の AvatarDock。左下に固定）は、バナーが出ている間その高さ＋ 1rem だけ上へ逃がす（Desktop のバナーも左下のカード）。
+ * bottom ではなく translate で動かす（transform はレイアウトのずれ〈CLS〉に数えられない。バナーの高さが後から測られて変わってもずれにならない）。
+ */
+html:has(#cookie-banner:not([hidden])) [data-motion="avatar"] {
+  translate: 0 calc(-1 * (var(--consent-banner-height, 20rem) + 1rem));
+}
 
 /*
  * ページ遷移（同じオリジンの移動）を CSS の View Transitions でつなぐ（計画書の「迷わず進む」）。
  * ヘッダーは view-transition-name: site-header で、ナビの現在地の形が次のページへ続く。対応していないブラウザは通常の遷移。
+ * opt-in の @view-transition { navigation: auto; } はここには置かない。BaseLayout が C 以外のページの head にだけ出す
+ * （page-transition の PageTransitionHead）。C のページ（規約・ポリシー）は opt-in しないので、C へ入る・C から出る遷移は起きない。
+ * カード → 詳細の見出しなどの形のつながり（vt-*）の名前は page-transition の lib/morph.ts が付ける。
+ * 時間と緩急はトークン（形が移るだけ。拡大・回転・光は足さない）。reduced-motion では下の規則で animation: none になる。
  */
-@view-transition {
-  navigation: auto;
+::view-transition-group(*) {
+  animation-duration: var(--motion-duration-medium);
+  animation-timing-function: var(--motion-ease-standard);
+}
+
+/*
+ * 一時停止（MotionPauseFor）。motion の island が、止める対象の要素に data-motion-paused="true"|"false" を付け外しする。
+ * CSS の animation はここで止める（中身すべてと、::before・::after の疑似要素まで）。JS の部品（rAF・WebGL）は同じ属性を MutationObserver で読んで止める。
+ */
+[data-motion-paused="true"],
+[data-motion-paused="true"] *,
+[data-motion-paused="true"]::before,
+[data-motion-paused="true"]::after,
+[data-motion-paused="true"] ::before,
+[data-motion-paused="true"] ::after {
+  animation-play-state: paused !important;
 }
 
 /*

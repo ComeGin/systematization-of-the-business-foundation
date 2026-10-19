@@ -3,12 +3,15 @@
 // Figma は Contact Thanks / Desktop（42:3939）・Mobile（42:4117）。予約枠の読み込み失敗は 128:13538 / 128:13551（booking の部品が出す）。
 // 並び: h1 と本文 → 自動返信の文 → 6'-2 予約（主 CTA）→ 6'-3 カード → トップへ戻るボタン（予約をカードより上に置く）。
 // ページは組み立てだけ。文言は site-content/contact.ts（予約枠の注記・失敗の文言は booking モジュール）。
+// 動き（B〈calm〉）: 最初の画面の h1・本文は最初の描画から動かさない（motion の Reveal を使わない）。その下の自動返信の文・「ご連絡までの間に」の見出しとカードが、
+// 画面に入るとき下から静かに上がる。予約枠（外部の埋め込み）には動きを付けない。
 import { CircleCheck } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BookingEmbed } from '@/modules/booking';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { Section, SectionHeading } from '@/modules/marketing-ui';
+import { Reveal } from '@/modules/motion';
 import { contactThanks } from '@/modules/site-content/contact';
 import { ctaDataAttributes } from '@/modules/site-content/cta';
 import { SEO } from '@/modules/site-content/seo';
@@ -21,13 +24,13 @@ const breadcrumb = contactThanks.breadcrumb.slice(1).map((crumb) => ({ ...crumb 
 const cardCta = (href: string) => (href === '/#source-dl' ? ctaDataAttributes('dl_thanks_card') : {});
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} avatarCue="form-success">
   {/* 6'-1 完了画面（h1 の上の Badge は Figma から採った。語はパンくずの「受付完了」） */}
   <PageIntro title={hero.h1} badge={hero.badge} badgeIcon={CircleCheck} body={hero.body} />
 
   {/* 6'-1 本文 2（自動返信メールを設定する場合のみ。【要確認】）。Figma どおり予約の上の白い面に置く */}
   <Section class="pb-0 md:pb-0" width="article">
-    <p class="type-body phrase text-text-muted">{hero.autoReply}</p>
+    <Reveal as="div"><p class="type-body phrase text-text-muted">{hero.autoReply}</p></Reveal>
   </Section>
 
   {/* 6'-2 オンライン面談の予約（主 CTA。id="booking" は部品が持つ） */}
@@ -37,11 +40,11 @@ const cardCta = (href: string) => (href === '/#source-dl' ? ctaDataAttributes('d
 
   {/* 6'-3 ご連絡までの間に（Desktop 3 列、Mobile 1 列。カード全体がリンク） */}
   <Section labelledby="thanks-next" class="phrase">
-    <SectionHeading id="thanks-next" title={next.heading} />
+    <Reveal><SectionHeading id="thanks-next" title={next.heading} /></Reveal>
     <ul class="mt-8 grid gap-4 md:mt-12 md:grid-cols-3 md:gap-8">
       {
-        next.cards.map((card) => (
-          <li class="flex">
+        next.cards.map((card, i) => (
+          <Reveal as="li" class="flex" step={i === 0 ? 0 : i === 1 ? 1 : 2}>
             <a
               href={card.href}
               {...cardCta(card.href)}
@@ -50,7 +53,7 @@ const cardCta = (href: string) => (href === '/#source-dl' ? ctaDataAttributes('d
               <h3 class="type-card-title text-text-heading">{card.title}</h3>
               <p class="type-body text-text-muted">{card.body}</p>
             </a>
-          </li>
+          </Reveal>
         ))
       }
     </ul>

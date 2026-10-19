@@ -378,8 +378,8 @@ BA-04 は MA へのトスアップ条件として、**ポイントの加算値�
 | `chromeFlags` | `--headless=new` | GUI の無い環境では X サーバーが不在で、付けないと Chrome が即死する |
 | `upload.target` | `filesystem` | **既定の `temporary-public-storage` はレポートを外部に公開するため使わない** |
 | `outputDir` | `./.lighthouse` | 出力先。`.gitignore` で除外済み |
-| `categories:performance` | `error`, `minScore: 0.9` | 本番ビルドの実測ベースラインが 0.98〜1.00 のため余裕がある |
-| `categories:accessibility` | `error`, `minScore: 0.9` | 同上 |
+| `categories:performance` | **`warn`**, `minScore: 0.9` | **2026-10-19 に `error` から `warn` へ変えた（ADR-29）。** 公開サイトに動き（Aceternity の部品・3D の地球儀・アバター）を入れ、動きと performance 0.9 がぶつかったら動きを優先するとユーザーが決めた（U-3・U-5）。計測は続け、0.9 未満は警告として残す（`pnpm lh` は失敗しない）。実ユーザーの体験は PostHog の CWV（LCP の p75）で見る |
+| `categories:accessibility` | `error`, `minScore: 0.9` | 本番ビルドの実測ベースラインが 0.98〜1.00 のため余裕がある |
 | `categories:best-practices` | `error`, `minScore: 0.9` | 同上 |
 | **`categories:seo`** | **`error`, `minScore: 1`** | **SEO 対策がこの計測の目的なので満点を死守ラインとする** |
 

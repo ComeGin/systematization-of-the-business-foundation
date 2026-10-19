@@ -8,16 +8,23 @@
  * - ページ遷移: クリックの時点で形はもう指した先にあるので、次のページの形とつながる（ヘッダーの view-transition-name は layout が持つ）。
  * - Desktop（md 以上かつ hover あり）だけで水和する。Mobile は layout の <dialog> のメニューのまま（React を読まない）。
  *   置く側（SiteHeader）は、この部品を md 未満で隠す枠の中に置く。
+ * - interactive が false（C のページ）のときは水和しない。client:* を付けずに描くので、SSR と同じ <nav>・<a>・aria-current だけが残る（R20）。
  */
 import GooeyNavIsland from '../islands/GooeyNavIsland';
 import type { MotionNavProps } from '../lib/types';
 
 type Props = MotionNavProps;
 
-const { links, label } = Astro.props;
+const { links, label, interactive = true } = Astro.props;
 ---
 
-<GooeyNavIsland client:media="(min-width: 768px) and (hover: hover)" links={links} label={label} />
+{
+  interactive ? (
+    <GooeyNavIsland client:media="(min-width: 768px) and (hover: hover)" links={links} label={label} />
+  ) : (
+    <GooeyNavIsland links={links} label={label} />
+  )
+}
 
 <style is:global>
   /* 現在地の印（形とは別に常に出す）。項目の左右の余白（--gn-x）の内側に 2px の線 */
