@@ -18,7 +18,6 @@ interface ImportMetaEnv {
 
   readonly PUBLIC_MAUTIC_BASE?: string;
   readonly MAUTIC_FORM_ID_CONSULT?: string;
-  readonly MAUTIC_FORM_ID_SOURCE_DL?: string;
 
   readonly PUBLIC_CALCOM_BASE?: string;
   readonly PUBLIC_CALCOM_LINK?: string;

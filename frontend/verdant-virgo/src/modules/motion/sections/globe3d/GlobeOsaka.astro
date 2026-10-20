@@ -4,8 +4,9 @@
  * 「大阪の現場から」を、日本が正面の地球儀で表す。大阪にだけ点を置き、脈打つ輪が広がる。**弧は出さない**（販売先は大阪府内で、どこへ弧を伸ばしても事実に反する）。
  *
  * - 最初の HTML には静止画（日本が正面の図）を出す。地は navy の階調、陸地は globe-land.svg を CSS の mask にして brand の色で塗る（色はトークン）。
- *   静止画のままになるのは Mobile・reduced-motion・JS なし・WebGL なし・一時停止で開いたページ・読み込みの失敗。装飾なので aria-hidden（読む内容は無い）。
- * - md 以上で WebGL が使えて reduced-motion でなければ、island（GlobeIsland）が three で描いた canvas に替える（静止画は薄れて消える）。
+ *   静止画のままになるのは reduced-motion・JS なし・WebGL なし・一時停止で開いたページ・読み込みの失敗。装飾なので aria-hidden（読む内容は無い）。
+ * - WebGL が使えて reduced-motion でなければ、island（GlobeIsland）が three で描いた canvas に替える（静止画は薄れて消える）。
+ *   2026-10-20 から Mobile（iPhone など）でも替える（以前は md 以上だけ。05-motion-spec.md §8.4。ユーザーの判断）。
  *   client:visible ＋ 手が空いてから three を読むので、見出し・本文の描画に重さを載せない。
  * - 大阪を軸に左右へゆっくり振れる（一周しない）。往復 24 秒。5 秒を超えて動くので、右下に一時停止のボタン（storageKey motion:globe）。
  *   画面外・タブ非表示・一時停止の間は rAF を止める。
@@ -31,9 +32,7 @@ const { pauseLabel, resumeLabel, pauseTarget, class: className } = Astro.props;
     <div class="globe-osaka__land"></div>
     <div class="globe-osaka__pin"></div>
   </div>
-  <div class="hidden md:contents">
-    <GlobeIsland client:visible pauseLabel={pauseLabel} resumeLabel={resumeLabel} pauseTarget={pauseTarget} />
-  </div>
+  <GlobeIsland client:visible pauseLabel={pauseLabel} resumeLabel={resumeLabel} pauseTarget={pauseTarget} />
 </div>
 
 {/* 前のページで止めていたら、水和を待たず属性を先に付ける（静止画のまま、three を読まない）。キーは island の storageKey と同じ */}

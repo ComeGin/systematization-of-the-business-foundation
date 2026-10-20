@@ -3,12 +3,14 @@
  * HeroBackdrop（A〈vivid〉のページのヒーローの地）。Aceternity の Spotlight New ＋ Background Beams ＋ グリッド。2026-10-19。
  *
  * - navy.900 の地の上に、グリッド（静止）・スポットライト（漂う）・光の筋（流れる）を重ねる。試作 zoning.html の A の手触り。
- * - 動くのは md 以上かつ hover のある端末で、reduced-motion でない場合だけ（CSS の media query）。Mobile・タッチ・reduced-motion は静止のグラデーション
+ * - 動くのは reduced-motion でなく、JS が使えるときだけ（CSS の media query）。reduced-motion・JS なしは静止のグラデーション
  *   （地の放射状の光とグリッド）。動く層は display:none で、DOM にも描かれない（CSS の animation も回らない）。
+ *   2026-10-20 から Mobile・タッチ（iPhone など）でも動かす（以前は md 以上かつ hover のある端末だけ。05-motion-spec.md §8.4。ユーザーの判断）。
+ *   Mobile では文字が全幅に並ぶので、光の筋は Desktop より弱める（本文の読みやすさ）。
  * - 動きはすべて CSS の animation。JS・rAF を使わない。最初の HTML で描かれる（island ではない）。
  * - 5 秒を超えて自動で動くので、一時停止のボタンを右下に出す（MotionPauseFor。target は #hero-backdrop、storageKey は motion:hero）。
  *   押すと #hero-backdrop に data-motion-paused="true" が付き、global.css の規則で中の animation がすべて止まる。ページを移っても止まったまま。
- *   ボタンは動く端末だけ（CSS）。reduced-motion・JS が無いときは出さない（MotionPauseFor が描かない）。
+ *   ボタンは動く端末だけ（CSS）。Mobile でもヒーローの右下（CTA の注記の下の余白）に置く。reduced-motion・JS が無いときは出さない（MotionPauseFor が描かない）。
  *   動く層は、一時停止のボタンが水和して出る（data-motion-ready）まで動き始めない。JS が無いときは（scripting: enabled を満たさず）出さない。
  *   前のページで止めていたら、水和を待たず最初の描画から止める（インラインの小さな script が属性を先に付ける）。
  * - 根は流れに入らない absolute inset-0 で、クリックを受けない（pointer-events-none）。装飾の層は -z-10 で本文の後ろに回り、aria-hidden。
@@ -79,19 +81,25 @@ const { pauseLabel, resumeLabel, pauseTarget, class: className } = Astro.props;
     -webkit-mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%);
   }
 
-  /* 光の筋は右半分に寄せ、文字のある左を避ける（本文の読みやすさ。動く層の中だけ） */
+  /* 光の筋は右半分に寄せ、文字のある左を避ける（本文の読みやすさ。動く層の中だけ）。
+     Mobile は文字が全幅に並ぶので、筋を薄くする（白い文字の地を明るくしすぎない） */
   .hero-backdrop__beams {
     mask-image: linear-gradient(90deg, transparent 15%, #000 60%);
     -webkit-mask-image: linear-gradient(90deg, transparent 15%, #000 60%);
   }
+  @media (max-width: 767px) {
+    .hero-backdrop__beams {
+      opacity: 0.6;
+    }
+  }
 
-  /* 動く層と一時停止のボタン: 既定では出さない。動かしてよい端末（広い画面・hover あり・動きを減らす設定でない）で、
+  /* 動く層と一時停止のボタン: 既定では出さない。動かしてよい端末（動きを減らす設定でない。2026-10-20 から画面の幅・hover は問わない）で、
      JS が使えるとき（scripting: enabled）だけ出す。止める手段のボタンは JS で描くので、JS が無いときは静止のグラデーションにする（2.2.2） */
   .hero-backdrop__live,
   .hero-backdrop__pause {
     display: none;
   }
-  @media (min-width: 768px) and (hover: hover) and (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+  @media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
     .hero-backdrop__live {
       display: block;
     }

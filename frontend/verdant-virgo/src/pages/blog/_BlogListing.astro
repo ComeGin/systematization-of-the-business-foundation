@@ -6,10 +6,10 @@
 // 動き（B〈calm〉）: 導入 7-3 の 72.2%・53.8%・50.8% は画面に入ったとき 1 回だけ 0 から数え上がる（motion の CountUp。最終値は最初の HTML にあり、読み上げはそれだけ）。
 // 記事のカードは画面に入るとき下から静かに上がる（motion の Reveal）。
 // ファイル名の先頭の _ でページにならない（Astro のルーティングの対象外）。
-import { SourceDownloadBlock } from '@/modules/forms';
 import { ALL_CATEGORIES_LABEL, BLOG_CATEGORIES, type Article } from '@/modules/blog';
 import { BaseLayout, PageIntro, type BreadcrumbItem } from '@/modules/layout';
 import { Section } from '@/modules/marketing-ui';
+import { SourceDlBlock } from '@/modules/source-dl';
 import { CountUp, Reveal } from '@/modules/motion';
 import { blogIndex } from '@/modules/site-content/blog';
 import type { PageSeo } from '@/modules/site-content/seo';
@@ -145,8 +145,15 @@ const pageLinkClass = (current: boolean) =>
     }
   </Section>
 
-  {/* 7-5 無料 DL ブロック（主 CTA。強調版。部品が id="source-dl" を持つ） */}
+  {/* 7-5 無料 DL ブロック（主 CTA。トップの 1-9 と同じ CTA ＝ zip のダウンロード ＋ 無料相談への遷移。部品が id="source-dl" を持つ） */}
   <Section>
-    <SourceDownloadBlock ctaId="dl_blog_section" emphasis="strong" title={sourceDownload.heading} body={sourceDownload.body} />
+    <SourceDlBlock
+      ctaId="dl_blog_section"
+      title={sourceDownload.copy.title}
+      body={sourceDownload.copy.body}
+      buttonLabel={sourceDownload.buttonLabel}
+      note={sourceDownload.note}
+      repositoryLinkLabel={sourceDownload.repositoryLinkLabel}
+    />
   </Section>
 </BaseLayout>

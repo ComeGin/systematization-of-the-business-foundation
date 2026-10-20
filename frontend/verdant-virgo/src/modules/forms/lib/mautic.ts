@@ -18,7 +18,7 @@ const TIMEOUT_MS = 10_000;
 
 export async function submitToMautic(
   formId: number,
-  formName: "consult" | "source_dl",
+  formName: "consult",
   fields: Record<string, string>,
 ): Promise<SubmitOutcome> {
   const base = import.meta.env.PUBLIC_MAUTIC_BASE?.replace(/\/$/, "");

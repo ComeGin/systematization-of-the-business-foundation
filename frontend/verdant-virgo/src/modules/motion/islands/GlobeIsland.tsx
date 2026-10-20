@@ -1,6 +1,6 @@
 // GlobeOsaka の island（3D の地球儀 ＋ MotionPause）。GlobeOsaka.astro からだけ使う。
 // 静止画（GlobeOsaka.astro が最初の HTML に出す）を先に見せ、three で描けたら canvas に替える（動きの規則 5）。
-// perf: three・three-globe・R3F は重いので、(1) md 以上かつ WebGL が使えて reduced-motion でないときだけ、(2) 画面に入り、一時停止でなく、
+// perf: three・three-globe・R3F は重いので、(1) WebGL が使えて reduced-motion でないときだけ（2026-10-20 から Mobile でも）、(2) 画面に入り、一時停止でなく、
 //       (3) ページの読み込みが終わって手が空いてから、動的 import で読む。静止画のまま止めて開いたページ（sessionStorage）では読まない。
 // a11y: 5 秒を超えて自動で動くので MotionPause を付ける（2.2.2）。画面外・タブ非表示・一時停止の間は rAF を止める（規則 6）。
 //       reduced-motion のときは何も動かさず、ボタンも出さない。
@@ -180,7 +180,8 @@ export default function GlobeIsland({
         </div>
       )}
       {live && stateKnown && (
-        <div className="pointer-events-auto absolute right-0 -bottom-2 z-[2]">
+        // Mobile は左下（ヒーローの背景〈HeroBackdrop〉の一時停止のボタンがヒーローの右下にあり、地球儀がその真上に来るため。2026-10-20）
+        <div className="pointer-events-auto absolute -bottom-2 left-0 z-[2] md:right-0 md:left-auto">
           <MotionPause
             pauseLabel={pauseLabel}
             resumeLabel={resumeLabel}

@@ -2,15 +2,15 @@
 // 画面 8 ブログ記事（/blog/<slug>）。01-content-spec.md §4.8。Figma は Blog 記事 / Desktop（42:6400）・Mobile（44:6472）。
 // 記事は blog モジュールが Strapi からビルド時に取る（ADR-11）。ヘッダーの「無料相談」は Outline（F2）。
 // 主 CTA は記事の検索意図（カテゴリ）で切り替える（§4.8 の表）:
-//   潜在・準顕在 … 8-6 記事中 CTA ＝ 無料 DL（dl_article_inline → #source-dl）、8-8 ＝ 無料 DL ブロックの強調版（dl_article_end・primary）
-//   顕在・指名   … 8-6 ＝ 無料相談（consult_article_inline）、8-8 ＝ CTA バナー（consult_article_end）＋ 無料 DL ブロックの控えめ版（dl_article_end・secondary）
+//   潜在・準顕在 … 8-6 記事中 CTA ＝ 無料 DL（dl_article_inline → #source-dl）、8-8 ＝ 無料 DL ブロック（dl_article_end・primary）
+//   顕在・指名   … 8-6 ＝ 無料相談（consult_article_inline）、8-8 ＝ CTA バナー（consult_article_end）＋ 無料 DL ブロック（dl_article_end・secondary）
+//   無料 DL ブロックは 2026-10-20 からトップの 1-9 と同じ CTA（source-dl の SourceDlBlock。zip のダウンロード ＋ 無料相談への遷移）。
 // 並び: 記事ヘッダー → 目次（Mobile は本文の前）→ 本文（8-6 は最初の h2 の直前）→ 著者 → 8-8 → 関連記事。
 // 動き（B〈calm〉）: 画面の上端の読了バー（ReadingProgress。記事の範囲を読み進めた分だけ伸びる）、目次の「いまここ」（TocTracker ＋ LegalToc の trackCurrent。
 // 見出しに対応する項目へ aria-current="location"）、関連記事のカードが画面に入るとき下から静かに上がる（Reveal）、顕在・指名の記事末の CTA バナーに粒のゆっくりした動き（MotionBlobs）。
 // 本文・見出し・アイキャッチには動きを付けない（読むものを動かさない）。
 // ページ移動の形のつながり: h1 は vt-article-title、アイキャッチの枠は vt-article-media を静的に持つ（ブログ一覧・関連記事のカードから形がつながる。page-transition）。
 import type { GetStaticPaths } from 'astro';
-import { SourceDownloadBlock } from '@/modules/forms';
 import {
   ArticleBlocks,
   formatJstDate,
@@ -27,6 +27,7 @@ import { CTABanner, CTAButton, IconCard, ImagePlaceholder, Section, SectionHeadi
 import { Photo } from '@/modules/media';
 import { MotionBlobs, ReadingProgress, Reveal, TocTracker } from '@/modules/motion';
 import { VT, vtStyle } from '@/modules/page-transition';
+import { SourceDlBlock } from '@/modules/source-dl';
 import { MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import { Badge } from '@/components/ui/badge';
 import { author } from '@/modules/site-content/about';
@@ -151,21 +152,25 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
             </CTAButton>
             <MotionBlobs slot="decoration" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.cta} />
           </CTABanner>
-          <SourceDownloadBlock
+          <SourceDlBlock
             ctaId="dl_article_end"
             ctaRole="secondary"
-            emphasis="subtle"
-            title={endCta.sourceDownload.heading}
-            body={endCta.sourceDownload.body}
+            title={endCta.sourceDownload.copy.title}
+            body={endCta.sourceDownload.copy.body}
+            buttonLabel={endCta.sourceDownload.buttonLabel}
+            note={endCta.sourceDownload.note}
+            repositoryLinkLabel={endCta.sourceDownload.repositoryLinkLabel}
           />
         </div>
       ) : (
-        <SourceDownloadBlock
+        <SourceDlBlock
           ctaId="dl_article_end"
           ctaRole="primary"
-          emphasis="strong"
-          title={endCta.sourceDownload.heading}
-          body={endCta.sourceDownload.body}
+          title={endCta.sourceDownload.copy.title}
+          body={endCta.sourceDownload.copy.body}
+          buttonLabel={endCta.sourceDownload.buttonLabel}
+          note={endCta.sourceDownload.note}
+          repositoryLinkLabel={endCta.sourceDownload.repositoryLinkLabel}
         />
       )
     }

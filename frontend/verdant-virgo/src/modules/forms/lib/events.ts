@@ -4,7 +4,8 @@ import { track } from '@/modules/analytics/client';
 import type { CtaId } from '@/modules/site-content/cta';
 import type { SubmitErrorKind } from './mautic';
 
-export type FormKey = 'consult' | 'source_dl';
+// 無料 DL のフォーム（source_dl）は 2026-10-20 に公開サイトから消した。フォームは無料相談だけ
+export type FormKey = 'consult';
 
 export function createFormEvents(formKey: FormKey, formId: number | null, ctaId: CtaId) {
   const base = () => ({ form_key: formKey, mautic_form_id: formId, cta_id: ctaId, page_path: location.pathname });

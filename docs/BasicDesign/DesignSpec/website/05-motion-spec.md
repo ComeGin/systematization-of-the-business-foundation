@@ -180,22 +180,35 @@ flowchart LR
 
 | 公開口 | 通常 | reduced-motion | JS なし・WebGL なし | Mobile・タッチ |
 |---|---|---|---|---|
-| `HeroBackdrop` | navy.900 の地に、静止の放射状の光とグリッド。その上で、スポットライトが漂い（1 周 `--motion-duration-ambient`）、光の筋（BackgroundBeams。17 本の線を `stroke-dashoffset` で流す）が横切る。動く層は右半分に寄せ、文字の列を避ける。**CSS の animation だけ**（rAF・island なし）。一時停止は右下（対象名「ヒーロー」、`motion:hero`） | 静止のグラデーション。一時停止のボタンは出さない | 静止のグラデーション（`scripting: enabled` の中でだけ動く。§2 の規則 5） | 静止のグラデーション。ボタンなし |
+| `HeroBackdrop` | navy.900 の地に、静止の放射状の光とグリッド。その上で、スポットライトが漂い（1 周 `--motion-duration-ambient`）、光の筋（BackgroundBeams。17 本の線を `stroke-dashoffset` で流す）が横切る。動く層は右半分に寄せ、文字の列を避ける。**CSS の animation だけ**（rAF・island なし）。一時停止は右下（対象名「ヒーロー」、`motion:hero`） | 静止のグラデーション。一時停止のボタンは出さない | 静止のグラデーション（`scripting: enabled` の中でだけ動く。§2 の規則 5） | **通常と同じ**（2026-10-20 から。§8.4）。光の筋は文字が全幅に並ぶので 60% の濃さ。一時停止はヒーローの右下（CTA の注記の下の余白） |
 | `HeroHeading` | 見出しが、ぼかし（6px）と opacity 0.35 から焦点が合いながら現れる（各行 `--motion-duration-large`、行の間隔 `--motion-duration-micro`、`--motion-ease-emphasized`）。**文字は分割しない**（トップは行ごと、サービスは見出し全体に 1 つ）。終わると `filter: none` | 動かない | CSS だけなので JS を待たない | 同じ |
-| `GlowGrid` | ポインターに沿って、カードの縁が `brand.sky`・`brand.blue` の光で光る（内側は sky の薄い光）。ポインターを動かしたときだけ rAF 1 回で位置を書く。自動では動かないので一時停止は無い | 光は追わない。キーボードの印は出す | 光らない（印の `data-glow-ready` が付かない） | 光らない |
-| `Tilt3d` | ポインターで最大 8 度傾き、手前へ浮き（`translateZ`）、価格の枠がさらに手前へ出る。影は `--shadow-lg`。**キーボードのフォーカスでは傾けずに浮くだけ**（方向を決めるポインターが無いため）。静止時は `transform: none`（常に 3D の層を作らない）。浮かせるのは価格の枠だけで、リンクの当たり判定とフォーカスリングは崩さない | 何もしない | 何もしない | 何もしない（`hover: hover` と `pointer: fine` のときだけ） |
-| `ToolMarquee` | **傾いた面（`rotateX(40deg)`＋`rotateZ(-5deg)`）に横の流れを 3 本、交互の向きで流す**（1 周は `ambient` の 3 倍＝24 秒。CSS の animation だけ）。原本の縦の往復ではなく横にしたのは、日本語のバッジが横に流れるほうが読めるため（裁定 R7）。ポインターを流れの上に載せている間は止まる（一時停止のボタンの上では止めない）。読み上げ用の `<ul>` は 1 つだけで、流れる面（複製を含む）は `aria-hidden` かつ `inert`。一時停止は対象名「使うツールの一覧」（`motion:marquee`） | 面を出さず、今の折り返しの並び | 今の折り返しの並び | 今の折り返しの並び（狭い画面で傾けると読みにくく、ポインターで止められないため） |
-| `Pin3d` | hover とフォーカス（§2 の規則 8 の `:has(:focus-visible)`）で、カードの上辺の真ん中にピン（`brand.sky` の線と点）が立ち、カードが奥へわずかに倒れる。CSS だけ。原本の波紋（6 秒の無限の animation で止められない）とタイトルのピルは付けない | ピンは立つ（静止の変化。フォーカスの手がかり）。倒れない | hover でピンが立つ | 倒れない |
+| `GlowGrid` | ポインターに沿って、カードの縁が `brand.sky`・`brand.blue` の光で光る（内側は sky の薄い光）。ポインターを動かしたときだけ rAF 1 回で位置を書く。自動では動かないので一時停止は無い | 光は追わない。キーボードの印は出す | 光らない（印の `data-glow-ready` が付かない） | **指で押している間だけ、押した所を中心に縁が光り、指に沿う**（2026-10-20 から。§8.4） |
+| `Tilt3d` | ポインターで最大 8 度傾き、手前へ浮き（`translateZ`）、価格の枠がさらに手前へ出る。影は `--shadow-lg`。**キーボードのフォーカスでは傾けずに浮くだけ**（方向を決めるポインターが無いため）。静止時は `transform: none`（常に 3D の層を作らない）。浮かせるのは価格の枠だけで、リンクの当たり判定とフォーカスリングは崩さない | 何もしない | 何もしない | **指で押している間だけ、押した側へ傾いて浮く**（2026-10-20 から。§8.4。マウスの傾きは `hover: hover` と `pointer: fine` のときだけ） |
+| `ToolMarquee` | **傾いた面（`rotateX(40deg)`＋`rotateZ(-5deg)`）に横の流れを 3 本、交互の向きで流す**（1 周は `ambient` の 3 倍＝24 秒。CSS の animation だけ）。原本の縦の往復ではなく横にしたのは、日本語のバッジが横に流れるほうが読めるため（裁定 R7）。ポインターを流れの上に載せている間は止まる（一時停止のボタンの上では止めない）。読み上げ用の `<ul>` は 1 つだけで、流れる面（複製を含む）は `aria-hidden` かつ `inert`。一時停止は対象名「使うツールの一覧」（`motion:marquee`） | 面を出さず、今の折り返しの並び | 今の折り返しの並び | **通常と同じ流れ**（2026-10-20 から。§8.4）。指で押している間は止まる（離すと流れる）。`:hover` で止めるのは hover のある端末だけ（iOS の Safari はタップの後に `:hover` が残るため）。一時停止は面の右上 |
+| `Pin3d` | hover とフォーカス（§2 の規則 8 の `:has(:focus-visible)`）で、カードの上辺の真ん中にピン（`brand.sky` の線と点）が立ち、カードが奥へわずかに倒れる。CSS だけ。原本の波紋（6 秒の無限の animation で止められない）とタイトルのピルは付けない | ピンは立つ（静止の変化。フォーカスの手がかり）。倒れない | hover でピンが立つ（指の反応は JS なしでは起きない） | **指で押している間だけ、ピンが立って倒れる**（2026-10-20 から。§8.4） |
 | `StatRow` | 画面に入ると、カードが順に下から現れ、値の下に罫が引かれる（`animation-timeline: view()`）。**opacity は変えない**（transform と枠の色だけ） | 動かない（罫は引かれた状態） | 罫は引かれた状態 | 同じ |
-| `GlobeOsaka` | 最初は静止画（navy の球、陸地、大阪の点、sky の光）。画面に入り、ページの `load` の後の idle で three を読み、描けたら canvas に替える。**大阪を軸に ±30 度、1 往復 24 秒（`ambient` の 3 倍）で左右に振れる**（一周の自転はしない。大阪が常に正面付近に見え、陸地のデータを大阪から 105 度以内の国〈約 108KB〉に絞れる。裁定 R8）。**弧は出さない**（販売先は大阪府内で、どこへ弧を伸ばしても事実に反する）。大阪の輪は 1 周 `--motion-duration-glow`（広がって消える。点滅ではない）。画面外とタブの非表示で止まる。一時停止は対象名「地球儀」（`motion:globe`）。止めて開いたページでは three を読まない | 静止画。canvas・ボタンなし。three を読まない | 静止画（WebGL なしでもコンソールのエラーを出さない） | 静止画（Desktop 360px、Mobile 260px） |
-| `CtaGlow` | CTA バナーの縁を光が巡る（conic-gradient の角度を 1 周 `--motion-duration-glow`）。粒 8 個は上端・下端の余白の帯だけで、`glow` の 1〜1.5 倍の周期でゆっくり明滅する（文字の地を明るくしない）。**一時停止のボタンは 1 つ**（対象名「相談の案内」、`motion:cta-blobs`。トップでは `MotionBlobs` も同じボタンで止まる。裁定 R1）。ボタンが水和するまで光らせない | 出さない | 出さない | 出さない |
+| `GlobeOsaka` | 最初は静止画（navy の球、陸地、大阪の点、sky の光）。画面に入り、ページの `load` の後の idle で three を読み、描けたら canvas に替える。**大阪を軸に ±30 度、1 往復 24 秒（`ambient` の 3 倍）で左右に振れる**（一周の自転はしない。大阪が常に正面付近に見え、陸地のデータを大阪から 105 度以内の国〈約 108KB〉に絞れる。裁定 R8）。**弧は出さない**（販売先は大阪府内で、どこへ弧を伸ばしても事実に反する）。大阪の輪は 1 周 `--motion-duration-glow`（広がって消える。点滅ではない）。画面外とタブの非表示で止まる。一時停止は対象名「地球儀」（`motion:globe`）。止めて開いたページでは three を読まない | 静止画。canvas・ボタンなし。three を読まない | 静止画（WebGL なしでもコンソールのエラーを出さない） | **通常と同じ**（2026-10-20 から。§8.4。Desktop 360px、Mobile 260px）。Mobile の一時停止は地球儀の左下（ヒーローの右下の一時停止と重ならないように） |
+| `CtaGlow` | CTA バナーの縁を光が巡る（conic-gradient の角度を 1 周 `--motion-duration-glow`）。粒 8 個は上端・下端の余白の帯だけで、`glow` の 1〜1.5 倍の周期でゆっくり明滅する（文字の地を明るくしない）。**一時停止のボタンは 1 つ**（対象名「相談の案内」、`motion:cta-blobs`。トップでは `MotionBlobs` も同じボタンで止まる。裁定 R1）。ボタンが水和するまで光らせない | 出さない | 出さない | **通常と同じ**（2026-10-20 から。§8.4）。Mobile は縦積みで一時停止のボタンの置き場所が無いので、動くときだけバナーの上の余白を 40px（粒の帯を見出しの外に）、下の余白を 56px（ボタンの置き場所）に広げる |
 | `Reveal` | 画面に入るときに 16px 下から上がる（`animation-timeline: view()`、`entry 0%〜40%`）。順の遅れは範囲の始まりを 8% ずつずらして表す。**opacity を使わず transform だけ**（画面外の要素の初期の opacity を axe がコントラストの違反に数えるため。裁定 R10）。ヒーローの h1・本文には使わない | 静止 | 静止（印刷・非対応のブラウザも） | 同じ |
 | `CountUp` | 最終値を見える文字として最初の HTML に入れる（読み上げはこれだけ）。画面に入ると 1 回だけ、0 から最終値まで数える（`large` の 2 倍、`emphasized`）。数えている間の数字は `aria-hidden` の重ねた要素で、幅を変えない | 最終値のまま | 最終値のまま | 同じ |
 | `ReadingProgress` | 記事の上端に 2px のバー（`brand.blue.500`、`aria-hidden`）。記事の本文の上端が画面の上端に来てから、下端が画面の下端に来るまでで 0〜100%（ページ全体ではない。CTA・関連記事・フッターのぶん届かなくなるため）。CSS だけ（`animation-timeline: view()`） | 出さない（読み進めの情報は本文と目次が持つ） | CSS だけなので JS が無くても出る。非対応のブラウザと印刷では出さない | 同じ |
 | `TocTracker` | 記事の目次で、画面の上 30% の線より上にある最後の見出しの項目に `aria-current="location"` と印を付ける。ブログの記事だけ（規約の目次には付けない） | 同じ（動きではない） | 付かない（目次はそのまま使える） | 同じ |
 
-- **一時停止のボタンの一覧**（5 秒を超えて自動で動くもの。§2 の規則 3）: A のヒーロー（`motion:hero`）、Marquee（`motion:marquee`）、地球儀（`motion:globe`）、CTA（`motion:cta-blobs`。B の `MotionBlobs` も同じ）、アバター（`motion:avatar`。§10.4）。どれも reduced-motion・Mobile（アバターは出したとき）では、動かないのでボタンを出さない。
+- **一時停止のボタンの一覧**（5 秒を超えて自動で動くもの。§2 の規則 3）: A のヒーロー（`motion:hero`）、Marquee（`motion:marquee`）、地球儀（`motion:globe`）、CTA（`motion:cta-blobs`。B の `MotionBlobs` も同じ）、アバター（`motion:avatar`。§10.4）。どれも reduced-motion では、動かないのでボタンを出さない。2026-10-20 から Mobile でも動かすので、Mobile でもボタンを出す（アバターは出したとき。§8.4）。
 - 新しい色のトークン（2026-10-19。A のヒーロー）: `--color-role-surface-hero`（navy.900）、`--color-role-text-on-hero-muted`（navy.100）、`--color-role-text-on-hero-accent`（navy.200）。白・navy.100・navy.200 の文字は navy.900 の地で 4.5:1 以上（`theme-tokens.test.ts`）。
+
+### 8.4 Mobile・タッチ（2026-10-20 に追加）
+
+**iPhone の Safari で「アニメーション・モーフィングが動いていないように見える」との指摘を受け、ユーザーの判断で、A の動きを Mobile・タッチの端末でも出すことにした。** iOS 26 以降の Safari（WebKit）は View Transitions・`animation-timeline: view()`・WebGL をすべて扱える。動かなかったのは、多くの部品を `(hover: hover)`・`min-width: 768px` の条件で Mobile から外していたためで、トップで iPhone に見えていた動きは `StatRow` だけだった。
+
+- **自動で流れる飾りは、Mobile でも Desktop と同じに動かす**: `HeroBackdrop`・`ToolMarquee`・`CtaGlow`・`GlobeOsaka`。5 秒を超えて動くので、どれも Mobile にも一時停止のボタンを置く（置き場所は §8.3 の表）。条件は reduced-motion でないこと・JS が使えること（`scripting: enabled`）だけで、画面の幅と hover は問わない。
+- **ポインターに頼る動きは、「押している間だけ応える」に置き換える**: `Tilt3d`（押した側へ傾いて浮く）・`GlowGrid`（押した所を中心に縁が光り、指に沿う）・`Pin3d`（ピンが立って倒れる）・`ToolMarquee`（押している間は流れが止まる）。部品は `motion/lib/touch-press.ts` の `watchTouchPress` で、マウス以外の `pointerdown` から `pointerup` まで要素に `data-touch-press` を付ける。
+  - 素早いタップでも見えるよう、付けてから `--motion-duration-medium` は外さない（`ToolMarquee` は離したらすぐ流れに戻す）。ページを移るタップでは、移る前に一瞬見えてから形のつながり（§9）へ続く。
+  - スクロールが始まったら（`pointercancel`）すぐ戻す。スクロールの間、傾いた・光ったまま流れていかない。
+  - **hover の状態の CSS は `@media (hover: hover)` の中だけに書く**。iOS の Safari はタップの後に `:hover` が残るので、外に書くと影が残ったり、マーキーが止まったままになったりする。
+  - reduced-motion では付けない（変化は `prefers-reduced-motion: no-preference` の中でだけ書く）。bfcache から戻ったときは外す。
+- **変えないもの（MO-6 のまま）**: `MotionSymbol`（ShapeBlur）と `MotionBlobs`（MetaBalls）は Mobile では出さない。ShapeBlur は、Mobile のヒーローにシンボルを置く余白が無く、置くと h1（LCP）を押し下げるため。MetaBalls は、Mobile のバナーに文字の後ろを避けて置ける空き（120px 以上）が無いため。`MotionNav`（GooeyNav）も Mobile は `<dialog>` のメニューのまま。
+- **開発サーバーでの確認の注意**: `node_modules/.vite/deps`（依存の事前バンドル）が途中で作り直されると、開発用の React と本番用の React Three Fiber が混ざって配られ、地球儀が `dispatcher.getOwner is not a function` で描けなくなることがある（2026-10-20 に Desktop・iPhone の両方で再現）。そのときは `astro dev stop` → `node_modules/.vite` を消す → `astro dev --background` で直る。ビルドには影響しない。
 
 ## 9. ページの形のつながり（2026-10-19 に追加）
 

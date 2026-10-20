@@ -5,8 +5,10 @@
  * - 縁を光が巡る（conic-gradient の角度を 1 周 --motion-duration-glow〈2.4 秒〉。@property の --cta-glow-angle を動かす）。
  *   中の粒（sparkles）は上端・下端の余白の帯だけに置き、1 秒以上の周期（--motion-duration-glow の 1〜1.5 倍）でゆっくり明滅する。点滅は 1 秒に 3 回までの規則（2.3.1）の内側。
  * - CSS の animation だけ。JS・rAF を使わない。最初の HTML で描かれる（一時停止のボタンだけが island）。
- * - 動くのは md 以上で、reduced-motion でなく、JS が使えるとき（scripting: enabled）だけ。Mobile（縦積みで一時停止のボタンの置き場所が無い）・reduced-motion・JS なしは何も出さない
+ * - 動くのは reduced-motion でなく、JS が使えるとき（scripting: enabled）だけ。reduced-motion・JS なしは何も出さない
  *   （バナーは今までと同じ面）。動く層は display:none で、animation も回らない。
+ *   2026-10-20 から Mobile（iPhone など）でも動かす（以前は md 以上だけ。05-motion-spec.md §8.4。ユーザーの判断）。Mobile は縦積みで
+ *   一時停止のボタンの置き場所が無いので、動くときだけバナーの上下の余白を広げる（上は粒の帯を見出しの外に、下はボタンの置き場所）。
  * - 5 秒を超えて自動で動くので、一時停止のボタンを右下に 1 つだけ置く（MotionPauseFor。storageKey は MotionBlobs と共有の motion:cta-blobs）。
  *   target は CTA バナーの aside（bannerId）。押すと aside に data-motion-paused が付き、global.css の規則で光の縁・粒の animation が止まり、
  *   MotionBlobs（externalPause）は同じ属性を MutationObserver で読んで粒を止める。1 つのボタンで両方が止まり、ボタンは 1 つだけ。
@@ -59,7 +61,7 @@ const sparkles = [
     resumeLabel={resumeLabel}
     tone="dark"
     targetName={pauseTarget}
-    class="pointer-events-auto absolute right-3 bottom-3 z-[2] hidden md:inline-flex"
+    class="pointer-events-auto absolute right-3 bottom-3 z-[2]"
   />
 </div>
 
@@ -76,9 +78,17 @@ const sparkles = [
     display: none;
     border-radius: inherit;
   }
-  @media (min-width: 768px) and (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+  @media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
     .cta-glow__live {
       display: block;
+    }
+  }
+  /* Mobile の置き場所: 上の余白を 40px（粒の帯 8〜32px を見出しの外に）、下の余白を一時停止のボタン（高さ 32px ＋ 下 12px）の分だけ広げる。
+     ボタンが出る条件（reduced-motion でない・JS あり）と同じときだけ。md 以上は今までどおり（p-12 の 48px の中に収まる） */
+  @media (max-width: 767px) and (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+    :has(> [data-motion='cta-glow']) {
+      padding-top: 2.5rem;
+      padding-bottom: 3.5rem;
     }
   }
 

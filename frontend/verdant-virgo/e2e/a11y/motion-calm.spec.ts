@@ -904,25 +904,28 @@ test.describe("A の CTA（CtaGlow）", () => {
       expect(await rafDuring(page, 1_500), "MotionBlobs は動かない").toBe(0);
     });
 
-    test("入力: Mobile では出さない（層は display:none・動く animation もボタンも無い）", async ({
+    test("入力: Mobile でも光の縁と粒が動き、一時停止のボタンが CTA のボタンと重ならない（2026-10-20 から。05-motion-spec.md §8.4）", async ({
       page,
     }, testInfo) => {
       test.skip(testInfo.project.name !== "mobile", "Mobile だけ");
       await open(page, "/");
-      const live = page.locator(".cta-glow__live");
-      expect(await live.count()).toBe(1);
-      expect(await live.evaluate((el) => getComputedStyle(el).display)).toBe(
-        "none",
-      );
+      const banner = page.locator("aside:has([data-motion='cta-glow'])");
+      await banner.scrollIntoViewIfNeeded();
+      const pause = banner.getByRole("button", { name: /動きを止める/ });
+      await expect(pause).toBeVisible({ timeout: 5_000 });
       expect(
-        (await animationCounts(page, '[data-motion="cta-glow"]')).running,
-      ).toBe(0);
-      expect(
-        await page
-          .locator("aside:has([data-motion='cta-glow'])")
-          .getByRole("button", { name: /動きを止める/ })
-          .count(),
-      ).toBe(0);
+        await page.locator(".cta-glow__live").evaluate((el) => getComputedStyle(el).display),
+      ).toBe("block");
+      await expect
+        .poll(async () => (await animationCounts(page, '[data-motion="cta-glow"]')).running)
+        .toBeGreaterThan(0);
+      const cta = (await banner.locator("[data-cta-id]").first().boundingBox())!;
+      const button = (await pause.boundingBox())!;
+      expect(button.y, "一時停止のボタンは CTA の下").toBeGreaterThanOrEqual(cta.y + cta.height);
+      const box = (await banner.boundingBox())!;
+      expect(button.y + button.height, "バナーの中").toBeLessThanOrEqual(box.y + box.height);
+      // MotionBlobs（粒の寄り合い）は Mobile では出さない（MO-6 のまま）
+      expect(await rafDuring(page, 1_000), "MotionBlobs は動かない").toBe(0);
     });
 
     test("入力: reduced-motion では動かず、ボタンも出ない", async ({

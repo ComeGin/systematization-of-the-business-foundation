@@ -10,7 +10,9 @@
  * - 傾ける面（[data-tilt3d-body]）と、ポインターを聞く面（[data-tilt3d]。動かない）を分ける。傾いた面で聞くと、縁で面が逃げて hover が外れ、ちらつく。
  * - ポインター（hover のある細かいポインター。reduced-motion でない）: pointermove で傾く。傾きは rAF 1 回にまとめて --tilt-x／--tilt-y に書く。動かしていないときは何も回らない。
  * - キーボード（:has(:focus-visible)）: 傾けず、translateZ だけで浮かせる。傾きはポインターの位置が決めるので、キーボードには方向が無い。
- * - coarse pointer（タッチ）・reduced-motion: 何もしない（perspective も付けない。transform は none のまま）。
+ * - 指（タッチ・ペン。2026-10-20 から）: 押している間（lib/touch-press.ts の data-touch-press）だけ、押した側へ傾いて浮く。素早いタップでも
+ *   --motion-duration-medium の間は見える。スクロールが始まったらすぐ戻る。hover の無い iPhone でも、触れたら応える手触りにした。
+ * - reduced-motion: 何もしない（perspective も付けない。transform は none のまま）。
  * - 当たり判定とフォーカスリング: リンクなど操作する要素は浮かせない（浮かせるのは価格の枠 [data-tilt-lift] だけ。リンクと重ならない）。
  *   面と祖先に overflow／filter を付けない。リンクのリング（outline）は要素に付いたまま、面と一緒に動く。
  * - ロゴの禁止例（回転・傾斜）: サービスカードにロゴは無い。ロゴを入れるカードをこの中に置かない。
@@ -41,9 +43,9 @@ const { maxDeg = 8, class: className } = Astro.props;
     --tilt-y: 0deg;
   }
 
-  /* 傾きと浮きは、細かいポインターで、動きを減らす設定でないときだけ。それ以外は transform が none のまま。
-     静止しているときも none（hover／フォーカスの状態でだけ transform を持つ。常時 3D の層を作らない） */
-  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  /* 傾きと浮きは、動きを減らす設定でないときだけ。それ以外は transform が none のまま。
+     静止しているときも none（hover／押している／フォーカスの状態でだけ transform を持つ。常時 3D の層を作らない） */
+  @media (prefers-reduced-motion: no-preference) {
     [data-tilt3d] {
       perspective: 1000px;
       --tilt-rx: 0deg;
@@ -67,8 +69,28 @@ const { maxDeg = 8, class: className } = Astro.props;
       transition: box-shadow var(--motion-duration-small) var(--motion-ease-standard);
     }
 
-    /* ポインター（script が来ているときだけ）。傾きは script が --tilt-x／--tilt-y に書く */
-    [data-tilt3d][data-tilt-ready]:hover {
+    /* ポインター（細かいポインターで、script が来ているときだけ）。傾きは script が --tilt-x／--tilt-y に書く。
+       hover の状態はこの media の中だけに書く（iOS の Safari はタップの後に :hover が残るので、外に書くと影が残る） */
+    @media (hover: hover) and (pointer: fine) {
+      [data-tilt3d][data-tilt-ready]:hover {
+        z-index: 1;
+        --tilt-rx: var(--tilt-x);
+        --tilt-ry: var(--tilt-y);
+        --tilt-lift: 12px;
+        --tilt-lift-inner: 24px;
+      }
+      [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] {
+        transform: rotateX(var(--tilt-rx)) rotateY(var(--tilt-ry)) translateZ(var(--tilt-lift));
+      }
+      [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] [data-tilt-lift] {
+        transform: translateZ(var(--tilt-lift-inner));
+      }
+      [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] > * {
+        box-shadow: var(--shadow-lg);
+      }
+    }
+    /* 指（タッチ・ペン）: 押している間（script が data-touch-press を付ける）。hover と同じ変化 */
+    [data-tilt3d][data-tilt-ready][data-touch-press] {
       z-index: 1;
       --tilt-rx: var(--tilt-x);
       --tilt-ry: var(--tilt-y);
@@ -87,15 +109,15 @@ const { maxDeg = 8, class: className } = Astro.props;
     }
 
     /* 状態の面: 傾き・浮き・影 */
-    [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body],
+    [data-tilt3d][data-tilt-ready][data-touch-press] [data-tilt3d-body],
     [data-tilt3d][data-motion]:has(:focus-visible) [data-tilt3d-body] {
       transform: rotateX(var(--tilt-rx)) rotateY(var(--tilt-ry)) translateZ(var(--tilt-lift));
     }
-    [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] [data-tilt-lift],
+    [data-tilt3d][data-tilt-ready][data-touch-press] [data-tilt3d-body] [data-tilt-lift],
     [data-tilt3d][data-motion]:has(:focus-visible) [data-tilt3d-body] [data-tilt-lift] {
       transform: translateZ(var(--tilt-lift-inner));
     }
-    [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] > *,
+    [data-tilt3d][data-tilt-ready][data-touch-press] [data-tilt3d-body] > *,
     [data-tilt3d][data-motion]:has(:focus-visible) [data-tilt3d-body] > * {
       box-shadow: var(--shadow-lg);
     }
@@ -103,9 +125,10 @@ const { maxDeg = 8, class: className } = Astro.props;
 </style>
 
 <script>
-  // perf: ポインターを聞くのはカードごとの pointermove だけ。傾きは rAF 1 回にまとめて書き、動かしていないときは何も回らない。
-  // a11y: reduced-motion・タッチ・hover の無い端末では何もしない（CSS 側も同じ条件）。
+  // perf: ポインターを聞くのはカードごとの pointermove（と指の pointerdown）だけ。傾きは rAF 1 回にまとめて書き、動かしていないときは何も回らない。
+  // a11y: reduced-motion では何もしない（CSS 側も同じ条件）。マウスは hover のある細かいポインターのときだけ、指は押している間だけ（lib/touch-press.ts）。
   import { tiltFromPointer } from '../../lib/pointer-vars';
+  import { watchTouchPress } from '../../lib/touch-press';
 
   const pointerOk = () =>
     matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -116,30 +139,39 @@ const { maxDeg = 8, class: className } = Astro.props;
     let frame = 0;
     let pending: { x: number; y: number } | null = null;
 
-    card.addEventListener(
-      'pointermove',
-      (event) => {
-        if (event.pointerType === 'touch' || !pointerOk()) return;
-        pending = { x: event.clientX, y: event.clientY };
-        if (frame) return;
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          if (!pending) return;
-          const { x, y } = pending;
-          pending = null;
-          const tilt = tiltFromPointer(card.getBoundingClientRect(), x, y, maxDeg);
-          card.style.setProperty('--tilt-x', `${tilt.rotateX}deg`);
-          card.style.setProperty('--tilt-y', `${tilt.rotateY}deg`);
-        });
-      },
-      { passive: true },
-    );
-    card.addEventListener('pointerleave', () => {
+    const queue = (x: number, y: number) => {
+      pending = { x, y };
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!pending) return;
+        const { x: px, y: py } = pending;
+        pending = null;
+        const tilt = tiltFromPointer(card.getBoundingClientRect(), px, py, maxDeg);
+        card.style.setProperty('--tilt-x', `${tilt.rotateX}deg`);
+        card.style.setProperty('--tilt-y', `${tilt.rotateY}deg`);
+      });
+    };
+    const reset = () => {
       pending = null;
       if (frame) cancelAnimationFrame(frame);
       frame = 0;
       card.style.removeProperty('--tilt-x');
       card.style.removeProperty('--tilt-y');
+    };
+
+    card.addEventListener(
+      'pointermove',
+      (event) => {
+        if (event.pointerType !== 'mouse' || !pointerOk()) return;
+        queue(event.clientX, event.clientY);
+      },
+      { passive: true },
+    );
+    card.addEventListener('pointerleave', (event) => {
+      if (event.pointerType === 'mouse') reset();
     });
+    // 指（タッチ・ペン）: 押している間だけ、押した側へ傾く
+    watchTouchPress(card, { onMove: queue, onRelease: reset });
   });
 </script>

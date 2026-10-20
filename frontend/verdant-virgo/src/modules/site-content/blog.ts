@@ -5,6 +5,8 @@
 
 // カテゴリ名（タブの「すべて」と 3 分類）は blog モジュールの BLOG_CATEGORIES・ALL_CATEGORIES_LABEL を正にする（ここに写さない）
 import type { SearchIntent } from "@/modules/blog";
+import type { SourceDlCopy } from "./services";
+import { TOP } from "./top";
 
 /** 検索意図の 3 分類（潜在／準顕在／顕在・指名）。記事の主 CTA を切り替える（§4.8）。blog モジュールの SearchIntent と同じ */
 export type BlogIntent = SearchIntent;
@@ -51,11 +53,17 @@ export const blogIndex = {
   // BlogCard の画像が無いときの枠（16:9）
   imagePlaceholder: "画像（準備中）",
 
-  // 7-5 無料 DL ブロック（CONV、主。強調版。id="source-dl"）。§6.3 の #26 dl_blog_section。
-  // SourceDownloadBlock（forms モジュール）の title・body に渡す。ボタン・GitHub のリンクの語・フォームの文言（§5.2）は forms 側
+  // 7-5 無料 DL ブロック（CONV、主。id="source-dl"）。§6.3 の #26 dl_blog_section。
+  // 2026-10-20 にユーザー判断で、メールのフォーム（forms の SourceDownloadBlock）をやめ、トップの 1-9 と同じ CTA（source-dl の SourceDlBlock。
+  // zip のダウンロード ＋ 無料相談のフォームへの遷移）にそろえた。見出しだけブログの文言で、本文・ボタン・注記・GitHub のリンクの語はトップと同じものを読む（2 か所に書かない）
   sourceDownload: {
-    heading: "記事で紹介している仕組みは、ソースコードを無料で公開しています",
-    body: "読むだけで終わらせたくない方へ。構築の手順書は、メールアドレスだけで受け取れます。",
+    copy: {
+      title: "記事で紹介している仕組みは、ソースコードを無料で公開しています",
+      body: TOP.sourceDl.copy.body,
+    } satisfies SourceDlCopy,
+    buttonLabel: TOP.sourceDl.buttonLabel,
+    note: TOP.sourceDl.note,
+    repositoryLinkLabel: TOP.sourceDl.repositoryLinkLabel,
   },
 } as const;
 
@@ -100,7 +108,7 @@ export const blogArticle = {
 
   // 8-8 記事末 CTA（CONV、主）。§6.3 の #28・#31 dl_article_end（cta_role を検索意図で切り替える）
   endCta: {
-    // 潜在・準顕在は強調版、顕在は控えめ版。文言は 7-5 と同じ
+    // 文言は 7-5 と同じ（トップの 1-9 と同じ CTA の形。顕在では cta_role だけ secondary に変える）
     sourceDownload: blogIndex.sourceDownload,
     // 顕在だけ、無料 DL ブロックの上に置く。§6.3 の #30 consult_article_end。本文の指定は無い
     consultBanner: {

@@ -1,15 +1,9 @@
 // 状態を作ってから axe を回す（計画書の検証 2 の後半）。結果は .a11y/pages/<project>/<slug>--<state>.json に書き、
 // summary.json に入る（merge.ts）。送信は support/fixtures.ts が /form/submit をパスで差し替える。
+// 無料 DL のメールのフォームの状態（送信中・成功・入力エラー・失敗）は、2026-10-20 にフォームを消したので検査しない。
 // Cookie バナーの表示中は、初回訪問の全ルートの検査（pages.spec.ts）で見ている。
 import { expect, test } from "../support/fixtures";
-import {
-  CONSULT_TEXT,
-  SOURCE_DL_TEXT,
-  consultForm,
-  fillConsult,
-  fillSourceDl,
-  sourceDlForm,
-} from "../support/forms";
+import { CONSULT_TEXT, consultForm, fillConsult } from "../support/forms";
 import { audit, brief, open } from "./axe";
 import { BOOKING_TEXT } from "../../src/modules/booking/lib/messages";
 
@@ -117,51 +111,6 @@ test.describe("状態ごとの axe 検査", () => {
       );
       expect(brief(result.violation_items)).toEqual([]);
     });
-
-    test("無料 DL の送信中に違反が無い", async ({ page, net }, testInfo) => {
-      net.mautic = "hang";
-      const { result } = await audit(
-        page,
-        testInfo,
-        "/blog/",
-        "dl-submitting",
-        async () => {
-          const response = await open(page, "/blog/");
-          const form = await sourceDlForm(page);
-          await fillSourceDl(form);
-          await form
-            .getByRole("button", { name: SOURCE_DL_TEXT.submit })
-            .click();
-          await expect(
-            form.getByRole("button", { name: SOURCE_DL_TEXT.submitting }),
-          ).toBeDisabled();
-          return response;
-        },
-      );
-      expect(brief(result.violation_items)).toEqual([]);
-    });
-
-    test("無料 DL の成功の表示に違反が無い", async ({ page }, testInfo) => {
-      const { result } = await audit(
-        page,
-        testInfo,
-        "/blog/",
-        "dl-success",
-        async () => {
-          const response = await open(page, "/blog/");
-          const form = await sourceDlForm(page);
-          await fillSourceDl(form);
-          await form
-            .getByRole("button", { name: SOURCE_DL_TEXT.submit })
-            .click();
-          await expect(
-            page.getByText(SOURCE_DL_TEXT.successTitle),
-          ).toBeVisible();
-          return response;
-        },
-      );
-      expect(brief(result.violation_items)).toEqual([]);
-    });
   });
 
   test.describe("異常系", () => {
@@ -253,55 +202,6 @@ test.describe("状態ごとの axe 検査", () => {
           await form.getByRole("button", { name: CONSULT_TEXT.submit }).click();
           await expect(
             page.getByText(CONSULT_TEXT.duplicateBody),
-          ).toBeVisible();
-          return response;
-        },
-      );
-      expect(brief(result.violation_items)).toEqual([]);
-    });
-
-    test("空入力: 無料 DL を空のまま送った入力エラーの表示に違反が無い", async ({
-      page,
-    }, testInfo) => {
-      const { result } = await audit(
-        page,
-        testInfo,
-        "/blog/",
-        "dl-error",
-        async () => {
-          const response = await open(page, "/blog/");
-          const form = await sourceDlForm(page);
-          await form
-            .getByRole("button", { name: SOURCE_DL_TEXT.submit })
-            .click();
-          await expect(
-            form.locator('[aria-invalid="true"]').first(),
-          ).toBeVisible();
-          return response;
-        },
-      );
-      expect(brief(result.violation_items)).toEqual([]);
-    });
-
-    test("サーバ: 無料 DL の送信失敗（500）の表示に違反が無い", async ({
-      page,
-      net,
-    }, testInfo) => {
-      net.mautic = "server-error";
-      const { result } = await audit(
-        page,
-        testInfo,
-        "/blog/",
-        "dl-failed",
-        async () => {
-          const response = await open(page, "/blog/");
-          const form = await sourceDlForm(page);
-          await fillSourceDl(form);
-          await form
-            .getByRole("button", { name: SOURCE_DL_TEXT.submit })
-            .click();
-          await expect(
-            page.getByText(SOURCE_DL_TEXT.failedTitle),
           ).toBeVisible();
           return response;
         },

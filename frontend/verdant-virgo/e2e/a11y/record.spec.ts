@@ -15,7 +15,6 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
 import { open } from "./axe";
 import { A11Y_DIR } from "./routes";
-import { fillSourceDl, SOURCE_DL_TEXT, sourceDlForm } from "../support/forms";
 import { AVATAR_LABELS } from "../../src/modules/site-content/a11y";
 
 test.skip(!process.env.RECORD, "撮影だけ（RECORD=1 のとき）");
@@ -220,17 +219,7 @@ test.describe("見本", () => {
     await seen("show-full-body", 40_000);
     await page.waitForTimeout(3_500);
 
-    // 5. /blog/ で無料 DL を送る → 喜ぶ（peace。Mautic への送信は fixture の net が差し替える）
-    await open(page, "/blog/");
-    await declineConsent(page);
-    await expect(page.locator(READY)).toBeAttached({ timeout: 40_000 });
-    await page.waitForTimeout(1_500);
-    const form = await sourceDlForm(page);
-    await fillSourceDl(form);
-    await form.getByRole("button", { name: SOURCE_DL_TEXT.submit }).click();
-    await expect(page.getByText(SOURCE_DL_TEXT.successTitle)).toBeVisible();
-    await seen("peace", 10_000);
-    await page.waitForTimeout(3_000);
+    // （2026-10-20 まではここで /blog/ の無料 DL のフォームを送り、喜ぶ〈peace〉を撮っていた。フォームを消したので撮らない）
 
     await saveVideo(page, "desktop-normal-emotes");
   });

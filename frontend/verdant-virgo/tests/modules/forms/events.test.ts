@@ -40,7 +40,7 @@ describe("dispatchFormSuccess", () => {
 
     it("入力: document が無い環境（SSR・Node）では throw しない", () => {
       vi.stubGlobal("document", undefined);
-      expect(() => dispatchFormSuccess("source_dl")).not.toThrow();
+      expect(() => dispatchFormSuccess("consult")).not.toThrow();
     });
   });
 });

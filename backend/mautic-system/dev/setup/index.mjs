@@ -208,7 +208,7 @@ const list = (body, key) => Object.values(body?.[key] ?? {});
 // 定義（設計: 02-public-path-flows.md の 5.3、01-content-spec.md の 5.1）
 // ---------------------------------------------------------------------------
 
-// コンタクトのカスタム項目 3 つ（両方のフォームで同じものを使う）
+// コンタクトのカスタム項目 3 つ（フォームの同意の記録に使う）
 const CONTACT_FIELDS = [
   { alias: "privacy_consent_at", label: "プライバシーポリシーへの同意日時", type: "datetime" },
   { alias: "privacy_consent_version", label: "同意したプライバシーポリシーの版（最終改定日）", type: "text" },
@@ -233,7 +233,9 @@ const TRACKING_FIELDS = [
   hidden("distinct_id", "PostHog の distinct_id"),
 ];
 
-// フォームの名前と alias は設計の正本（consult / source_dl）に合わせる。alias は Mautic のフォームの結果の表の名前に入るため、英数字と _ だけにする
+// フォームの名前と alias は設計の正本（consult）に合わせる。alias は Mautic のフォームの結果の表の名前に入るため、英数字と _ だけにする。
+// 無料 DL のフォーム（source_dl）は 2026-10-20 に公開サイトから消したので作らない（どのページも「ソースコードを無料 DL」の CTA で、メールを受け取らない）。
+// 以前の版で作ったフォームは Mautic に残る。消すかは画面（フォーム一覧）で決める（送信の結果も一緒に消える）
 const FORMS = [
   {
     stateKey: "MAUTIC_FORM_ID_CONSULT",
@@ -250,12 +252,6 @@ const FORMS = [
       ...CONSENT_FIELDS,
       button,
     ],
-  },
-  {
-    stateKey: "MAUTIC_FORM_ID_SOURCE_DL",
-    name: "source_dl",
-    description: "無料 DL（ソースコード。旧ホワイトペーパー DL）。メールと同意の記録",
-    fields: [{ type: "email", alias: "email", label: "メールアドレス", isRequired: true, ...mapped("email") }, ...TRACKING_FIELDS, ...CONSENT_FIELDS, button],
   },
 ];
 
@@ -394,7 +390,7 @@ export async function check(ctx) {
       if (!token) ok = false;
     }
   }
-  for (const key of ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_FORM_ID_SOURCE_DL", "MAUTIC_SEGMENT_ID_MQL"]) {
+  for (const key of ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL"]) {
     if (!ctx.state.has(key)) {
       notes.push(`${key} がまだ状態に無い`);
       ok = false;

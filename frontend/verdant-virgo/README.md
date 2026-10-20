@@ -68,7 +68,7 @@ tests/modules/a11y/        a11y モジュールとトークンの組み合わせ
 | `PUBLIC_GA4_MEASUREMENT_ID`                                                       | GA4                                            | 空（タグを出さない）                                | 本番のプロパティ                                      |
 | `PUBLIC_POSTHOG_PROJECT_TOKEN` / `PUBLIC_POSTHOG_HOST`                            | PostHog                                        | 開発のプロジェクト                                  | 本番のプロジェクト                                    |
 | `PUBLIC_CHATWOOT_BASE` / `PUBLIC_CHATWOOT_WEBSITE_TOKEN`                          | Chatwoot                                       | `http://localhost:3100`／開発の受信箱               | `https://chat.comegin.com`／本番の受信箱              |
-| `PUBLIC_MAUTIC_BASE` / `MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`      | フォームの送信先                               | `http://localhost:8000`／空でも可（送信は失敗表示） | `https://mkt.comegin.com`／採番した ID                |
+| `PUBLIC_MAUTIC_BASE` / `MAUTIC_FORM_ID_CONSULT`                                  | フォームの送信先                               | `http://localhost:8000`／空でも可（送信は失敗表示） | `https://mkt.comegin.com`／採番した ID                |
 | `PUBLIC_CALCOM_BASE` / `PUBLIC_CALCOM_LINK`                                       | 完了画面の予約枠                               | `https://app.cal.com`／テストのイベント             | 無料相談のイベント                                    |
 | `PUBLIC_CONSENT_BASE` / `PUBLIC_CONSENT_COOKIE_DOMAIN` / `CONSENT_POLICY_VERSION` | 同意の記録と Cookie                            | `http://localhost:3104`／空／consent-api と同じ版   | `https://consent.comegin.com`／`.comegin.com`／同じ版 |
 

@@ -37,6 +37,8 @@ export const CONSULT_TEXT = {
   emailLabel: 'メールアドレス',
   emailPlaceholder: 'name@example.com',
   emailHelper: 'ご連絡はこのメールアドレスにお送りします。',
+  // 項目 8（任意。2026-10-20 に無料 DL のフォームから移した。§5.1）
+  optinLabel: 'ComeGin からのお知らせメールを受け取る（いつでも配信を停止できます）',
   messageLabel: 'ご相談内容',
   messagePlaceholder: 'ご検討中のサービスや、いまお困りのことを自由にお書きください。',
   submit: '無料相談を申し込む',
@@ -50,21 +52,6 @@ export const CONSULT_TEXT = {
     '一時的な障害の可能性があります。入力内容はそのまま残っています。時間をおいて、もう一度「無料相談を申し込む」を押してください。解決しない場合は kamegin4@comegin.com までメールでご連絡ください。',
   duplicateBody:
     'このブラウザから本日すでに送信いただいています。追加でお伝えしたいことは、担当者からのメールにご返信ください。',
-} as const;
-
-export const SOURCE_DL_TEXT = {
-  emailLabel: 'メールアドレス',
-  emailPlaceholder: 'name@example.com',
-  optinLabel: 'ComeGin からのお知らせメールを受け取る（いつでも配信を停止できます）',
-  submit: '構築の手順書を受け取る',
-  submitting: '送信中…',
-  noteBelowButton: 'メールアドレスだけで受け取れます。構築の手順書を、メールでお送りします。',
-  failedTitle: '登録できませんでした',
-  failedBody: '一時的な障害の可能性があります。時間をおいて、もう一度お試しください。',
-  successTitle: 'ご登録ありがとうございます',
-  successBody:
-    '構築の手順書を、ご入力のメールアドレスにお送りしました。ソースコードの公開先も、手順書の中でご案内しています。数分たっても届かない場合は、迷惑メールフォルダをご確認ください。',
-  repositoryLink: 'ソースコードを見る（GitHub）',
 } as const;
 
 /** 同意のチェックボックスのラベル（「プライバシーポリシー」は /legal/privacy へのリンク。新しいタブ） */

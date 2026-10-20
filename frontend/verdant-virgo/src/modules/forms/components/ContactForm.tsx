@@ -51,6 +51,7 @@ import {
 } from "../lib/source";
 import FormField from "./FormField";
 import ConsentCheckbox from "./ConsentCheckbox";
+import CheckboxField from "./CheckboxField";
 
 type FieldName =
   "company" | "lastname" | "firstname" | "email" | "message" | "privacy";
@@ -100,6 +101,8 @@ export default function ContactForm({
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [privacy, setPrivacy] = useState(false);
+  // お知らせメールの受信の希望（任意。初期値はチェックなし。§5.1 の項目 8）
+  const [optin, setOptin] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [showSummary, setShowSummary] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
@@ -192,7 +195,7 @@ export default function ContactForm({
       message,
       privacy_consent_at: jstIsoString(),
       privacy_consent_version: policyVersion,
-      email_optin: "0",
+      email_optin: optin ? "1" : "0",
       page_url: consultPageUrl(),
     };
     // 任意の項目は、選択肢の中の値があるときだけ送る（未選択・選択肢の外は送らない。§5.1）
@@ -480,6 +483,13 @@ export default function ContactForm({
           onBlur={() => validateOne("privacy")}
           error={errors.privacy}
           errorId={id("privacy-error")}
+        />
+
+        <CheckboxField
+          id={id("optin")}
+          label={CONSULT_TEXT.optinLabel}
+          checked={optin}
+          onCheckedChange={setOptin}
         />
       </fieldset>
 

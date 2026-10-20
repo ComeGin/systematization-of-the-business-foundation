@@ -1,11 +1,9 @@
-// フォームの操作（無料相談・無料 DL）。文言は src の messages から読む（文言を変えてもテストが追従する）。
+// フォームの操作（無料相談）。文言は src の messages から読む（文言を変えてもテストが追従する）。
+// 無料 DL のメールのフォームは 2026-10-20 に公開サイトから消した（どのページも「ソースコードを無料 DL」の CTA）。
 import { expect, type Locator, type Page } from "@playwright/test";
-import {
-  CONSULT_TEXT,
-  SOURCE_DL_TEXT,
-} from "../../src/modules/forms/lib/messages";
+import { CONSULT_TEXT } from "../../src/modules/forms/lib/messages";
 
-export { CONSULT_TEXT, SOURCE_DL_TEXT };
+export { CONSULT_TEXT };
 
 /**
  * 見つけたフォームに印（data-e2e-form）を付け、印で探し直した locator を返す。
@@ -27,19 +25,6 @@ export async function consultForm(page: Page): Promise<Locator> {
   return pin(form, "consult");
 }
 
-/** 無料 DL のフォーム（ページの最初のもの）。水和して送信ボタンが押せるまで待つ */
-export async function sourceDlForm(page: Page): Promise<Locator> {
-  const form = page
-    .locator("form")
-    .filter({ has: page.getByRole("button", { name: SOURCE_DL_TEXT.submit }) })
-    .first();
-  await form.scrollIntoViewIfNeeded();
-  await expect(
-    form.getByRole("button", { name: SOURCE_DL_TEXT.submit }),
-  ).toBeEnabled();
-  return pin(form, "source-dl");
-}
-
 /** 同じ日・同じメールの二重送信の判定に掛からないよう、テストごとに違うメールにする */
 export const uniqueEmail = () =>
   `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
@@ -59,13 +44,6 @@ export async function fillConsult(form: Locator, email = uniqueEmail()) {
     .fill("太郎");
   await emailField(form).fill(email);
   await form.getByLabel(CONSULT_TEXT.messageLabel).fill("e2e の確認です。");
-  await form.getByRole("checkbox", { name: /に同意する/ }).click();
-  return email;
-}
-
-/** 無料 DL の必須の欄をすべて正しく埋める */
-export async function fillSourceDl(form: Locator, email = uniqueEmail()) {
-  await emailField(form).fill(email);
   await form.getByRole("checkbox", { name: /に同意する/ }).click();
   return email;
 }

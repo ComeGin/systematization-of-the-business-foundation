@@ -42,7 +42,7 @@ node setup/setup.mjs --target dev
 |---|---|---|---|
 | `host-relay` | `middleware/host-relay/setup/` | 中継の起動（172.17.0.1 の 8000・1025・5678・3100・3001・3107） | なし |
 | `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・Webhook の私設アドレスへの送信の許可（下の「Webhook の送り先と SSRF 対策」）・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー（エージェント専用ユーザーと管理者）・解決後は新しいチャットにする（`allow_messages_after_resolved: false`）・ラベル 4 つ（`faq-answered` ほか）・エージェントボット「FAQ ボット」と受信箱への接続・マクロ「解決の確認を送る」（ラベル `faq-ask-resolved` を付ける）・担当者への引き継ぎのメール通知（管理者の「新しい会話」のメール。届き先は Chatwoot の MailHog〈8026〉）。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
-| `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・Webhook の設定（送り先の私設アドレスの許可・失敗での自動停止の無効化）・カスタム項目 3 つ・フォーム `consult`・`source_dl`・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
+| `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・Webhook の設定（送り先の私設アドレスの許可・失敗での自動停止の無効化）・カスタム項目 3 つ・フォーム `consult`（`source_dl` は 2026-10-20 にやめた）・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
 | `ga4` | `middleware/ga4/setup/`（dev・prod） | **dev**: 開発の Astro の環境変数に測定 ID が無いことの確認だけ（あれば失敗）。**prod**: `GA4_PROPERTY_ID`（数字）と `GA4_MEASUREMENT_ID`（`G-…`）の形式の確認（GA4 は SaaS。API は呼ばない。ADR-25） | prod だけ: 本番の GA4 プロパティの作成と設定（`ga4:property`） |
 | `openseo` | `middleware/open-seo-main/dev/setup/`（dev・prod） | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／**prod だけ**（dev は AWS に展開されていないので飛ばす）: Search Console と GA4 用の OAuth クライアント（GA4 は Analytics Admin API・Data API の有効化と `/api/ga4/oauth/callback` を含む）／Search Console の接続（画面）／GA4 の接続（画面。本番のプロパティだけ。ADR-25） |
 | `strapi` | `backend/strapi-system/setup/` | 環境変数ファイル・`pnpm install`・管理者（0 人のときだけ）・MCP 用の Admin トークン（下書きまで）・ビルド用の読み取りトークン → `strapi-dev.env` | 開発サーバーの起動（別の端末で `pnpm dev`）／既にいる管理者のパスワード |
@@ -75,7 +75,7 @@ node setup/setup.mjs --target dev
 | `CHATWOOT_AGENT_USER_ID`・`CHATWOOT_AGENT_TOKEN`✔ | chatwoot | エージェント専用ユーザー（ADR-17）。chatwoot-mcp と監視アプリの突き合わせ |
 | `CHATWOOT_INBOX_ID`・`CHATWOOT_WEBSITE_TOKEN` | chatwoot | 公開サイトのチャットウィジェット |
 | `MAUTIC_ADMIN_PASSWORD`✔ | mautic | 未インストールから入れたときだけ（ユーザー名は `admin`） |
-| `MAUTIC_FORM_ID_CONSULT`・`MAUTIC_FORM_ID_SOURCE_DL`・`MAUTIC_SEGMENT_ID_MQL` | mautic | 公開サイト（Astro の環境変数）に写す |
+| `MAUTIC_FORM_ID_CONSULT`・`MAUTIC_SEGMENT_ID_MQL` | mautic | 公開サイト（Astro の環境変数）に写す（`MAUTIC_FORM_ID_SOURCE_DL` は 2026-10-20 にやめた。以前の状態に残っていても使わない） |
 | `STRAPI_ADMIN_PASSWORD`✔・`STRAPI_DEV_TOKEN`✔・`STRAPI_BUILD_TOKEN`✔ | strapi | 管理者のログイン／strapi-mcp／Astro のビルド |
 | `N8N_OWNER_PASSWORD`✔・`N8N_API_KEY`✔・`N8N_DEV_TOKEN`✔ | n8n | オーナーのログイン／provision／n8n の MCP |
 

@@ -417,10 +417,10 @@ sequenceDiagram
 | `email` | string | **必須** | 利用者の入力 | `E-09` のキー。**小文字化して送る**（冪等キーと `I-19` の突合が大文字小文字で割れないようにするため） |
 | `firstname` / `lastname` / `company` | string | 任意 | 利用者の入力 | `E-09` の属性 |
 | `message` | string | 任意 | 利用者の入力 | 問い合わせ本文 |
-| `mautic_form_id` | number | **必須** | **Astro の環境変数 1 か所**（`MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`）。仕様書・Figma には数値を書かず変数名で書く（2026-10-01 の決定。`01-content-spec.md` の 5.1 の F9） | 受付定義との対応。冪等キーの構成要素。**フォームの呼び名の正本は Mautic の alias**（`consult` / `source_dl`。2026-10-05 に `source-dl` から改めた。Mautic の alias は英数字と `_` だけにする）で、数値 ID は採番されてから環境変数に入れる |
+| `mautic_form_id` | number | **必須** | **Astro の環境変数 1 か所**（`MAUTIC_FORM_ID_CONSULT`。`MAUTIC_FORM_ID_SOURCE_DL` は 2026-10-20 に無料 DL のフォームと一緒にやめた）。仕様書・Figma には数値を書かず変数名で書く（2026-10-01 の決定。`01-content-spec.md` の 5.1 の F9） | 受付定義との対応。冪等キーの構成要素。**フォームの呼び名の正本は Mautic の alias**（`consult` / `source_dl`。2026-10-05 に `source-dl` から改めた。Mautic の alias は英数字と `_` だけにする）で、数値 ID は採番されてから環境変数に入れる |
 | `privacy_consent_at` | string（日付時刻） | **必須** | ブラウザ（送信した時刻。JST） | **「いつ同意したか」の証跡。** 同意のチェックが必須のため、空のまま `E-09` が作られることは無い |
 | `privacy_consent_version` | string | **必須** | ブラウザ（同意した時点のプライバシーポリシーの最終改定日） | **ポリシーを改定したあと、どの版に同意した訪問者かを判別する**（同意の取り直しの範囲を決められるようにする） |
-| `email_optin` | boolean | **必須** | 利用者の入力（無料 DL フォームの任意のチェック。**無料相談フォームでは `false` を入れる**） | ナーチャリングのキャンペーンのセグメント条件（`email_optin = true`）。**Mautic の Do Not Contact とは別に持つ**（配信停止の記録と、受信の希望の記録は別物） |
+| `email_optin` | boolean | **必須** | 利用者の入力（**2026-10-20 から無料相談フォームの任意のチェック**〈`01-content-spec.md` の 5.1 の項目 8〉。それまでは無料 DL フォームの任意のチェックで、無料相談フォームでは `false` を入れていた。無料 DL フォームは同日にやめた） | ナーチャリングのキャンペーンのセグメント条件（`email_optin = true`）。**Mautic の Do Not Contact とは別に持つ**（配信停止の記録と、受信の希望の記録は別物） |
 | `distinct_id` | string | 任意 | PostHog（`I-06`） | **匿名から実名への昇格の接続点**（DA-03）。同意していない訪問者では空になる |
 | ~~`umami_session_id`~~ | — | — | — | **2026-10-06 ADR-25 で廃止。代わりの識別子を足さない**（2.3）。旧版: string・任意・由来は Umami（`I-05`）・用途は「CVR の分母と分子を突合する唯一の接続点」（DA-03） |
 | `page_url` | string | **必須** | ブラウザ（**フォームのあるページではなく、CTA を押したページ**。下記） | どのページの CTA が効いたか。`E-13` の `target.identifier` と対応させる |
@@ -430,7 +430,7 @@ sequenceDiagram
 - **hidden field の `distinct_id` は任意にする**（旧版は `umami_session_id` と 2 つ。**2026-10-06 ADR-25 で `umami_session_id` を廃止し、1 つになった**）。必須にすると、同意していない訪問者やトラッカーが落ちている状態でフォームが送れなくなる。**観測のために CV を失うことはしない。**
 - （**2026-10-06 ADR-25 で廃止**）旧版: `umami_session_id` の取得方法は Umami のバージョンに依存するため、配線時に実地で確認する。取得できない場合は空で送り、突合を諦める。**GA4 の `_ga` を代わりに載せることもしない**（2.3）。Mautic 側に `umami_session_id` のカスタムフィールドを作らない。
 - **`email` の小文字化はブラウザ側で行う。** Mautic 側の統合も `I-19` の突合も小文字前提にすることで、3 か所の規則を 1 つに揃える。
-- **`page_url` に `location` をそのまま入れない。** 無料相談フォームは `/contact` の 1 ページに集約されるため、`location` を入れると全件が `/contact` になり、**どの記事・どのページが CV を生んだかが辿れなくなる**（BA-04 の「流入記事の URL を必ずコンタクトに保存する」が満たせない）。CTA のリンクに `?from=<現在のパス>` を付けて渡し、無ければ同じオリジンの `document.referrer`、それも無ければ `/contact` を入れる。**無料 DL フォームは各ページに埋め込むため、こちらは `location.pathname` をそのまま入れる**（CTA とフォームが同じページにある）。
+- **`page_url` に `location` をそのまま入れない。** 無料相談フォームは `/contact` の 1 ページに集約されるため、`location` を入れると全件が `/contact` になり、**どの記事・どのページが CV を生んだかが辿れなくなる**（BA-04 の「流入記事の URL を必ずコンタクトに保存する」が満たせない）。CTA のリンクに `?from=<現在のパス>` を付けて渡し、無ければ同じオリジンの `document.referrer`、それも無ければ `/contact` を入れる。**無料 DL フォームは各ページに埋め込むため、こちらは `location.pathname` をそのまま入れる**（CTA とフォームが同じページにある）。〔2026-10-20: 無料 DL フォームはやめた。「ソースコードを無料 DL」の CTA は無料相談へ `?from=` を付けて移るので、無料相談と同じ扱いになる〕
 - **`cta_id` と `service_interest` は任意にする。** URL のクエリは利用者の操作（リンクの共有・直接入力・履歴からの再訪）で容易に欠ける。必須にすると、`/contact` を直接開いた訪問者がフォームを送れなくなる（`distinct_id` と同じ理由で、**観測のために CV を失うことはしない**）。
 - **`service_interest` の値を Mautic 側で検査する。** クエリから来る値であり、6 種の列挙の外の値が送られうる。列挙外は空として扱い、送信そのものは失敗させない。
 - この 3 項目（`page_url` の受け渡し・`cta_id`・`service_interest`）は **2026-09-20 の G2 で承認された**（`docs/BasicDesign/DesignSpec/website/01-content-spec.md` の 5.1・6.3、同 10.0 の F6）。`cta_id` と `service_interest` の 2 行は、同文書の未決事項 F6' としてこの表への追記が残っていたもので、**2026-10-01 に反映した**。

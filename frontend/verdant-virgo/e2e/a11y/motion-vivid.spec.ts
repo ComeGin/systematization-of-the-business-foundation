@@ -1,7 +1,8 @@
 // A（vivid）のページの Aceternity 風の動きの検査（計画書 2026-10-19-aceternity-motion の Task 3〜6 が足していく）。
 // 部品の約束（Task 3。ヒーロー）:
 //   - ヒーローの根に data-motion="hero"（id="hero-backdrop"）。中の装飾は aria-hidden で、一時停止のボタンだけが aria-hidden の外にある
-//   - 動くのは md 以上かつ hover のある端末で、reduced-motion でない場合だけ。Mobile・reduced-motion は静止のグラデーション（CSS の animation も回らない）
+//   - 動くのは reduced-motion でない場合だけ（2026-10-20 から Mobile・タッチでも動く。05-motion-spec.md §8.4）。reduced-motion は静止のグラデーション（CSS の animation も回らない）
+//   - 指（タッチ）は押している間だけ応える（Tilt3d・GlowGrid・Pin3d・マーキーの停止。motion/lib/touch-press.ts の data-touch-press）
 //   - 一時停止（MotionPauseFor）は #hero-backdrop に data-motion-paused を付け外しし、sessionStorage の motion:hero に 'paused' を残す
 //   - 見出しは CSS だけで焦点が合う。opacity は 0.35 以上から始め、0 から始めない
 // 背景の動きは CSS の animation だけで、requestAnimationFrame を使わない。止まったかどうかは rAF の数に加え、
@@ -104,6 +105,28 @@ async function moveInto(
   });
 }
 
+/**
+ * 指（タッチ）で要素の中の相対位置（0〜1）を押す。tap() はすぐ離れて押している間の状態を見られないので、
+ * 合成の PointerEvent（pointerType: touch）を送る。戻り値の関数で離す
+ */
+async function touchPress(
+  locator: ReturnType<Page["locator"]>,
+  rx: number,
+  ry: number,
+): Promise<() => Promise<void>> {
+  await locator.scrollIntoViewIfNeeded();
+  const box = (await locator.boundingBox())!;
+  const init = {
+    pointerType: "touch",
+    isPrimary: true,
+    clientX: box.x + box.width * rx,
+    clientY: box.y + box.height * ry,
+    bubbles: true,
+  };
+  await locator.dispatchEvent("pointerdown", init);
+  return () => locator.dispatchEvent("pointerup", init);
+}
+
 /** Tab を押して、フォーカスが selector の要素の中に入るまで進む */
 async function tabInto(page: Page, selector: string, max = 200) {
   for (let i = 0; i < max; i++) {
@@ -151,7 +174,7 @@ const focusRing = (page: Page) =>
 const desktopOnly = (name: string) =>
   test.skip(
     name !== "desktop",
-    "ヒーローの動きは md 以上かつ hover のある端末だけ",
+    "Desktop の project で確かめる（hover・マウスの操作を含む。Mobile は「入力: Mobile」の検査が覆う）",
   );
 
 test.describe("A（vivid）の動き", () => {
@@ -598,19 +621,30 @@ test.describe("A（vivid）の動き", () => {
         }
       });
 
-      test("入力: Mobile（hover のない端末）では背景は静止のグラデーションで、動く部品も一時停止のボタンも無い", async ({
+      test("入力: Mobile（hover のない端末）でも背景が動き、一時停止のボタンがヒーローの右下に出て、押すと止まる（2026-10-20 から。§8.4）", async ({
         page,
       }, testInfo) => {
         test.skip(testInfo.project.name !== "mobile", "Mobile の project だけ");
         for (const route of HERO_ROUTES) {
           await open(page, route);
-          await page.waitForTimeout(1_000);
-          await expect(
-            page.getByRole("button", { name: MOTION_PAUSE.pause }),
-          ).toHaveCount(0);
-          expect(await runningAmbient(page), `${route} の動く部品`).toBe(0);
-          expect(await rafDuring(page, 1_000), route).toBe(0);
+          const pause = heroButton(page, MOTION_PAUSE.pause);
+          await expect(pause, route).toBeVisible({ timeout: 5_000 });
+          expect(await runningAmbient(page), `${route} の動く部品`).toBeGreaterThan(0);
+          // ボタンはヒーローの中（右下）に収まり、横にあふれない
+          const hero = (await page.locator("#hero-backdrop").boundingBox())!;
+          const box = (await pause.boundingBox())!;
+          expect(box.x + box.width, route).toBeLessThanOrEqual(hero.x + hero.width);
+          expect(box.y + box.height, route).toBeLessThanOrEqual(hero.y + hero.height);
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+            route,
+          ).toBe(true);
         }
+        await heroButton(page, MOTION_PAUSE.pause).click();
+        await expect(page.locator("#hero-backdrop")).toHaveAttribute("data-motion-paused", "true");
+        expect(await runningAmbient(page), "押した後").toBe(0);
+        // 次の検査に止めた状態を持ち越さない
+        await heroButton(page, MOTION_PAUSE.resume).click();
       });
 
       test("入力: JS が無くても、見出し・本文・CTA が読め、背景はあっても一時停止のボタンは出ない（押せない死んだボタンを出さない）", async ({
@@ -975,29 +1009,45 @@ function describe_feature_3d() {
         expect(await tiltTransform(page, 0)).toBe("none");
       });
 
-      test("入力: Mobile（hover も細かいポインターも無い）では、傾き・浮き・光が出ず、rAF も回らない", async ({
+      test("入力: Mobile（hover も細かいポインターも無い）では、指で押している間だけ傾いて浮き、縁が光る。離すと戻り、rAF は回り続けない（2026-10-20 から。§8.4）", async ({
         page,
       }, testInfo) => {
         test.skip(testInfo.project.name !== "mobile", "Mobile の project だけ");
         await open(page, "/");
         const card = page.locator("[data-tilt3d]").first();
-        await card.scrollIntoViewIfNeeded();
-        await card.tap();
-        await page.waitForTimeout(400);
-        expect(await tiltTransform(page, 0)).toBe("none");
-        expect(
-          await card.evaluate((el) => getComputedStyle(el).perspective),
-        ).toBe("none");
+        expect(await tiltTransform(page, 0), "押す前").toBe("none");
+        // 右上を押す → 押した側が沈む（rotateY が +・rotateX が +）
+        const releaseCard = await touchPress(card, 0.9, 0.1);
+        await expect(card).toHaveAttribute("data-touch-press", "");
+        await expect.poll(() => tiltTransform(page, 0)).not.toBe("none");
+        expect(await card.evaluate((el) => getComputedStyle(el).perspective)).toBe("1000px");
+        await releaseCard();
+        await expect(card).not.toHaveAttribute("data-touch-press");
+        await expect.poll(() => tiltTransform(page, 0)).toBe("none");
+
         const glow = page.locator("[data-glow-card]").first();
-        await glow.scrollIntoViewIfNeeded();
-        await glow.tap();
-        await page.waitForTimeout(400);
-        expect(
-          await glow.evaluate((el) => getComputedStyle(el, "::before").opacity),
-        ).toBe("0");
+        const releaseGlow = await touchPress(glow, 0.25, 0.75);
+        await expect.poll(() => glow.evaluate((el) => getComputedStyle(el, "::before").opacity)).toBe("1");
+        expect(await glow.evaluate((el) => el.style.getPropertyValue("--glow-x"))).toBe("25%");
+        await releaseGlow();
+        await expect.poll(() => glow.evaluate((el) => getComputedStyle(el, "::before").opacity)).toBe("0");
+        // 押していない間は何も回らない（ヒーローの背景は CSS の animation なので rAF に数えない）
         expect(await rafDuring(page, 1_000), "rAF").toBe(0);
         // カードの文字とリンクはそのまま読める
         await expect(card.locator("a[href]").first()).toBeVisible();
+      });
+
+      test("入力: Mobile で押したまま指を動かしてスクロールが始まる（pointercancel）と、待たずに元へ戻る", async ({
+        page,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== "mobile", "Mobile の project だけ");
+        await open(page, "/");
+        const card = page.locator("[data-tilt3d]").first();
+        await touchPress(card, 0.9, 0.1);
+        await expect(card).toHaveAttribute("data-touch-press", "");
+        await card.dispatchEvent("pointercancel", { pointerType: "touch", isPrimary: true, bubbles: true });
+        await expect(card).not.toHaveAttribute("data-touch-press");
+        expect(await card.evaluate((el) => el.style.getPropertyValue("--tilt-x"))).toBe("");
       });
 
       test("入力: JS が無くても、カードの文字・リンクがすべて見え、光も傾きも出ない（hover の光と傾きは script が来てから）", async ({
@@ -1467,28 +1517,32 @@ function describe_marquee_pin_stats() {
         expect(await afterScaleX(page.locator("[data-stat-value]").first())).toBe(1);
       });
 
-      test("入力: Mobile（hover も細かいポインターも無い）では、流れる面が描かれず、並びは今のまま全部読める。タップしても Pin は倒れない", async ({
+      test("入力: Mobile（hover も細かいポインターも無い）でも流れる面が動き、一時停止のボタンが出る。押している間は流れが止まり、Pin は押している間だけ立って倒れる（2026-10-20 から。§8.4）", async ({
         page,
       }, testInfo) => {
         test.skip(testInfo.project.name !== "mobile", "Mobile の project だけ");
         await open(page, "/");
-        expect(
-          await page.locator("[data-marquee-stage]").evaluate((el) => getComputedStyle(el).display),
-        ).toBe("none");
-        await expect(marqueeButton(page, /動きを止める/)).toHaveCount(0);
-        const items = page.locator(`${MARQUEE} ul > li`);
-        await expect(items).toHaveCount(TOP.tools.badges.length);
-        for (let i = 0; i < TOP.tools.badges.length; i++) await expect(items.nth(i)).toBeVisible();
-        expect((await animationCounts(page, MARQUEE)).total).toBe(0);
+        const stage = page.locator("[data-marquee-stage]");
+        await stage.scrollIntoViewIfNeeded();
+        expect(await stage.evaluate((el) => getComputedStyle(el).display)).toBe("block");
+        await expect(marqueeButton(page, /動きを止める/)).toBeVisible({ timeout: 5_000 });
+        await expect.poll(async () => (await animationCounts(page, MARQUEE)).running).toBeGreaterThan(0);
+        // 読み上げ用の一覧は 1 つだけ残る（視覚的にだけ隠す）
+        await expect(page.locator(`${MARQUEE} ul > li`)).toHaveCount(TOP.tools.badges.length);
+
+        const releaseMarquee = await touchPress(page.locator(MARQUEE), 0.5, 0.6);
+        await expect.poll(async () => (await animationCounts(page, MARQUEE)).running, "押している間").toBe(0);
+        await releaseMarquee();
+        await expect.poll(async () => (await animationCounts(page, MARQUEE)).running, "離した後").toBeGreaterThan(0);
+
         const card = page.locator("[data-pin3d]").first();
-        await card.scrollIntoViewIfNeeded();
-        await card.tap();
-        await page.waitForTimeout(400);
-        expect(
-          await card.locator("[data-pin3d-body]").evaluate((el) => getComputedStyle(el).transform),
-        ).toBe("none");
-        expect(await pinOpacity(card.locator("[data-pin3d-pin]"))).toBe(0);
-        expect(await rafDuring(page, 1_000), "rAF").toBe(0);
+        const body = card.locator("[data-pin3d-body]");
+        const releasePin = await touchPress(card, 0.5, 0.5);
+        await expect.poll(() => pinOpacity(card.locator("[data-pin3d-pin]"))).toBe(1);
+        await expect.poll(() => body.evaluate((el) => getComputedStyle(el).transform)).not.toBe("none");
+        await releasePin();
+        await expect.poll(() => pinOpacity(card.locator("[data-pin3d-pin]"))).toBe(0);
+        await expect.poll(() => body.evaluate((el) => getComputedStyle(el).transform)).toBe("none");
         // 数値カードは読める
         await expect(page.locator("[data-stat-value]").first()).toHaveText("—");
       });
@@ -1534,7 +1588,8 @@ function describe_marquee_pin_stats() {
 //   - 根に id="globe-osaka"・data-motion="globe"。最初の HTML には静止画（日本が正面の図。.globe-osaka__still）が出ている
 //   - md 以上・WebGL あり・reduced-motion でない・JS ありのとき、手が空いてから three で描いた canvas に替わる（根に data-globe-live="true"）。canvas は aria-hidden
 //   - 一時停止（motion:globe）で rAF が止まる。画面外・タブ非表示でも止まる。止めたまま開いたページでは three を読まない（canvas が作られない）
-//   - Mobile・reduced-motion・JS なし・WebGL なしは静止画のまま（canvas なし・一時停止のボタンなし・rAF 0）。弧は出さない（点は大阪だけ）
+//   - reduced-motion・JS なし・WebGL なしは静止画のまま（canvas なし・一時停止のボタンなし・rAF 0）。弧は出さない（点は大阪だけ）
+//   - 2026-10-20 から Mobile でも canvas に替わる（05-motion-spec.md §8.4）。Mobile の一時停止は地球儀の左下
 const GLOBE = "#globe-osaka";
 const GLOBE_KEY = "motion:globe";
 const GLOBE_ROUTE = "/services/";
@@ -1829,23 +1884,27 @@ function describe_globe() {
         expect(still.pinVisible).toBe(true);
       });
 
-      test("入力: Mobile（md 未満）は静止画のまま（canvas なし・一時停止のボタンなし・rAF 0）", async ({
+      test("入力: Mobile（md 未満）でも canvas に替わって動き、一時停止のボタンがヒーローのボタンと重ならない（2026-10-20 から。§8.4）", async ({
         page,
       }, testInfo) => {
         test.skip(testInfo.project.name !== "mobile", "Mobile の project だけ");
+        test.setTimeout(60_000);
         await open(page, GLOBE_ROUTE);
-        await page.waitForTimeout(4_000);
-        await expect(page.locator(`${GLOBE} canvas`)).toHaveCount(0);
-        await expect(globeButton(page, /動きを止める|動きを再開する/)).toHaveCount(0);
-        const still = await stillState(page);
-        expect(still.opacity).toBe(1);
-        expect(still.pinVisible).toBe(true);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded();
+        await expect(page.locator(GLOBE)).toHaveAttribute("data-globe-live", "true", { timeout: 30_000 });
+        await expect(page.locator(`${GLOBE} canvas`)).toHaveCount(1);
+        const globePause = globeButton(page, /動きを止める/);
+        await expect(globePause).toBeVisible();
+        expect(await rafDuring(page, 1_000), "rAF").toBeGreaterThan(0);
+        // 地球儀とヒーローの一時停止のボタンが重ならない
+        const a = (await globePause.boundingBox())!;
+        const b = (await heroButton(page, MOTION_PAUSE.pause).boundingBox())!;
+        const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+        expect(overlap, "ボタンの重なり").toBe(false);
         // 根は画面の幅に収まる（横にあふれない）
-        expect(still.width).toBeLessThanOrEqual(390);
         expect(
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         ).toBe(true);
-        expect(await rafDuring(page, 1_500), "rAF").toBe(0);
       });
 
       test("入力: JavaScript が使えなくても、静止画が出て、一時停止のボタンは無い", async ({

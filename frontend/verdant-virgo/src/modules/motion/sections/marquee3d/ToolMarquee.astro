@@ -8,12 +8,15 @@
  *
  * - 読み上げ用の一覧（<ul>。今のバッジと同じ見た目）を DOM に 1 つだけ置く。流れる面（複製）は aria-hidden かつ inert で、読み上げ・フォーカスに出ない。
  *   動く端末では <ul> を視覚的に隠し（sr-only と同じ手法。読み上げには残る）、流れる面を見せる。動かない端末では逆（<ul> を見せ、流れる面は display:none）。
- * - 動くのは md 以上かつ hover のある端末で、reduced-motion でなく、script が使えるとき（scripting: enabled）だけ。
- *   Mobile・タッチは、画面が狭く、傾けると読みにくく、ポインターで止められないので、今の折り返しの並びのまま。
+ * - 動くのは reduced-motion でなく、script が使えるとき（scripting: enabled）だけ。
+ *   2026-10-20 から Mobile・タッチ（iPhone など）でも動かす（以前は md 以上かつ hover のある端末だけ。05-motion-spec.md §8.4。ユーザーの判断）。
+ *   指で止める手段は、一時停止のボタンと「押している間は止まる」（下の「触れたら応える」）。
  *   JS が無いときは、止める手段（一時停止のボタン）が描かれないので動かさない（2.2.2）。
  * - 流れは CSS の animation（1 周 ＝ --motion-duration-ambient の 3 倍）。本ごとに向きを交互にする。JS・rAF を使わない。最初の HTML で描かれる（island ではない）。
  *   水和して止める手段が出る（根に data-motion-ready="true"）まで animation-play-state: paused。前のページで止めていたら、水和を待たず最初から止める（インライン script）。
  * - 触れたら応える: ポインターを流れの上に載せている間は止まる（読める。離すと流れる）。inert の面はポインターを受けないので、止めるのは根の :hover。
+ *   指（タッチ・ペン）は、押している間（lib/touch-press.ts の data-touch-press）止まる。:hover は hover のある端末だけ
+ *   （iOS の Safari はタップの後に :hover が残り、流れが止まったままになるため）。
  * - 5 秒を超えて自動で動くので、一時停止のボタンを置く（MotionPauseFor。target は #tool-marquee、storageKey は motion:marquee）。ボタンの名前に対象名（pauseTarget）が付く。
  * - 読みやすさ: 傾けるのは奥行きの浅い 40 度まで（原本は 55 度＋45 度回転で画像向き）。バッジは 16px・nowrap・うすい面に濃い文字（outline）。左右の端は地の色へ消える。
  * - 高さは固定（面の高さ）で、最初の描画から変わらない。<ul>（動かない端末の並び）と面は同時には出ない。
@@ -97,7 +100,7 @@ const lanes = Array.from({ length: LANES }, (_, lane) => {
     display: none;
   }
 
-  @media (min-width: 768px) and (hover: hover) and (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+  @media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
     .tool-marquee__stage {
       display: block;
     }
@@ -180,7 +183,13 @@ const lanes = Array.from({ length: LANES }, (_, lane) => {
     }
 
     /* 触れたら応える: ポインターを載せている間は止まる（読める）。inert の面は受けないので、根の :hover で止める */
-    .tool-marquee:hover:not(:has(.tool-marquee__pause:hover)) .tool-marquee__track {
+    @media (hover: hover) {
+      .tool-marquee:hover:not(:has(.tool-marquee__pause:hover)) .tool-marquee__track {
+        animation-play-state: paused;
+      }
+    }
+    /* 指は押している間だけ止まる（script が根に data-touch-press を付ける） */
+    .tool-marquee[data-touch-press] .tool-marquee__track {
       animation-play-state: paused;
     }
 
@@ -200,3 +209,12 @@ const lanes = Array.from({ length: LANES }, (_, lane) => {
     }
   }
 </style>
+
+<script>
+  // 指（タッチ・ペン）で流れを押している間だけ止める（根に data-touch-press。止める CSS は上）。reduced-motion では付けない。
+  // 離したらすぐ流れに戻す（holdMs 0。押している間だけ読めればよい）
+  import { watchTouchPress } from '../../lib/touch-press';
+
+  const marquee = document.getElementById('tool-marquee');
+  if (marquee) watchTouchPress(marquee, { holdMs: 0 });
+</script>

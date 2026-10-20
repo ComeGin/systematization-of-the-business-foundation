@@ -1,6 +1,6 @@
 // アバター（avatar の AvatarDock・AvatarStage。設計書 §7）の e2e。
 // 既定の fixture はアバターを止めて開く（fixtures.ts の avatarLive）ので、この spec だけ動かして開く。
-// 見ること: C のページに出ない・読まない／Desktop で canvas が出てエモートする（無料 DL の送信の成功で喜ぶ。Mautic は fixture の net が差し替える）／一時停止で rAF が止まる／たたむと覚える／
+// 見ること: C のページに出ない・読まない／Desktop で canvas が出てエモートする／一時停止で rAF が止まる／たたむと覚える／
 //           reduced-motion は静止画だけ／Mobile は押してから読む／Mobile で出した後は 120px で、スクロール中は左の画面の外へ逃げる（R19）／
 //           同意バナー・Chatwoot・送信ボタンと重ならない／axe と CLS。
 import type { Page, Request } from "@playwright/test";
@@ -9,7 +9,6 @@ import { expect, test } from "../support/fixtures";
 import { cls, instrument, rafDuring } from "../support/motion";
 import { open } from "./axe";
 import { AXE_TAGS } from "./routes";
-import { fillSourceDl, SOURCE_DL_TEXT, sourceDlForm } from "../support/forms";
 import {
   AVATAR_LABELS,
   MOTION_PAUSE_TARGETS,
@@ -221,23 +220,6 @@ test.describe("アバター", () => {
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       await page.locator("main [data-cta-id]").first().focus();
       await expect.poll(() => lastEmote(page)).toBe("point");
-    });
-
-    test("Desktop の /blog/: 無料 DL の送信が成功すると 喜ぶ（peace。forms が出す comegin:form-success）", async ({
-      page,
-    }, testInfo) => {
-      desktopOnly(testInfo.project.name);
-      // 挨拶（greeting）の再生中は次の合図を受けない（R18）ので、挨拶を済ませたセッションにして着いたときの動きを省く
-      await markGreeted(page);
-      await open(page, "/blog/");
-      await declineConsent(page);
-      await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
-      expect(await lastEmote(page), "送る前").toBeNull();
-      const form = await sourceDlForm(page);
-      await fillSourceDl(form);
-      await form.getByRole("button", { name: SOURCE_DL_TEXT.submit }).click();
-      await expect(page.getByText(SOURCE_DL_TEXT.successTitle)).toBeVisible();
-      await expect.poll(() => lastEmote(page)).toBe("peace");
     });
 
     test("一時停止のボタンで rAF の増分が 0 になり、sessionStorage の motion:avatar が paused になる", async ({

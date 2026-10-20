@@ -8,7 +8,9 @@
  * （body 全体の pointermove と scroll を常に聞き、motion/react の animate で毎フレーム --start を書く作りで、reduced-motion でも rAF が回るため）。
  *
  * - 光の縁: カードの ::before（縁だけを mask で抜いた放射状のグラデーション）。色は palette の brand.sky／blue.300 だけ。
- * - ポインター: hover のある細かいポインター（マウス・ペン）で、reduced-motion でないときだけ。位置を rAF 1 回にまとめて書く。動かしていないときは何も回らない。
+ * - ポインター: hover のある細かいポインター（マウス）で、reduced-motion でないときだけ。位置を rAF 1 回にまとめて書く。動かしていないときは何も回らない。
+ * - 指（タッチ・ペン。2026-10-20 から）: 押している間（lib/touch-press.ts の data-touch-press）だけ、押した所を中心に縁が光り、指に沿う。
+ *   hover の無い iPhone でも、触れたら応える手触りにした。reduced-motion では光らせない（マウスと同じ）。
  * - キーボード: カードの中の要素に focus-visible が当たったら、縁の全体を静かに（動かさず）光らせる。ポインターで光る縁と同じ「光る」変化を、キーボードの訪問者にも。
  *   :focus-within ではなく :has(:focus-visible) にしたのは、マウスでリンクを押したときに光が残らないため（AGENTS.md「focus-visible でも起こす」）。
  * - 子は直接の子として並べる。カード側は data-glow-card を付ける（IconCard は属性を受け取る）。カードに操作できる要素が無ければ、フォーカスの光は出ない（フォーカスが来ないため）。
@@ -91,12 +93,20 @@ const { class: className } = Astro.props;
       opacity: 1;
     }
   }
+  /* 指（タッチ・ペン）。押している間（script が data-touch-press を付ける）だけ。動きを減らす設定では光らせない */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-glow-grid][data-glow-ready] > [data-glow-card][data-touch-press]::before,
+    [data-glow-grid][data-glow-ready] > [data-glow-card][data-touch-press]::after {
+      opacity: 1;
+    }
+  }
 </style>
 
 <script>
   // perf: 常に聞くのは grid ごとの pointermove だけ（原本は body と window に常駐）。位置は rAF 1 回にまとめ、動かしていないときは何も回らない。
-  // a11y: reduced-motion・タッチ・hover の無い端末では何もしない（CSS 側も同じ条件）。
+  // a11y: reduced-motion では何もしない（CSS 側も同じ条件）。マウスは hover のある細かいポインターのときだけ、指は押している間だけ（lib/touch-press.ts）。
   import { glowFromPointer } from '../../lib/pointer-vars';
+  import { watchTouchPress } from '../../lib/touch-press';
 
   const pointerOk = () =>
     matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -106,25 +116,35 @@ const { class: className } = Astro.props;
     let frame = 0;
     let pending: { card: HTMLElement; x: number; y: number } | null = null;
 
+    const queue = (card: HTMLElement, x: number, y: number) => {
+      pending = { card, x, y };
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!pending) return;
+        const { card: target, x: px, y: py } = pending;
+        pending = null;
+        const glow = glowFromPointer(target.getBoundingClientRect(), px, py);
+        target.style.setProperty('--glow-x', glow.x);
+        target.style.setProperty('--glow-y', glow.y);
+      });
+    };
+
     grid.addEventListener(
       'pointermove',
       (event) => {
-        if (event.pointerType === 'touch' || !pointerOk()) return;
+        if (event.pointerType !== 'mouse' || !pointerOk()) return;
         const card = (event.target as Element | null)?.closest<HTMLElement>('[data-glow-card]');
         if (!card || card.parentElement !== grid) return;
-        pending = { card, x: event.clientX, y: event.clientY };
-        if (frame) return;
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          if (!pending) return;
-          const { card: target, x, y } = pending;
-          pending = null;
-          const glow = glowFromPointer(target.getBoundingClientRect(), x, y);
-          target.style.setProperty('--glow-x', glow.x);
-          target.style.setProperty('--glow-y', glow.y);
-        });
+        queue(card, event.clientX, event.clientY);
       },
       { passive: true },
     );
+
+    // 指（タッチ・ペン）: カードごとに、押している間だけ光らせ、指に沿わせる
+    for (const card of Array.from(grid.children)) {
+      if (!(card instanceof HTMLElement) || !card.hasAttribute('data-glow-card')) continue;
+      watchTouchPress(card, { onMove: (x, y) => queue(card, x, y) });
+    }
   });
 </script>

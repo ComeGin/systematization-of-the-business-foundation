@@ -1,21 +1,22 @@
 // フォームの検査（計画書の検証 6。WCAG 1.3.5・3.3.1・3.3.2・4.1.3）。
 // 送信は support/fixtures.ts が /form/submit をパスで差し替える（開発の Mautic に送らない）。
 import { expect, test } from "../support/fixtures";
+import type { Page } from "@playwright/test";
 import {
   CONSULT_TEXT,
-  SOURCE_DL_TEXT,
   announceChannels,
   consultForm,
   controlsWithoutVisibleLabel,
   emailField,
   fillConsult,
-  fillSourceDl,
   invalidWithoutDescribedError,
-  sourceDlForm,
 } from "../support/forms";
 import { liveRegionTexts } from "../support/dom";
 import { open } from "./axe";
+import { BASE_URL, distRoutes } from "./routes";
 import { VALIDATION } from "../../src/modules/forms/lib/messages";
+import { blogIndex } from "../../src/modules/site-content/blog";
+import { SOURCE_ZIP_URL } from "../../src/modules/site-content/nav";
 
 // 入力目的のある欄（1.3.5）。tel の欄を足したら tel も足す
 const AUTOCOMPLETE: Record<string, string> = {
@@ -197,56 +198,78 @@ test.describe("無料相談のフォーム", () => {
   });
 });
 
-test.describe("無料 DL のフォーム", () => {
+// 2026-10-20 に、ブログ（7-5・8-8）の無料 DL ブロックをメールのフォームから「ソースコードを無料 DL」の CTA にした（トップの 1-9 と同じ部品）。
+// 押すと別のタブで zip を開き、元のタブは無料相談へ移る（source-dl の lib/redirect.ts）。外部の GitHub には届かせないよう window.open を差し替える。
+const firstArticle = () => {
+  const route = distRoutes().find((r) => /^\/blog\/(?!category\/|page\/)[^/]+\/$/.test(r));
+  if (!route) throw new Error("dist に記事のページがありません（Strapi の記事を取り込んでビルドしてください）");
+  return route;
+};
+
+const OPENED_KEY = "e2e:window-open";
+
+/**
+ * window.open の呼び出しを sessionStorage に記録し、実際には開かない（zip は外部の GitHub にあるため）。
+ * 記録は同じタブの遷移（/contact への移動）を越えて残るので、移った先で読める
+ */
+async function recordWindowOpen(page: Page) {
+  await page.addInitScript((key) => {
+    window.open = (...args: unknown[]) => {
+      const calls = JSON.parse(sessionStorage.getItem(key) ?? "[]") as unknown[];
+      calls.push(args);
+      sessionStorage.setItem(key, JSON.stringify(calls));
+      return null;
+    };
+  }, OPENED_KEY);
+}
+
+const openedCalls = (page: Page) =>
+  page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "[]") as unknown[], OPENED_KEY);
+
+test.describe("無料 DL の CTA（ブログ）", () => {
   test.describe("正常系", () => {
-    test("メールの欄に見えるラベルと autocomplete=email があり、送ると成功を 1 回だけ読み上げる", async ({
-      page,
-      net,
-    }) => {
-      await open(page, "/blog/");
-      const form = await sourceDlForm(page);
-      expect(await controlsWithoutVisibleLabel(form)).toEqual([]);
-      await expect(form.locator('[name="email"]')).toHaveAttribute(
-        "autocomplete",
-        "email",
-      );
-      await fillSourceDl(form);
-      await form.getByRole("button", { name: SOURCE_DL_TEXT.submit }).click();
-      await expect(page.getByText(SOURCE_DL_TEXT.successTitle)).toBeVisible();
-      expect(await announceChannels(page, SOURCE_DL_TEXT.successTitle)).toBe(1);
-      expect(net.to("/form/submit")).toHaveLength(1);
-    });
+    for (const [label, route, ctaId] of [
+      ["ブログ一覧（7-5）", () => "/blog/", "dl_blog_section"],
+      ["記事末（8-8）", firstArticle, "dl_article_end"],
+    ] as const) {
+      test(`${label}: メールの欄を持たず、zip を指すボタンと押したときの注記が結ばれている`, async ({ page }) => {
+        await open(page, route());
+        const block = page.locator("#source-dl");
+        await expect(block.locator("form, input")).toHaveCount(0);
+        await expect(block.getByRole("heading", { level: 2 })).toHaveText(blogIndex.sourceDownload.copy.title);
+        const cta = block.getByRole("link", { name: blogIndex.sourceDownload.buttonLabel });
+        await expect(cta).toHaveAttribute("href", SOURCE_ZIP_URL);
+        await expect(cta).toHaveAttribute("data-cta-id", ctaId);
+        await expect(cta).toHaveAttribute("data-cta-type", "source_dl");
+        await expect(cta).toHaveAccessibleDescription(blogIndex.sourceDownload.note);
+      });
+
+      test(`${label}: 押すと別のタブで zip を開き、元のタブは無料相談（cta=${ctaId}）へ移る`, async ({ page }) => {
+        await recordWindowOpen(page);
+        const path = route();
+        await open(page, path);
+        await page.locator("#source-dl").getByRole("link", { name: blogIndex.sourceDownload.buttonLabel }).click();
+        await page.waitForURL((url) => url.pathname.startsWith("/contact"), { waitUntil: "commit" });
+        const url = new URL(page.url());
+        expect(url.searchParams.get("cta")).toBe(ctaId);
+        expect(url.searchParams.get("from")).toBe(path);
+        expect(await openedCalls(page)).toEqual([[SOURCE_ZIP_URL, "_blank", "noopener"]]);
+      });
+    }
   });
 
   test.describe("異常系", () => {
-    test("空入力: 何も入れずに送ると送信せず、メールの欄にフォーカスが移り、エラーが欄と結ばれる", async ({
-      page,
-      net,
-    }) => {
-      await open(page, "/blog/");
-      const form = await sourceDlForm(page);
-      await form.getByRole("button", { name: SOURCE_DL_TEXT.submit }).click();
-      await expect(
-        emailField(form),
-      ).toBeFocused();
-      expect(await invalidWithoutDescribedError(form)).toEqual([]);
-      expect(net.to("/form/submit")).toHaveLength(0);
-    });
-
-    test("サーバ: 500 のとき登録の失敗を 1 回だけ読み上げ、ボタンが押せる状態に戻る", async ({
-      page,
-      net,
-    }) => {
-      net.mautic = "server-error";
-      await open(page, "/blog/");
-      const form = await sourceDlForm(page);
-      await fillSourceDl(form);
-      await form.getByRole("button", { name: SOURCE_DL_TEXT.submit }).click();
-      await expect(page.getByText(SOURCE_DL_TEXT.failedTitle)).toBeVisible();
-      expect(await announceChannels(page, SOURCE_DL_TEXT.failedTitle)).toBe(1);
-      await expect(
-        form.getByRole("button", { name: SOURCE_DL_TEXT.submit }),
-      ).toBeEnabled();
+    test("入力: JS が動かないときも、ボタンの href は zip のまま（ダウンロードだけは起きる）", async ({ browser }) => {
+      const context = await browser.newContext({ baseURL: BASE_URL, javaScriptEnabled: false });
+      try {
+        const page = await context.newPage();
+        await page.goto("/blog/");
+        await expect(
+          page.locator("#source-dl").getByRole("link", { name: blogIndex.sourceDownload.buttonLabel }),
+        ).toHaveAttribute("href", SOURCE_ZIP_URL);
+      } finally {
+        await context.close();
+      }
     });
   });
 });
