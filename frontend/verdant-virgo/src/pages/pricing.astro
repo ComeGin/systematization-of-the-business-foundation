@@ -43,7 +43,7 @@ const paymentCell = 'type-small md:type-body px-2 py-2 align-middle whitespace-n
 
   {/* 4-4 料金カード（Desktop は 3 列 ＋ 2 列、Mobile は 1 列）。見出しの上に h2 が無いので、カードの見出しを h2 にする（見た目は変えない。1.3.1） */}
   <Section class="phrase">
-    <div class="flex flex-col gap-4 md:gap-6" data-avatar-cue="pricing">
+    <div class="flex flex-col gap-4 md:gap-6">
       {
         [upperCards, lowerCards].map((group, i) => (
           <div class:list={['grid gap-4 md:gap-6', i === 0 ? 'md:grid-cols-3' : 'md:grid-cols-2']}>

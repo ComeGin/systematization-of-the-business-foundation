@@ -6,8 +6,10 @@
  * - zone が none（C。規約・ポリシー）なら何も出さない（DOM も JS も無い）。
  * - island（AvatarStage）は client:idle。最初の描画と読み込みの後に水和する。JS が無いときは何も出さない。
  * - 資産（.vrm・クリップの JSON・静止画）は ?url で読む。ビルドでは _astro/ にハッシュ付きの名前で出て、1 年キャッシュされる（設計書 §4.4）。
- *   クリップの長さ（duration。秒）はビルド時にここで JSON から読み、エモートごとに ms へ切り上げて durationsMs として渡す（その間は次の合図を受けない。R18。JSON を JS に入れない）。
- * - 根は data-motion="avatar"。island が data-avatar-state（none・loading・ready・failed）と data-avatar-small を付け外しする。
+ * - 根は data-motion="avatar"。island が data-avatar-state（none・loading・ready・failed）・data-avatar-small・data-avatar-touch（hover の無い端末）を付け外しし、
+ *   拡大率を --avatar-zoom に書く（ホイール・ピンチ・＋／−。R20。絵だけを左下を起点に scale する。transform なのでレイアウトのずれにならない）。
+ * - アバター本体のボタン（.avatar-dock__hit）は canvas に透明に重ね、押すと身ぶりをする（R20）。マウスでは体の上にいる間だけ（data-hit）、
+ *   hover の無い端末ではボタン全体がポインターを受ける。それ以外の範囲は下の本文へポインターを通す。
  * - 同意バナーが出ている間は、その高さの分だけ上へ逃がす（global.css の html:has(#cookie-banner:not([hidden])) の規則。translate なのでレイアウトのずれにならない）。
  * - Mobile で出した後（R19）は高さ 120px（data-avatar-small）。スクロールしている間は island が data-avatar-away を付け、左の画面の外へ逃がす。
  *   横は transform、同意バナーの縦は translate と、別のプロパティで動かす（合成されて、どちらも消えない）。
@@ -15,7 +17,6 @@
  * 文言は site-content の AVATAR_LABELS・MOTION_PAUSE_TARGETS（既定値を持たない。H-16）。
  */
 import type { MotionZone } from '@/modules/motion';
-import type { EmoteId } from '../lib/types';
 import { AVATAR_LABELS, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import AvatarStage from '../islands/AvatarStage';
 import modelUrl from '../assets/avatar.vrm?url';
@@ -45,12 +46,6 @@ const motionUrls = {
   peace: peaceUrl,
   'show-full-body': showFullBodyUrl,
 };
-
-// エモート（待機を除く）のクリップの長さ（ms。切り上げ）。キーはファイル名（＝エモートの名前）。ビルド時に読むだけで、JSON はページの JS に入らない
-const clipDurations = import.meta.glob<number>(['../assets/motions/*.json', '!../assets/motions/idle.json'], { eager: true, import: 'duration' });
-const durationsMs = Object.fromEntries(
-  Object.entries(clipDurations).map(([file, seconds]) => [file.replace(/^.*\/|\.json$/g, ''), Math.ceil(seconds * 1000)]),
-) as Partial<Record<EmoteId, number>>;
 ---
 
 {
@@ -65,7 +60,6 @@ const durationsMs = Object.fromEntries(
         iconUrl={iconUrl}
         labels={AVATAR_LABELS}
         pauseTarget={MOTION_PAUSE_TARGETS.avatar}
-        durationsMs={durationsMs}
       />
     </div>
   )
@@ -79,6 +73,7 @@ const durationsMs = Object.fromEntries(
   .avatar-dock {
     --avatar-h: 180px;
     --avatar-small-scale: 0.6667; /* 120px ÷ 180px（会社紹介のメンバーが見えている間〈§7.4〉と、Mobile で出した後〈R19〉） */
+    --avatar-zoom: 1; /* 訪問者が変えた拡大率（R20。island が書く。0.6〜2 で、画面からはみ出さない範囲） */
     position: fixed;
     left: 1rem;
     bottom: 1rem;
@@ -129,11 +124,43 @@ const durationsMs = Object.fromEntries(
     width: calc(var(--avatar-h) * 0.6);
     height: var(--avatar-h);
     transform-origin: bottom left;
+    transform: scale(var(--avatar-zoom));
     transition: transform var(--motion-duration-medium) var(--motion-ease-standard);
   }
 
   .avatar-dock[data-avatar-small='true'] .avatar-dock__stage {
-    transform: scale(var(--avatar-small-scale));
+    transform: scale(calc(var(--avatar-small-scale) * var(--avatar-zoom)));
+  }
+
+  /* タッチのピンチの間は指に合わせて動かす（トランジションで遅れて付いてこないように） */
+  .avatar-dock[data-avatar-zooming='true'] .avatar-dock__stage {
+    transition: none;
+  }
+
+  /*
+   * アバター本体のボタン（R20）。canvas に透明に重ね、普段はポインターを通す。
+   * マウスでは体の上にいる間だけ（data-hit）、hover の無い端末ではボタン全体が受ける。
+   * touch-action: none で、アバターの上のピンチをページの拡大にしない（1 本の指のスクロールもアバターの上では起きない）。
+   * フォーカスリングは global.css の :focus-visible（H-8）
+   */
+  .avatar-dock__hit {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: transparent;
+    pointer-events: none;
+    touch-action: none;
+  }
+
+  .avatar-dock__hit[data-hit='true'],
+  .avatar-dock[data-avatar-touch='true'] .avatar-dock__hit {
+    pointer-events: auto;
+    cursor: pointer;
   }
 
   .avatar-dock__still,

@@ -14,7 +14,6 @@
  * - ページ移動の View Transitions の opt-in（@view-transition）と pagereveal の登録は、PageTransitionHead が head に出す。none のページには置かない（C へ入る・C から出る遷移が起きない）
  * - 告知帯（トップだけ）は slot="announcement"、ページ固有の head 要素（JSON-LD など）は slot="head"
  * - アバター（avatar の AvatarDock。画面の左下）は none 以外のページの body の末尾に置く（C のページには DOM も JS も出さない）
- * - avatarCue は <main> に付けるアバターの合図の印（完了画面の form-success。アバターが着いたときに喜ぶ）
  */
 import '@/styles/global.css';
 import { AnalyticsHead, CtaTracking } from '@/modules/analytics';
@@ -48,8 +47,6 @@ export interface Props {
   sourceDlOnPage?: boolean;
   /** 動きの区分。vivid＝トップ・サービス（A）、none＝規約・ポリシー（C）、既定の calm＝ほか（B） */
   motionZone?: MotionZone;
-  /** <main> に付けるアバターの合図（data-avatar-cue）。完了画面だけが form-success を渡す */
-  avatarCue?: 'form-success';
 }
 
 const {
@@ -63,7 +60,6 @@ const {
   ogType = 'website',
   sourceDlOnPage = false,
   motionZone = 'calm',
-  avatarCue,
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site);
@@ -129,7 +125,7 @@ const breadcrumbJsonLd = breadcrumb && {
     <slot name="announcement" />
     <SiteHeader headerCta={headerCta} sourceDlOnPage={sourceDlOnPage} motionZone={motionZone} />
     {breadcrumb && <Breadcrumb items={breadcrumb} tone={breadcrumbTone} />}
-    <main id="main" tabindex="-1" class="flex-1" data-avatar-cue={avatarCue}>
+    <main id="main" tabindex="-1" class="flex-1">
       <slot />
     </main>
     <SiteFooter sourceDlOnPage={sourceDlOnPage} />

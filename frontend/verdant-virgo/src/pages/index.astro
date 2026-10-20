@@ -232,7 +232,7 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
   {/* 1-7 サービス（A なので 1 枚ずつ Tilt3d で包む。ポインターで傾き、キーボードのフォーカスでは浮く） */}
   <Section labelledby="top-services" class="phrase">
     <SectionHeading id="top-services" title={services.heading} lead={services.lead} />
-    <div class="mt-8 md:mt-12 grid gap-4 md:gap-6 md:grid-cols-2" data-avatar-cue="pricing">
+    <div class="mt-8 md:mt-12 grid gap-4 md:gap-6 md:grid-cols-2">
       {
         serviceCards.map(({ card, prices, note }) => (
           <Tilt3d>

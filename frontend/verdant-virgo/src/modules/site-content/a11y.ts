@@ -36,6 +36,7 @@ export const MOTION_PAUSE_TARGETS = {
  * S-24 アバター（avatar の AvatarDock・AvatarStage）の操作ボタンの名前。
  * 一時停止は S-11 の文言をそのまま使い、対象名 MOTION_PAUSE_TARGETS.avatar を sr-only で足す。
  * collapse＝出ているアバターをしまう、expand＝しまったアバターを出す、summon＝Mobile の最初のアイコン（押すと 3D を読み込んで出す）。
+ * interact＝アバター本体（押すと身ぶり。R20）、interactHint＝その title（押す・拡大縮小の操作の案内）。
  */
 export const AVATAR_LABELS = {
   pause: MOTION_PAUSE.pause,
@@ -43,4 +44,7 @@ export const AVATAR_LABELS = {
   collapse: "アバターをしまう",
   expand: "アバターを出す",
   summon: "アバターを表示する",
+  interact: "アバターに身ぶりをさせる",
+  interactHint:
+    "押すと身ぶりをします。ホイール・ピンチ、または ＋・− キーで拡大・縮小、0 キーで元の大きさに戻ります",
 } as const;

@@ -24,7 +24,7 @@ const breadcrumb = contactThanks.breadcrumb.slice(1).map((crumb) => ({ ...crumb 
 const cardCta = (href: string) => (href === '/#source-dl' ? ctaDataAttributes('dl_thanks_card') : {});
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} avatarCue="form-success">
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
   {/* 6'-1 完了画面（h1 の上の Badge は Figma から採った。語はパンくずの「受付完了」） */}
   <PageIntro title={hero.h1} badge={hero.badge} badgeIcon={CircleCheck} body={hero.body} />
 

@@ -210,7 +210,6 @@ export default function ContactForm({
     const outcome = await submitToMautic(formId, "consult", fields);
     if (outcome.ok) {
       events.submitted();
-      // 遷移で消えるので、アバターの喜ぶ動きは完了画面の data-avatar-cue="form-success" で出る
       dispatchFormSuccess("consult");
       window.location.assign("/contact/thanks");
       return;

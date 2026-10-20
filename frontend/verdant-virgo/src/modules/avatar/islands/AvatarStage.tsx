@@ -1,4 +1,11 @@
-// アバターの island（AvatarDock.astro からだけ使う。client:idle）。画面の左下で、背景が透明な canvas に全身を描き、ページ・操作の合図でエモートする（設計書 §7）。
+// アバターの island（AvatarDock.astro からだけ使う。client:idle）。画面の左下で、背景が透明な canvas に全身を描き、訪問者の操作でエモートする（設計書 §7）。
+// 動きの流れ（2026-10-20 の裁定 R20）:
+//   - 出たら手を振る（セッションで 1 回。R17）→ 直立 → 操作が 15 秒無ければ待機の呼吸（BreathingIdle）→ 操作があれば直立に戻る。
+//   - アバターを押す（クリック・タップ・Enter／Space）と、ほかの 5 本の身ぶりから 1 本（lib/emotes.ts）。
+//   - ホイール・ピンチ（トラックパッド・タッチ）・＋／−／0 のキーで枠を拡大・縮小する（lib/zoom.ts）。CSS の scale（--avatar-zoom）なので、レイアウトのずれ（CLS）にならない。
+//     大きさは画面からはみ出さない範囲に収め、sessionStorage（avatar:zoom）に覚える。
+//   - 押す・ホイールを受けるのは、マウスではアバターの体の上だけ（runtime.hitTest で、体の上にいる間だけボタンにポインターを通す。透明な余白の下のリンクを塞がない）。
+//     hover の無い端末（タッチ）では、ボタン全体が受ける（指は事前に位置を知らせないため）。
 // 出し方（§7.3）:
 //   - reduced-motion・WebGL なし: three を読まず、静止画（stillUrl の <img alt="">）だけ。一時停止のボタンも出さない（動かないため）。
 //   - Mobile（max-width 767px か pointer: coarse）: 最初はアイコン（iconUrl）のボタン「アバターを表示する」だけ。押したら three とモデルを読む（約 4MB を勝手に読まない）。
@@ -9,15 +16,23 @@
 // perf: three は loadThree()（motion）の 1 つのチャンクから、描画の部品（lib/stage.ts。GLTFLoader・three-vrm）は動的 import で、出すと決めたときだけ読む。
 //       画面外・タブ非表示・一時停止・たたんだ間は rAF を止める（runWhenVisible。規則 6）。
 // a11y: canvas と静止画は装飾（aria-hidden・alt=""）。5 秒を超えて動く（待機の呼吸・まばたき）ので MotionPause を付ける（2.2.2。motion:avatar）。
-//       一時停止の間は、まばたき・呼吸を含めて最後の姿勢で止まる。フォームの入力欄・送信ボタンやフォーカスした要素にアバターが重なるときは、
-//       保存しない一時的なたたみ方をする（2.4.11）。canvas と静止画はポインターを通す（下の本文のリンクを押せる）。
+//       一時停止の間は、まばたき・呼吸を含めて最後の姿勢で止まり、押しても身ぶりをしない。フォームの入力欄・送信ボタンやフォーカスした要素にアバターが重なるときは、
+//       保存しない一時的なたたみ方をする（2.4.11。拡大した分も重なりに含める）。canvas と静止画はポインターを通す（下の本文のリンクを押せる）。
+//       押す・拡大縮小はキーボードでもできる（アバター本体のボタン。Enter／Space で身ぶり、＋／−／0 で拡大・縮小・元の大きさ。2.1.1）。
 // 文言は props で受ける（既定値を持たない。H-16）。
 import { Minimize2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MotionPause, useReducedMotion } from "@/modules/a11y/client";
 import {
+  DURATION,
   canUseWebGL,
   loadThree,
   runWhenVisible,
@@ -27,13 +42,16 @@ import { createEmoteScheduler, type EmoteScheduler } from "../lib/emotes";
 import {
   readCollapsed,
   readGreeted,
+  readZoom,
   writeCollapsed,
   writeGreeted,
+  writeZoom,
 } from "../lib/prefs";
 import { watchScrollAway } from "../lib/scroll-away";
 import type { AvatarRuntime, ClipName } from "../lib/stage";
 import { watchTriggers } from "../lib/triggers";
 import type { AvatarLabels, AvatarTrigger, EmoteId } from "../lib/types";
+import { ZOOM_MAX, ZOOM_STEP, clampZoom, watchZoom } from "../lib/zoom";
 
 interface Props {
   zone: LiveZone;
@@ -44,8 +62,6 @@ interface Props {
   labels: AvatarLabels;
   /** 一時停止のボタンの対象名（MotionPause の target。site-content の MOTION_PAUSE_TARGETS.avatar） */
   pauseTarget: string;
-  /** エモートごとのクリップの長さ（ms。切り上げ）。その再生中は次の合図を受けない（AvatarDock がビルド時に JSON から求める。R18） */
-  durationsMs: Partial<Record<EmoteId, number>>;
 }
 
 declare global {
@@ -57,13 +73,22 @@ declare global {
 
 const STORAGE_KEY = "motion:avatar";
 const MOBILE_QUERY = "(max-width: 767px), (pointer: coarse)";
+/** hover の無い端末（指で操作する）。アバター本体のボタン全体で押す・ピンチを受ける */
+const TOUCH_QUERY = "(hover: none)";
 /** フォーカスが入ったときにアバターと重ならないかを見る要素 */
 const FORM_CONTROL = "form :is(input, textarea, select, button)";
+/** 拡大した枠の上端・右端に残す余白（px）。画面からはみ出さない上限を求める */
+const ZOOM_EDGE_PX = 16;
+/** 拡大率を覚える・描画の解像度を合わせるのは、変え終わってからこの間の後（ホイールの 1 目盛りごとに描画の領域を作り直さない） */
+const ZOOM_SETTLE_MS = DURATION.small;
+/** ピンチの指を離した直後のクリックは押したことにしない（ms） */
+const PINCH_CLICK_GUARD_MS = DURATION.medium;
 
 type Phase = "none" | "loading" | "ready" | "failed";
 
 interface Env {
   mobile: boolean;
+  touch: boolean;
 }
 
 function readPaused(): boolean {
@@ -89,8 +114,18 @@ const overlaps = (a: Box, b: Box) =>
   a.top < b.bottom &&
   b.top < a.bottom;
 
+const union = (a: Box, b: Box): Box =>
+  b.right > b.left && b.bottom > b.top
+    ? {
+        left: Math.min(a.left, b.left),
+        right: Math.max(a.right, b.right),
+        top: Math.min(a.top, b.top),
+        bottom: Math.max(a.bottom, b.bottom),
+      }
+    : a;
+
 /**
- * 枠の定位置の矩形。Mobile でスクロールしている間に横へ逃がす transform（data-avatar-away。トランジションの途中を含む）の分を戻す。
+ * 枠（か、その中の要素）の定位置の矩形。Mobile でスクロールしている間に横へ逃がす transform（data-avatar-away。トランジションの途中を含む）の分を戻す。
  * 逃がしている間にフォーカスが入っても、戻った後に重なるかで判定するため（2.4.11）。同意バナーの translate は本当の位置なので戻さない
  */
 function homeRect(frame: Element): Box {
@@ -123,7 +158,6 @@ export default function AvatarStage({
   iconUrl,
   labels,
   pauseTarget,
-  durationsMs,
 }: Props) {
   const reduced = useReducedMotion();
   const [env, setEnv] = useState<Env | null>(null);
@@ -149,10 +183,16 @@ export default function AvatarStage({
   const collapseRef = useRef<HTMLButtonElement>(null);
   const expandRef = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<"collapse" | "expand" | null>(null);
+  // アバター本体のボタン（押す・拡大縮小を受ける）と、拡大率（描画のたびに React を回さないよう ref で持ち、CSS の変数に直に書く）
+  const hitRef = useRef<HTMLButtonElement>(null);
+  const zoomRef = useRef(1);
+  const zoomTimer = useRef(0);
+  const pinchEndRef = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => {
     const mobile = window.matchMedia(MOBILE_QUERY).matches;
-    setEnv({ mobile });
+    const touch = window.matchMedia(TOUCH_QUERY).matches;
+    setEnv({ mobile, touch });
     setSummoned(!mobile);
     setCollapsed(readCollapsed());
     setUserPaused(readPaused());
@@ -194,6 +234,7 @@ export default function AvatarStage({
           return;
         }
         runtimeRef.current = runtime;
+        runtime.setZoom(zoomRef.current);
         runtime.renderOnce();
         setPhase("ready");
       })
@@ -225,41 +266,135 @@ export default function AvatarStage({
     runtimeRef.current?.setActive(active);
   }, [active]);
 
-  // 合図 → エモート。受理したかを返す（受理しなかった料金の節・idle は、triggers が後で出し直す。R18）。
-  // 動いていない間（一時停止・たたんだ・画面外）と再生中の合図は受理しない。着いたときの挨拶はセッションで 1 回（R17）。
+  // 合図 → 動き。受理したかを返す（受理しなかった idle・wake は、triggers が後で出し直す。R18）。
+  // 動いていない間（一時停止・たたんだ・画面外）の合図は受理しない。着いたときの挨拶はセッションで 1 回（R17）。
   // 挨拶を済ませた印と window.__avatar は、再生できてから書く（クリップが読めなかったら書かない）
-  const onTrigger = useCallback(
-    (trigger: AvatarTrigger): boolean => {
-      const runtime = runtimeRef.current;
-      if (!runtime || !activeRef.current) return false;
-      // 挨拶を済ませたセッションの arrive は「済んだ」として受理する（出し直さない）
-      if (trigger === "arrive" && readGreeted()) return true;
-      schedulerRef.current ??= createEmoteScheduler(zone, { durationsMs });
-      const emote = schedulerRef.current.request(trigger, performance.now());
-      if (!emote) return false;
-      runtime
-        .play(emote)
-        .then((played) => {
-          if (!played) return;
-          if (emote === "greeting") writeGreeted();
-          window.__avatar = { lastEmote: emote };
-        })
-        .catch((error: unknown) => {
-          console.error(
-            "[avatar] エモートを再生できませんでした",
-            emote,
-            error,
-          );
-        });
-      return true;
-    },
-    [zone, durationsMs],
-  );
+  const onTrigger = useCallback((trigger: AvatarTrigger): boolean => {
+    const runtime = runtimeRef.current;
+    if (!runtime || !activeRef.current) return false;
+    let emote: EmoteId | null;
+    switch (trigger) {
+      case "idle":
+      case "wake":
+        runtime.rest(trigger === "idle");
+        return true;
+      case "arrive":
+        // 挨拶を済ませたセッションの arrive は「済んだ」として受理する（出し直さない）
+        if (readGreeted()) return true;
+        emote = "greeting";
+        break;
+      case "tap":
+        schedulerRef.current ??= createEmoteScheduler();
+        emote = schedulerRef.current.next(performance.now());
+        if (!emote) return false;
+        break;
+    }
+    runtime
+      .play(emote)
+      .then((played) => {
+        if (!played) return;
+        if (emote === "greeting") writeGreeted();
+        window.__avatar = { lastEmote: emote };
+      })
+      .catch((error: unknown) => {
+        console.error("[avatar] エモートを再生できませんでした", emote, error);
+      });
+    return true;
+  }, []);
 
   useEffect(() => {
     if (phase !== "ready") return undefined;
-    return watchTriggers(zone, onTrigger);
-  }, [phase, zone, onTrigger]);
+    return watchTriggers(onTrigger);
+  }, [phase, onTrigger]);
+
+  // 拡大率。CSS の変数はすぐ書き、記憶と描画の解像度は変え終わってから合わせる
+  const applyZoom = useCallback((zoom: number) => {
+    zoomRef.current = zoom;
+    rootRef.current
+      ?.closest<HTMLElement>('[data-motion="avatar"]')
+      ?.style.setProperty("--avatar-zoom", String(zoom));
+    window.clearTimeout(zoomTimer.current);
+    zoomTimer.current = window.setTimeout(() => {
+      writeZoom(zoom);
+      runtimeRef.current?.setZoom(zoom);
+    }, ZOOM_SETTLE_MS);
+  }, []);
+
+  // 画面からはみ出さない上限。絵は左下を起点に広がる（transform-origin: bottom left）ので、絵の下端から画面の上端、左端から画面の右端までに収める。
+  // 大きさは拡大前のレイアウトの大きさ（offset*）× 小さくする倍率（data-avatar-small）で求める（トランジションの途中の見た目に左右されない）
+  const maxZoom = useCallback(() => {
+    const stage = stageRef.current;
+    const host = stage?.closest<HTMLElement>('[data-motion="avatar"]');
+    if (!stage || !host || stage.offsetHeight === 0) return ZOOM_MAX;
+    const small =
+      host.dataset.avatarSmall === "true"
+        ? Number(
+            getComputedStyle(host).getPropertyValue("--avatar-small-scale"),
+          ) || 1
+        : 1;
+    const rect = stage.getBoundingClientRect();
+    return Math.min(
+      (rect.bottom - ZOOM_EDGE_PX) / (stage.offsetHeight * small),
+      (window.innerWidth - rect.left - ZOOM_EDGE_PX) /
+        (stage.offsetWidth * small),
+    );
+  }, []);
+
+  // 覚えている拡大率を最初の描画で当て、画面の大きさが変わったら上限に収め直す
+  useEffect(() => {
+    if (env === null) return undefined;
+    applyZoom(clampZoom(readZoom(), maxZoom()));
+    const onResize = () => {
+      const next = clampZoom(zoomRef.current, maxZoom());
+      if (next !== zoomRef.current) applyZoom(next);
+    };
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.clearTimeout(zoomTimer.current);
+    };
+  }, [env, applyZoom, maxZoom]);
+
+  // ホイール・ピンチで拡大・縮小（3D が描けてから。アバター本体のボタンが受ける）
+  const canvasReady = env !== null && !reduced && phase === "ready";
+  useEffect(() => {
+    const el = hitRef.current;
+    if (!canvasReady || !el) return undefined;
+    const host = el.closest<HTMLElement>('[data-motion="avatar"]');
+    return watchZoom(el, {
+      get: () => zoomRef.current,
+      set: applyZoom,
+      max: maxZoom,
+      onPinch: (active) => {
+        // 指に合わせて動かす間はトランジションを外す（遅れて付いてこないように）
+        if (active) host?.setAttribute("data-avatar-zooming", "true");
+        else {
+          host?.removeAttribute("data-avatar-zooming");
+          pinchEndRef.current = performance.now();
+        }
+      },
+    });
+  }, [canvasReady, applyZoom, maxZoom]);
+
+  // マウス・ペンでは、ポインターがアバターの体の上にある間だけ、本体のボタンにポインターを通す（data-hit）。
+  // 体の外（canvas の透明な余白）では下の本文を押せ、ホイールはページのスクロールになる。動いていない間（一時停止など）は通さない
+  useEffect(() => {
+    if (!canvasReady || env?.touch !== false) return undefined;
+    const onMove = (event: PointerEvent) => {
+      const el = hitRef.current;
+      if (!el || event.pointerType === "touch") return;
+      const hit =
+        activeRef.current &&
+        (runtimeRef.current?.hitTest(event.clientX, event.clientY) ?? false);
+      if (hit) el.setAttribute("data-hit", "true");
+      else el.removeAttribute("data-hit");
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      hitRef.current?.removeAttribute("data-hit");
+    };
+  }, [canvasReady, env]);
 
   // 会社紹介のメンバーの節が見えている間は小さく
   useEffect(() => {
@@ -313,8 +448,12 @@ export default function AvatarStage({
         return;
       }
       // 枠（出ているときのアバターと操作の列の範囲）と、その左下のアイコンの範囲のそれぞれと比べる。
-      // 枠は定位置で見る（逃がしている間の transform を含めると、戻った後に重なるのを見落とす。R19）
+      // 枠は定位置で見る（逃がしている間の transform を含めると、戻った後に重なるのを見落とす。R19）。
+      // 拡大した絵は枠の上・右へはみ出すので、出ているときの範囲は絵の矩形も含める（R20）
       const frame = homeRect(root);
+      const panel = stageRef.current
+        ? union(frame, homeRect(stageRef.current))
+        : frame;
       const icon = {
         left: frame.left,
         right: frame.left + ICON_PX,
@@ -325,7 +464,7 @@ export default function AvatarStage({
       setFocusHit(
         overlaps(icon, rect)
           ? "icon"
-          : overlaps(frame, rect)
+          : overlaps(panel, rect)
             ? "panel"
             : "none",
       );
@@ -359,7 +498,9 @@ export default function AvatarStage({
     else host.removeAttribute("data-avatar-small");
     if (away) host.setAttribute("data-avatar-away", "true");
     else host.removeAttribute("data-avatar-away");
-  }, [phase, small, away]);
+    if (env?.touch) host.setAttribute("data-avatar-touch", "true");
+    else host.removeAttribute("data-avatar-touch");
+  }, [phase, small, away, env]);
 
   if (env === null) return null;
 
@@ -380,6 +521,26 @@ export default function AvatarStage({
     writeCollapsed(false);
     focusAfter.current = "expand";
   };
+  // アバター本体を押した（クリック・タップ・Enter／Space）。ピンチの指を離した直後のクリックは除く
+  const tap = () => {
+    if (performance.now() - pinchEndRef.current < PINCH_CLICK_GUARD_MS) return;
+    onTrigger("tap");
+  };
+  // キーボードの拡大・縮小（＋／−、0 で元の大きさ。テンキーと Shift の有無を問わない）
+  const onHitKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const zoom = zoomRef.current;
+    const next =
+      event.key === "+" || event.key === "="
+        ? zoom * ZOOM_STEP
+        : event.key === "-" || event.key === "_"
+          ? zoom / ZOOM_STEP
+          : event.key === "0"
+            ? 1
+            : null;
+    if (next === null) return;
+    event.preventDefault();
+    applyZoom(clampZoom(next, maxZoom()));
+  };
 
   const iconButton = "avatar-dock__icon pointer-events-auto";
   // canvas は、読み込みを始める（出ていて一時停止でない）か、読み込みを始めた後だけ置く（止めた・たたんだまま開いたページには置かない）。
@@ -388,7 +549,6 @@ export default function AvatarStage({
     phase === "loading" ||
     phase === "ready" ||
     (live && phase === "none" && shown && !userPaused);
-  const canvasReady = live && phase === "ready";
 
   return (
     <div ref={rootRef} className="avatar-dock__frame">
@@ -429,6 +589,19 @@ export default function AvatarStage({
                 hidden={!live}
                 className="avatar-dock__canvas"
                 style={{ opacity: canvasReady ? 1 : 0 }}
+              />
+            )}
+            {/* アバター本体のボタン（3D が描けてから。canvas と同じ範囲に透明に重ねる）。名前で役目を、title で操作の方法を伝える */}
+            {canvasReady && (
+              <button
+                type="button"
+                ref={hitRef}
+                className="avatar-dock__hit"
+                aria-label={labels.interact}
+                aria-keyshortcuts="+ - 0"
+                title={labels.interactHint}
+                onClick={tap}
+                onKeyDown={onHitKey}
               />
             )}
           </div>

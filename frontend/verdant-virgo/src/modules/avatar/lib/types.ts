@@ -2,8 +2,11 @@
 // 文言の既定値は持たない（H-16）。文言は site-content から渡す。
 import type { VRMHumanBoneName } from "@pixiv/three-vrm";
 
-/** アバターが動きを起こす場面 */
-export type AvatarTrigger = "arrive" | "reach-pricing" | "cta-intent" | "idle" | "form-success";
+/**
+ * アバターが動きを起こす場面（2026-10-20 の裁定 R20）。
+ * arrive＝出た（手を振る）、idle＝しばらく操作が無い（待機の呼吸に入る）、wake＝idle の後に操作があった（直立に戻る）、tap＝アバターを押した（ほかの身ぶり）
+ */
+export type AvatarTrigger = "arrive" | "idle" | "wake" | "tap";
 
 /** VRMA（モーションファイル）で動かす表現 */
 export type VrmaEmote = "greeting" | "peace" | "show-full-body";
@@ -20,6 +23,10 @@ export interface AvatarLabels {
   collapse: string;
   expand: string;
   summon: string;
+  /** アバター本体のボタンの名前（押すと身ぶりをする） */
+  interact: string;
+  /** アバター本体のボタンの補足（title。押す・拡大縮小の操作の案内） */
+  interactHint: string;
 }
 
 /** Mixamo から書き出したクリップの 1 本のトラック（Task 9 の convert-mixamo.mjs が作る） */

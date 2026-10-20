@@ -1,69 +1,65 @@
-// エモートの定義と、合図（AvatarTrigger）との対応（設計書 §7.2。U-8）。React・three に依存しない（単体テストの対象）。
-//   A（vivid）… 着いたら手を振る／料金・プランの節で うなずく／主 CTA に触れたら指さす／しばらく何もしなければ考える・全身を見せる／送信できたら喜ぶ
-//   B（calm） … 着いたら手を振る／送信できたら喜ぶ（ほかは何もしない）
-// 同じエモートを短い間に繰り返さない（cooldownMs）。1 つの再生中は次を受けない（そのエモートのクリップの長さ durationsMs。表に無ければ playMs。R18）。
-import type { LiveZone } from "@/modules/motion/client";
-import type { AvatarTrigger, EmoteId } from "./types";
+// エモートの定義と、押した（tap）ときの選び方（設計書 §7.2。2026-10-20 の裁定 R20）。React・three に依存しない（単体テストの対象）。
+//   出た        … 手を振る（greeting。セッションで 1 回。R17。AvatarStage が出す）
+//   しばらく操作が無い … 待機の呼吸（BreathingIdle のループ。それまでは直立。lib/stage.ts の rest）
+//   押した      … 上の 2 つ以外の 5 本（うなずく・指さす・考える・喜ぶ・全身を見せる）から 1 本
+// ページの印・CTA・送信の成功では動かさない（動きは訪問者が押した結果だけにする）。A（vivid）と B（calm）で同じ。
+// 押したときの選び方: 5 本を混ぜた袋から順に出し、袋が空になったら混ぜ直す（同じ身ぶりが続かず、5 回で全部を見られる）。
+// 再生中に押されたら、いまの身ぶりを切り替える（押したのに何も起きない、を避ける）。ただし連打で身ぶりがちらつかないよう、前に受けてから intervalMs は受けない。
+import type { EmoteId } from "./types";
 
-/** 区分ごとの「合図 → エモート」。idle は表の think から始めて、スケジューラーが think と show-full-body を交互に返す */
-export const EMOTE_TABLE: Record<LiveZone, Partial<Record<AvatarTrigger, EmoteId>>> = {
-  vivid: {
-    arrive: "greeting",
-    "reach-pricing": "nod",
-    "cta-intent": "point",
-    "form-success": "peace",
-    idle: "think",
-  },
-  calm: {
-    arrive: "greeting",
-    "form-success": "peace",
-  },
-};
+/** 押したときに出す身ぶり（手を振る＝出たとき、待機＝しばらく操作が無いときは含めない） */
+export const TAP_EMOTES = [
+  "nod",
+  "point",
+  "think",
+  "peace",
+  "show-full-body",
+] as const satisfies readonly EmoteId[];
 
-/** A（vivid）だけ。ポインター・スクロール・キーの操作がこの間無ければ idle の合図を出す */
+/** ポインター・スクロール・キーの操作がこの間無ければ、待機の呼吸に入る */
 export const IDLE_AFTER_MS = 15_000;
 
-/** 同じエモートを繰り返さない間（既定） */
-const COOLDOWN_MS = 20_000;
-/** 1 つの再生中に次を受けない間（durationsMs に長さが無いエモートの既定） */
-const PLAY_MS = 3_000;
-
-/** idle で交互に出す 2 つ（最初は think） */
-const IDLE_EMOTES = ["think", "show-full-body"] as const satisfies readonly EmoteId[];
+/** 押したのを受けてから、次に押したのを受けるまでの間（連打で身ぶりを細切れにしない） */
+const TAP_INTERVAL_MS = 1_000;
 
 export interface EmoteSchedulerOptions {
-  cooldownMs?: number;
-  playMs?: number;
-  /** エモートごとのクリップの長さ（ms。AvatarDock がビルド時に JSON の duration を切り上げて渡す）。その間は次を受けない */
-  durationsMs?: Partial<Record<EmoteId, number>>;
+  intervalMs?: number;
+  /** 0 以上 1 未満の乱数（テストで差し替える） */
+  random?: () => number;
 }
 
 export interface EmoteScheduler {
-  /** 合図を受けて、いま再生するエモートを返す。再生しないときは null。now はミリ秒（performance.now() など） */
-  request(trigger: AvatarTrigger, now: number): EmoteId | null;
+  /** 押したのを受けて、いま再生するエモートを返す。受けないときは null。now はミリ秒（performance.now() など） */
+  next(now: number): EmoteId | null;
 }
 
-export function createEmoteScheduler(
-  zone: LiveZone,
-  { cooldownMs = COOLDOWN_MS, playMs = PLAY_MS, durationsMs = {} }: EmoteSchedulerOptions = {},
-): EmoteScheduler {
-  const table = EMOTE_TABLE[zone];
-  const lastPlayed = new Map<EmoteId, number>();
-  let busyUntil = Number.NEGATIVE_INFINITY;
-  let idleTurn = 0;
+export function createEmoteScheduler({
+  intervalMs = TAP_INTERVAL_MS,
+  random = Math.random,
+}: EmoteSchedulerOptions = {}): EmoteScheduler {
+  let bag: EmoteId[] = [];
+  let last: EmoteId | null = null;
+  let lastAt = Number.NEGATIVE_INFINITY;
+
+  const refill = () => {
+    bag = [...TAP_EMOTES];
+    // Fisher–Yates で混ぜる
+    for (let i = bag.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [bag[i], bag[j]] = [bag[j]!, bag[i]!];
+    }
+    // 袋の境目でも同じ身ぶりを続けない（前の袋の最後と、次の袋の最初を違うものにする）
+    if (bag.length > 1 && bag[0] === last)
+      [bag[0], bag[1]] = [bag[1]!, bag[0]!];
+  };
 
   return {
-    request(trigger, now) {
-      const listed = table[trigger];
-      if (!listed) return null;
-      const emote = trigger === "idle" ? IDLE_EMOTES[idleTurn % IDLE_EMOTES.length]! : listed;
-      if (now < busyUntil) return null;
-      const last = lastPlayed.get(emote);
-      if (last !== undefined && now - last < cooldownMs) return null;
-      lastPlayed.set(emote, now);
-      busyUntil = now + (durationsMs[emote] ?? playMs);
-      // 順番は再生したときだけ進める（捨てた idle で think を飛ばさない）
-      if (trigger === "idle") idleTurn++;
+    next(now) {
+      if (now - lastAt < intervalMs) return null;
+      if (bag.length === 0) refill();
+      const emote = bag.shift()!;
+      last = emote;
+      lastAt = now;
       return emote;
     },
   };

@@ -87,7 +87,7 @@ const splitByService = plans.cards.length > 1;
   <Section labelledby="detail-plans" class="phrase">
     <SectionHeading id="detail-plans" title={plans.heading} />
     {/* カードが 1 枚のページも、2 列の型の左の列に置く（Figma の 2 列のカード幅のまま） */}
-    <div class="mt-8 grid gap-4 md:mt-12 md:grid-cols-2 md:gap-6" data-avatar-cue="pricing">
+    <div class="mt-8 grid gap-4 md:mt-12 md:grid-cols-2 md:gap-6">
       {
         plans.cards.map((card) => {
           const row = PRICING[card.key];
