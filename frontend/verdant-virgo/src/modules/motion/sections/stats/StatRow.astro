@@ -1,0 +1,87 @@
+---
+/**
+ * StatRow（A〈vivid〉の Stats Sections。トップ 1-8 導入事例の数値カード）。2026-10-19。
+ *
+ * slot の StatCard 群を、画面に入ると順に現れ（下から上がる）、値の下に罫が引かれる形にする。CSS の scroll-driven animation（animation-timeline: view()）だけ。JS を読まない。
+ * 値は「—」のまま（ダミー。数え上げない）。最終値は最初の HTML に入っている。
+ *
+ * - 現れ方は transform（translateY）と枠の色だけで、opacity は触らない。文字がいつでも 100% の濃さで読める
+ *   （opacity を下げると、画面の下にある間の文字が axe のコントラスト検査〈Lighthouse・pnpm a11y は先頭から測る〉に落ちる。JS が止まったときも同じ）。
+ * - 罫は値（[data-stat-value]）の ::after。静止の状態でも場所（高さ 2px ＋ 余白）を取るので、引かれるときに高さが動かない（CLS 0）。
+ * - 順に現れる: 子の順に範囲の始まりを 10% ずつ遅らせる（横に並ぶ Desktop でも、縦に積む Mobile でも、前のカードから順に）。
+ * - 対応していないブラウザ（animation-timeline: view() が無い）は何も起きない。元の状態が最終の状態なので、静止で完結する（罫は引かれた状態）。
+ * - reduced-motion は animation を付けない（静止。罫は引かれた状態）。
+ * - 根の data-stat-row が部品の印。data-motion="stats" を根にだけ付ける（CLS の判定範囲を広げない）。
+ */
+import type { StatRowProps } from '../../lib/types';
+
+type Props = StatRowProps;
+
+const { class: className } = Astro.props;
+---
+
+<div data-stat-row data-motion="stats" class={className}>
+  <slot />
+</div>
+
+<style is:global>
+  /* 罫: 値の下。静止（対応していない・reduced-motion）では引かれた状態 */
+  [data-stat-row] [data-stat-value]::after {
+    content: '';
+    display: block;
+    height: 2px;
+    margin-top: 0.5rem;
+    border-radius: 1px;
+    background: linear-gradient(90deg, var(--color-brand-sky), var(--color-brand-blue-300));
+    transform-origin: left center;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      /* 長手（longhand）だけで書く。ビルドの CSS 圧縮が animation の短縮形に animation-timeline を畳むと、短縮形の中の view() を読めない版で
+         animation ごと無効になる。animation-duration を書かない（初期値 auto ＝ タイムラインの長さ）ので、短縮形には畳まれない */
+      [data-stat-row] > * {
+        animation-name: stat-row-in;
+        animation-timing-function: linear;
+        animation-fill-mode: both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 60%;
+      }
+      [data-stat-row] > :nth-child(2) {
+        animation-range: entry 10% entry 70%;
+      }
+      [data-stat-row] > :nth-child(3) {
+        animation-range: entry 20% entry 80%;
+      }
+      [data-stat-row] > :nth-child(n + 4) {
+        animation-range: entry 30% entry 90%;
+      }
+      [data-stat-row] [data-stat-value]::after {
+        animation-name: stat-row-rule;
+        animation-timing-function: linear;
+        animation-fill-mode: both;
+        animation-timeline: view();
+        animation-range: entry 20% entry 90%;
+      }
+      [data-stat-row] > :nth-child(2) [data-stat-value]::after {
+        animation-range: entry 30% entry 100%;
+      }
+      [data-stat-row] > :nth-child(n + 3) [data-stat-value]::after {
+        animation-range: entry 40% entry 100%;
+      }
+    }
+  }
+
+  /* 下から上がり、枠が現れる（from だけ指定。to は元の状態）。opacity は触らない */
+  @keyframes stat-row-in {
+    from {
+      transform: translateY(1.25rem);
+      border-color: transparent;
+    }
+  }
+  @keyframes stat-row-rule {
+    from {
+      transform: scaleX(0);
+    }
+  }
+</style>

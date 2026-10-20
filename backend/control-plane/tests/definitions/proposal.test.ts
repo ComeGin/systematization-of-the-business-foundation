@@ -61,6 +61,16 @@ describe("parseProposal", () => {
       expect(parsed.value.change.diff_ref).toBeNull();
     });
 
+    it.each(["content_rewrite", "cta_swap", "internal_link", "technical_seo", "experiment_start", "config_change", "accessibility"])(
+      "change.kind: %s を受け付ける",
+      (kind) => {
+        const parsed = parseProposal(doc(FRONT.replace("kind: technical_seo", `kind: ${kind}`)));
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) return;
+        expect(parsed.value.change.kind).toBe(kind);
+      },
+    );
+
     it("CRLF の改行でも読める", () => {
       expect(parseProposal(doc(FRONT).replaceAll("\n", "\r\n"))).toMatchObject({ ok: true });
     });

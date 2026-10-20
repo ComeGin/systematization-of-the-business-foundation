@@ -15,9 +15,11 @@ const buttonVariants = cva(
   {
     variants: {
       // 枠は variant ごとに持つ（base に border・border-transparent を置くと、cn を通さずに使ったとき outline の枠が消える。link は枠なし）
+      // hover の合図は地や枠の色だけで出す。opacity や地の透かしで白い面が透けると、文字の比が 4.5:1 を割る（WCAG 1.4.3。
+      // 主ボタンの hover:opacity-90 は白 on #1d7fc6 で 4.28:1 だった）。主ボタンは blue.600（5.09:1）→ blue.700（6.87:1）
       variant: {
         default:
-          "border border-transparent bg-primary text-primary-foreground text-base leading-6 font-bold hover:bg-surface-brand-hover hover:opacity-90",
+          "border border-transparent bg-primary text-primary-foreground text-base leading-6 font-bold hover:bg-surface-brand-hover",
         outline:
           "border border-border-brand bg-surface text-text-heading text-base leading-6 font-medium hover:bg-surface-subtle aria-expanded:bg-surface-subtle",
         secondary:
@@ -26,13 +28,13 @@ const buttonVariants = cva(
         ghost:
           "border border-transparent bg-surface text-text-heading text-base leading-6 font-medium hover:bg-muted aria-expanded:bg-muted",
         destructive:
-          "border border-transparent bg-destructive/10 text-destructive text-base leading-6 font-medium hover:bg-destructive/20",
+          // 地を /20 に濃くすると 4.15:1 になるので、地は /10（4.86:1）のまま枠で示す
+          "border border-transparent bg-destructive/10 text-destructive text-base leading-6 font-medium hover:border-destructive",
         link: "bg-surface text-text-link text-sm leading-5 font-medium underline hover:text-text-link-hover",
       },
       // Figma の CTAButton の実寸 32／36／40（ラベル 16px・行送り 24px のため base-nova の h-7／h-8／h-9 より 4px 高い）
       size: {
-        default:
-          "h-9 gap-1.5 px-2.5",
+        default: "h-9 gap-1.5 px-2.5",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 px-2.5",
         lg: "h-10 gap-1.5 px-2.5",

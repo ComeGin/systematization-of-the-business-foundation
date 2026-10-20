@@ -1,0 +1,11 @@
+id: weekly-a11y
+description: "a11y の自動検査（axe）。main のチェックアウトで pnpm a11y:ci（astro build && playwright test）を実行し、結果の JSON を frontend/verdant-virgo/.a11y/ に置く（エージェントは使わない）"
+enabled: false
+# weekly-lighthouse（毎週月曜 05:00、timeout_sec 1800 → 05:30 までに終わる）と重ならない時刻にする。
+# after では結ばない（Lighthouse の揺れで a11y の検査まで止めない。ビルドも a11y:ci が自分で行うので古い dist を測らない）
+cron: "45 5 * * 1"
+kind: builtin
+agent: null
+builtin: a11y
+after: []
+timeout_sec: 1800

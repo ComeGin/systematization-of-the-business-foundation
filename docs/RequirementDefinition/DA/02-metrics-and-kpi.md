@@ -26,9 +26,9 @@
 
 | 候補 | 採否 | 理由 |
 |---|---|---|
-| Mautic のフォーム送信 | **採用** | **CV に数える CTA 2 種（無料相談・無料 DL。1.3）がどちらもフォーム送信を伴い**、「メールアドレスを取得してリードが成立した」という事業上の定義（`CAP-11`）と一致する。Mautic が `E-09 Contact` の正本でもあるため、CV とリードが同じ正本の中で数えられる |
+| Mautic のフォーム送信 | **採用** | **CV に数える CTA 2 種（無料相談・無料 DL。1.3）がどちらもフォーム送信を伴い**、「メールアドレスを取得してリードが成立した」という事業上の定義（`CAP-11`）と一致する。Mautic が `E-09 Contact` の正本でもあるため、CV とリードが同じ正本の中で数えられる（**2026-10-20 の注記**: 無料 DL はフォームをやめて CTA になったので、フォーム送信で数えるのは無料相談だけになった。1.4） |
 | Chatwoot の会話開始 | 補助指標として別枠 | 問い合わせはリードの成立ではなく相談であり、匿名のままでも起きる。CV に混ぜるとリード数と一致しなくなるため、`CVR-assist` として独立させる |
-| PostHog のカスタムイベント | 分子には使わない | CTA のクリックは計測できるが、クリックしても送信しない離脱を CV に数えると過大評価になる。PostHog は CTA のクリック率（`CTR-cta`）とフォーム離脱率（`FORM-abandon`。4.2・4.4）の計測に使う |
+| PostHog のカスタムイベント | 分子には使わない | CTA のクリックは計測できるが、クリックしても送信しない離脱を CV に数えると過大評価になる。PostHog は CTA のクリック率（`CTR-cta`）とフォーム離脱率（`FORM-abandon`。4.2・4.4）の計測に使う（**2026-10-20 の注記**: 無料 DL はフォームが無くなったので、`CVR-source-dl` の分子だけはこの `cta_clicked` を使う。1.4） |
 
 ### 1.3 CTA 種別ごとの分割
 
@@ -42,7 +42,7 @@
 
 | 旧 | 新 | 扱い |
 |---|---|---|
-| `CVR-wp` | **`CVR-source-dl`** | 改名。分子は無料 DL フォーム（Mautic の alias `source_dl`。2026-10-05 に `source-dl` から改めた）の送信数 |
+| `CVR-wp` | **`CVR-source-dl`** | 改名。分子は無料 DL フォーム（Mautic の alias `source_dl`。2026-10-05 に `source-dl` から改めた）の送信数。**2026-10-20 から「ソースコードを無料 DL」の CTA の押下数**（1.4。フォームを消したため） |
 | `CVR-demo` | **`CVR-consult`** | 改名。分子は無料相談フォーム（alias `consult`）の送信数 |
 | `CVR-trial` | **廃止** | **対応する CTA がサイトに無く、分子が永久に 0 になる。** 0 の指標を残すと、`E-13` の `expectation.metric` から参照できる見かけの選択肢が増え、「測れるのに測っていない」と「そもそも存在しない」の区別がつかなくなる |
 
@@ -52,9 +52,9 @@
 ### 1.4 確定した式
 
 ```
-CVR-total      = 期間内の Mautic フォーム送信数（2 種合計） / 期間内の GA4 セッション数（SESSION-count）
+CVR-total      = （CVR-consult の分子 ＋ CVR-source-dl の分子） / 期間内の GA4 セッション数（SESSION-count）
 CVR-consult    = 期間内の無料相談フォームの送信数 / 期間内の GA4 セッション数
-CVR-source-dl  = 期間内の無料 DL フォームの送信数 / 期間内の GA4 セッション数
+CVR-source-dl  = 期間内の PostHog の cta_clicked のうち cta_type が source_dl のもの（cta_id が dl_top_banner・dl_article_inline を除く）の数 / 期間内の GA4 セッション数
 CVR-assist     = 期間内の Chatwoot の新規会話数 / 期間内の GA4 セッション数
 ```
 
@@ -62,6 +62,11 @@ CVR-assist     = 期間内の Chatwoot の新規会話数 / 期間内の GA4 セ
 
 - 期間は月次（`CAP-01` の月次 CVR 改善会議に合わせる）。週次で見る場合も同じ式を使い、分母・分子とも同じ期間で切る。
 - **`CVR-total` の「2 種合計」は 2026-10-01 に 3 種から改めた**（1.3）。**フォームは 2 つしか作らない**ため（`MAUTIC_FORM_ID_CONSULT` / `MAUTIC_FORM_ID_SOURCE_DL`）、合計は常に 2 種である。
+- **（2026-10-20 にユーザーが決定）`CVR-source-dl` の分子を、無料 DL フォームの送信数から「ソースコードを無料 DL」の CTA の押下数に改めた。** 公開サイトの無料 DL ブロックは、トップ（2026-10-18）に続いてブログ（2026-10-20）もメールのフォームをやめて CTA にし、無料 DL のフォーム（`source_dl`。`MAUTIC_FORM_ID_SOURCE_DL`）は公開サイトと Mautic の準備の手順から消した。CTA を押すと zip のダウンロードと無料相談のフォームへの遷移が同時に起きるので、**押した数を DL の数とみなす**。
+  - 数えるのは PostHog の `cta_clicked`（4.1）で `cta_type` が `source_dl` のもの。**`dl_top_banner`・`dl_article_inline` は除く**（ページの中の `#source-dl` へ移るだけで、ダウンロードは起きない。`source-dl` の `lib/redirect.ts`）。
+  - **分子も同意した訪問者だけになる**（PostHog は同意の後にだけ動く）。分母（GA4）と同じ偏りなので、`CVR-consult`（分子は全員）とは偏りの向きが違う。`CVR-source-dl` を報告するときは「分子・分母とも同意した訪問者だけ」と添える。
+  - `CVR-total` の分子は 2 つの分子の和で、出どころが Mautic（無料相談）と PostHog（無料 DL）に分かれる。両方が `ok` か `empty_but_ok` のときだけ計算する。
+  - メールアドレスを取らないので、無料 DL では**リードが成立しない**（1.1 の「メールアドレスを取得してリードが成立した」の定義に当たるのは無料相談だけになった）。お知らせメールの受信の希望（`email_optin`）は、同日から無料相談のフォームの任意のチェックで聞く。
 - **オンライン面談の予約（`E-16`。`cta_type` が `booking`）は CVR に入れない。** CV の成立（フォームの送信）より**後ろの段**であり、入れると 1 人を 2 回数える（BA-04 の商談プロセス、4.4）。予約の歩留まりを測るかは 6 節。
 - **分母と分子が別システムにあるため、個々のセッションと送信を突合することはできない**（この比率は集計値どうしの比であり、セッション単位の CV フラグではない）。ページ単位の CVR を出すには DA-03 の ID 統合（Mautic のフォームに Umami のセッション ID を hidden field で載せる）が前提になる。**〔2026-10-06 ADR-25: hidden field の `umami_session_id` は廃止し、代わりの識別子を足さない。訪問者単位の突合はできなくなり、CVR は集計値どうしの比だけになる（DA-03 の 2 節）〕**
 
@@ -139,7 +144,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 
 | 指標 | 定義（式） | 測定元ツール | 取得手段 | 更新頻度 | 状態 |
 |---|---|---|---|---|---|
-| `CVR-consult` / `CVR-source-dl` | 各 CTA のフォーム送信数 / GA4 セッション数（**2026-10-01 に `CVR-wp` / `CVR-demo` から改名し、`CVR-trial` を廃止**。1.3） | Mautic + GA4 | `mautic_list_form_submissions`（`formId` 別）+ OpenSEO の `get_google_analytics_traffic_acquisition` | 週次 | 未配線 |
+| `CVR-consult` / `CVR-source-dl` | `CVR-consult` は無料相談のフォーム送信数、`CVR-source-dl` は無料 DL の CTA の押下数（2026-10-20 から。1.4）/ GA4 セッション数（**2026-10-01 に `CVR-wp` / `CVR-demo` から改名し、`CVR-trial` を廃止**。1.3） | Mautic + PostHog + GA4 | `mautic_list_form_submissions`（`MAUTIC_FORM_ID_CONSULT`）+ PostHog の `execute-sql`（`cta_clicked`）+ OpenSEO の `get_google_analytics_traffic_acquisition` | 週次 | 未配線 |
 | `CVR-assist` | Chatwoot の新規会話数 / GA4 セッション数 | Chatwoot + GA4 | `chatwoot_get_report_summary` + OpenSEO の `get_google_analytics_traffic_acquisition` | 週次 | 未配線 |
 | `CTR-cta` | CTA クリック数 / CTA 表示回数 | PostHog | カスタムイベント（`cta_viewed` / `cta_clicked`。4.4） | 週次 | 未着手 |
 | `FORM-abandon` | 1 − （フォーム送信の成功数 / フォームの入力開始数） | PostHog | カスタムイベント（`form_submitted` / `form_started`。4.4） | 週次 | 未着手 |
@@ -154,6 +159,10 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 |---|---|---|---|---|---|
 | `LH-seo` | Lighthouse の SEO カテゴリスコア（3 回計測の中央値） | Lighthouse CI | `frontend/verdant-virgo/.lighthouse/` の JSON（`pnpm lh`） | ビルドごと | **実装済み** |
 | `LH-performance` / `LH-a11y` / `LH-best-practices` | 各カテゴリスコア | Lighthouse CI | 同上 | ビルドごと | **実装済み** |
+| `QC-a11y-violations`（2026-10-18 に追加。ADR-27） | axe（`wcag2a`・`wcag2aa`・`wcag21a`・`wcag21aa`・`wcag22aa`）の違反の件数（全ルート × Desktop・Mobile の合計） | Playwright ＋ axe（`frontend/verdant-virgo/e2e/`） | `.a11y/summary.json`（version 1。builtin `a11y` が `pnpm a11y:ci` で作り、作業ツリーに写す）の `totals.violations` を `agent/quality-checker` の項目 6 が読む（DD-09 の 3 節） | 週次（`weekly-a11y` → `weekly-observe-a11y`） | 未配線（定期実行は `enabled: false`） |
+| `QC-a11y-serious`（同上） | 違反のうち影響度が critical と serious のものの件数。**AA-04 の 3.8 の止め線** | 同上 | 同上 | 同上 | 未配線 |
+| `QC-a11y-pages-failed`（同上） | 違反が 1 件以上あったページ（ルート × 端末）の数 | 同上 | 同上 | 同上 | 未配線 |
+| `QC-a11y-incomplete`（同上） | axe が判定できず、人の判断が要るもの（`incomplete`）の件数。**合格・不合格には数えない** | 同上 | 同上 | 同上 | 未配線 |
 | `ERR-rate` | 期間内の例外発生件数 | PostHog（Error Tracking。**本番用のプロジェクト**。ADR-16） | `backend/strapi-system/src/middlewares/posthog-error.ts` 経由の例外 | 日次 | **実装済み**（Strapi のサーバ側のみ） |
 | `GSC-impressions` / `GSC-clicks` / `GSC-ctr` / `GSC-position` | 検索結果の表示回数 / クリック数 / クリック率 / 平均掲載順位（ページ単位） | Google Search Console | **OpenSEO の `get_search_console_performance`**（3 日前までの確定分） | 日次（対象期間を 3 日ずらす） | 未着手 |
 | `SERP-position` | 採用キーワードの計測時点の順位（モバイル） | DataForSEO（OpenSEO のランク追跡） | OpenSEO の `get_rank_tracker`（保存済みの結果を読むだけ。**費用は計測時に発生する**） | 週次 | 未配線 |
@@ -165,6 +174,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 | `FORM-invalid` | 入力エラーの発生数 / フォームの入力開始数 | PostHog | カスタムイベント（`form_validation_failed` / `form_started`。4.4。`fields` 別の内訳も取る） | 週次 | 未着手 |
 
 - **`GSC-position` と `SERP-position` は同じ「順位」でも定義が違う。** 前者は期間中に実際に表示されたときの平均、後者は計測した瞬間の 1 回の検索結果である。**KPI ツリーの `平均検索順位` の正本は `GSC-position`** とし、`SERP-position` は**まだ表示されていない狙いのキーワード**の進捗を見る補助に限る（GSC は表示されたクエリしか返さないため）。
+- **`QC-a11y-*` と `LH-a11y` は互いの代わりにならない**（2026-10-18。ADR-27）。`LH-a11y` は 3 ページの合成監査のスコア（0.9 が目標値）で、axe のルールの一部しか見ない。`QC-a11y-*` は全ページ・全状態の axe の違反の件数で、JIS X 8341-3 の AA の対応度の表明（`/accessibility/`。一部準拠）を守るための観測である。**どちらも機械で判定できる基準しか見ない**（手動とスクリーンリーダーの試験は `docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md` の §4）。計画の「`A11Y-*` 指標」は、`quality-checker` が `E-12` に書くキーと同じ `QC-a11y-*` の名前で持つ（2 つの名前を持たない）
 - **`LH-seo` と `SITE-issues` と `INDEX-status` は互いの代わりにならない。** `LH-seo` は 1 ページの合成監査、`SITE-issues` はサイト全体の構造監査、`INDEX-status` は Google が実際にどう扱ったかである。
 - **`CWV-*` は実測（フィールド）、`LH-performance` は合成（ラボ）であり、互いの代わりにならない。** `CWV-*` は **PostHog の `$web_vitals` を同意した訪問者だけから集めた標本**で（2026-10-06。ユーザーの決定。旧版は Umami の `get_performance`）、同意率と端末の偏りを持つ。p75 は Core Web Vitals の評価の慣例に合わせた（PostHog の Web 分析の画面も LCP を p75 で出す。https://posthog.com/docs/web-analytics/dashboard）。**プロパティ名は `$web_vitals_LCP_value` / `$web_vitals_INP_value` / `$web_vitals_CLS_value`**（posthog-js の `packages/browser/src/extensions/web-vitals/index.ts` が `` `$web_vitals_${metric.name}_value` `` の形で送る。同リポジトリのテスト `web-vitals.test.ts` にも `$web_vitals_LCP_value` がある。`.claude/agents/analytics-reporter.md` の集計もこの名前を使う。PostHog の docs〈https://posthog.com/docs/web-analytics/web-vitals〉にはイベント名 `$web_vitals` だけが載り、プロパティ名は載っていない）。**値の単位（LCP・INP はミリ秒）は実データで確かめる。** 日付は JST でそろえる（`toDate(toTimeZone(timestamp, 'Asia/Tokyo'))`）。
 - **`VISITOR-count` は廃止した**（2026-10-06。ADR-25。定期実行の定義〈`ops/schedules/daily-observe-analytics.yaml`〉にあった）。GA4 のユーザー数はチャネル別の行を足すと重複し、OpenSEO のツールに全体のユーザー数を返すものが無い。
@@ -185,7 +195,7 @@ GA4 を導入する計画も、実装も存在しない（`frontend/verdant-virg
 |---|---|---|---|
 | `cta_viewed` | CTA の要素が画面内に 50% 以上入ったとき（1 ページの表示につき、1 つの CTA で 1 回） | `cta_id` `cta_type` `cta_role`（`primary` / `secondary` / `assist`） `page_path` | `CTR-cta` の分母 |
 | `cta_clicked` | CTA のボタン・リンクを押したとき | 上と同じ ＋ `destination` | `CTR-cta` の分子 |
-| `form_started` | フォームのいずれかの入力欄に初めてフォーカスしたとき | `form_key`（`consult` / `source_dl`） `mautic_form_id` `cta_id` `page_path` | `FORM-abandon` `FORM-invalid` の分母 |
+| `form_started` | フォームのいずれかの入力欄に初めてフォーカスしたとき | `form_key`（`consult`。`source_dl` は 2026-10-20 にフォームを消した） `mautic_form_id` `cta_id` `page_path` | `FORM-abandon` `FORM-invalid` の分母 |
 | `form_validation_failed` | 送信ボタンを押して入力エラーが出たとき | 上と同じ ＋ `fields`（エラーのあった項目名の配列。**入力された値は送らない**） | `FORM-invalid` の分子 |
 | `form_submitted` | Mautic から成功の応答が返ったとき（`I-08`） | `form_key` `mautic_form_id` `cta_id` `page_path` | `FORM-abandon` の分子、`FORM-failure` の分母の一部 |
 | `form_submit_failed` | エラー応答・通信断・10 秒の無応答のとき（`I-08` のタイムアウトは DD-01 の 7.2） | 上と同じ ＋ `error_kind`（`timeout` / `network` / `http_4xx` / `http_5xx` / `duplicate`） | `FORM-failure` の分子 |

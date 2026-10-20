@@ -1,0 +1,145 @@
+---
+/**
+ * HeroBackdrop（A〈vivid〉のページのヒーローの地）。Aceternity の Spotlight New ＋ Background Beams ＋ グリッド。2026-10-19。
+ *
+ * - navy.900 の地の上に、グリッド（静止）・スポットライト（漂う）・光の筋（流れる）を重ねる。試作 zoning.html の A の手触り。
+ * - 動くのは reduced-motion でなく、JS が使えるときだけ（CSS の media query）。reduced-motion・JS なしは静止のグラデーション
+ *   （地の放射状の光とグリッド）。動く層は display:none で、DOM にも描かれない（CSS の animation も回らない）。
+ *   2026-10-20 から Mobile・タッチ（iPhone など）でも動かす（以前は md 以上かつ hover のある端末だけ。05-motion-spec.md §8.4。ユーザーの判断）。
+ *   Mobile では文字が全幅に並ぶので、光の筋は Desktop より弱める（本文の読みやすさ）。
+ * - 動きはすべて CSS の animation。JS・rAF を使わない。最初の HTML で描かれる（island ではない）。
+ * - 5 秒を超えて自動で動くので、一時停止のボタンを右下に出す（MotionPauseFor。target は #hero-backdrop、storageKey は motion:hero）。
+ *   押すと #hero-backdrop に data-motion-paused="true" が付き、global.css の規則で中の animation がすべて止まる。ページを移っても止まったまま。
+ *   ボタンは動く端末だけ（CSS）。Mobile でもヒーローの右下（CTA の注記の下の余白）に置く。reduced-motion・JS が無いときは出さない（MotionPauseFor が描かない）。
+ *   動く層は、一時停止のボタンが水和して出る（data-motion-ready）まで動き始めない。JS が無いときは（scripting: enabled を満たさず）出さない。
+ *   前のページで止めていたら、水和を待たず最初の描画から止める（インラインの小さな script が属性を先に付ける）。
+ * - 根は流れに入らない absolute inset-0 で、クリックを受けない（pointer-events-none）。装飾の層は -z-10 で本文の後ろに回り、aria-hidden。
+ *   一時停止のボタンだけが aria-hidden の外にあり、DOM の最後（ヒーローの CTA の後）。
+ *
+ * 置き方: ヒーローの外枠（Section・PageIntro）を relative isolate overflow-hidden にし、その最後の子に置く。
+ * 外枠の地には tone="brand-strong"（data-surface="dark"。フォーカスリングが白になる）を使う。
+ * 文言（MOTION_PAUSE）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import { Spotlight } from '../../vendor/aceternity/SpotlightNew/SpotlightNew';
+import { BackgroundBeams } from '../../vendor/aceternity/BackgroundBeams/BackgroundBeams';
+import MotionPauseFor from '../../components/MotionPauseFor.astro';
+import type { HeroBackdropProps } from '../../lib/types';
+
+type Props = HeroBackdropProps;
+
+const { pauseLabel, resumeLabel, pauseTarget, class: className } = Astro.props;
+---
+
+<div id="hero-backdrop" data-motion="hero" class:list={['pointer-events-none absolute inset-0', className]}>
+  <div aria-hidden="true" class="hero-backdrop__art absolute inset-0 -z-10 overflow-hidden">
+    <div class="hero-backdrop__ground absolute inset-0"></div>
+    <div class="hero-backdrop__grid absolute inset-0"></div>
+    <div class="hero-backdrop__live absolute inset-0">
+      <Spotlight />
+      <div class="hero-backdrop__beams absolute inset-0">
+        <BackgroundBeams />
+      </div>
+    </div>
+  </div>
+  <MotionPauseFor
+    target="hero-backdrop"
+    storageKey="motion:hero"
+    pauseLabel={pauseLabel}
+    resumeLabel={resumeLabel}
+    tone="dark"
+    targetName={pauseTarget}
+    class="hero-backdrop__pause pointer-events-auto absolute right-4 bottom-4 z-10 md:right-6"
+  />
+</div>
+
+{/* 前のページで止めていたら、水和（client:idle）を待たず最初の描画から止める。キーは MotionPauseFor の storageKey と同じ。
+    sessionStorage が使えないときは何もしない（MotionPause が水和の後に同じ判断をする）。動きが一瞬出てから止まるのを避けるための先取り */}
+<script is:inline>
+  try {
+    if (sessionStorage.getItem('motion:hero') === 'paused') {
+      document.getElementById('hero-backdrop')?.setAttribute('data-motion-paused', 'true');
+    }
+  } catch (e) {}
+</script>
+
+<style is:global>
+  /* 地（navy.900）と静止のグラデーション。Mobile・reduced-motion はこれだけ。左右の上端から差す光は Spotlight の筋の置き場所に合わせる */
+  .hero-backdrop__ground {
+    background-color: var(--color-role-surface-hero);
+    background-image:
+      radial-gradient(ellipse 55% 60% at 8% 0%, color-mix(in srgb, var(--color-brand-blue-500) 32%, transparent), transparent 70%),
+      radial-gradient(ellipse 50% 55% at 92% 0%, color-mix(in srgb, var(--color-brand-blue-500) 22%, transparent), transparent 70%);
+  }
+
+  /* グリッド（静止）。中央上を濃く、縁へ向けて消える */
+  .hero-backdrop__grid {
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--color-brand-sky) 12%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--color-brand-sky) 12%, transparent) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%);
+  }
+
+  /* 光の筋は右半分に寄せ、文字のある左を避ける（本文の読みやすさ。動く層の中だけ）。
+     Mobile は文字が全幅に並ぶので、筋を薄くする（白い文字の地を明るくしすぎない） */
+  .hero-backdrop__beams {
+    mask-image: linear-gradient(90deg, transparent 15%, #000 60%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 15%, #000 60%);
+  }
+  @media (max-width: 767px) {
+    .hero-backdrop__beams {
+      opacity: 0.6;
+    }
+  }
+
+  /* 動く層と一時停止のボタン: 既定では出さない。動かしてよい端末（動きを減らす設定でない。2026-10-20 から画面の幅・hover は問わない）で、
+     JS が使えるとき（scripting: enabled）だけ出す。止める手段のボタンは JS で描くので、JS が無いときは静止のグラデーションにする（2.2.2） */
+  .hero-backdrop__live,
+  .hero-backdrop__pause {
+    display: none;
+  }
+  @media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+    .hero-backdrop__live {
+      display: block;
+    }
+    .hero-backdrop__pause {
+      display: inline-flex;
+    }
+  }
+
+  /* 止める手段（一時停止のボタン）が水和して出る（根に data-motion-ready="true" が付く）まで、動く層の animation は始めない。
+     水和の前・水和に失敗したときに、止められない動きを出さない（2.2.2）。付くと、止まっていた animation がその時点から動き出す */
+  #hero-backdrop:not([data-motion-ready='true']) .hero-backdrop__live,
+  #hero-backdrop:not([data-motion-ready='true']) .hero-backdrop__live * {
+    animation-play-state: paused !important;
+  }
+
+  /* Spotlight New: 左右の光が内へ漂い、戻る（alternate）。幅は --hero-spot-x、1 周は --motion-duration-ambient（SpotlightNew.tsx の animation） */
+  @keyframes hero-spot-drift {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(var(--hero-spot-x));
+    }
+  }
+  @keyframes hero-spot-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Background Beams: 光の筋が曲線に沿って流れる。pathLength=1 の線の上を、長さ --hero-beam-length の光が端から端へ（BackgroundBeams.tsx の animation） */
+  @keyframes hero-beam-run {
+    from {
+      stroke-dashoffset: var(--hero-beam-length);
+    }
+    to {
+      stroke-dashoffset: -1;
+    }
+  }
+</style>

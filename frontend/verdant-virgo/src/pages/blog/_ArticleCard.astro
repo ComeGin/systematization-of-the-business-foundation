@@ -2,6 +2,7 @@
 // 記事 1 本の BlogCard（ブログ一覧 7-4・記事の関連記事 8-9）。カバーがあれば取り込んだ画像、無ければ BlogCard の「画像（準備中）」の枠。
 // slot="image" は中身が空でも「あり」と判定されるので、カバーの有無で BlogCard ごと出し分ける。
 // ファイル名の先頭の _ でページにならない（Astro のルーティングの対象外）。
+// 記事へ移るとき、カードの見出しと画像が記事の h1 とアイキャッチへ形を変える（BlogCard の morph。page-transition が名前を付ける）。
 import { formatJstDate, StrapiImage, type Article } from '@/modules/blog';
 import { BlogCard, type HeadingLevel } from '@/modules/marketing-ui';
 
@@ -23,6 +24,7 @@ const card = {
   category: article.category?.name,
   class: 'w-full',
   level,
+  morph: true,
 };
 ---
 

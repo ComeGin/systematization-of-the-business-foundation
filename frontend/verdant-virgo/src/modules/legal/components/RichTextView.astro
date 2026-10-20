@@ -1,9 +1,11 @@
 ---
-// 太字・リンク・等幅を含む 1 文を描く。外部リンクは新しいタブ（03-handoff §0.3）。
+// 太字・リンク・等幅を含む 1 文を描く。外部リンクは新しいタブ（03-handoff §0.3）で、リンクの名前の末尾で告知する（01-content-spec §12 の S-2）。
 // リンクは role/text-link ＋ 下線、ホバーは role/text-link-hover（H-15・§3.1）。強調は太字だけ（§0.2）
 // keepTogether の語は whitespace-nowrap で包み、途中で折り返さない（H-18。地の文と太字の中だけ）
 import { splitKeepTogether } from '@/modules/marketing-ui';
 import { isCode, isLink, isStrong, opensInNewTab, toInlines, type RichText } from '../rich-text';
+import { NewTabNotice } from '@/modules/a11y';
+import { NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 
 interface Props {
   text: RichText;
@@ -33,6 +35,7 @@ const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-l
       return opensInNewTab(node) ? (
         <a href={node.href} target="_blank" rel="noopener noreferrer" class={linkClass}>
           {node.text}
+          <NewTabNotice text={NEW_TAB_NOTICE} />
         </a>
       ) : (
         <a href={node.href} class={linkClass}>

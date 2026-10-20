@@ -16,6 +16,7 @@ const BUILTIN_JOBS = [
   "miswrite-check",
   "silence-check",
   "lighthouse",
+  "a11y",
   "published-article-check",
   "runlog-flush",
   "n8n-export",

@@ -1,8 +1,12 @@
 ---
 /**
  * ブログ記事のカード（Figma の BlogCard。ブログ一覧 7-4・記事 8-9・サービス詳細 3-8）。
- * 上から 画像 16:9（slot="image"。無ければ「画像（準備中）」の枠）、カテゴリ、タイトル（記事へのリンク）、要約（2 行で省略）、日付。
+ * 上から 画像 16:9（slot="image"。無ければ「画像（準備中）」の枠）、カテゴリ、タイトル（記事へのリンク）、要約、日付。
+ * 要約は省略しない（拡大・狭い幅でも全文を読めるように。WCAG 1.4.4・1.4.10）。長さは Strapi の要約の側でそろえる。
+ * 横に並べたとき要約の行数が違っても、日付はカードの下端にそろえる（本文の枠を伸ばし、日付を mt-auto）。
  * カード全体を押せるようにタイトルのリンクを広げる。値は Strapi の記事から渡す（blog モジュール）。
+ * morph を渡すと、ページ移動の形のつながりの印（カードに data-morph-source、見出しに data-morph="title"、画像の枠に data-morph="media"）を付ける。
+ * 記事へ移る直前に page-transition が押したカードにだけ view-transition-name を付け、記事の h1 とアイキャッチへ形をつなぐ（実在の記事のカードだけが渡す）。
  */
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -18,21 +22,24 @@ interface Props {
   dateTime?: string;
   category?: string;
   level?: HeadingLevel;
+  /** ページ移動の形のつながりの印を付ける（記事へリンクする本物のカードだけ。ダミーのカードには付けない） */
+  morph?: boolean;
   class?: string;
 }
 
-const { href, title, excerpt, date, dateTime, category, level = 'h3', class: className } = Astro.props;
+const { href, title, excerpt, date, dateTime, category, level = 'h3', morph = false, class: className } = Astro.props;
 const Heading = level;
 const hasImage = Astro.slots.has('image');
 ---
 
 <article
+  data-morph-source={morph ? '' : undefined}
   class={cn(
     'not-typeset relative flex flex-col overflow-hidden rounded-md border border-border bg-surface',
     className,
   )}
 >
-  <div class="aspect-video w-full overflow-hidden bg-surface-subtle">
+  <div data-morph={morph ? 'media' : undefined} class="aspect-video w-full overflow-hidden bg-surface-subtle">
     {
       hasImage ? (
         <slot name="image" />
@@ -41,12 +48,12 @@ const hasImage = Astro.slots.has('image');
       )
     }
   </div>
-  <div class="flex flex-col items-start gap-2 p-6">
+  <div class="flex flex-1 flex-col items-start gap-2 p-6">
     {category && <Badge variant="secondary">{category}</Badge>}
-    <Heading class="type-card-title text-text-heading">
+    <Heading data-morph={morph ? 'title' : undefined} class="type-card-title text-text-heading">
       <a href={href} class="after:absolute after:inset-0 hover:underline">{title}</a>
     </Heading>
-    {excerpt && <p class="type-small phrase line-clamp-2 text-text-muted">{excerpt}</p>}
-    <p class="type-caption text-text-muted"><time datetime={dateTime}>{date}</time></p>
+    {excerpt && <p class="type-small phrase text-text-muted">{excerpt}</p>}
+    <p class="type-caption mt-auto text-text-muted"><time datetime={dateTime}>{date}</time></p>
   </div>
 </article>

@@ -2,11 +2,15 @@
 // 画面 8 ブログ記事（/blog/<slug>）。01-content-spec.md §4.8。Figma は Blog 記事 / Desktop（42:6400）・Mobile（44:6472）。
 // 記事は blog モジュールが Strapi からビルド時に取る（ADR-11）。ヘッダーの「無料相談」は Outline（F2）。
 // 主 CTA は記事の検索意図（カテゴリ）で切り替える（§4.8 の表）:
-//   潜在・準顕在 … 8-6 記事中 CTA ＝ 無料 DL（dl_article_inline → #source-dl）、8-8 ＝ 無料 DL ブロックの強調版（dl_article_end・primary）
-//   顕在・指名   … 8-6 ＝ 無料相談（consult_article_inline）、8-8 ＝ CTA バナー（consult_article_end）＋ 無料 DL ブロックの控えめ版（dl_article_end・secondary）
+//   潜在・準顕在 … 8-6 記事中 CTA ＝ 無料 DL（dl_article_inline → #source-dl）、8-8 ＝ 無料 DL ブロック（dl_article_end・primary）
+//   顕在・指名   … 8-6 ＝ 無料相談（consult_article_inline）、8-8 ＝ CTA バナー（consult_article_end）＋ 無料 DL ブロック（dl_article_end・secondary）
+//   無料 DL ブロックは 2026-10-20 からトップの 1-9 と同じ CTA（source-dl の SourceDlBlock。zip のダウンロード ＋ 無料相談への遷移）。
 // 並び: 記事ヘッダー → 目次（Mobile は本文の前）→ 本文（8-6 は最初の h2 の直前）→ 著者 → 8-8 → 関連記事。
+// 動き（B〈calm〉）: 画面の上端の読了バー（ReadingProgress。記事の範囲を読み進めた分だけ伸びる）、目次の「いまここ」（TocTracker ＋ LegalToc の trackCurrent。
+// 見出しに対応する項目へ aria-current="location"）、関連記事のカードが画面に入るとき下から静かに上がる（Reveal）、顕在・指名の記事末の CTA バナーに粒のゆっくりした動き（MotionBlobs）。
+// 本文・見出し・アイキャッチには動きを付けない（読むものを動かさない）。
+// ページ移動の形のつながり: h1 は vt-article-title、アイキャッチの枠は vt-article-media を静的に持つ（ブログ一覧・関連記事のカードから形がつながる。page-transition）。
 import type { GetStaticPaths } from 'astro';
-import { SourceDownloadBlock } from '@/modules/forms';
 import {
   ArticleBlocks,
   formatJstDate,
@@ -21,6 +25,10 @@ import { BaseLayout } from '@/modules/layout';
 import { LegalToc } from '@/modules/legal';
 import { CTABanner, CTAButton, IconCard, ImagePlaceholder, Section, SectionHeading } from '@/modules/marketing-ui';
 import { Photo } from '@/modules/media';
+import { MotionBlobs, ReadingProgress, Reveal, TocTracker } from '@/modules/motion';
+import { VT, vtStyle } from '@/modules/page-transition';
+import { SourceDlBlock } from '@/modules/source-dl';
+import { MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import { Badge } from '@/components/ui/badge';
 import { author } from '@/modules/site-content/about';
 import { blogArticle } from '@/modules/site-content/blog';
@@ -59,26 +67,29 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
 >
   <div class="site-container flex items-start gap-12 pt-8 pb-16 md:pb-24">
     <article class="flex w-full max-w-[720px] min-w-0 flex-col gap-8 md:gap-12">
+      <ReadingProgress />
       {/* 8-3 記事ヘッダー */}
       <header class="flex flex-col items-start gap-3">
-        {article.category && <Badge variant="secondary" className="h-6 py-1">{article.category.name}</Badge>}
-        <h1 class="type-h1 text-text-heading">{article.title}</h1>
+        {article.category && <Badge variant="secondary" className="min-h-6 py-[3px]">{article.category.name}</Badge>}
+        <h1 style={vtStyle(VT.articleTitle)} class="type-h1 text-text-heading">{article.title}</h1>
         <p class="type-small flex flex-wrap gap-x-4 text-text-muted">
           <span>{meta.published} <time datetime={article.publishedAt}>{formatJstDate(article.publishedAt)}</time></span>
           <span>{meta.updated} <time datetime={article.updatedAt}>{formatJstDate(article.updatedAt)}</time></span>
           <span>{meta.author} {author.name}</span>
         </p>
       </header>
-      {
-        article.cover ? (
-          <StrapiImage media={article.cover} context="記事のアイキャッチ" loading="eager" class="aspect-video w-full rounded-md object-cover" />
-        ) : (
-          <ImagePlaceholder label={blogArticle.imagePlaceholder} class="aspect-video w-full" />
-        )
-      }
+      <div style={vtStyle(VT.articleMedia)}>
+        {
+          article.cover ? (
+            <StrapiImage media={article.cover} context="記事のアイキャッチ" loading="eager" class="aspect-video w-full rounded-md object-cover" />
+          ) : (
+            <ImagePlaceholder label={blogArticle.imagePlaceholder} class="aspect-video w-full" />
+          )
+        }
+      </div>
 
       {/* 8-4 目次（Mobile は本文の前の Accordion。閉じた状態） */}
-      {tocItems.length > 0 && <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="accordion" class="md:hidden" />}
+      {tocItems.length > 0 && <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="accordion" trackCurrent class="md:hidden" />}
 
       {/* 8-5 本文。8-6 記事中 CTA は最初の h2 の直前（h2 が無い記事では本文の後）に入る */}
       <ArticleBlocks body={body} slug={article.slug}>
@@ -112,15 +123,17 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
       </IconCard>
     </article>
 
-    {/* 8-4 目次（Desktop は本文の右。スクロールに追従） */}
+    {/* 8-4 目次（Desktop は本文の右。スクロールに追従）。ランドマークは中の nav（名前は目次の見出し）だけにするので、枠は div */}
     {
       tocItems.length > 0 && (
-        <aside class="hidden min-w-0 flex-1 self-stretch md:block">
-          <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="sidebar" />
-        </aside>
+        <div class="hidden min-w-0 flex-1 self-stretch md:block">
+          <LegalToc items={tocItems} label={blogArticle.tocLabel} variant="sidebar" trackCurrent />
+        </div>
       )
     }
   </div>
+
+  {tocItems.length > 0 && <TocTracker ids={tocItems.map((item) => item.id)} />}
 
   {/* 8-8 記事末 CTA（Figma は本文の下の余白とセクションの上の余白の両方を持つ） */}
   <Section>
@@ -137,22 +150,27 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
             >
               {endCta.consultBanner.button}
             </CTAButton>
+            <MotionBlobs slot="decoration" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.cta} />
           </CTABanner>
-          <SourceDownloadBlock
+          <SourceDlBlock
             ctaId="dl_article_end"
             ctaRole="secondary"
-            emphasis="subtle"
-            title={endCta.sourceDownload.heading}
-            body={endCta.sourceDownload.body}
+            title={endCta.sourceDownload.copy.title}
+            body={endCta.sourceDownload.copy.body}
+            buttonLabel={endCta.sourceDownload.buttonLabel}
+            note={endCta.sourceDownload.note}
+            repositoryLinkLabel={endCta.sourceDownload.repositoryLinkLabel}
           />
         </div>
       ) : (
-        <SourceDownloadBlock
+        <SourceDlBlock
           ctaId="dl_article_end"
           ctaRole="primary"
-          emphasis="strong"
-          title={endCta.sourceDownload.heading}
-          body={endCta.sourceDownload.body}
+          title={endCta.sourceDownload.copy.title}
+          body={endCta.sourceDownload.copy.body}
+          buttonLabel={endCta.sourceDownload.buttonLabel}
+          note={endCta.sourceDownload.note}
+          repositoryLinkLabel={endCta.sourceDownload.repositoryLinkLabel}
         />
       )
     }
@@ -164,10 +182,10 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
       <Section labelledby="article-related">
         <SectionHeading id="article-related" title={blogArticle.related.heading} />
         <ul class="mt-8 grid gap-4 md:grid-cols-3 md:gap-8">
-          {related.map((item) => (
-            <li class="flex">
+          {related.map((item, i) => (
+            <Reveal as="li" class="flex" step={(i % 3) as 0 | 1 | 2}>
               <ArticleCard article={item} context="関連記事のカバー" />
-            </li>
+            </Reveal>
           ))}
         </ul>
       </Section>

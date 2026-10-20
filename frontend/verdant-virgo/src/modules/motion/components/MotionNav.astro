@@ -1,0 +1,44 @@
+---
+/**
+ * MotionNav（体験の筋書き「迷わず進む」）。ヘッダーの Desktop のメインのナビ。React Bits の GooeyNav ＋ 静的な <nav>。
+ *
+ * - SSR の時点で本物の <nav aria-label>・<a>・aria-current が出る（水和の前・JS が無い・WebGL が無いときもリンクとして完結する）。
+ * - 形（pill）は hover とキーボードのフォーカスで指した先へ液体のように流れ、離れると現在地へ戻る（動きの規則 8）。
+ * - 現在地は形と別に、現在の項目の下 2px の線（text-heading）で常に示す（規則 2）。
+ * - ページ遷移: クリックの時点で形はもう指した先にあるので、次のページの形とつながる（ヘッダーの view-transition-name は layout が持つ）。
+ * - Desktop（md 以上かつ hover あり）だけで水和する。Mobile は layout の <dialog> のメニューのまま（React を読まない）。
+ *   置く側（SiteHeader）は、この部品を md 未満で隠す枠の中に置く。
+ * - interactive が false（C のページ）のときは水和しない。client:* を付けずに描くので、SSR と同じ <nav>・<a>・aria-current だけが残る（R20）。
+ */
+import GooeyNavIsland from '../islands/GooeyNavIsland';
+import type { MotionNavProps } from '../lib/types';
+
+type Props = MotionNavProps;
+
+const { links, label, interactive = true } = Astro.props;
+---
+
+{
+  interactive ? (
+    <GooeyNavIsland client:media="(min-width: 768px) and (hover: hover)" links={links} label={label} />
+  ) : (
+    <GooeyNavIsland links={links} label={label} />
+  )
+}
+
+<style is:global>
+  /* 現在地の印（形とは別に常に出す）。項目の左右の余白（--gn-x）の内側に 2px の線 */
+  .motion-nav a[aria-current] {
+    position: relative;
+  }
+  .motion-nav a[aria-current]::after {
+    content: '';
+    position: absolute;
+    right: var(--gn-x);
+    bottom: 2px;
+    left: var(--gn-x);
+    height: 2px;
+    border-radius: 1px;
+    background: var(--color-role-text-heading);
+  }
+</style>

@@ -16,6 +16,6 @@ const { label, caption, class: className } = Astro.props;
 
 <div class={cn('flex flex-col gap-1 rounded-md border border-border bg-surface p-6', className)}>
   <p class="type-label phrase text-text-muted">{label}</p>
-  <p class="type-price text-text-heading">—</p>
+  <p data-stat-value class="type-price text-text-heading">—</p>
   {caption && <p class="type-caption phrase text-text-muted">{caption}</p>}
 </div>

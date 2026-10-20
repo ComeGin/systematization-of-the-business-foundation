@@ -11,6 +11,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 import { comeginStrapiGuard } from "./src/modules/blog/integration.ts";
 import { comeginFontSubset } from "./src/modules/brand/integration.ts";
+import { comeginThreeGlobeWebgpuStub } from "./src/modules/motion/vite-plugin.ts";
 
 // .env は設定ファイル内では自動ロードされないため、Vite の loadEnv で明示的に読み込む。
 // https://docs.astro.build/en/guides/environment-variables/#in-the-astro-config-file
@@ -53,7 +54,8 @@ export default defineConfig({
   ],
 
   vite: {
-    plugins: [tailwindcss()],
+    // three-globe が使わない three/webgpu・three/tsl をビルドから外す（地球儀のチャンクを小さく保つ。中身は src/modules/motion/vite-plugin.ts）
+    plugins: [tailwindcss(), comeginThreeGlobeWebgpuStub()],
 
     // dev サーバーで island が使う依存を、起動時にまとめて事前最適化しておく。
     // 途中で新しい依存が見つかると Vite が最適化をやり直し、古いハッシュを参照した
@@ -80,6 +82,16 @@ export default defineConfig({
         "@base-ui/react/select",
         "@base-ui/react/separator",
         "@base-ui/react/use-render",
+        // React Bits のモーフィング（src/modules/motion/vendor/react-bits）
+        "motion/react",
+        "ogl",
+        "gsap",
+        // Aceternity の原本・アバター（src/modules/motion/vendor/aceternity、src/modules/avatar）。three は 1 つの版で共有する
+        "three",
+        "three-globe",
+        "@react-three/fiber",
+        "@pixiv/three-vrm",
+        "three/examples/jsm/loaders/GLTFLoader.js",
       ],
     },
 

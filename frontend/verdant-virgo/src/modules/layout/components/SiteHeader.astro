@@ -4,12 +4,15 @@
  * 高さ 56px（シンボル 35.79×32 ＋ 上下 12px）。下端は 1px の罫線（高さに含める）。
  * Desktop: ロゴ ＋ ナビ 4 つ ＋「無料相談」（Small）。Mobile: ロゴ ＋ ハンバーガー（Sheet の中に無料相談）。
  * 「無料相談」の強さはブログ一覧・記事だけ Outline（headerCta）。ヘッダーの無料相談は主 CTA の数に入れない。
+ * Desktop のナビは motion の MotionNav（GooeyNav。SSR で <nav>・<a>・aria-current が出る。Desktop だけ水和）。
+ * C（motionZone が none）のページでは水和せず、同じ印の静的な <nav> だけを出す（R20。規約・ポリシーには動きを出さない）。
+ * ページ遷移で現在地の形を次のページへつなぐため、ヘッダーに view-transition-name: site-header を付ける（opt-in は page-transition の PageTransitionHead。C のページでは遷移しない）。
  */
 import { Logo } from '@/modules/brand';
 import { CTAButton } from '@/modules/marketing-ui';
+import { MotionNav, type MotionZone } from '@/modules/motion';
 import { contactHref, ctaDataAttributes } from '@/modules/site-content/cta';
 import { headerCta, headerNav, sheetSourceDl } from '@/modules/site-content/nav';
-import { cn } from '@/lib/utils';
 import type { HeaderCta } from '../lib/types';
 import { currentState } from '../lib/path';
 import MobileMenuSheet from './MobileMenuSheet.astro';
@@ -18,42 +21,29 @@ interface Props {
   headerCta: HeaderCta;
   /** ページの中に無料 DL ブロック（#source-dl）があるか。無ければ Sheet の DL はトップの #source-dl へ */
   sourceDlOnPage: boolean;
+  /** 動きの区分。none（C のページ）ならナビを水和しない */
+  motionZone: MotionZone;
 }
 
-const { headerCta: ctaStrength, sourceDlOnPage } = Astro.props;
+const { headerCta: ctaStrength, sourceDlOnPage, motionZone } = Astro.props;
 const path = Astro.url.pathname;
 
 const links = headerNav.map((link) => ({ ...link, current: currentState(path, link.href) }));
 const consultHref = (ctaId: typeof headerCta.desktopCtaId | typeof headerCta.sheetCtaId) => contactHref({ cta: ctaId, from: path });
 ---
 
-<header class="h-14 border-b border-border bg-surface">
+<header class="h-14 border-b border-border bg-surface [view-transition-name:site-header]">
   <div class="site-container flex h-full items-center justify-between">
     <a href="/" class="-m-1 rounded-md p-1">
       <Logo lockup="symbol" height={32} eager />
     </a>
 
     <div class="hidden items-center gap-6 md:flex">
-      <nav aria-label="メイン">
-        <ul class="flex items-center gap-1">
-          {
-            links.map((link) => (
-              <li>
-                <a
-                  href={link.href}
-                  aria-current={link.current}
-                  class={cn(
-                    'type-label flex min-h-8 items-center rounded-md px-2 text-text-body hover:bg-surface-subtle',
-                    link.current && 'bg-surface-subtle text-text-heading',
-                  )}
-                >
-                  {link.label}
-                </a>
-              </li>
-            ))
-          }
-        </ul>
-      </nav>
+      <MotionNav
+        links={links.map(({ label, href, current }) => ({ label, href, current }))}
+        label="メイン"
+        interactive={motionZone !== 'none'}
+      />
       <CTAButton
         ctaId={headerCta.desktopCtaId}
         href={consultHref(headerCta.desktopCtaId)}

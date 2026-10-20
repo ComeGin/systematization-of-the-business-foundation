@@ -2,7 +2,13 @@
 temp/
 .vscode/
 *.drawio
+docs/data/
 
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Playwright MCP（プラグイン版）の出力（スクリーンショット・スナップショット）
+.playwright-mcp/
+
+.superpowers

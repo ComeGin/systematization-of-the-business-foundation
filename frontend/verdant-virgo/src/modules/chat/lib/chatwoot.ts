@@ -3,23 +3,32 @@
 // - 同意バナーを表示している間はランチャーを隠す（K4）。隠すのは SDK の toggleBubbleVisibility で行い、DOM を直接消さない（§8.1）。
 // - 撤回したらウィジェットを隠す（DD-02 の 3.4 の 3）。以後のページでは読み込まない。
 // - 読み込みの失敗はサイト本体に影響させない（4 節「表示されないだけ」）。
-import { getConsent, isConsentBannerVisible, openConsentBanner } from '@/modules/consent/client';
+// - 読み込んだ後、ランチャー・閉じるボタン・iframe に読み上げ用の名前を補い、開閉のときにフォーカスを移す（widget-a11y.ts。
+//   §8.1 の「内部構造に依存しない」の例外で、G-2 でユーザーが決めた）。
+import {
+  getConsent,
+  isConsentBannerVisible,
+  openConsentBanner,
+} from "@/modules/consent/client";
+import { installWidgetA11y } from "./widget-a11y";
 
 interface ChatwootApi {
-  toggle(state?: 'open' | 'close'): void;
-  toggleBubbleVisibility(visibility: 'show' | 'hide'): void;
+  toggle(state?: "open" | "close"): void;
+  toggleBubbleVisibility(visibility: "show" | "hide"): void;
 }
 
 declare global {
   interface Window {
     chatwootSettings?: Record<string, unknown>;
-    chatwootSDK?: { run(options: { websiteToken: string; baseUrl: string }): void };
+    chatwootSDK?: {
+      run(options: { websiteToken: string; baseUrl: string }): void;
+    };
     $chatwoot?: ChatwootApi;
   }
 }
 
-type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
-let state: LoadState = 'idle';
+type LoadState = "idle" | "loading" | "ready" | "failed";
+let state: LoadState = "idle";
 /** 開いてほしいと押されたボタン（読み込みが済んだら開く。失敗したらこの近くに案内を出す） */
 let openRequester: HTMLElement | null = null;
 let openTimer: number | undefined;
@@ -28,21 +37,21 @@ let pendingAfterConsent: HTMLElement | null = null;
 
 /** 押してから chatwoot:ready が来るまで待つ時間（これを過ぎたら案内を出す） */
 const OPEN_TIMEOUT_MS = 10_000;
-const NOTICE_ID = 'chat-open-failure';
-const SUPPORT_EMAIL = 'kamegin4@comegin.com';
+const NOTICE_ID = "chat-open-failure";
+const SUPPORT_EMAIL = "kamegin4@comegin.com";
 
 function config(): { baseUrl: string; websiteToken: string } | null {
-  const baseUrl = import.meta.env.PUBLIC_CHATWOOT_BASE?.replace(/\/$/, '');
+  const baseUrl = import.meta.env.PUBLIC_CHATWOOT_BASE?.replace(/\/$/, "");
   const websiteToken = import.meta.env.PUBLIC_CHATWOOT_WEBSITE_TOKEN;
   return baseUrl && websiteToken ? { baseUrl, websiteToken } : null;
 }
 
 /** ランチャーの表示を、同意とバナーの状態に合わせる */
 export function syncChatBubble(): void {
-  if (state !== 'ready' || !window.$chatwoot) return;
-  const show = getConsent() === 'granted' && !isConsentBannerVisible();
-  window.$chatwoot.toggleBubbleVisibility(show ? 'show' : 'hide');
-  if (!show) window.$chatwoot.toggle('close');
+  if (state !== "ready" || !window.$chatwoot) return;
+  const show = getConsent() === "granted" && !isConsentBannerVisible();
+  window.$chatwoot.toggleBubbleVisibility(show ? "show" : "hide");
+  if (!show) window.$chatwoot.toggle("close");
 }
 
 function clearNotice(): void {
@@ -55,17 +64,24 @@ function clearNotice(): void {
  */
 function showFailureNotice(near: HTMLElement | null): void {
   clearNotice();
-  const notice = document.createElement('p');
+  const notice = document.createElement("p");
   notice.id = NOTICE_ID;
-  notice.setAttribute('role', 'status');
-  notice.className = 'phrase mt-2 text-sm text-destructive';
-  (near ?? document.body).insertAdjacentElement(near ? 'afterend' : 'beforeend', notice);
+  notice.setAttribute("role", "status");
+  notice.className = "phrase mt-2 text-sm text-destructive";
+  (near ?? document.body).insertAdjacentElement(
+    near ? "afterend" : "beforeend",
+    notice,
+  );
   requestAnimationFrame(() => {
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = `mailto:${SUPPORT_EMAIL}`;
-    link.className = 'text-text-link underline hover:text-text-link-hover';
+    link.className = "text-text-link underline hover:text-text-link-hover";
     link.textContent = SUPPORT_EMAIL;
-    notice.append('チャットを表示できませんでした。', link, ' までメールでご連絡ください。');
+    notice.append(
+      "チャットを表示できませんでした。",
+      link,
+      " までメールでご連絡ください。",
+    );
   });
 }
 
@@ -82,46 +98,55 @@ function waitAndOpen(requester: HTMLElement | null): void {
   openRequester = requester;
   clearNotice();
   window.clearTimeout(openTimer);
-  openTimer = window.setTimeout(() => failOpen('応答がありません'), OPEN_TIMEOUT_MS);
+  openTimer = window.setTimeout(
+    () => failOpen("応答がありません"),
+    OPEN_TIMEOUT_MS,
+  );
 }
 
 export function loadChatwoot(): void {
   const settings = config();
-  if (!settings || state !== 'idle') {
+  if (!settings || state !== "idle") {
     syncChatBubble();
     return;
   }
-  state = 'loading';
+  state = "loading";
   window.chatwootSettings = {
-    position: 'right',
-    type: 'standard',
-    locale: 'ja',
+    position: "right",
+    type: "standard",
+    locale: "ja",
     hideMessageBubble: isConsentBannerVisible(),
   };
   window.addEventListener(
-    'chatwoot:ready',
+    "chatwoot:ready",
     () => {
-      state = 'ready';
+      state = "ready";
+      // 読み上げ用の名前と開閉のフォーカス（§8.1 の例外。G-2。widget-a11y.ts）
+      installWidgetA11y();
       syncChatBubble();
       if (openRequester) {
         window.clearTimeout(openTimer);
         openRequester = null;
         clearNotice();
-        window.$chatwoot?.toggle('open');
+        window.$chatwoot?.toggle("open");
       }
     },
     { once: true },
   );
-  const script = document.createElement('script');
+  const script = document.createElement("script");
   script.defer = true;
   script.async = true;
   script.src = `${settings.baseUrl}/packs/js/sdk.js`;
-  script.onload = () => window.chatwootSDK?.run({ websiteToken: settings.websiteToken, baseUrl: settings.baseUrl });
+  script.onload = () =>
+    window.chatwootSDK?.run({
+      websiteToken: settings.websiteToken,
+      baseUrl: settings.baseUrl,
+    });
   script.onerror = () => {
-    state = 'failed';
+    state = "failed";
     // 開いてほしいと押されていれば案内を出す（押されていなければ、ランチャーが出ないだけ。DD-02 の 4 節）
-    if (openRequester) failOpen('SDK を読み込めません');
-    else console.warn('[chat] Chatwoot の SDK を読み込めません。');
+    if (openRequester) failOpen("SDK を読み込めません");
+    else console.warn("[chat] Chatwoot の SDK を読み込めません。");
   };
   document.body.appendChild(script);
 }
@@ -132,29 +157,35 @@ export function loadChatwoot(): void {
  */
 export function openChat(opener?: HTMLElement | null): void {
   const requester = opener ?? null;
-  if (getConsent() !== 'granted') {
+  if (getConsent() !== "granted") {
     pendingAfterConsent = requester;
     openConsentBanner(requester);
     return;
   }
-  if (state === 'ready') {
+  if (state === "ready") {
     clearNotice();
-    window.$chatwoot?.toggle('open');
-  } else if (state === 'loading') waitAndOpen(requester);
-  else if (state === 'idle' && config()) {
+    window.$chatwoot?.toggle("open");
+  } else if (state === "loading") waitAndOpen(requester);
+  else if (state === "idle" && config()) {
     waitAndOpen(requester);
     loadChatwoot();
   } else {
     openRequester = requester;
-    failOpen(state === 'failed' ? 'SDK を読み込めません' : 'PUBLIC_CHATWOOT_BASE か PUBLIC_CHATWOOT_WEBSITE_TOKEN が未設定');
+    failOpen(
+      state === "failed"
+        ? "SDK を読み込めません"
+        : "PUBLIC_CHATWOOT_BASE か PUBLIC_CHATWOOT_WEBSITE_TOKEN が未設定",
+    );
   }
 }
 
 /** 同意の変化（ChatLoader から呼ぶ）。チャットのボタンから出したバナーで同意したら、そのまま開く */
-export function handleConsentChange(consent: 'granted' | 'denied' | 'unset'): void {
+export function handleConsentChange(
+  consent: "granted" | "denied" | "unset",
+): void {
   const requester = pendingAfterConsent;
   pendingAfterConsent = null;
-  if (consent === 'granted') {
+  if (consent === "granted") {
     if (requester) openChat(requester);
     else loadChatwoot();
   } else {
@@ -169,6 +200,6 @@ export function handleBannerOpenRequest(opener: HTMLElement | null): void {
 
 /** 同意せずにバナーが閉じたら、開く予約を取り消す */
 export function handleBannerVisibilityChange(visible: boolean): void {
-  if (!visible && getConsent() !== 'granted') pendingAfterConsent = null;
+  if (!visible && getConsent() !== "granted") pendingAfterConsent = null;
   syncChatBubble();
 }

@@ -1,15 +1,23 @@
 // 入力欄 1 つ分の枠（ラベル ＋ 必須/任意の Badge ＋ 入力欄 ＋ 補足文 ＋ エラー文）。01-content-spec.md §5.1。
 // ラベルだけで必須か任意かが分かるようにする（どちらの印も無い入力欄を作らない。例外は任意のチェックボックス）。
 // 複数の入力欄をまとめるもの（氏名の姓・名、ラジオ）は fieldset ＋ legend で出す。
-import type { ReactNode } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { BADGE } from '../lib/messages';
+import type { ReactNode } from "react";
+import { Badge } from "@/components/ui/badge";
+import { BADGE } from "../lib/messages";
 
-export type Requirement = 'required' | 'optional';
+export type Requirement = "required" | "optional";
 
-export function RequirementBadge({ requirement }: { requirement: Requirement }) {
-  return requirement === 'required' ? (
-    <Badge variant="secondary">{BADGE.required}</Badge>
+// 「必須」は入力欄の required（aria-required）が同じことを読むので、Badge は読ませない（「必須」が 2 回読まれるのを防ぐ）。
+// 「任意」は読ませる（状態として伝える手段がほかに無いため）。
+export function RequirementBadge({
+  requirement,
+}: {
+  requirement: Requirement;
+}) {
+  return requirement === "required" ? (
+    <Badge variant="secondary" aria-hidden="true">
+      {BADGE.required}
+    </Badge>
   ) : (
     <Badge variant="muted">{BADGE.optional}</Badge>
   );
@@ -68,7 +76,10 @@ export default function FormField({
 
   if (group) {
     return (
-      <fieldset className="grid gap-2" aria-describedby={error ? errorId : undefined}>
+      <fieldset
+        className="grid gap-2"
+        aria-describedby={error ? errorId : undefined}
+      >
         <legend className="mb-2">{heading}</legend>
         {body}
       </fieldset>

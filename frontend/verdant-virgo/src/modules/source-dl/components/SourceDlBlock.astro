@@ -1,15 +1,18 @@
 ---
 // 無料 DL ブロックの CTA 版（トップの 1-9。01-content-spec.md §4.1）。id="source-dl"。2026-10-18 にユーザーが決めた。
-// メールのフォーム（forms の SourceDownloadBlock）の代わりに「ソースコードを無料 DL」の CTA を 1 つ置く。
+// 2026-10-20 からブログ一覧の 7-5・記事末の 8-8 も同じ部品にした（見出しだけページの文言。ユーザーの判断）。
+// メールのフォーム（forms の SourceDownloadBlock。2026-10-20 に消した）の代わりに「ソースコードを無料 DL」の CTA を 1 つ置く。
 // 押すと zip のダウンロードと無料相談（/contact）への遷移が同時に起きる（動きは lib/redirect.ts。cta_type が source_dl の <a> をすべて拾う）。
 // JS が動かない環境では href の zip がそのまま開く（ダウンロードだけ起きる）。
-// 見た目は SourceDownloadBlock の控えめ版と同じ枠（面は card ＋ border、影なし、見出しは H3 の大きさ、ボタンは Outline）。
+// 見た目は旧 SourceDownloadBlock の控えめ版と同じ枠（面は card ＋ border、影なし、見出しは H3 の大きさ、ボタンは Outline）。
 // Desktop は左に見出し・本文・GitHub のリンク、右に CTA と注記（440px 固定）。Mobile は縦積みで、ボタンは全幅。
-// 見出し・本文・ボタン・注記の文言は site-content（top.ts）から受け取る（既定値を持たない。H-16）。
+// 見出し・本文・ボタン・注記の文言は site-content（top.ts・blog.ts）から受け取る（既定値を持たない。H-16）。
 import { ExternalLink } from 'lucide-react';
 import { CTAButton } from '@/modules/marketing-ui';
-import type { CtaId } from '@/modules/site-content/cta';
+import type { CtaId, CtaRole } from '@/modules/site-content/cta';
 import { SOURCE_REPO_URL, SOURCE_ZIP_URL } from '@/modules/site-content/nav';
+import { NewTabNotice } from '@/modules/a11y';
+import { NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 
 interface Props {
   ctaId: CtaId;
@@ -22,10 +25,14 @@ interface Props {
   note: string;
   /** GitHub のリンクの文言（CTA ではない。§6.3.1） */
   repositoryLinkLabel: string;
+  /** 記事末のブロックのように、画面で cta_role が変わるときだけ指定する */
+  ctaRole?: CtaRole;
   class?: string;
 }
 
-const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, class: className } = Astro.props;
+const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, ctaRole, class: className } = Astro.props;
+// ボタンの下の注記の id。CTA の aria-describedby で結び、押すと別のタブでダウンロードが始まり無料相談へ移ることを伝える（新しい文言を足さない）
+const noteId = `${ctaId}-note`;
 ---
 
 <section
@@ -47,15 +54,16 @@ const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, class: class
           class="inline-flex w-fit items-center gap-1.5 py-1.5 text-sm leading-5 font-medium text-text-link underline hover:text-text-link-hover"
         >
           {repositoryLinkLabel}
+          <NewTabNotice text={NEW_TAB_NOTICE} />
           <ExternalLink aria-hidden="true" className="size-4" />
         </a>
       )
     }
   </div>
   <div class="mt-6 grid gap-3 md:mt-0">
-    <CTAButton ctaId={ctaId} href={SOURCE_ZIP_URL} variant="outline" size="lg" fullWidth icon="download">
+    <CTAButton ctaId={ctaId} ctaRole={ctaRole} href={SOURCE_ZIP_URL} variant="outline" size="lg" fullWidth icon="download" describedBy={noteId}>
       {buttonLabel}
     </CTAButton>
-    <p class="phrase type-small text-text-muted">{note}</p>
+    <p id={noteId} class="phrase type-small text-text-muted">{note}</p>
   </div>
 </section>

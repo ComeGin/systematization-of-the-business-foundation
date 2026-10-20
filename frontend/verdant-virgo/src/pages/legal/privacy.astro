@@ -14,15 +14,16 @@ const tocItems = sections.map((section) => ({ id: section.id, label: sectionHead
 const breadcrumb = privacyPolicy.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface" motionZone="none">
   <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
     <LegalPageHeader title={title} dates={dates} />
     <LegalToc items={tocItems} label={tocLabel} variant="accordion" class="md:hidden" />
 
     <div class="flex items-start gap-12">
-      <aside class="hidden w-72 shrink-0 self-stretch md:block">
+      {/* 目次の列。ランドマークは中の nav（名前は目次の見出し）だけにするので、枠は div */}
+      <div class="hidden w-72 shrink-0 self-stretch md:block">
         <LegalToc items={tocItems} label={tocLabel} variant="sidebar" />
-      </aside>
+      </div>
 
       <div class="flex w-full max-w-[720px] min-w-0 flex-col gap-12">
         <div class="flex flex-col gap-3">
@@ -34,7 +35,7 @@ const breadcrumb = privacyPolicy.breadcrumb.slice(1).map((crumb) => ({ ...crumb 
               <h2 id={`${section.id}-heading`} class="type-h2 text-text-heading">
                 {sectionHeading(section)}
               </h2>
-              <LegalBlocks blocks={section.blocks} />
+              <LegalBlocks blocks={section.blocks} labelledBy={`${section.id}-heading`} />
             </section>
           ))
         }

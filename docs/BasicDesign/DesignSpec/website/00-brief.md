@@ -184,3 +184,5 @@ Hero, Banners & Landing Intros／Site Navigation & Headers／Trust & Social Proo
 | `01-content-spec.md` | ia-copy |
 | `02-component-map.md` | design-system |
 | `03-handoff.md` | lead |
+| `04-accessibility-spec.md`（2026-10-18 に追加。JIS X 8341-3:2016 の AA。ADR-27） | spec-writer |
+| `05-motion-spec.md`（2026-10-18 に追加。React Bits のモーション。ADR-28） | spec-writer（振る舞いの責任者は motion） |

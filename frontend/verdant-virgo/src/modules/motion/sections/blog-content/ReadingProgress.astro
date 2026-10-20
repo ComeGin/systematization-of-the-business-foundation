@@ -1,0 +1,63 @@
+---
+/**
+ * ReadingProgress（B〈calm〉のブログ記事 8-5 の読了バー）。2026-10-19。
+ *
+ * 画面の上端に 2px のバーを出し、記事を読み進めた分だけ左から右へ伸ばす（brand.blue.500）。CSS の scroll-driven animation だけ。JS を読まない。
+ * 装飾なので aria-hidden。reduced-motion・対応していないブラウザ・印刷では出さない（読み進めの情報は本文と目次が持つ）。
+ *
+ * - 置き方: 記事の <article> の直下の子に置く。<article> に名前つきの view-timeline（--reading-article）を付け、バーがそれを読む。
+ *   記事の上端が画面の上端に着いたところ（contain 0%）から、記事の下端が画面の下端に着いたところ（contain 100%）までが 0 → 100%。
+ *   ページ全体の scroll() ではなく記事の範囲にしたのは、記事の下の CTA・関連記事・フッターまで含めると、記事を読み終えても 100% に届かないため。
+ * - 長手（longhand）だけで書く（ビルドの CSS 圧縮が animation の短縮形に animation-timeline を畳むと、animation ごと無効になる）。
+ * - 伸び縮みは transform（scaleX）だけで、レイアウトを動かさない（CLS 0）。
+ */
+---
+
+<div data-reading-progress data-motion="reading-progress" aria-hidden="true"></div>
+
+<style is:global>
+  [data-reading-progress] {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      @media not print {
+        article:has(> [data-reading-progress]) {
+          view-timeline-name: --reading-article;
+          view-timeline-axis: block;
+          /* inset を 0 に固定する。auto のままだと html の scroll-padding（Cookie 同意バナーが出ている間の下の余白など）が範囲に効き、
+             記事を読み終えてもバーが 100% に届かない */
+          view-timeline-inset: 0;
+        }
+        [data-reading-progress] {
+          display: block;
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 40;
+          height: 2px;
+          background-color: var(--color-brand-blue-500);
+          transform-origin: left center;
+          animation-name: reading-progress-grow;
+          animation-timing-function: linear;
+          animation-fill-mode: both;
+          animation-timeline: --reading-article;
+          animation-range-start: contain 0%;
+          animation-range-end: contain 100%;
+          pointer-events: none;
+        }
+      }
+    }
+  }
+
+  @keyframes reading-progress-grow {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+</style>

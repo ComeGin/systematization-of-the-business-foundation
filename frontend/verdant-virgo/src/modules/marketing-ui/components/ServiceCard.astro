@@ -6,11 +6,17 @@
  * 上と下のあいだに余白は入れない（Figma は SPACE_BETWEEN で、内容の高さで組むと間隔 0）。
  * 価格の値は 01-content-spec.md §2 の表から一字一句写す（site-content/pricing.ts）。既定値は持たない（H-16）。
  * カード群の直下に「表示価格はすべて税込です。」を別に置く（この部品には含めない）。
+ * 価格の枠には data-tilt-lift を付ける（A のページの Tilt3d が、ポインターで傾いたとき手前へ浮かせる目印。単体では何も変わらない）。
+ * 「詳しく見る」はカードごとに同じ文字なので、detailTarget（区切りを含めた対象名。site-content/a11y.ts で作る）を sr-only で後ろに足し、
+ * 「詳しく見る：環境構築」と読ませる（2.4.4。見える文字で始まるので 2.5.3 も満たす）。区切りの文字は部品に持たせない（H-16・H-31）。
+ * ページ移動の形のつながり: カードに data-morph-source、見出しに data-morph="title" を付ける。「詳しく見る」で詳細へ移る直前に、
+ * page-transition が押したカードの見出しにだけ view-transition-name を付け、詳細の h1 へ形をつなぐ（単体では何も変わらない）。
  */
 import { ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { VisuallyHidden } from '@/modules/a11y';
 import type { HeadingLevel, PriceRow } from '../lib/types';
 
 interface Props {
@@ -23,22 +29,24 @@ interface Props {
   detailHref: string;
   /** 詳細へのリンクの文言（CTA ではないリンク。Figma の全カードで「詳しく見る」） */
   detailLabel?: string;
+  /** 「詳しく見る」の後ろに sr-only で足す対象名（区切りを含む。01-content-spec.md §12 の S-3） */
+  detailTarget?: string;
   level?: HeadingLevel;
   class?: string;
 }
 
-const { title, badge, body, prices, note, detailHref, detailLabel = '詳しく見る', level = 'h3', class: className } = Astro.props;
+const { title, badge, body, prices, note, detailHref, detailLabel = '詳しく見る', detailTarget, level = 'h3', class: className } = Astro.props;
 const Heading = level;
 ---
 
-<article class={cn('flex flex-col justify-between rounded-md border border-border bg-surface p-6', className)}>
+<article data-morph-source class={cn('flex flex-col justify-between rounded-md border border-border bg-surface p-6', className)}>
   <div class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <Heading class="type-card-title text-text-heading">{title}</Heading>
+      <Heading data-morph="title" class="type-card-title text-text-heading">{title}</Heading>
       {badge && <Badge variant="secondary">{badge}</Badge>}
     </div>
     <p class="type-small phrase text-text-body">{body}</p>
-    <div class="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
+    <div data-tilt-lift class="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
       <dl class="flex flex-col gap-3">
         {
           prices.map((row) => (
@@ -58,6 +66,7 @@ const Heading = level;
   <div class="flex flex-wrap items-start gap-x-4 gap-y-2">
     <a href={detailHref} class={buttonVariants({ variant: 'link', size: 'default' })}>
       {detailLabel}
+      {detailTarget && <VisuallyHidden>{detailTarget}</VisuallyHidden>}
       <ArrowRight aria-hidden="true" data-icon="inline-end" />
     </a>
     <slot name="sub-link" />

@@ -1,0 +1,28 @@
+---
+/**
+ * MotionBlobs（体験の筋書き「一緒に考える」）。締めの CTA バナー（navy.700 の反転面）の右側の装飾。React Bits の MetaBalls ＋ MotionPause。
+ *
+ * - 粒がゆっくり巡り、バナーに hover・キーボードのフォーカスが入ると寄り合って 1 つになる（規則 8）。
+ * - 5 秒を超えて自動で動くので、一時停止のボタン（a11y の MotionPause）をバナーの右下に出す。止めた結果はページを移っても残る（規則 3）。
+ * - reduced-motion・WebGL が無い・水和の前: 静止の SVG の粒（規則 4・5）。一時停止のボタンは出さない（動かないため）。
+ * - 文字の後ろには置かない。置き場所は CTA を中心に左右同じ幅の箱で、左の端が実際の文字の右端から 24px 空くように測って決める（120px より狭ければ置かない）。
+ *   寄り合うと粒は CTA の後ろへ吸い込まれて見える（G-1 で承認）。
+ *   粒は navy.500／600 で、白い文字・白いリングとの比は 4.5:1 以上。
+ * - externalPause: A の CTA は CtaGlow の一時停止のボタンが光の縁・粒・この粒をまとめて止めるので、自前のボタンを出さず、
+ *   最寄りの [data-motion-paused]（バナーの aside）に従って止まる。B の CTA は渡さない（このボタンのまま）。
+ * - md 以上だけ（Mobile は縦積みで、文字の後ろを避けられないため出さない。判断 D）。client:visible なので画面に入るまで JS を読まない。
+ *
+ * 置き方（CTABanner の装飾の slot）: バナーの aside は relative・overflow-hidden・isolate、文字とボタンの側は relative z-[1]。
+ * この部品は aside の最後の子に置く（DOM の順で、一時停止のボタンが CTA の後にフォーカスされる）。
+ */
+import BlobsIsland from '../islands/BlobsIsland';
+import type { MotionBlobsProps } from '../lib/types';
+
+type Props = MotionBlobsProps;
+
+const { pauseLabel, resumeLabel, pauseTarget, externalPause = false, class: className } = Astro.props;
+---
+
+<div class:list={['hidden md:contents', className]}>
+  <BlobsIsland client:visible pauseLabel={pauseLabel} resumeLabel={resumeLabel} pauseTarget={pauseTarget} externalPause={externalPause} />
+</div>

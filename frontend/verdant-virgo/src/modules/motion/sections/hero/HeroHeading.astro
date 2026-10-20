@@ -1,0 +1,78 @@
+---
+/**
+ * HeroHeading（A〈vivid〉のページのヒーローの h1）。文字がにじんだ状態から焦点が合う。2026-10-19。
+ *
+ * - CSS だけ。JS に依存しない（水和を待たない。最初の描画から始まる）。文字を分割しない。
+ * - 開始は opacity 0.35・blur 6px。0 から始めない（h1 は最初の HTML で読める。LCP の対象にもなりうる）。
+ *   各行 --motion-duration-large（600ms）・--motion-ease-emphasized で焦点が合い、行の間隔は --motion-duration-micro（120ms）。
+ * - BreakableHeading を heading で渡すと、既存の HeadingLines と同じ区間（segments）を 1 行として、行ごとに順に合う。
+ *   区間は <span> にするだけで、文字・<br> の並びは HeadingLines と同じ（読み上げる文字も変わらない）。
+ *   heading を渡さないときは、slot の見出し全体に 1 つの動き。
+ * - reduced-motion では動かさず、最初から焦点が合った状態（opacity 1・blur なし）。
+ * - 文字の大きさ・色は class で渡す（例 class="type-h1 text-text-inverse"）。level は h1 だけ（ヒーローの見出し）。
+ * - viewTransitionName を渡すと h1 に静的に view-transition-name を付ける（サービス詳細。カードの見出しから形をつなぐ。page-transition）。
+ *
+ * TextGenerateEffect（Aceternity）の原本を使わない理由: 原本は文を語に分割し、各語を opacity 0 から JS（motion）で出す。
+ * (1) 日本語は語の区切りが無く、空白で分割すると 1 語になる。(2) opacity 0 から始まるので、h1 が最初の HTML で読めない（Global Constraints 違反）。
+ * (3) 水和まで文字が見えない。見た目（ぼやけて焦点が合う）だけを CSS で再現した。
+ */
+import { assertBreakableHeading, type BreakableHeading } from '@/modules/marketing-ui';
+import type { HeroHeadingProps } from '../../lib/types';
+
+type Props = HeroHeadingProps;
+
+const { level, heading, id, viewTransitionName, class: className } = Astro.props;
+if (level !== 'h1') throw new Error('HeroHeading: level は h1 だけです。');
+if (heading) assertBreakableHeading(heading as BreakableHeading);
+const Heading = level;
+---
+
+<Heading
+  id={id}
+  style={viewTransitionName ? `view-transition-name: ${viewTransitionName}` : undefined}
+  class:list={['hero-heading', heading ? 'hero-heading--lines' : 'hero-heading--whole', className]}
+>
+  {
+    heading ? (
+      heading.segments.map((segment, i) => (
+        <>
+          <span class="hero-line" style={`--i:${i}`}>
+            {segment.text}
+          </span>
+          {segment.breakAfter === 'both' && <br />}
+          {segment.breakAfter === 'desktop' && <br class="hidden md:inline" />}
+          {segment.breakAfter === 'mobile' && <br class="md:hidden" />}
+        </>
+      ))
+    ) : (
+      <slot />
+    )
+  }
+</Heading>
+
+<style is:global>
+  /* 最初の状態は from（opacity 0.35・blur 6px）。終わった後は通常の見た目（fill は backwards だけで、blur(0) の filter を残さない） */
+  .hero-heading--whole,
+  .hero-heading .hero-line {
+    animation: hero-focus var(--motion-duration-large) var(--motion-ease-emphasized) backwards;
+  }
+  .hero-heading .hero-line {
+    animation-delay: calc(var(--i) * var(--motion-duration-micro));
+  }
+  @keyframes hero-focus {
+    from {
+      opacity: 0.35;
+      filter: blur(6px);
+    }
+    to {
+      opacity: 1;
+      filter: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-heading--whole,
+    .hero-heading .hero-line {
+      animation: none;
+    }
+  }
+</style>

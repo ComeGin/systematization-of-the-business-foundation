@@ -5,6 +5,7 @@ import { i13File } from "./i13-file.js";
 import { miswriteCheck } from "./miswrite-check.js";
 import { silenceCheck } from "./silence-check.js";
 import { lighthouse } from "./lighthouse.js";
+import { a11y } from "./a11y.js";
 import { n8nExport } from "./n8n-export.js";
 import { heartbeat, publishedArticleCheck, runlogFlush } from "./simple.js";
 
@@ -14,6 +15,7 @@ export const BUILTIN_HANDLERS: Readonly<Record<BuiltinJob, BuiltinHandler>> = {
   "miswrite-check": miswriteCheck,
   "silence-check": silenceCheck,
   lighthouse,
+  a11y,
   "published-article-check": publishedArticleCheck,
   "runlog-flush": runlogFlush,
   "n8n-export": n8nExport,

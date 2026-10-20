@@ -1,0 +1,54 @@
+---
+/**
+ * Reveal（B〈calm〉の「静かな」現れ方。料金カード・会社紹介の各節・ブログのカードなど）。2026-10-19。
+ *
+ * 画面に入るとき、16px 下から上がってくる。CSS の scroll-driven animation（animation-timeline: view()）だけ。JS を読まない。
+ * ヒーローの h1・本文には使わない（最初の描画から動かさない。LCP）。
+ *
+ * - 現れ方は transform（translateY）だけで、opacity は触らない。文字がいつでも 100% の濃さで読める
+ *   （opacity を下げると、画面の下にある間の文字が axe のコントラスト検査に落ちる。Task 5 の StatRow と同じ判断。判断 R10）。
+ * - 範囲は entry 0% → entry 40%（要素が画面に入りきる前に着く）。step（0〜3）の分だけ範囲の始まりを 8% ずつ遅らせる
+ *   （スクロールに結びつく動きなので時間の遅れは使えない。step × 80ms 相当を、範囲の遅れで表す）。
+ * - 長手（longhand）だけで書く。ビルドの CSS 圧縮が animation の短縮形に animation-timeline を畳むと、animation ごと無効になる
+ *   （animation-duration を書かない＝初期値 auto＝タイムラインの長さ）。
+ * - 対応していないブラウザ（animation-timeline: view() が無い）・reduced-motion・印刷は何も起きない（元の状態が最終の状態）。
+ * - 根の要素は as（div・li・article・section）。ほかの属性（aria-labelledby など）は根にそのまま渡す。
+ * - view() はいちばん近いスクロールの枠に結びつく。overflow が visible でない祖先（表の枠の overflow-x-auto など）の中の要素には使わない
+ *   （枠の外側の要素を Reveal にする）。
+ */
+import type { HTMLAttributes } from 'astro/types';
+import type { RevealProps } from '../../lib/types';
+
+type Props = RevealProps & Omit<HTMLAttributes<'div'>, 'class' | 'class:list'>;
+
+const { as: Tag = 'div', step = 0, class: className, ...attrs } = Astro.props;
+---
+
+<Tag data-reveal class={className} style={step > 0 ? `--reveal-step:${step}` : undefined} {...attrs}>
+  <slot />
+</Tag>
+
+<style is:global>
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      @media not print {
+        [data-reveal] {
+          --reveal-step: 0;
+          animation-name: reveal-in;
+          animation-timing-function: var(--motion-ease-standard);
+          animation-fill-mode: both;
+          animation-timeline: view();
+          animation-range-start: entry calc(var(--reveal-step) * 8%);
+          animation-range-end: entry calc(40% + var(--reveal-step) * 8%);
+        }
+      }
+    }
+  }
+
+  /* 下から上がる（from だけ指定。to は元の状態）。opacity は触らない */
+  @keyframes reveal-in {
+    from {
+      transform: translateY(1rem);
+    }
+  }
+</style>

@@ -7,6 +7,7 @@ import { Check } from 'lucide-react';
 import { BLOG_CATEGORIES } from '@/modules/blog';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { Photo } from '@/modules/media';
+import { CtaGlow, GlowGrid, HeroBackdrop, MorphGallery } from '@/modules/motion';
 import {
   BlogCard,
   CTABanner,
@@ -18,6 +19,8 @@ import {
   SectionHeading,
   Steps,
 } from '@/modules/marketing-ui';
+import { VT } from '@/modules/page-transition';
+import { MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import { blogCardSample } from '@/modules/site-content/blog';
 import { PRICING, TAX_NOTE } from '@/modules/site-content/pricing';
 import { SEO } from '@/modules/site-content/seo';
@@ -56,31 +59,26 @@ const categoryLabel = (intent: (typeof related.cardIntents)[number]) => {
 const splitByService = plans.cards.length > 1;
 ---
 
-<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)}>
-  {/* 導入ヒーロー（Badge・h1・本文・主 CTA） */}
-  <PageIntro title={h1} badge={hero.badge}>
-    <div slot="body" class="type-body-lg phrase max-w-[720px] text-text-muted">
+<BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} breadcrumbTone="surface" motionZone="vivid">
+  {/* 導入ヒーロー（Badge・h1・本文・主 CTA）。A（vivid）なので地は navy（HeroBackdrop。Desktop だけ動く）。パンくずの帯は白（surface） */}
+  {/* h1 は vt-service-title を静的に持つ（トップ・サービス一覧のカードの見出しから形がつながる。page-transition） */}
+  <PageIntro tone="dark" title={h1} badge={hero.badge} titleViewTransitionName={VT.serviceTitle}>
+    <div slot="body" class="type-body-lg phrase max-w-[720px] text-text-on-hero-muted">
       {hero.body.map((paragraph) => <p>{paragraph}</p>)}
     </div>
     <CTAButton slot="actions" ctaId={hero.cta.ctaId} href={ctaHref(hero.cta, from)} size="lg" fullWidth="mobile">
       {hero.cta.label}
     </CTAButton>
     <Photo slot="media" photo={hero.photo} sizes="(min-width: 768px) 480px, 100vw" loading="eager" fetchpriority="high" class="aspect-[4/3] w-full" />
+    <HeroBackdrop slot="backdrop" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.hero} />
   </PageIntro>
 
-  {/* 写真の並び（業務提携だけ。Desktop 3 列、Mobile 1 列） */}
+  {/* 写真の並び（業務提携だけ）。MorphGallery が 3 分野の写真をラジオで切り替える。名前は見出しを指す（新しい文言を足さない） */}
   {
     gallery && (
       <Section labelledby="detail-gallery" class="phrase">
         <SectionHeading id="detail-gallery" title={gallery.heading} />
-        <ul class="mt-8 grid gap-6 md:mt-12 md:grid-cols-3">
-          {gallery.items.map((item) => (
-            <li class="flex flex-col gap-3">
-              <Photo photo={item.photo} sizes="(min-width: 768px) 360px, 100vw" widths={[360, 720, 1080]} class="aspect-[4/3] w-full" />
-              <p class="type-card-title text-text-heading">{item.label}</p>
-            </li>
-          ))}
-        </ul>
+        <MorphGallery items={[...gallery.items]} labelledby="detail-gallery" class="mt-8 md:mt-12" />
       </Section>
     )
   }
@@ -127,7 +125,7 @@ const splitByService = plans.cards.length > 1;
   {/* こんな方に向いています（見出しの右に Badge「要確認」。§0.1） */}
   <Section labelledby="detail-fit" class="phrase">
     <SectionHeading id="detail-fit" title={fit.heading} badge={fit.headingBadge} badgeVariant="outline" />
-    <div class="mt-8 grid gap-4 md:mt-12 md:grid-cols-2 md:gap-6">
+    <GlowGrid class="mt-8 grid gap-4 md:mt-12 md:grid-cols-2 md:gap-6">
       {
         fit.groups.map((group) => {
           const list = (
@@ -142,15 +140,15 @@ const splitByService = plans.cards.length > 1;
           );
           // 見出しのあるカード（受託開発の 2 プラン）は IconCard、見出しの無いカード（残り 3 件）は枠だけ
           return group.title ? (
-            <IconCard title={group.title}>
+            <IconCard data-glow-card title={group.title}>
               <Fragment slot="body">{list}</Fragment>
             </IconCard>
           ) : (
-            <div class="rounded-md border border-border bg-surface p-6">{list}</div>
+            <div data-glow-card class="rounded-md border border-border bg-surface p-6">{list}</div>
           );
         })
       }
-    </div>
+    </GlowGrid>
   </Section>
 
   {/* 進め方（Desktop は 3 列 ＋ 2 列 または 2 列 ×2 段、Mobile 縦 1 列） */}
@@ -181,10 +179,11 @@ const splitByService = plans.cards.length > 1;
 
   {/* CTA バナー（主 CTA） */}
   <Section>
-    <CTABanner title={banner.title} body={banner.body}>
+    <CTABanner id="cta-banner" title={banner.title} body={banner.body}>
       <CTAButton slot="cta" ctaId={banner.cta.ctaId} href={ctaHref(banner.cta, from)} size="lg" fullWidth="mobile">
         {banner.cta.label}
       </CTAButton>
+      <CtaGlow slot="decoration" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.cta} />
     </CTABanner>
   </Section>
 </BaseLayout>

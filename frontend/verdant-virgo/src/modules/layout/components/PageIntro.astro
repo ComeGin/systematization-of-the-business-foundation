@@ -5,10 +5,19 @@
  * Desktop: テキスト左・画像枠右（slot="media"。480×360 の ImagePlaceholder など）。Mobile: 縦積み。
  * 主 CTA があれば slot="actions" に CTAButton（Mobile は fullWidth="mobile"）。
  * h1 に改行位置の指定があるときは title に BreakableHeading を渡す（計画書 P-3）。文言の既定値は持たない（H-16）。
+ *
+ * tone="dark"（A〈vivid〉のサービス一覧・詳細）: 地は navy（role/surface-hero）で、h1 は white・焦点が合う動き（motion の HeroHeading）、本文は navy.100。
+ * 背景の動き（motion の HeroBackdrop）は slot="backdrop" に置く。外枠は relative isolate overflow-hidden で、slot は DOM の最後（一時停止のボタンが CTA の後になる）。
+ * パンくずの帯（白）と地が接しないよう、上に余白を取る（breadcrumbTone="surface" と一緒に使う）。
+ * 本文（slot="body"）の文字色は呼び出し側が渡す（text-on-hero-muted）。
+ * titleViewTransitionName を渡すと h1 に静的に view-transition-name を付ける（サービス詳細・お問い合わせ。前のページのカード・CTA から形をつなぐ。page-transition の VT）。
  */
 import type { LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { HeadingLines, type BreakableHeading } from '@/modules/marketing-ui';
+import { HeroHeading } from '@/modules/motion';
+import { vtStyle, type VtName } from '@/modules/page-transition';
 
 interface Props {
   /** h1。改行位置の指定がある見出しは BreakableHeading で渡す。slot="title" を使うときは省く */
@@ -18,9 +27,16 @@ interface Props {
   badge?: string;
   /** バッジの文字の前のアイコン（lucide-react の部品。完了画面の「受付完了」の circle-check など） */
   badgeIcon?: LucideIcon;
+  /** h1 の id（フォームなどの aria-labelledby の先にするとき。/contact） */
+  titleId?: string;
+  /** 地。subtle（既定。role/surface-subtle）か dark（A のヒーロー。navy。背景は slot="backdrop"） */
+  tone?: 'subtle' | 'dark';
+  /** h1 に静的に付ける view-transition-name（page-transition の VT） */
+  titleViewTransitionName?: VtName;
 }
 
-const { title, body, badge, badgeIcon: BadgeIcon } = Astro.props;
+const { title, body, badge, badgeIcon: BadgeIcon, titleId, tone = 'subtle', titleViewTransitionName } = Astro.props;
+const dark = tone === 'dark';
 const hasTitleSlot = Astro.slots.has('title');
 if (!title && !hasTitleSlot) {
   throw new Error('PageIntro: title か slot="title" のどちらかを渡してください。');
@@ -28,7 +44,13 @@ if (!title && !hasTitleSlot) {
 const hasMedia = Astro.slots.has('media');
 ---
 
-<section class="bg-surface-subtle pt-6 pb-12 md:pt-8 md:pb-16">
+<section
+  data-surface={dark ? 'dark' : undefined}
+  class={cn(
+    'pt-6 pb-12 md:pt-8 md:pb-16',
+    dark ? 'relative isolate mt-3 overflow-hidden bg-surface-hero text-text-inverse md:mt-4' : 'bg-surface-subtle',
+  )}
+>
   <div class="site-container flex flex-col items-start gap-6 md:flex-row md:items-center md:gap-12">
     <div class="flex w-full min-w-0 flex-col items-start gap-3 md:flex-1 md:gap-4">
       {
@@ -39,10 +61,24 @@ const hasMedia = Astro.slots.has('media');
           </Badge>
         )
       }
-      <h1 class="type-h1 text-text-heading">
-        {hasTitleSlot ? <slot name="title" /> : typeof title === 'string' ? title : title && <HeadingLines heading={title} />}
-      </h1>
-      {body && <p class="type-body-lg phrase max-w-[720px] text-text-muted">{body}</p>}
+      {
+        dark ? (
+          <HeroHeading
+            level="h1"
+            id={titleId}
+            heading={typeof title === 'object' ? title : undefined}
+            viewTransitionName={titleViewTransitionName}
+            class="type-h1 text-text-inverse"
+          >
+            {hasTitleSlot ? <slot name="title" /> : typeof title === 'string' ? title : null}
+          </HeroHeading>
+        ) : (
+          <h1 id={titleId} style={titleViewTransitionName ? vtStyle(titleViewTransitionName) : undefined} class="type-h1 text-text-heading">
+            {hasTitleSlot ? <slot name="title" /> : typeof title === 'string' ? title : title && <HeadingLines heading={title} />}
+          </h1>
+        )
+      }
+      {body && <p class={cn('type-body-lg phrase max-w-[720px]', dark ? 'text-text-on-hero-muted' : 'text-text-muted')}>{body}</p>}
       <slot name="body" />
       <slot name="actions" />
     </div>
@@ -54,4 +90,5 @@ const hasMedia = Astro.slots.has('media');
       )
     }
   </div>
+  <slot name="backdrop" />
 </section>

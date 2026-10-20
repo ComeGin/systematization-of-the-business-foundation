@@ -1,0 +1,21 @@
+---
+/**
+ * ページ移動の形のつながり（opt-in と遷移先の側）。BaseLayout が motionZone が none 以外のときだけ <head> に置く。
+ *
+ * - @view-transition { navigation: auto; } でこのページを文書間の View Transitions に opt-in する。
+ *   C のページ（規約・ポリシー）はこれを出さないので、C へ入るとき・C から出るときの遷移は JS に頼らず起きない（両方の opt-in が要る）。
+ * - pagereveal は最初の描画より前に登録しないと取りこぼすので、非 async・非 defer・非 module の inline script にする。
+ *   中身は lib/morph.ts の pageRevealScript()（判定の実装をビルド時に文字列にしたもの。判定を 2 か所に書かない）。
+ * - 動きは既定の形のつながりだけ（拡大・回転・光は足さない）。時間と緩急は global.css でトークンを当て、reduced-motion では止まる。
+ */
+import { pageRevealScript } from '../lib/morph';
+
+const script = pageRevealScript();
+---
+
+<style is:inline>
+  @view-transition {
+    navigation: auto;
+  }
+</style>
+<script is:inline set:html={script} />

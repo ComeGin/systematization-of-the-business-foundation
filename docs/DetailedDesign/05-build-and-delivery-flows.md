@@ -191,7 +191,7 @@ target:
   identifier: /            # manifest の url からサイト内パスだけを取る
 metrics:
   LH-performance: 1.00
-  LH-accessibility: 1.00
+  LH-a11y: 1.00            # DA-02 の 4.3 の名前（2026-10-18 に LH-accessibility から直した）
   LH-best-practices: 1.00
   LH-seo: 1.00
 ref: .lighthouse/localhost--2026_09_16_04_59_22.report.json   # 相対パスに直す（2.4）

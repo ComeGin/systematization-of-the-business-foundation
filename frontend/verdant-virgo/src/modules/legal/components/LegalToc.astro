@@ -2,6 +2,9 @@
 // 目次（法務 10-A と、ブログ記事 8-4 で使う）。項目はページ内のアンカー。
 // 法務は h2 と同じ番号つきで並べる（§4.10。呼ぶ側が sectionHeading で文字列にして渡す）。
 // variant=sidebar: Desktop の本文の横（枠つき。スクロールに追従）。accordion: Mobile の本文の前（閉じた状態。JS なしの details）。
+// trackCurrent（既定 false。ブログ記事だけが true）: 目次の「いまここ」の印を受ける準備をする。nav に data-toc-track を付け、リンクに
+// aria-current="location" が付いたときの見た目（項目の左の線・文字の色）のクラスを足す。属性を付け外しするのは motion の TocTracker（JS）で、
+// この部品は JS を持たない。false のとき（規約・ポリシー）は出力が今までと一字も変わらない。
 import { ChevronDown } from 'lucide-react';
 
 interface Props {
@@ -9,20 +12,30 @@ interface Props {
   /** 目次の見出し（「目次」） */
   label: string;
   variant: 'sidebar' | 'accordion';
+  /** ブログ記事の目次の「いまここ」を受ける（既定 false） */
+  trackCurrent?: boolean;
   class?: string;
 }
 
-const { items, label, variant, class: className } = Astro.props;
-const linkClass = 'type-small phrase text-text-link underline underline-offset-4 hover:text-text-link-hover';
+const { items, label, variant, trackCurrent = false, class: className } = Astro.props;
+const baseLinkClass = 'type-small phrase text-text-link underline underline-offset-4 hover:text-text-link-hover';
+// いまの節: 文字を見出しの色にし、項目（li）の左に 2px の線（role/border-brand）を出す。線は常に場所を取り（透明）、文字の太さも変えないので、付いても行が動かない
+const linkClass = trackCurrent
+  ? `${baseLinkClass} aria-[current=location]:text-text-heading`
+  : baseLinkClass;
+const itemClass = trackCurrent
+  ? 'border-l-2 border-transparent pl-3 transition-colors duration-[var(--motion-duration-small)] ease-[var(--motion-ease-standard)] has-[[aria-current=location]]:border-border-brand'
+  : undefined;
+const trackAttr = trackCurrent ? { 'data-toc-track': '' } : {};
 ---
 
 {
   variant === 'sidebar' ? (
-    <nav aria-label={label} class:list={['sticky top-20 flex flex-col gap-3 rounded-md border border-border bg-surface p-6', className]}>
+    <nav aria-label={label} class:list={['sticky top-20 flex flex-col gap-3 rounded-md border border-border bg-surface p-6', className]} {...trackAttr}>
       <p class="type-card-title text-text-heading">{label}</p>
       <ol class="flex flex-col">
         {items.map((item) => (
-          <li>
+          <li class={itemClass}>
             <a href={`#${item.id}`} class={linkClass}>
               {item.label}
             </a>
@@ -36,10 +49,10 @@ const linkClass = 'type-small phrase text-text-link underline underline-offset-4
         {label}
         <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden="true" />
       </summary>
-      <nav aria-label={label} class="border-t border-border px-4 py-3">
+      <nav aria-label={label} class="border-t border-border px-4 py-3" {...trackAttr}>
         <ol class="flex flex-col gap-1">
           {items.map((item) => (
-            <li>
+            <li class={itemClass}>
               <a href={`#${item.id}`} class={linkClass}>
                 {item.label}
               </a>

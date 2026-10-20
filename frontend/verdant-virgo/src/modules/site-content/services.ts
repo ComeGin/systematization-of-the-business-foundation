@@ -81,7 +81,7 @@ export interface CtaBannerCopy {
   readonly cta: CtaCopy;
 }
 
-/** 無料 DL ブロック（SourceDownloadBlock）のうち、ページで変わる見出しと本文 */
+/** 無料 DL ブロック（source-dl の SourceDlBlock）のうち、ページで変わる見出しと本文 */
 export interface SourceDlCopy {
   readonly title: string;
   /** 要素ごとに行を分けて組む（1 要素 ＝ 1 段落、または文ごとに改行する行。Figma の組み方に合わせた） */
@@ -95,7 +95,7 @@ const SOURCE_DL_LABEL = 'ソースコードを無料 DL';
 // 無料 DL ブロック
 // ---------------------------------------------------------------------------
 
-// 無料 DL ブロック（forms の SourceDownloadBlock）はトップ（1-9。文言は top.ts）とブログ（7-5・8-8。blog.ts）だけに置く。
+// 無料 DL ブロック（source-dl の SourceDlBlock。2026-10-20 まではブログだけ forms の SourceDownloadBlock）はトップ（1-9。文言は top.ts）とブログ（7-5・8-8。blog.ts）だけに置く。
 // 2026-10-18 にユーザー判断で、サービス一覧（2-7）・料金（4-7）・環境構築の詳細に置いていた中立版をやめた。
 // 「ソースコードを無料 DL」の CTA が zip のダウンロードと無料相談への遷移になり、無料相談と役目が重なるため。主 CTA は無料相談。
 

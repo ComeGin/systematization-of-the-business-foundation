@@ -30,13 +30,18 @@ module.exports = {
   ci: {
     collect: {
       // dist/ を配信するだけ。ビルドは npm script 側 (pnpm lh) で先に済ませる。
-      startServerCommand: `pnpm exec astro preview --port ${PORT}`,
+      // Astro 7.3 の preview は AI エージェントの環境を検出すると自動でバックグラウンドに回り、
+      // ロック（.astro/preview.json）で 1 プロジェクト 1 つに制限する。LHCI が止められる前景で起動し、
+      // a11y の検査（4323）と同時に動けるよう、検出を飛ばしてロックも読み書きしない。
+      startServerCommand: `ASTRO_PREVIEW_BACKGROUND=1 pnpm exec astro preview --port ${PORT} --ignore-lock`,
       startServerReadyPattern: `localhost:${PORT}`,
       // トップ＋ブログ一覧＋代表記事 1 本（DD-05 の 2.6 の案 B）。
       // 記事の slug は Strapi の中身で変わるため固定せず、ビルド済みの dist/blog から 1 本選ぶ。
+      // 無料相談（フォームのあるページ）も測る（2026-10-18。JIS X 8341-3 の改修の計画の検証 8）。
       url: [
         `http://localhost:${PORT}/`,
         `http://localhost:${PORT}/blog/`,
+        `http://localhost:${PORT}/contact/`,
         ...firstArticlePath().map((p) => `http://localhost:${PORT}${p}`),
       ],
 
@@ -54,9 +59,11 @@ module.exports = {
 
     assert: {
       assertions: {
-        // 本番ビルドの実測ベースラインは 0.98〜1.00（3 回計測）。
-        // 十分な余裕があるため error に昇格済み。
-        "categories:performance": ["error", { minScore: 0.9 }],
+        // performance は warn（2026-10-19。ADR-29）。動きと performance 0.9 がぶつかったら動きを優先する
+        // ユーザーの決定（U-3・U-5）による。計測は続け、0.9 未満は警告として残す（ビルドは落とさない）。
+        // 実ユーザーの体験は PostHog の CWV（LCP の p75）で見る（ADR-29 の見直しの条件）。
+        "categories:performance": ["warn", { minScore: 0.9 }],
+        // 本番ビルドの実測ベースラインは 0.98〜1.00（3 回計測）。十分な余裕があるため error に昇格済み。
         "categories:accessibility": ["error", { minScore: 0.9 }],
         "categories:best-practices": ["error", { minScore: 0.9 }],
         // SEO 対策が本設定の目的なので満点を死守ラインとする。

@@ -3,11 +3,14 @@
 // すべての記事の一覧（/blog、/blog/page/<n>）とカテゴリ別の一覧（/blog/category/<slug>…）が共通で使う。
 // ヘッダーの「無料相談」は Outline（F2）。主 CTA は無料 DL（強調版。§6.3 の #26 dl_blog_section）。
 // カテゴリのタブとページ送りは JS を使わないリンク（計画 P-4）。ページ間の移動なので計測しない。
+// 動き（B〈calm〉）: 導入 7-3 の 72.2%・53.8%・50.8% は画面に入ったとき 1 回だけ 0 から数え上がる（motion の CountUp。最終値は最初の HTML にあり、読み上げはそれだけ）。
+// 記事のカードは画面に入るとき下から静かに上がる（motion の Reveal）。
 // ファイル名の先頭の _ でページにならない（Astro のルーティングの対象外）。
-import { SourceDownloadBlock } from '@/modules/forms';
 import { ALL_CATEGORIES_LABEL, BLOG_CATEGORIES, type Article } from '@/modules/blog';
 import { BaseLayout, PageIntro, type BreadcrumbItem } from '@/modules/layout';
 import { Section } from '@/modules/marketing-ui';
+import { SourceDlBlock } from '@/modules/source-dl';
+import { CountUp, Reveal } from '@/modules/motion';
 import { blogIndex } from '@/modules/site-content/blog';
 import type { PageSeo } from '@/modules/site-content/seo';
 import { cn } from '@/lib/utils';
@@ -42,6 +45,10 @@ const tabs = [
 
 // パンくずは「ホーム / ブログ」（ホームは部品が先頭に足す）。カテゴリ別・2 ページ目以降も一覧の 1 枚として同じにする
 const breadcrumb: BreadcrumbItem[] = blogIndex.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
+// 導入の文の中の「72.2%」の形の数字を CountUp にする（文の中の数字だけ。前後の文字はそのまま）
+const PERCENT = /(\d+(?:\.\d+)?%)/;
+const segmentsOf = (sentence: string) => sentence.split(PERCENT).filter((part) => part !== '');
+const isPercent = (part: string) => /^\d+(?:\.\d+)?%$/.test(part);
 const pageLinkClass = (current: boolean) =>
   cn(buttonVariants({ variant: current ? 'outline' : 'ghost', size: 'sm' }), 'min-w-8 px-2.5 text-sm font-medium text-text-body', current && 'border-border');
 ---
@@ -53,7 +60,11 @@ const pageLinkClass = (current: boolean) =>
       {
         hero.paragraphs.map((paragraph) => (
           <>
-            <p class="type-body-lg text-text-muted">{paragraph.sentences.join('')}</p>
+            <p class="type-body-lg text-text-muted">
+              {paragraph.sentences.map((sentence) =>
+                segmentsOf(sentence).map((part) => (isPercent(part) ? <CountUp value={part} /> : part)),
+              )}
+            </p>
             {'source' in paragraph && <p class="type-caption text-text-muted">{paragraph.source}</p>}
           </>
         ))
@@ -65,9 +76,11 @@ const pageLinkClass = (current: boolean) =>
 
   {/* 7-4 カテゴリと記事一覧（Desktop 3 列 ×3 行、Mobile 1 列） */}
   <Section>
-    {/* Mobile は横スクロール（折り返さない） */}
-    <nav aria-label="カテゴリ" class="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-      <ul class="flex w-max gap-2">
+    {/* 狭い幅ではタブを折り返す（§4.7 の 7-4 の「Mobile は横スクロール」から変えた。2026-10-18）。
+        横スクロールの枠では、幅 320px で最後のタブ「導入を検討する」が枠から 76px はみ出し、Tab でフォーカスしても
+        Chromium は枠を送らなかった（一部が見えているため）。フォーカスしたタブが欠けて見えるので折り返す（2.4.7・2.4.11） */}
+    <nav aria-label="カテゴリ">
+      <ul class="flex flex-wrap gap-2">
         {
           tabs.map((tab) => (
             <li>
@@ -89,10 +102,10 @@ const pageLinkClass = (current: boolean) =>
 
     <ul class="mt-8 grid gap-4 md:grid-cols-3 md:gap-8">
       {
-        articles.map((article) => (
-          <li class="flex">
+        articles.map((article, i) => (
+          <Reveal as="li" class="flex" step={(i % 3) as 0 | 1 | 2}>
             <ArticleCard article={article} context="ブログ一覧のカバー" level="h2" />
-          </li>
+          </Reveal>
         ))
       }
     </ul>
@@ -132,8 +145,15 @@ const pageLinkClass = (current: boolean) =>
     }
   </Section>
 
-  {/* 7-5 無料 DL ブロック（主 CTA。強調版。部品が id="source-dl" を持つ） */}
+  {/* 7-5 無料 DL ブロック（主 CTA。トップの 1-9 と同じ CTA ＝ zip のダウンロード ＋ 無料相談への遷移。部品が id="source-dl" を持つ） */}
   <Section>
-    <SourceDownloadBlock ctaId="dl_blog_section" emphasis="strong" title={sourceDownload.heading} body={sourceDownload.body} />
+    <SourceDlBlock
+      ctaId="dl_blog_section"
+      title={sourceDownload.copy.title}
+      body={sourceDownload.copy.body}
+      buttonLabel={sourceDownload.buttonLabel}
+      note={sourceDownload.note}
+      repositoryLinkLabel={sourceDownload.repositoryLinkLabel}
+    />
   </Section>
 </BaseLayout>

@@ -2,6 +2,7 @@
 /**
  * ページのセクションの外枠。上下の余白は Desktop 96px・Mobile 64px（03-handoff.md §4）。
  * 中身の幅は content（1152）／ article（720）／ form（640）。地は役割トークン（surface ／ subtle ／ brand-strong）。
+ * brand-strong は data-surface="dark" を付け、中のフォーカスリングを白にする（global.css）。
  * ヒーローの上 128px など、余白を変えるときは class で上書きする（例 class="md:pt-32"）。
  */
 import { cn } from '@/lib/utils';
@@ -32,7 +33,7 @@ const widthClass: Record<SectionWidth, string> = {
 };
 ---
 
-<section id={id} aria-labelledby={labelledby} class={cn('py-16 md:py-24', toneClass[tone], className)}>
+<section id={id} aria-labelledby={labelledby} data-surface={tone === 'brand-strong' ? 'dark' : undefined} class={cn('py-16 md:py-24', toneClass[tone], className)}>
   <div class={cn(widthClass[width], innerClass)}>
     <slot />
   </div>

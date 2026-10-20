@@ -1,0 +1,97 @@
+---
+/**
+ * GlobeOsaka（A〈vivid〉のサービス一覧の導入ヒーロー。右の媒体の枠に置く）。Aceternity の Globe（GitHub Globe）。2026-10-19。
+ * 「大阪の現場から」を、日本が正面の地球儀で表す。大阪にだけ点を置き、脈打つ輪が広がる。**弧は出さない**（販売先は大阪府内で、どこへ弧を伸ばしても事実に反する）。
+ *
+ * - 最初の HTML には静止画（日本が正面の図）を出す。地は navy の階調、陸地は globe-land.svg を CSS の mask にして brand の色で塗る（色はトークン）。
+ *   静止画のままになるのは reduced-motion・JS なし・WebGL なし・一時停止で開いたページ・読み込みの失敗。装飾なので aria-hidden（読む内容は無い）。
+ * - WebGL が使えて reduced-motion でなければ、island（GlobeIsland）が three で描いた canvas に替える（静止画は薄れて消える）。
+ *   2026-10-20 から Mobile（iPhone など）でも替える（以前は md 以上だけ。05-motion-spec.md §8.4。ユーザーの判断）。
+ *   client:visible ＋ 手が空いてから three を読むので、見出し・本文の描画に重さを載せない。
+ * - 大阪を軸に左右へゆっくり振れる（一周しない）。往復 24 秒。5 秒を超えて動くので、右下に一時停止のボタン（storageKey motion:globe）。
+ *   画面外・タブ非表示・一時停止の間は rAF を止める。
+ * - 根は data-motion="globe"。island が data-globe-live（canvas に替わった）と data-motion-paused を付け外しする。
+ *
+ * 置き方: PageIntro の slot="media"。根の大きさは正方形で、Desktop 360px・Mobile 260px まで（描画の前後でレイアウトを動かさない）。
+ * 地球の円は根の 91%（遠近のカメラの見込み。canvas は根より 20% 大きく、円は canvas の 76%）。
+ * 文言（MOTION_PAUSE）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import GlobeIsland from '../../islands/GlobeIsland';
+import landMask from './globe-land.svg';
+import type { GlobeOsakaProps } from '../../lib/types';
+
+type Props = GlobeOsakaProps;
+
+const { pauseLabel, resumeLabel, pauseTarget, class: className } = Astro.props;
+---
+
+<div data-motion="globe" id="globe-osaka" class:list={['globe-osaka relative mx-auto aspect-square w-full max-w-[260px] md:max-w-[360px]', className]} style={`--globe-land: url(${landMask.src})`}>
+  <div aria-hidden="true" class="globe-osaka__halo"></div>
+  <div aria-hidden="true" class="globe-osaka__still">
+    <div class="globe-osaka__sphere"></div>
+    <div class="globe-osaka__land"></div>
+    <div class="globe-osaka__pin"></div>
+  </div>
+  <GlobeIsland client:visible pauseLabel={pauseLabel} resumeLabel={resumeLabel} pauseTarget={pauseTarget} />
+</div>
+
+{/* 前のページで止めていたら、水和を待たず属性を先に付ける（静止画のまま、three を読まない）。キーは island の storageKey と同じ */}
+<script is:inline>
+  try {
+    if (sessionStorage.getItem('motion:globe') === 'paused') {
+      document.getElementById('globe-osaka')?.setAttribute('data-motion-paused', 'true');
+    }
+  } catch (e) {}
+</script>
+
+<style is:global>
+  /* 静止画。球の円は根の 91%（左右上下 4.5% ずつ内側）。canvas の地球の円と同じ大きさ・位置 */
+  .globe-osaka__still {
+    position: absolute;
+    inset: 0;
+    transition: opacity var(--motion-duration-medium) var(--motion-ease-standard);
+  }
+
+  /* 球の縁の外へにじむ光（brand.sky）。静止画でも canvas でも同じ。three-globe の大気は薄いので、CSS で足す */
+  .globe-osaka__halo {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle closest-side, transparent 84%, color-mix(in srgb, var(--color-brand-sky) 30%, transparent) 91%, transparent 100%);
+  }
+
+  .globe-osaka__sphere,
+  .globe-osaka__land {
+    position: absolute;
+    inset: 4.5%;
+    border-radius: 50%;
+  }
+
+  .globe-osaka__sphere {
+    background: radial-gradient(circle at 36% 30%, var(--color-brand-navy-600), var(--color-brand-navy-700) 55%, var(--color-brand-navy-800));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand-sky) 35%, transparent);
+  }
+
+  .globe-osaka__land {
+    background-color: color-mix(in srgb, var(--color-brand-navy-300) 70%, transparent);
+    -webkit-mask: var(--globe-land) center / 100% 100% no-repeat;
+    mask: var(--globe-land) center / 100% 100% no-repeat;
+  }
+
+  /* 大阪は図の中心（大阪が中心の正射図法）。点と、薄い輪 */
+  .globe-osaka__pin {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 3.2%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--color-brand-sky);
+    box-shadow: 0 0 0 0.5rem color-mix(in srgb, var(--color-brand-sky) 28%, transparent);
+  }
+
+  /* canvas に替わったら静止画を消す */
+  .globe-osaka[data-globe-live='true'] .globe-osaka__still {
+    opacity: 0;
+  }
+</style>

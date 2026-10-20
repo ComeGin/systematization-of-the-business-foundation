@@ -1,0 +1,177 @@
+---
+/**
+ * Tilt3d（A〈vivid〉の 3D Card Effect。トップ 1-7 とサービス一覧 2-4 のサービスカード）。2026-10-19。
+ *
+ * 1 枚のカードを包み、ポインターのある側へ傾け（最大 maxDeg 度）、カードと価格の枠を手前へ浮かせる。
+ * Aceternity の 3D Card Effect の見せ方（perspective ＋ preserve-3d ＋ translateZ）を、CSS の変数 --tilt-x／--tilt-y と小さな素の script で再現した。
+ * 原本（vendor/aceternity/ThreeDCard）は使わない。理由は vendor/aceternity/README.md の表のとおり
+ * （React の状態で hover を持ち、CardItem ごとに useEffect で style を書き、動かす面 ＝ 傾く面にポインターを聞かせるため縁でちらつく。reduced-motion・タッチの分岐も無い）。
+ *
+ * - 傾ける面（[data-tilt3d-body]）と、ポインターを聞く面（[data-tilt3d]。動かない）を分ける。傾いた面で聞くと、縁で面が逃げて hover が外れ、ちらつく。
+ * - ポインター（hover のある細かいポインター。reduced-motion でない）: pointermove で傾く。傾きは rAF 1 回にまとめて --tilt-x／--tilt-y に書く。動かしていないときは何も回らない。
+ * - キーボード（:has(:focus-visible)）: 傾けず、translateZ だけで浮かせる。傾きはポインターの位置が決めるので、キーボードには方向が無い。
+ * - 指（タッチ・ペン。2026-10-20 から）: 押している間（lib/touch-press.ts の data-touch-press）だけ、押した側へ傾いて浮く。素早いタップでも
+ *   --motion-duration-medium の間は見える。スクロールが始まったらすぐ戻る。hover の無い iPhone でも、触れたら応える手触りにした。
+ * - reduced-motion: 何もしない（perspective も付けない。transform は none のまま）。
+ * - 当たり判定とフォーカスリング: リンクなど操作する要素は浮かせない（浮かせるのは価格の枠 [data-tilt-lift] だけ。リンクと重ならない）。
+ *   面と祖先に overflow／filter を付けない。リンクのリング（outline）は要素に付いたまま、面と一緒に動く。
+ * - ロゴの禁止例（回転・傾斜）: サービスカードにロゴは無い。ロゴを入れるカードをこの中に置かない。
+ * - 高さ: 外側の grid の高さをそろえるため、wrapper と面は grid にして、中のカードを引き伸ばす（media に関わらず）。
+ */
+import type { Tilt3dProps } from '../../lib/types';
+
+type Props = Tilt3dProps;
+
+const { maxDeg = 8, class: className } = Astro.props;
+---
+
+<div data-tilt3d data-motion="tilt3d" data-tilt-max={maxDeg} class={className}>
+  <div data-tilt3d-body>
+    <slot />
+  </div>
+</div>
+
+<style is:global>
+  /* 高さのそろえ（media に関わらず）。grid の子は伸びるので、wrapper → 面 → カードの順に伸ばす */
+  [data-tilt3d],
+  [data-tilt3d-body] {
+    display: grid;
+  }
+  [data-tilt3d] {
+    position: relative;
+    --tilt-x: 0deg;
+    --tilt-y: 0deg;
+  }
+
+  /* 傾きと浮きは、動きを減らす設定でないときだけ。それ以外は transform が none のまま。
+     静止しているときも none（hover／押している／フォーカスの状態でだけ transform を持つ。常時 3D の層を作らない） */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-tilt3d] {
+      perspective: 1000px;
+      --tilt-rx: 0deg;
+      --tilt-ry: 0deg;
+      --tilt-lift: 0px;
+      --tilt-lift-inner: 0px;
+    }
+    [data-tilt3d-body] {
+      transform-style: preserve-3d;
+      transition: transform var(--motion-duration-small) var(--motion-ease-standard);
+    }
+    /* preserve-3d の連鎖: 浮かせる枠の祖先すべてで 3D を平らにしない */
+    [data-tilt3d-body] :has(> [data-tilt-lift]),
+    [data-tilt3d-body] > :has([data-tilt-lift]) {
+      transform-style: preserve-3d;
+    }
+    [data-tilt3d-body] [data-tilt-lift] {
+      transition: transform var(--motion-duration-small) var(--motion-ease-standard);
+    }
+    [data-tilt3d-body] > * {
+      transition: box-shadow var(--motion-duration-small) var(--motion-ease-standard);
+    }
+
+    /* ポインター（細かいポインターで、script が来ているときだけ）。傾きは script が --tilt-x／--tilt-y に書く。
+       hover の状態はこの media の中だけに書く（iOS の Safari はタップの後に :hover が残るので、外に書くと影が残る） */
+    @media (hover: hover) and (pointer: fine) {
+      [data-tilt3d][data-tilt-ready]:hover {
+        z-index: 1;
+        --tilt-rx: var(--tilt-x);
+        --tilt-ry: var(--tilt-y);
+        --tilt-lift: 12px;
+        --tilt-lift-inner: 24px;
+      }
+      [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] {
+        transform: rotateX(var(--tilt-rx)) rotateY(var(--tilt-ry)) translateZ(var(--tilt-lift));
+      }
+      [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] [data-tilt-lift] {
+        transform: translateZ(var(--tilt-lift-inner));
+      }
+      [data-tilt3d][data-tilt-ready]:hover [data-tilt3d-body] > * {
+        box-shadow: var(--shadow-lg);
+      }
+    }
+    /* 指（タッチ・ペン）: 押している間（script が data-touch-press を付ける）。hover と同じ変化 */
+    [data-tilt3d][data-tilt-ready][data-touch-press] {
+      z-index: 1;
+      --tilt-rx: var(--tilt-x);
+      --tilt-ry: var(--tilt-y);
+      --tilt-lift: 12px;
+      --tilt-lift-inner: 24px;
+    }
+
+    /* a11y: キーボード。傾けず、浮かせるだけ（hover と重なっても傾かない）。JS が無くても効く。
+       詳細度を hover の規則（[data-tilt3d][data-tilt-ready]:hover）にそろえ、後に書いて勝たせる */
+    [data-tilt3d][data-motion]:has(:focus-visible) {
+      z-index: 1;
+      --tilt-rx: 0deg;
+      --tilt-ry: 0deg;
+      --tilt-lift: 16px;
+      --tilt-lift-inner: 24px;
+    }
+
+    /* 状態の面: 傾き・浮き・影 */
+    [data-tilt3d][data-tilt-ready][data-touch-press] [data-tilt3d-body],
+    [data-tilt3d][data-motion]:has(:focus-visible) [data-tilt3d-body] {
+      transform: rotateX(var(--tilt-rx)) rotateY(var(--tilt-ry)) translateZ(var(--tilt-lift));
+    }
+    [data-tilt3d][data-tilt-ready][data-touch-press] [data-tilt3d-body] [data-tilt-lift],
+    [data-tilt3d][data-motion]:has(:focus-visible) [data-tilt3d-body] [data-tilt-lift] {
+      transform: translateZ(var(--tilt-lift-inner));
+    }
+    [data-tilt3d][data-tilt-ready][data-touch-press] [data-tilt3d-body] > *,
+    [data-tilt3d][data-motion]:has(:focus-visible) [data-tilt3d-body] > * {
+      box-shadow: var(--shadow-lg);
+    }
+  }
+</style>
+
+<script>
+  // perf: ポインターを聞くのはカードごとの pointermove（と指の pointerdown）だけ。傾きは rAF 1 回にまとめて書き、動かしていないときは何も回らない。
+  // a11y: reduced-motion では何もしない（CSS 側も同じ条件）。マウスは hover のある細かいポインターのときだけ、指は押している間だけ（lib/touch-press.ts）。
+  import { tiltFromPointer } from '../../lib/pointer-vars';
+  import { watchTouchPress } from '../../lib/touch-press';
+
+  const pointerOk = () =>
+    matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.querySelectorAll<HTMLElement>('[data-tilt3d]').forEach((card) => {
+    card.setAttribute('data-tilt-ready', '');
+    const maxDeg = Number(card.dataset.tiltMax) || 8;
+    let frame = 0;
+    let pending: { x: number; y: number } | null = null;
+
+    const queue = (x: number, y: number) => {
+      pending = { x, y };
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!pending) return;
+        const { x: px, y: py } = pending;
+        pending = null;
+        const tilt = tiltFromPointer(card.getBoundingClientRect(), px, py, maxDeg);
+        card.style.setProperty('--tilt-x', `${tilt.rotateX}deg`);
+        card.style.setProperty('--tilt-y', `${tilt.rotateY}deg`);
+      });
+    };
+    const reset = () => {
+      pending = null;
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      card.style.removeProperty('--tilt-x');
+      card.style.removeProperty('--tilt-y');
+    };
+
+    card.addEventListener(
+      'pointermove',
+      (event) => {
+        if (event.pointerType !== 'mouse' || !pointerOk()) return;
+        queue(event.clientX, event.clientY);
+      },
+      { passive: true },
+    );
+    card.addEventListener('pointerleave', (event) => {
+      if (event.pointerType === 'mouse') reset();
+    });
+    // 指（タッチ・ペン）: 押している間だけ、押した側へ傾く
+    watchTouchPress(card, { onMove: queue, onRelease: reset });
+  });
+</script>

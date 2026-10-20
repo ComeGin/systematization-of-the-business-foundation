@@ -7,9 +7,9 @@ function requireForProduction(name: string, value: string | undefined): void {
   throw new Error(`${name} が未設定です。配信用のビルド（BUILD_TARGET=production）では必須です。`);
 }
 
-export function readFormId(name: 'MAUTIC_FORM_ID_CONSULT' | 'MAUTIC_FORM_ID_SOURCE_DL'): number | null {
-  // import.meta.env は動的なキーで読めない（Vite が静的に置き換えるため）
-  const raw = (name === 'MAUTIC_FORM_ID_CONSULT' ? import.meta.env.MAUTIC_FORM_ID_CONSULT : import.meta.env.MAUTIC_FORM_ID_SOURCE_DL)?.trim();
+export function readFormId(name: 'MAUTIC_FORM_ID_CONSULT'): number | null {
+  // import.meta.env は動的なキーで読めない（Vite が静的に置き換えるため）。無料 DL のフォーム（MAUTIC_FORM_ID_SOURCE_DL）は 2026-10-20 に消した
+  const raw = import.meta.env.MAUTIC_FORM_ID_CONSULT?.trim();
   requireForProduction(name, raw);
   if (!raw) return null;
   const id = Number(raw);

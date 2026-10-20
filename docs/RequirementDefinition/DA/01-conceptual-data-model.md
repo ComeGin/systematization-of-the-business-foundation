@@ -350,7 +350,7 @@ rollback:
 | `target.entity` | 必須 | 変更対象の E-ID | どの正本を触るかが不明なまま適用され、権限の検査ができない |
 | `target.identifier` | 必須 | 対象の具体的な識別子（`documentId` / `url_path` / `cta_id` など） | 適用対象を機械的に特定できない |
 | `target.also_affects[]` | 任意 | 波及する E-ID | 検証範囲を見落とす |
-| `change.kind` | 必須 | 変更の種別（`content_rewrite` / `cta_swap` / `internal_link` / `technical_seo` / `experiment_start` / `config_change`） | 種別ごとの適用手順・承認権限を割り当てられない |
+| `change.kind` | 必須 | 変更の種別（`content_rewrite` / `cta_swap` / `internal_link` / `technical_seo` / `accessibility` / `experiment_start` / `config_change`。**`accessibility` は 2026-10-18 に ADR-27 で追加**〈公開サイトの a11y の修正。AA-04 の 2.2・3.8〉） | 種別ごとの適用手順・承認権限を割り当てられない |
 | `change.description` | 必須 | 変更内容（何を、どう変えるか） | 承認が形骸化する |
 | `change.diff_ref` | 適用時に必須 | 実際の差分への参照（PR 番号 / Strapi の版） | 提案と実物の対応が切れる |
 | `expectation.metric` | 必須 | 判定に使う指標（DA-02 の指標一覧の ID） | 効果を測れず、成功の定義が無い |

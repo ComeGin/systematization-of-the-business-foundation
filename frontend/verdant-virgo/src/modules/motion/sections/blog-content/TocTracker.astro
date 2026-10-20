@@ -1,0 +1,18 @@
+---
+/**
+ * TocTracker（B〈calm〉のブログ記事 8-4 の目次の「いまここ」）。2026-10-19。
+ *
+ * 画面の上の方にある見出しに対応する目次の項目へ aria-current="location" を付ける（LegalToc の trackCurrent を渡した目次が相手）。
+ * 見た目の印（左の線・文字の色）は LegalToc 側の aria-[current=location] のクラスが持つ。この部品は属性を付け外しするだけで、何も描かない。
+ * client:idle なので最初の描画の後に水和する。JS が無いときは何も付かず、目次は今までどおりのリンクの並び。
+ * ブログ記事のページだけが置く（C のページには置かない。規約の目次は trackCurrent を渡さず、JS も読まない）。
+ */
+import TocTrackerIsland from '../../islands/TocTrackerIsland';
+import type { TocTrackerProps } from '../../lib/types';
+
+type Props = TocTrackerProps;
+
+const { ids } = Astro.props;
+---
+
+<TocTrackerIsland client:idle ids={ids} />

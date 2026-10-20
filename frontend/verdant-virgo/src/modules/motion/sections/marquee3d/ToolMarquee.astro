@@ -1,0 +1,220 @@
+---
+/**
+ * ToolMarquee（A〈vivid〉のトップ 1-6「使うツール」）。Aceternity の 3D Marquee の見せ方。2026-10-19。
+ *
+ * 今の文字のバッジ（TOP.tools.badges）を、奥へ傾いた面に 3 本の流れで見せる。他社のロゴは足さない（ロゴは傾けない・光らせない）。
+ * 原本（vendor/aceternity/ThreeDMarquee）は使わない。理由は vendor/aceternity/README.md の表のとおり
+ * （motion/react が JS で毎フレーム y を動かす。画像専用で、alt が「Image 1」。reduced-motion の分岐が無い）。傾いた面と流れは CSS だけで再現した。
+ *
+ * - 読み上げ用の一覧（<ul>。今のバッジと同じ見た目）を DOM に 1 つだけ置く。流れる面（複製）は aria-hidden かつ inert で、読み上げ・フォーカスに出ない。
+ *   動く端末では <ul> を視覚的に隠し（sr-only と同じ手法。読み上げには残る）、流れる面を見せる。動かない端末では逆（<ul> を見せ、流れる面は display:none）。
+ * - 動くのは reduced-motion でなく、script が使えるとき（scripting: enabled）だけ。
+ *   2026-10-20 から Mobile・タッチ（iPhone など）でも動かす（以前は md 以上かつ hover のある端末だけ。05-motion-spec.md §8.4。ユーザーの判断）。
+ *   指で止める手段は、一時停止のボタンと「押している間は止まる」（下の「触れたら応える」）。
+ *   JS が無いときは、止める手段（一時停止のボタン）が描かれないので動かさない（2.2.2）。
+ * - 流れは CSS の animation（1 周 ＝ --motion-duration-ambient の 3 倍）。本ごとに向きを交互にする。JS・rAF を使わない。最初の HTML で描かれる（island ではない）。
+ *   水和して止める手段が出る（根に data-motion-ready="true"）まで animation-play-state: paused。前のページで止めていたら、水和を待たず最初から止める（インライン script）。
+ * - 触れたら応える: ポインターを流れの上に載せている間は止まる（読める。離すと流れる）。inert の面はポインターを受けないので、止めるのは根の :hover。
+ *   指（タッチ・ペン）は、押している間（lib/touch-press.ts の data-touch-press）止まる。:hover は hover のある端末だけ
+ *   （iOS の Safari はタップの後に :hover が残り、流れが止まったままになるため）。
+ * - 5 秒を超えて自動で動くので、一時停止のボタンを置く（MotionPauseFor。target は #tool-marquee、storageKey は motion:marquee）。ボタンの名前に対象名（pauseTarget）が付く。
+ * - 読みやすさ: 傾けるのは奥行きの浅い 40 度まで（原本は 55 度＋45 度回転で画像向き）。バッジは 16px・nowrap・うすい面に濃い文字（outline）。左右の端は地の色へ消える。
+ * - 高さは固定（面の高さ）で、最初の描画から変わらない。<ul>（動かない端末の並び）と面は同時には出ない。
+ * 文言（MOTION_PAUSE・対象名）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import { Badge } from '@/components/ui/badge';
+import MotionPauseFor from '../../components/MotionPauseFor.astro';
+import type { ToolMarqueeProps } from '../../lib/types';
+
+type Props = ToolMarqueeProps;
+
+const { items, pauseLabel, resumeLabel, pauseTarget, class: className } = Astro.props;
+
+// 本ごとに並びの始まりをずらす（3 本が同じ順に並ばない）。1 本は 1 周分（items 全部）を 2 回並べる（-50% で継ぎ目なく戻る）
+const LANES = 3;
+const lanes = Array.from({ length: LANES }, (_, lane) => {
+  const shift = Math.floor((items.length * lane) / LANES);
+  const rotated = [...items.slice(shift), ...items.slice(0, shift)];
+  return [...rotated, ...rotated];
+});
+---
+
+<div id="tool-marquee" data-motion="marquee" class:list={['tool-marquee relative', className]}>
+  {/* 読み上げ用の一覧（1 つだけ）。動かない端末ではこれを見せる */}
+  <ul class="tool-marquee__list flex flex-wrap gap-2">
+    {
+      items.map((name) => (
+        <li class="flex">
+          {/* 高さは固定せず min-h（行 16 ＋ 上下 3 ＋ 枠 2 ＝ 24px）にし、文字の間隔を広げたときは伸びる（1.4.12） */}
+          <Badge variant="outline" className="min-h-6 py-[3px]">
+            {name}
+          </Badge>
+        </li>
+      ))
+    }
+  </ul>
+
+  {/* 流れる面（複製）。aria-hidden かつ inert。動く端末だけ描かれる（CSS） */}
+  <div class="tool-marquee__stage" data-marquee-stage aria-hidden="true" inert>
+    <div class="tool-marquee__plane" data-marquee-plane>
+      {
+        lanes.map((lane) => (
+          <div class="tool-marquee__lane" data-marquee-lane>
+            <div class="tool-marquee__track" data-marquee-track>
+              {lane.map((name) => (
+                <Badge variant="outline" className="tool-marquee__chip" data-marquee-chip>
+                  {name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <MotionPauseFor
+    target="tool-marquee"
+    storageKey="motion:marquee"
+    pauseLabel={pauseLabel}
+    resumeLabel={resumeLabel}
+    targetName={pauseTarget}
+    class="tool-marquee__pause absolute top-3 right-3 z-10"
+  />
+</div>
+
+{/* 前のページで止めていたら、水和（client:idle）を待たず最初の描画から止める。キーは MotionPauseFor の storageKey と同じ。
+    sessionStorage が使えないときは何もしない（MotionPause が水和の後に同じ判断をする） */}
+<script is:inline>
+  try {
+    if (sessionStorage.getItem('motion:marquee') === 'paused') {
+      document.getElementById('tool-marquee')?.setAttribute('data-motion-paused', 'true');
+    }
+  } catch (e) {}
+</script>
+
+<style is:global>
+  /* 既定（動かない端末・reduced-motion・JS なし）: 流れる面と一時停止のボタンは描かない。<ul> が今の折り返しの並びで見える */
+  .tool-marquee__stage,
+  .tool-marquee__pause {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+    .tool-marquee__stage {
+      display: block;
+    }
+    .tool-marquee__pause {
+      display: inline-flex;
+    }
+    /* a11y: 読み上げ用の一覧は視覚的にだけ隠す（display:none にしない。アクセシビリティツリーに 1 回だけ残る） */
+    .tool-marquee__list {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* 面: 高さを固定（レイアウトが動かない）。奥行きは perspective。左右の端は地の色へ消える */
+    .tool-marquee__stage {
+      position: relative;
+      height: 15rem;
+      overflow: hidden;
+      perspective: 1100px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(ellipse 60% 70% at 50% 40%, color-mix(in srgb, var(--color-brand-blue-300) 14%, transparent), transparent 75%),
+        var(--color-surface-subtle);
+    }
+    .tool-marquee__stage::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        90deg,
+        var(--color-surface-subtle),
+        transparent 12%,
+        transparent 88%,
+        var(--color-surface-subtle)
+      );
+    }
+
+    /* 傾いた面。奥へ 40 度、面の中で少し回す（Aceternity の斜めの見せ方。文字が読める範囲） */
+    .tool-marquee__plane {
+      position: absolute;
+      top: 50%;
+      right: -15%;
+      left: -15%;
+      display: grid;
+      gap: 1.25rem;
+      transform: translateY(-50%) rotateX(40deg) rotateZ(-5deg);
+    }
+    .tool-marquee__lane {
+      overflow: visible;
+    }
+
+    /* 流れ: 1 周 ＝ ambient の 3 倍。2 回並べた幅の半分（-50%）だけ動いて継ぎ目なく戻る。本ごとに向きを交互にする */
+    .tool-marquee__track {
+      display: flex;
+      width: max-content;
+      will-change: transform;
+      animation: tool-marquee-run calc(var(--motion-duration-ambient) * 3) linear infinite;
+    }
+    .tool-marquee__lane:nth-child(even) .tool-marquee__track {
+      animation-direction: reverse;
+    }
+    /* 余白は gap でなく margin（2 回並べた幅の半分が、ちょうど 1 周分になる） */
+    .tool-marquee__chip {
+      min-height: 2.25rem;
+      margin-inline-end: 1rem;
+      padding-inline: 1rem;
+      font-size: 1rem;
+      line-height: 1.5rem;
+      white-space: nowrap;
+      background-color: var(--color-surface);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* 触れたら応える: ポインターを載せている間は止まる（読める）。inert の面は受けないので、根の :hover で止める */
+    @media (hover: hover) {
+      .tool-marquee:hover:not(:has(.tool-marquee__pause:hover)) .tool-marquee__track {
+        animation-play-state: paused;
+      }
+    }
+    /* 指は押している間だけ止まる（script が根に data-touch-press を付ける） */
+    .tool-marquee[data-touch-press] .tool-marquee__track {
+      animation-play-state: paused;
+    }
+
+    /* 止める手段（一時停止のボタン）が水和して出る（根に data-motion-ready="true"）まで、流れは始めない。
+       水和の前・水和に失敗したときに、止められない動きを出さない（2.2.2）。付くと、その時点から動き出す */
+    .tool-marquee:not([data-motion-ready='true']) .tool-marquee__track {
+      animation-play-state: paused !important;
+    }
+  }
+
+  @keyframes tool-marquee-run {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+</style>
+
+<script>
+  // 指（タッチ・ペン）で流れを押している間だけ止める（根に data-touch-press。止める CSS は上）。reduced-motion では付けない。
+  // 離したらすぐ流れに戻す（holdMs 0。押している間だけ読めればよい）
+  import { watchTouchPress } from '../../lib/touch-press';
+
+  const marquee = document.getElementById('tool-marquee');
+  if (marquee) watchTouchPress(marquee, { holdMs: 0 });
+</script>

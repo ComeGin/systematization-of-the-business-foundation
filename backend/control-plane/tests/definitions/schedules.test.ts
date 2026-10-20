@@ -71,7 +71,7 @@ describe("loadSchedules", () => {
       ]);
     });
 
-    it.each(["heartbeat", "i13-file", "miswrite-check", "silence-check", "lighthouse", "published-article-check", "runlog-flush", "n8n-export"])(
+    it.each(["heartbeat", "i13-file", "miswrite-check", "silence-check", "lighthouse", "a11y", "published-article-check", "runlog-flush", "n8n-export"])(
       "builtin: %s を受け付ける",
       async (name) => {
         putSchedule("job.yaml", `id: job\ncron: "0 8 * * *"\nkind: builtin\nbuiltin: ${name}\n`);

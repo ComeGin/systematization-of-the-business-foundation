@@ -4,6 +4,7 @@
  * （Lighthouse の performance のため。React の island にすると Mobile で最初から約 64KB の JS を読む）。
  * - showModal() で開くので、フォーカスはパネルの中に閉じ込められ、Esc で閉じ、閉じるとメニューのボタンにフォーカスが戻る
  * - 右から出るパネル（幅 320）: 閉じる → リンク 4 つ（各 48px）→ Separator → 無料相談（全幅）→ ソースコードを無料 DL（Link）
+ * - ダイアログの名前は「メニュー」、中の nav は Desktop のナビと同じ「メイン」（同じナビなので名前をそろえる。同時に支援技術に出ることはない）
  * - 背景の暗幕は role/text-body の 50%。暗幕を押しても閉じる。リンクを押したら閉じる（同じページの #source-dl のため）
  * - 動かす JS は下の <script> だけ（数百バイト。Astro が外部ファイルにするので CSP のインラインの許可は要らない）
  */
@@ -56,7 +57,7 @@ const iconButton = cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'size-
         <XIcon aria-hidden="true" />
       </button>
     </div>
-    <nav aria-label="メニュー">
+    <nav aria-label="メイン">
       <ul class="flex flex-col">
         {
           links.map((link) => (

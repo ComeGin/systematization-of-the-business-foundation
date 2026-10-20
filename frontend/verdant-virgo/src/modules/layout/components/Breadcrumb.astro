@@ -1,7 +1,7 @@
 ---
 /**
  * パンくず（01-content-spec.md §1.5）。先頭の「ホーム」は自動で足す。トップと 404 には置かない。
- * 現在のページ（最後の段）はリンクにしない。Mobile は 1 行に収め、長い題名は「…」で省略する。
+ * 現在のページ（最後の段）はリンクにしない。長い題名は「…」で省かず折り返す（拡大・狭い幅でも全文を読めるように。WCAG 1.4.4・1.4.10）。
  * 見た目は Figma の PageIntro の中の Breadcrumb（UI/Text 14px、リンク role/text-muted、現在のページ role/text-body、区切り chevron-right 14px）。
  * リンクには下線を付ける（Figma の kit は下線なし。押せる文字は下線で示す規則に合わせた）。
  */
@@ -20,7 +20,7 @@ const crumbs: BreadcrumbItem[] = [HOME_CRUMB, ...items];
 ---
 
 <nav aria-label="パンくずリスト" class={cn(tone === 'subtle' ? 'bg-surface-subtle' : 'bg-surface', 'pt-4 md:pt-6')}>
-  <ol class="site-container type-ui-text flex flex-nowrap items-center gap-1 text-text-muted md:flex-wrap">
+  <ol class="site-container type-ui-text flex flex-wrap items-center gap-1 text-text-muted">
     {
       crumbs.map((crumb, i) => {
         const isLast = i === crumbs.length - 1;
@@ -33,7 +33,7 @@ const crumbs: BreadcrumbItem[] = [HOME_CRUMB, ...items];
             )}
             <li class={cn('inline-flex', isLast ? 'min-w-0' : 'shrink-0')}>
               {isLast || !crumb.href ? (
-                <span aria-current={isLast ? 'page' : undefined} class={cn('text-text-body', isLast && 'truncate')}>
+                <span aria-current={isLast ? 'page' : undefined} class="text-text-body">
                   {crumb.label}
                 </span>
               ) : (
