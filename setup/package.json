@@ -2,7 +2,7 @@
   "name": "comegin-setup",
   "version": "0.1.0",
   "private": true,
-  "description": "バックエンド全体の設定スクリプト（setup.mjs・lib/core.mjs）の単体テスト用。スクリプト本体は依存を持たない",
+  "description": "バックエンド・フロントエンド全体の設定スクリプト（setup.mjs・frontend.mjs・lib/）の単体テスト用。スクリプト本体は依存を持たない",
   "type": "module",
   "scripts": {
     "test": "vitest run",

@@ -127,7 +127,7 @@ dev/reset.sh --help    # DB を消して再インストールする破壊的ス�
 docker compose up -d
 ```
 
-**開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
+**開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。**フロントエンド（公開サイトの Astro と監視アプリ）は `setup/frontend.mjs` が用意する**（`node setup/frontend.mjs --target dev [--check]`。バックエンドの後に実行する。Astro の `.env` はバックエンドが状態に置いたトークン・ID から写す）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う（親スクリプトの共通部分は `setup/lib/runner.mjs`）。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
 
 **コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678・3100・3001・3107 だけで待ち受け、`127.0.0.1` に転送する。3001〈OpenSEO〉は無認証で費用の出る `/mcp` を持つため、`GET /api/health` だけを通す。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
 

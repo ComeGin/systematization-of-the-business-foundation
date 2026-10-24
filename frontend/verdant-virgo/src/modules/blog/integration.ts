@@ -1,6 +1,8 @@
 // ビルドの失敗条件を守る Astro インテグレーション（DD-05 の 1.2・1.5.1・1.5.4、ADR-11）。astro.config.mjs に登録する。
 // 1. image.remotePatterns に Strapi（と本番のメディアの S3）を許可する。許可が無いと <Image> は黙って元の URL を出す（1.5.1）
-// 2. 配信用のビルド（BUILD_TARGET=production）で STRAPI_URL が localhost を指していたら停止する（1.2）
+// 2. 配信用のビルド（BUILD_TARGET=production）で STRAPI_URL が開発の Strapi を指していたら停止する（1.2）。
+//    本番の Strapi はオンプレの 127.0.0.1:1338 だけに開くので（ADR-21）、localhost でも 1338 は通し、
+//    開発の 1337（localhost）と ngrok（comegin-strapi-dev.ngrok.app）を止める
 // 3. ビルドの最後に dist/ の HTML・CSS・JS・XML を走査し、Strapi・S3 の URL、/uploads/、署名付き URL の
 //    署名が残っていたらビルドを失敗させる（1.5.4）。pnpm build と pnpm lh のどちらでも走る。
 // 環境変数は astro.config.mjs と同じく Vite の loadEnv で読む（設定ファイルでは自動で読み込まれないため）。
@@ -19,6 +21,14 @@ type RemotePattern = {
 
 const SCANNED_EXTENSIONS = new Set([".html", ".css", ".js", ".mjs", ".xml"]);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+// 本番の Strapi のポート（onprem/strapi。CLAUDE.md のポートの表）と、開発の Strapi を ngrok で開くホスト（~/.config/ngrok/ngrok.yml）
+const PROD_STRAPI_PORT = "1338";
+const DEV_STRAPI_HOSTS = new Set(["comegin-strapi-dev.ngrok.app"]);
+
+/** 配信用のビルドが読んではいけない、開発の Strapi か */
+const isDevStrapi = (url: URL) =>
+  DEV_STRAPI_HOSTS.has(url.hostname) ||
+  (LOCAL_HOSTS.has(url.hostname) && url.port !== PROD_STRAPI_PORT);
 
 async function listFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -59,10 +69,10 @@ export function comeginStrapiGuard(): AstroIntegration {
           if (
             command === "build" &&
             env.BUILD_TARGET === "production" &&
-            LOCAL_HOSTS.has(url.hostname)
+            isDevStrapi(url)
           ) {
             throw new Error(
-              `配信用のビルド（BUILD_TARGET=production）で STRAPI_URL が ${url.origin} を指しています。開発の Strapi の試験記事を公開しないため停止します（DD-05 の 1.2）。`,
+              `配信用のビルド（BUILD_TARGET=production）で STRAPI_URL が ${url.origin} を指しています。開発の Strapi の試験記事を公開しないため停止します（DD-05 の 1.2）。本番の Strapi は http://127.0.0.1:${PROD_STRAPI_PORT}（ADR-21）。`,
             );
           }
           patterns.push({
