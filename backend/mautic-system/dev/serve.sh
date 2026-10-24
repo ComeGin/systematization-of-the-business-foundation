@@ -21,7 +21,7 @@ WEBHOOK_INTERVAL="${WEBHOOK_INTERVAL:-60}"
 webhook_loop=$!
 trap 'kill "${webhook_loop}" 2>/dev/null' EXIT
 
-echo "Mautic: http://localhost:${PORT}/s/login  (Ctrl+C で停止。Webhook は ${WEBHOOK_INTERVAL} 秒ごとに送る)"
+echo "Mautic: http://localhost:${PORT}/s/login  (Ctrl+C か dev/stop.sh で停止。Webhook は ${WEBHOOK_INTERVAL} 秒ごとに送る)"
 # ダッシュボードは Ajax を並列に投げるため、ワーカーを複数にする
 # （exec にしない。終了時に trap で Webhook の定期実行も止めるため）
 PHP_CLI_SERVER_WORKERS="${PHP_CLI_SERVER_WORKERS:-4}" php -S "${HOST}:${PORT}" -t . dev/router.php
