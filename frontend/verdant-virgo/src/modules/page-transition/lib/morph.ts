@@ -25,6 +25,7 @@ type ShouldSkip = (fromPath: string, toPath: string) => boolean;
 /** pageswap・pagereveal のうち、ここで使う形だけ（lib.dom の型がまだ無い環境のため） */
 type ViewTransitionLike = {
   skipTransition(): void;
+  ready: Promise<unknown>;
   finished: Promise<unknown>;
 };
 type SwapEventLike = Event & {
@@ -189,6 +190,17 @@ export function createMorph(vt: VtMap, shouldSkip: ShouldSkip) {
     return named;
   }
 
+  /**
+   * 遷移を飛ばす。skipTransition() は ready を AbortError で reject するので、先に catch を付ける
+   * （付けないと未処理の reject になり、PostHog の例外の監視に誤った例外として送られる）。
+   */
+  function skip(transition: ViewTransitionLike) {
+    const ignore = () => {};
+    transition.ready.catch(ignore);
+    transition.finished.catch(ignore);
+    transition.skipTransition();
+  }
+
   /** 遷移元のページ: 押したリンクを覚え、pageswap で行き先に一致するカード・CTA に名前を付ける（module の script から呼ぶ） */
   function installSwap(win: WindowLike) {
     let pressed: Element | null = null;
@@ -210,7 +222,7 @@ export function createMorph(vt: VtMap, shouldSkip: ShouldSkip) {
       const from = win.location.pathname;
       const to = new URL(entry.url).pathname;
       if (shouldSkip(from, to)) {
-        transition.skipTransition();
+        skip(transition);
         return;
       }
       nameSources(doc, to, morphTargetsFor(to), pressed);
@@ -252,7 +264,7 @@ export function createMorph(vt: VtMap, shouldSkip: ShouldSkip) {
       const from = new URL(fromUrl).pathname;
       const to = win.location.pathname;
       if (shouldSkip(from, to)) {
-        transition.skipTransition();
+        skip(transition);
         return;
       }
       nameSources(doc, from, revealTargetsFor(from, to), null);
