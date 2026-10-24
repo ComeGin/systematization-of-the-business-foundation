@@ -120,6 +120,7 @@ docker compose up -d
 
 # backend/mautic-system（PHP ビルトインサーバー + Docker の MySQL/MailHog）
 dev/serve.sh
+dev/stop.sh            # serve.sh で起動したもの（PHP・Webhook の定期実行・MySQL と MailHog）を止める。--keep-docker で PHP だけ
 dev/reset.sh --help    # DB を消して再インストールする破壊的スクリプト
 
 # middleware/host-relay（開発環境だけ。コンテナ〈n8n・Chatwoot〉から、ホストの 127.0.0.1 の Mautic・MailHog・n8n・Chatwoot・OpenSEO〈health だけ〉に届くようにする中継）
