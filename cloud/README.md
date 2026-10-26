@@ -27,7 +27,7 @@ cloud/
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
     secrets.yaml             Secrets Manager（20 個。faq-bot の 2 個を含む）
-    data.yaml                Aurora のクラスター（MySQL 8.4 互換・PostgreSQL 16 互換。各 db.t4g.medium × 1）、Valkey、EFS、S3
+    data.yaml                Aurora（MySQL 8.4 互換は Serverless v2、PostgreSQL 16 互換はクラスター db.t4g.medium × 1 を 4 アプリで共有）、Valkey、EFS、S3
     cluster.yaml             ECS クラスター、ロググループ（Service Connect は使わない）
     edge.yaml                ACM、ALB、リスナールール、WAF、Route 53
     cdn.yaml                 Astro の配信（CloudFront、OAC、Route 53）
@@ -92,7 +92,39 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 
 ## 3. 費用
 
-見積もりは未実施（TA-06 の 9 節）。固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、Aurora（2 クラスター。各 db.t4g.medium × 1。1 つ月 $83 前後〈$0.113/時〉＋ストレージと I/O）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
+### 3.1 見積もり（2026-10-26）
+
+**月 約 $392（税抜き。消費税 10% 込みで約 $431、年 約 $5,200）**（2026-10-26 に MySQL を Aurora Serverless v2 にし、Fargate の 3 サービスを夜間に止めるようにした後）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
+
+| 区分 | 項目 | 月額（USD） | 前提・単価 |
+|---|---|---:|---|
+| 計算 | ECS Fargate mautic-web（1 vCPU・2 GB、x86、常時） | 44.98 | vCPU $0.05056/時・GB $0.00553/時 |
+| 計算 | ECS Fargate chatwoot-web・chatwoot-worker・mautic-cron（計 2 vCPU・4 GB、x86、毎日 22 時〜翌 8 時は 0 台） | 52.48 | 同上。1 日 14 時間（夜間の停止で月 $37 前後下がる） |
+| 計算 | EC2 t4g.nano（WireGuard）＋EBS gp3 8 GB | 4.71 | $0.0054/時・$0.096/GB 月 |
+| 計算 | Lambda（4 関数。arm64） | 0 | 常時無料枠（月 100 万リクエスト・40 万 GB 秒）に収まる想定 |
+| DB | Aurora PostgreSQL db.t4g.medium × 1（Chatwoot・admin-auth・Strapi・n8n が共有） | 82.49 | $0.113/時 |
+| DB | Aurora MySQL Serverless v2（Mautic。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（山で伸びると増える。上限は 2 ACU で月 $219） |
+| DB | Aurora ストレージ（各 10 GB）と I/O（計 4,000 万回/月） | 12.00 | $0.12/GB 月・$0.24/100 万回 |
+| DB | ElastiCache Valkey cache.t4g.micro × 1 | 14.60 | $0.02/時 |
+| DB | EFS（2 GB・日次バックアップ）・S3（計 5 GB） | 2.02 | $0.36/GB 月・$0.025/GB 月 |
+| ネットワーク | ALB（平均 0.5 LCU） | 20.66 | $0.0243/時・$0.008/LCU 時 |
+| ネットワーク | NAT Gateway（処理 30 GB/月） | 47.12 | $0.062/時・$0.062/GB |
+| ネットワーク | パブリック IPv4 × 4（NAT・WireGuard・ALB の 2 AZ） | 14.60 | $0.005/時 |
+| ネットワーク | CloudFront・インターネットへの転送 | 0 | フラットレートの Free プラン。転送は月 100 GB の無料枠内の想定（超過は $0.114/GB） |
+| ネットワーク | Route 53（ホストゾーン 1） | 0.50 | 作成済み |
+| セキュリティ | WAF（ALB 用。Web ACL 1・ルール 8・100 万リクエスト） | 13.60 | $5/ACL・$1/ルール・$0.60/100 万（CloudFront 用はプランに含まれる） |
+| セキュリティ | Secrets Manager（22 個） | 8.85 | $0.40/個 |
+| 運用 | CloudWatch（アラーム 28・Container Insights 標準 約 60 メトリクス・ログ 6 GB） | 17.76 | $0.10/アラーム・$0.30/メトリクス・$0.76/GB（無料枠を引いた） |
+| 運用 | ECR（計 4 GB）・SES（3,000 通/月）・SNS・ACM | 0.70 | |
+| | **合計** | **391.82** | |
+
+- **固定費（時間課金）が 9 割**（Aurora 35%・Fargate 25%・NAT と IPv4 16%・ALB 5%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。
+- **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $294**（Fargate が無い）。
+- **CloudFront のフラットレートのプランが使えない場合**（Free Tier の期間のアカウントは購読できない。4.3）、CloudFront 用の WAF の分（$5＋ルール 4＋リクエスト）で月 約 $9 増える。
+- 含めていないもの: 消費税、AWS サポートのプラン、新規アカウントの Free Tier のクレジット（あれば最初の月々から差し引かれる）、オンプレ（Strapi・n8n・監視アプリ・OpenSEO）と外部 SaaS（Anthropic・PostHog・GA4・Cal.com・DataForSEO・Google Workspace）。
+- **下げる余地**（いずれも未適用。判断は R1）: Aurora PostgreSQL の 1 年のリザーブドインスタンス、Fargate の Compute Savings Plans、Fargate の ARM（Graviton。2 つの公式イメージは arm64 に対応。月 $27 前後下がる。2026-10-26 は x86 のままと決めた）、mautic-cron を 0.25 vCPU・0.5 GB に下げる（実測の後）。インターフェースの VPC エンドポイントで NAT を置き換えるのは、エンドポイント 1 つ × 2 AZ で月 $20 前後かかり、この規模では NAT より高い。
+
+固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、Aurora（MySQL は Serverless v2 で最小 0.5 ACU〈月 $55 前後〉、PostgreSQL は db.t4g.medium × 1〈月 $82 前後〉＋ストレージと I/O）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
 **EC2 t4g.nano（WireGuard。1 台）と Elastic IP（public IPv4 の課金）と EBS 8 GB（gp3）**、
 Secrets Manager（20 個 + RDS が管理するマスターの 2 個 = 22 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 28 個〈`alarms.yaml` の 26 個と `observability.yaml` のハートビートの 2 個〉、ログ、メトリクス）。
 
@@ -445,6 +477,13 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 | 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
 | 2 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
 
+**夜間の停止（2026-10-26。ユーザーの決定）**: `chatwoot-web`・`chatwoot-worker`・`mautic-cron` は、毎日 22 時に 0 台にして翌 8 時に DesiredCount に戻す（日本時間。各サービスの `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。`mautic-web` は止めない。
+- **夜間の影響**: 公開サイトのチャットのウィジェットが出ない（Chatwoot が 503。FAQ ボットも答えない）。Mautic のフォームの申し込みは受け付けるが、n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新は 8 時以降にまとめて処理される。Chatwoot の Webhook（I-12）とメールも 8 時以降。
+- 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
+- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**夜間に `sam deploy` すると、止めたタスクが起きるかは未確認**（CloudFormation が DesiredCount を送り直すかどうか）。起きても次の 22 時に止まり直す。夜間のデプロイは避ける。
+- 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（希望 0）は鳴らない。ALB の 5xx の比率は、夜間にチャットに来た訪問者の 503 を数えるが、5 分で 20 リクエスト以下は見ない。
+- Application Auto Scaling は、サービスにリンクされた IAM ロール（`AWSServiceRoleForApplicationAutoScaling_ECSService`）を使う。初回のデプロイで自動で作られる（デプロイの主体に `iam:CreateServiceLinkedRole` が要る）。
+
 consent-api と admin-auth は Lambda（ADR-26）で DesiredCount を持たない。`sam deploy` の時点で ALB から呼ばれる（4.18・4.19）。**admin-auth は 4.19 の migrate と登録が済むまで、管理画面に誰も入れない**（Chatwoot・Mautic を起動する前に済ませる）。
 `mautic-web` と `mautic-cron` の DesiredCount は 0 か 1 しか受け付けない（テンプレートが拒否する）。
 WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1）。オンプレの Strapi・n8n の起動は、ここの対象外（`onprem/` の README）。
@@ -667,7 +706,10 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - **Service Connect を廃止した**: n8n への Webhook と n8n からの API の呼び出しにしか使っていなかった。cluster の名前空間、4 つのサービスの設定とパラメータ、n8n 関連の SG のルールを外した。n8n（オンプレ）から Chatwoot・Mautic の API は ALB の機械向けのルール経由になる（1.1）。
 - **データベースは Aurora のクラスター**（2026-10-26。ユーザーの方針「DB は、高コストでなくアプリに互換があればサーバーレス、それ以外はクラスター」）。単価は Pricing API の東京の値（月 730 時間）:
   - **Aurora Serverless v2**: 互換はある（Aurora MySQL 8.4 互換・Aurora PostgreSQL 16 と pgvector）。ただし自動の一時停止は接続がゼロの状態が続かないと効かず、Mautic の毎分の cron と、Chatwoot・n8n・Strapi の常時の接続で止まらない。最小 0.5 ACU（$0.15/ACU 時）で月 $55 以上がかかり続け、RDS の単一インスタンス（MySQL db.t4g.micro 月 $18・PostgreSQL db.t4g.small 月 $37）の約 3 倍になるので、高コストと判断した
-  - **採用: Aurora のプロビジョンドのクラスター**。インスタンスクラスは東京で選べるいちばん安い db.t4g.medium（$0.113/時。db.t3.medium は $0.125/時）で各 1 台から。ストレージは Standard（I/O 最適化はインスタンスが約 30% 高い）。2 つで月 $165 前後（RDS の単一インスタンスより月 $110 前後増える）
+  - **比べるのは方針の 2 つ（サーバーレスとクラスター）**。最初は RDS の単一インスタンスと比べてサーバーレスを高コストとしたが、方針の選択肢に単一インスタンスは無いので、同日に比べ直した。クラスターのいちばん安い構成は db.t4g.medium（$0.113/時＝月 $82。db.t3.medium は $0.125/時）
+  - **MySQL（Mautic だけ）は Serverless v2**（最小 0.5 ACU・最大 2 ACU）。0.5 ACU（約 1 GB）で足り、月 $55 前後でクラスターより安い。東京で Aurora MySQL 8.4 互換の `db.serverless` が使えることを確かめた
+  - **PostgreSQL（4 アプリが共有）はクラスター**（db.t4g.medium × 1）。4 つのアプリには 1 ACU 程度が要り、サーバーレスは月 $110 前後でクラスターより高い。ストレージは Standard（I/O 最適化はインスタンスが約 30% 高い）
+  - **1 つにまとめられない**: Aurora はクラスターごとにエンジンが 1 つで、Mautic は MySQL 専用（インストーラーのドライバーは `pdo_mysql` だけ）、Chatwoot は PostgreSQL 専用。PostgreSQL の側は、すでに 1 つのクラスターを 4 アプリで共有している
   - **Valkey はノードを持つクラスター**（cache.t4g.micro × 1）。ElastiCache Serverless は常にクラスターモードで、対応するクライアントしか使えず（公式の troubleshooting）、Chatwoot の Sidekiq は Redis Cluster に対応しないため、互換が無い
   - Aurora はストレージが自動で伸びるので、空き容量のアラーム 2 つを外した。RDS のイベントは、インスタンスとクラスターの 2 つの購読にした
 - **WireGuard の終端だけは EC2**（計算資源は、特に理由が無ければ ECS on Fargate か Lambda にする方針の例外）: Fargate では WireGuard を動かせない（カーネルのモジュールと `NET_ADMIN` の権限が要るが、Fargate のタスクには付けられない。経路表の宛先にする固定の ENI も持てない）。Lambda は常駐できない。AWS Site-to-Site VPN は、オンプレ側に固定のグローバル IP が要り（オンプレの IP は固定でない）、IP なしで使う証明書の認証には AWS Private CA の費用がかかる。そのため、いちばん小さい EC2（t4g.nano。月 $4 前後）を 1 台置く。

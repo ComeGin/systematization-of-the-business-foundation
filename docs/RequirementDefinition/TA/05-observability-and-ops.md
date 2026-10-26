@@ -210,7 +210,7 @@ TA（Technology Architecture）層。ID はそれぞれの正本の定義をそ�
 
 | 本番のデータストア | 内容 | バックアップ | 復旧できる範囲 |
 |---|---|---|---|
-| RDS for MySQL（2026-10-26 から Aurora MySQL のクラスター。バックアップと PITR は同じ） | Mautic（`E-09` など） | **自動バックアップ 7 日 ＋ ポイントインタイムリカバリ** | 7 日以内の任意の時点 |
+| RDS for MySQL（2026-10-26 から Aurora MySQL の Serverless v2。バックアップと PITR は同じ） | Mautic（`E-09` など） | **自動バックアップ 7 日 ＋ ポイントインタイムリカバリ** | 7 日以内の任意の時点 |
 | RDS for PostgreSQL（2026-10-26 から Aurora PostgreSQL のクラスター） | Chatwoot（`E-10`）・`admin-auth`・（Umami〈`E-07`〉は ADR-25 で外した）**Strapi（`E-04`）・n8n（ワークフロー・実行履歴・資格情報の暗号文）**（ADR-16。n8n の実行履歴は ADR-18 で `E-15` ではなくなった） | 同上 | 同上 |
 | EFS | Mautic の `media/` と設定ファイル | **AWS Backup**（日次） | 日次 |
 | S3 | Chatwoot の添付ファイル・**Strapi のメディア**（ADR-16） | **バージョニング** | 削除・上書きの取り消し |

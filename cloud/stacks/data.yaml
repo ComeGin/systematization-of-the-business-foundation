@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  データストア。Aurora MySQL 8.4 互換（Mautic）、Aurora PostgreSQL 16 互換（1 クラスターに複数 DB）、
+  データストア。Aurora MySQL 8.4 互換（Mautic。Serverless v2）、Aurora PostgreSQL 16 互換（1 クラスターに複数 DB）、
   ElastiCache（Valkey）、EFS（Mautic の media と config）、S3（Chatwoot の添付・Strapi のメディア・Astro の配信用）。
   TA-06 の 4 節。Aurora はクラスター（各 1 インスタンスから。2026-10-26 にユーザーの方針で RDS の単一インスタンスから移した）。
   データを持つリソースは Retain。PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / admin_auth / strapi / n8n）は
@@ -25,13 +25,23 @@ Parameters:
     Type: String
     Description: secrets.yaml の SecretNamePrefix。Valkey の AUTH トークンを名前で読む。
 
-  # ---- Aurora（ユーザーの方針: DB はサーバーレスが高コストか互換が無ければクラスター。2026-10-26）
-  # Aurora Serverless v2 は互換があるが、Mautic の毎分の cron と常時の接続（Chatwoot・n8n・Strapi）で一時停止できず、
-  # 最小 0.5 ACU でも RDS の単一インスタンスの約 3 倍になるため、プロビジョンドのクラスターにした（README の 6 節）。
-  # インスタンスクラスは東京で選べるいちばん安いもの（db.t4g.medium。$0.113/時。2026-10-26 に DescribeOrderableDBInstanceOptions と Pricing API で確認）。
-  MysqlInstanceClass:
-    Type: String
-    Default: db.t4g.medium
+  # ---- Aurora（ユーザーの方針: DB は、高コストでなくアプリに互換があればサーバーレス、それ以外はクラスター。2026-10-26）
+  # 比べるのは「サーバーレス」と「クラスター（いちばん安い db.t4g.medium。$0.113/時＝月 $82）」。どちらも一時停止はできない
+  # （Mautic の毎分の cron と、Chatwoot・n8n・Strapi の常時の接続）。
+  #   MySQL（Mautic だけ）: 最小 0.5 ACU（約 1 GB）で足り、月 $55 前後でクラスターより安い → Serverless v2
+  #   PostgreSQL（4 アプリが共有）: 1 ACU 程度が要り、月 $110 前後でクラスターより高い → クラスター（db.t4g.medium）
+  # MySQL と PostgreSQL は 1 つにまとめられない（Aurora はクラスターごとにエンジンが 1 つ。Mautic は MySQL 専用、Chatwoot は PostgreSQL 専用）。
+  # 単価は 2026-10-26 に Pricing API（東京）で、db.serverless の対応は DescribeOrderableDBInstanceOptions で確かめた（README の 6 節）。
+  MysqlMinCapacity:
+    Type: Number
+    Default: 0.5
+    MinValue: 0.5
+    Description: Aurora Serverless v2 の最小 ACU（0.5 ACU は約 1 GB。$0.15/ACU 時＝月 $55 前後）。0（一時停止）は毎分の cron で効かないので使わない。
+  MysqlMaxCapacity:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    Description: 最大 ACU（費用の上限。2 ACU で月 $219。セグメント更新などの山で伸びる。足りなければ ACUUtilization を見て上げる）。
   MysqlEngineVersion:
     Type: String
     Default: 8.4.mysql_aurora.8.4.8
@@ -179,6 +189,9 @@ Resources:
       DBClusterIdentifier: !Sub 'comegin-${EnvName}-mysql'
       Engine: aurora-mysql
       EngineVersion: !Ref MysqlEngineVersion
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MysqlMinCapacity
+        MaxCapacity: !Ref MysqlMaxCapacity
       StorageType: aurora
       StorageEncrypted: true
       DBSubnetGroupName: !Ref DbSubnetGroup
@@ -196,7 +209,7 @@ Resources:
       CopyTagsToSnapshot: true
       DeletionProtection: true
 
-  # クラスターの書き込みのインスタンス。データはクラスターのボリュームにあり、インスタンスは持たない（置き換えても失われない）
+  # クラスターの書き込みのインスタンス（Serverless v2）。データはクラスターのボリュームにあり、インスタンスは持たない（置き換えても失われない）
   MysqlInstance:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Delete
@@ -205,7 +218,7 @@ Resources:
       DBInstanceIdentifier: !Sub 'comegin-${EnvName}-mysql-1'
       DBClusterIdentifier: !Ref MysqlCluster
       Engine: aurora-mysql
-      DBInstanceClass: !Ref MysqlInstanceClass
+      DBInstanceClass: db.serverless
       DBParameterGroupName: !Ref MysqlInstanceParameterGroup
       PubliclyAccessible: false
       AutoMinorVersionUpgrade: true

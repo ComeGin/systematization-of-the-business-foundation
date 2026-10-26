@@ -20,7 +20,7 @@ Metadata:
       - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
         Parameters: [AlbOidcClientId]
       - Label: { default: データストア（暫定値） }
-        Parameters: [MysqlInstanceClass, PostgresInstanceClass, ValkeyNodeType]
+        Parameters: [MysqlMinCapacity, MysqlMaxCapacity, PostgresInstanceClass, ValkeyNodeType]
       - Label: { default: オンプレとの WireGuard（ADR-21。wireguard.yaml） }
         Parameters: [OnpremWireguardCidr, WireguardServerAddress, OnpremPeerAddress, WireguardPort, WireguardIngressCidr, OnpremWebhookPort, OnpremWireguardPublicKey, WireguardInstanceType, WireguardAmiSsmId, WireguardFixedAmiId]
       - Label: { default: WAF（暫定値） }
@@ -28,7 +28,7 @@ Metadata:
       - Label: { default: サービスのイメージのタグ（製品ごと。latest は使えない） }
         Parameters: [MauticImageTag, ChatwootImageTag]
       - Label: { default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値） }
-        Parameters: [MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticWebHealthCheckGracePeriodSeconds, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory]
+        Parameters: [NightlyStopEnabled, NightlyStopSchedule, NightlyStartSchedule, NightlyStopTimezone, MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticWebHealthCheckGracePeriodSeconds, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory]
       - Label: { default: サービスの設定 }
         Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
       - Label: { default: consent-api（ADR-26。services/consent-api.yaml） }
@@ -103,10 +103,16 @@ Parameters:
       8 文字未満だと admin-auth-ops が設定の検査で止まり、migrate も ALB の登録もできない（誰も管理画面に入れない）。
 
   # 暫定値（TA-06 の 9 節の見積もり前）。
-  # Aurora のクラスター（各 1 インスタンス）。東京で選べるいちばん安いクラス（db.t4g.medium。$0.113/時）。stacks/data.yaml の注記
-  MysqlInstanceClass:
-    Type: String
-    Default: db.t4g.medium
+  # MySQL（Mautic）は Aurora Serverless v2、PostgreSQL（4 アプリが共有）は Aurora のクラスター（東京で選べるいちばん安い db.t4g.medium）。
+  # 理由は stacks/data.yaml の注記と README の 6 節（サーバーレスとクラスターのどちらが安いか）
+  MysqlMinCapacity:
+    Type: Number
+    Default: 0.5
+    MinValue: 0.5
+  MysqlMaxCapacity:
+    Type: Number
+    Default: 2
+    MinValue: 1
   PostgresInstanceClass:
     Type: String
     Default: db.t4g.medium
@@ -169,6 +175,21 @@ Parameters:
     AllowedPattern: '^(?!latest$).+$'
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
+  # 夜間の停止（2026-10-26。ユーザーの決定）。chatwoot-web・chatwoot-worker・mautic-cron を毎日 22 時〜翌 8 時（日本時間）に 0 台にする。
+  # mautic-web は止めない（夜間の公開サイトのフォームの申し込みを取りこぼさないため）。費用は月 $37 前後下がる（README の 3.1）
+  NightlyStopEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  NightlyStopSchedule:
+    Type: String
+    Default: cron(0 22 * * ? *)
+  NightlyStartSchedule:
+    Type: String
+    Default: cron(0 8 * * ? *)
+  NightlyStopTimezone:
+    Type: String
+    Default: Asia/Tokyo
   MauticWebDesiredCount:
     Type: Number
     Default: 0
@@ -510,7 +531,8 @@ Resources:
         ValkeySecurityGroupId: !GetAtt NetworkStack.Outputs.ValkeySecurityGroupId
         EfsSecurityGroupId: !GetAtt NetworkStack.Outputs.EfsSecurityGroupId
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
-        MysqlInstanceClass: !Ref MysqlInstanceClass
+        MysqlMinCapacity: !Ref MysqlMinCapacity
+        MysqlMaxCapacity: !Ref MysqlMaxCapacity
         PostgresInstanceClass: !Ref PostgresInstanceClass
         ValkeyNodeType: !Ref ValkeyNodeType
 
@@ -657,6 +679,10 @@ Resources:
     Properties:
       Location: stacks/services/mautic-cron.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -682,6 +708,10 @@ Resources:
     Properties:
       Location: stacks/services/chatwoot-web.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -708,6 +738,10 @@ Resources:
     Properties:
       Location: stacks/services/chatwoot-worker.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds

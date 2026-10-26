@@ -78,7 +78,7 @@ Parameters:
   MysqlConnectionsThreshold:
     Type: Number
     Default: 60
-    Description: Aurora MySQL（db.t4g.medium）の接続数のしきい値。インスタンスクラスを変えたら見直す。
+    Description: Aurora MySQL（Serverless v2。最大 2 ACU）の接続数のしきい値。最大 ACU を変えたら見直す（max_connections は最大 ACU で決まる）。
   PostgresConnectionsThreshold:
     Type: Number
     Default: 120

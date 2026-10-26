@@ -74,6 +74,26 @@ Parameters:
     Default: Chatwoot <no-reply@comegin.com>
     Description: 送信元（MAILER_SENDER_EMAIL）。SES で検証済みのドメインのアドレスにする。
 
+  # ---- 夜間の停止（Application Auto Scaling のスケジュール。2026-10-26。親の NightlyStop* を受け取る）
+  NightlyStopEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: 夜間にタスクを 0 にするか。DesiredCount が 0 のあいだ（起動前）は作らない（朝に勝手に起動しないため）。
+  NightlyStopSchedule:
+    Type: String
+    Default: cron(0 22 * * ? *)
+    Description: 止める時刻（Application Auto Scaling の cron 式。NightlyStopTimezone の時刻）。
+  NightlyStartSchedule:
+    Type: String
+    Default: cron(0 8 * * ? *)
+    Description: 再開する時刻。DesiredCount の台数に戻す。
+  NightlyStopTimezone:
+    Type: String
+    Default: Asia/Tokyo
+Conditions:
+  UseNightlyStop: !And [!Equals [!Ref NightlyStopEnabled, 'true'], !Not [!Equals [!Ref DesiredCount, '0']]]
+
 Resources:
   # 実行ロール（ECS のエージェントが使う）。イメージの取得、ログの書き込み、このサービスの Secret の読み取りだけ。
   # RDS のマスターの資格情報は読めない（ops-tasks.yaml の実行ロールだけが読める）。
@@ -265,6 +285,30 @@ Resources:
           SecurityGroups:
             - !Ref SecurityGroupId
           Subnets: !Ref PrivateSubnetIds
+
+  # 夜間の停止（chatwoot-worker。夜間の Webhook・メールは朝に処理される）。22 時に最小・最大を 0 にしてタスクを止め、8 時に DesiredCount に戻す（日本時間）。
+  # タスクの台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま（README の 4.11）。
+  # 使う IAM ロールは Application Auto Scaling のサービスにリンクされたロール（無ければ初回に自動で作られる）。
+  NightlyStopScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: UseNightlyStop
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub
+        - 'service/${ClusterName}/${Service.Name}'
+        - ClusterName: !Select [1, !Split ['cluster/', !Ref ClusterArn]]
+      MinCapacity: !Ref DesiredCount
+      MaxCapacity: !Ref DesiredCount
+      ScheduledActions:
+        - ScheduledActionName: nightly-stop
+          Schedule: !Ref NightlyStopSchedule
+          Timezone: !Ref NightlyStopTimezone
+          ScalableTargetAction: { MinCapacity: 0, MaxCapacity: 0 }
+        - ScheduledActionName: morning-start
+          Schedule: !Ref NightlyStartSchedule
+          Timezone: !Ref NightlyStopTimezone
+          ScalableTargetAction: { MinCapacity: !Ref DesiredCount, MaxCapacity: !Ref DesiredCount }
 
 Outputs:
   ServiceName:
