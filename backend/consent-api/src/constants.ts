@@ -17,6 +17,10 @@ export const MAX_BODY_BYTES = 1024;
 export const MAX_RECORDS_PER_ID = 200;
 
 export const VALKEY_COMMAND_TIMEOUT_MS = 2_000;
+// 書き込みの期限を、コマンドのタイムアウトよりこれだけ手前に置く（store.ts の append）。
+// タイムアウトで 503 を返した後に、届いていた XADD が遅れて実行されても記録を残さないため。
+// 差は、期限の直前に書けた応答がタイムアウトまでに届く余裕と、Valkey とのあいだの時計のずれの許容を兼ねる
+export const VALKEY_WRITE_DEADLINE_MARGIN_MS = 500;
 export const VALKEY_CONNECT_TIMEOUT_MS = 3_000;
 // Lambda で、コールドスタートの接続の完了と、凍結から戻ったときの再接続を待つ上限（仕様 3.3）
 export const VALKEY_READY_TIMEOUT_MS = 3_000;

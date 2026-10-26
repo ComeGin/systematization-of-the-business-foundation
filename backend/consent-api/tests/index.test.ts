@@ -20,7 +20,7 @@ const HANDLE = () => Promise.resolve({ status: 200, headers: {}, body: "" });
 
 const config = makeConfig({ HOST: "0.0.0.0", PORT: 3104, VALKEY_KEY_PREFIX: "consent:" });
 
-let valkey: { quit: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn>; xadd: ReturnType<typeof vi.fn> };
+let valkey: { quit: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn>; eval: ReturnType<typeof vi.fn> };
 let server: {
   listen: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -54,7 +54,8 @@ beforeEach(() => {
   valkey = {
     quit: vi.fn().mockResolvedValue("OK"),
     disconnect: vi.fn(),
-    xadd: vi.fn().mockResolvedValue("1-1"),
+    // append の書き込みのスクリプト（store.ts）。1 は書けたこと
+    eval: vi.fn().mockResolvedValue(1),
   };
   server = { listen: vi.fn(), close: vi.fn(), closeIdleConnections: vi.fn() };
   mocks.loadConfig.mockReturnValue(config);
@@ -85,14 +86,13 @@ describe("起動", () => {
       await boot();
       const { store } = mocks.createHandler.mock.calls[0]![0] as { store: ConsentStore };
       await store.append("eAd5tbgdBQH8cAOA_oELjQ", { state: "granted", at: "t", policy: "p" });
-      expect(valkey.xadd).toHaveBeenCalledWith(
+      expect(valkey.eval).toHaveBeenCalledWith(
+        expect.any(String),
+        1,
         "consent:c:eAd5tbgdBQH8cAOA_oELjQ",
-        "*",
-        "state",
+        expect.stringMatching(/^\d+$/),
         "granted",
-        "at",
         "t",
-        "policy",
         "p",
       );
     });

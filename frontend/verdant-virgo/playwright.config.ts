@@ -1,11 +1,11 @@
 // a11y の自動検査（pnpm a11y）の設定。計画書 docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md の V1・P-8。
 // dist を配信するだけで、ビルドはしない。先に SITE_URL=https://comegin.com pnpm build を済ませる（pnpm lh と同じ）。
-// 単体テスト（vitest。tests/**/*.test.ts）とは別で、ここは e2e/ だけを見る。
+// 単体テスト（vitest。tests/**/*.test.ts）とは別で、ここは e2e/a11y だけを見る（e2e/flows は E2E。playwright.e2e.config.ts）。
 import { defineConfig, devices } from "@playwright/test";
 import { BASE_URL, PORT } from "./e2e/a11y/routes";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./e2e/a11y",
   timeout: 30_000,
   retries: 0,
   // build・Lighthouse と同じく機械の負荷を抑える（Lighthouse の performance がぶれるため、同時に走らせない）

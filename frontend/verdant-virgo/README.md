@@ -18,6 +18,8 @@ ComeGin の公開サイト。Astro 7 の静的出力（SSG）で、CloudFront �
 | `pnpm lh:report`   | 直近の Lighthouse のレポートを開く                                                                                                                                                                                      |
 | `pnpm a11y`        | ビルド済みの `dist` を preview（`localhost:4323`）で配信し、Playwright ＋ axe で全ルートを Desktop・Mobile で検査する（WCAG 2.0〜2.2 の A・AA のタグ）。結果は `./.a11y/`（`summary.json`・`results.json`。追跡しない） |
 | `pnpm a11y:ci`     | ビルドしてから `pnpm a11y`。control-plane の builtin `a11y` ジョブが使う（Lighthouse とは別に走らせるため）                                                                                                             |
+| `pnpm e2e`         | E2E（Playwright。`playwright.e2e.config.ts`）。E2E 専用の dev サーバー（`127.0.0.1:4324`）を起動し、開発スタックを本物として通す（下の「E2E」）。ビルドはしない                                                         |
+| `pnpm e2e:report`  | 直近の E2E の HTML レポートを開く（`./playwright-report/e2e/`。追跡しない）                                                                                                                                             |
 
 ## ディレクトリ
 
@@ -49,11 +51,34 @@ src/
 ├── styles/                tokens.css（ブランドのトークンの写し）・theme.css（役割トークン・モーションのトークン）・fonts.css・global.css・typeset.css
 └── lib/
 e2e/a11y/                  axe の全ルート検査と、状態・キーボード・表示・フォーム・構造・モーションの検査（playwright.config.ts）
+e2e/flows/                 E2E。訪問者の流れを開発スタックの本物に通す（playwright.e2e.config.ts。下の「E2E」）
 tests/modules/a11y/        a11y モジュールとトークンの組み合わせのコントラストの単体テスト
 ```
 
 アクセシビリティ（JIS X 8341-3:2016 の AA に一部準拠）の仕様は `docs/BasicDesign/DesignSpec/website/04-accessibility-spec.md`、
 モーションの仕様は `05-motion-spec.md`、決定は ADR-27・ADR-28。改修の計画は `docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`。
+
+## E2E（`pnpm e2e`）
+
+a11y の検査（`pnpm a11y`。ビルド済みの `dist` を、送信を差し替えて見る）とは別に、**訪問者の流れを開発スタックの本物に通す**。テストは `e2e/flows/`。
+
+| spec         | 流れ                                                                                                                                                                                    |
+| :----------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `navigation` | ヘッダーのナビ・無料相談のボタンの `from`・404                                                                                                                                          |
+| `blog`       | Strapi の記事（本物）が一覧・カテゴリ・記事に出る。検索意図で CTA が変わる。下書きは出ない                                                                                              |
+| `consult`    | CTA から申し込み、Mautic（本物）にコンタクトと送信結果（`page_url`・`cta_id`・`service_interest`・`distinct_id`）が残り、MailHog に受付確認が届く。入力の誤り・二重送信・改ざんした URL |
+| `consent`    | 同意・拒否・撤回が Cookie・consent-api の記録（Valkey）・PostHog とチャットの読み込みに効く。古い版・壊れた Cookie・偽の識別子                                                          |
+| `chat`       | ウィジェットを開き、FAQ ボット（本物）が原文で答えてラベルを付ける。解決・引き継ぎ                                                                                                      |
+| `booking`    | 完了画面の予約枠（Cal.com の偽物）。同意の後だけ `booking_*` を送る。読み込みの失敗・15 秒の無通知で代わりの案内                                                                        |
+| `cors`       | 開発スタックの CORS の許可（ブラウザを使わない）                                                                                                                                        |
+| `faults/`    | consent-api の Valkey・Mautic の MySQL を `docker pause` で止めても行き止まりにならない                                                                                                 |
+
+- **境界（2026-10-25 にユーザーが決めた）**: オンプレの開発スタック（Strapi・Mautic・Chatwoot・consent-api・faq-bot・MailHog）は本物に繋ぐ。オンプレの外（Cal.com・PostHog・GA4・ngrok）は差し替え、それ以外の外への通信は止める（`e2e/flows/support/fixtures.ts`）。開発の環境変数ファイルの `PUBLIC_*_BASE` は ngrok の URL なので、E2E の dev サーバーは `127.0.0.1` に向け直して起動する（`playwright.e2e.config.ts` の `webServer.env`）。
+- **CORS**: E2E のページのオリジン（`127.0.0.1:4324`）は開発スタックの許可に入っていないので、fixture が Mautic・consent-api への送信を本物に転送するときに `Origin` を `SITE_URL` に置き換える（送信の中身は本物が処理する）。許可の設定そのものは `cors.spec.ts` が確かめる。
+- **テスト用データ**: `global-setup.ts` が開発の Strapi に記事 3 本（顕在・潜在の公開記事と、公開しない下書き。名前は `e2e-<実行の ID>-`）を作り、終わったら消す。申し込み（Mautic のコンタクト・MailHog の受付確認）・同意の記録（Valkey）・チャットの会話（Chatwoot）はテストごとに作り、fixture の `cleanup` で消す（失敗しても必ず実行し、消せなければテストを失敗にする）。**Mautic のフォームの送信結果は API で消せないので残る**（メールの接頭辞 `e2e-` で見分ける）。Chatwoot のウィジェットの訪問者は最後の接続から 90 秒は消せない（`CONTACT_PRESENCE_DURATION`）ので、全テストの後にまとめて消す（`test-results/e2e-pending/`）。
+- **障害**: プロジェクト `faults` は、ほかのテストを巻き込まないよう `flows` がすべて通った後にだけ流れる（`flows` に失敗があると「did not run」になる）。Valkey を止めている間の同意は 503 になり、Valkey が戻った後にも記録が残らないことを確かめる（consent-api は書き込みに期限を付けている。2026-10-26。開発のコンテナが古いイメージのままだと落ちるので、`backend/consent-api` で `docker compose up -d --build` をしてから流す）。
+- **PostHog**: posthog-js は自動のブラウザ（`HeadlessChrome`・`webdriver`）をボットとして扱い、イベントを捨てる。イベントの中身を見るテストだけ fixture の `looksHuman` でブラウザを普通の Chrome に見せる。
+- **前提**: `node setup/setup.mjs --target dev` と `node setup/frontend.mjs --target dev` が済み、Strapi と faq-bot の `pnpm dev` が動いていること。機械の負荷が高いと操作の待ちが延びて落ちる（`pnpm lh` などと同時に走らせない）。
 
 ## 環境変数
 

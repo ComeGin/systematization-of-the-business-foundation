@@ -12,6 +12,10 @@
 
 # testing
 /coverage
+# E2E（pnpm e2e）の出力とログイン済みの状態（サンドボックスのセッションの Cookie）
+/test-results/
+/playwright-report/
+/e2e/.auth/
 
 # next.js
 /.next/
