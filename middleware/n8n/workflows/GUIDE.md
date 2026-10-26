@@ -152,7 +152,7 @@ cd middleware/host-relay && docker compose up -d     # 一度起動すれば、�
 | `Mautic API（client_credentials）` | **OAuth2 API** | Grant Type: **Client Credentials**、Access Token URL: `<Mautic の URL>/oauth/v2/token`、Client ID と Client Secret: Mautic の API 資格情報（`mautic-mcp` と同じものでよい）、Authentication: **Body** | I-19 |
 | `MailHog SMTP（開発）` | **SMTP** | Host: `host.docker.internal`（4 節の中継を通る）、Port: `1025`、SSL/TLS: 使わない、User・Password: 空（**開発環境だけ**）。届いたメールは `http://127.0.0.1:8025` で見る | I-21 |
 | `AWS SNS 発行（アクセスキー）` | **AWS** | Access Key ID と Secret Access Key: IAM ユーザー `comegin-prod-onprem-n8n-sns` のキー（`cloud/README.md` の 4.5 で発行）、Region: `ap-northeast-1`（**本番だけ**）。**SNS への発行と、CloudWatch へのハートビート（`PutMetricData`）の両方に同じ資格情報を使う**（IAM の権限は SNS の発行と、名前空間 `ComeGin/OnpremN8n` への `PutMetricData` だけ） | I-21・n8n スケジュール実行のハートビート |
-| `Chatwoot API（api_access_token）` | **Header Auth** | Name: `api_access_token`、Value: Chatwoot のアクセストークン（会話の一覧を読めればよい。**管理者のトークンは避け**、エージェントの権限のユーザーで発行する） | 週次 問い合わせの棚卸し |
+| `Chatwoot API（api_access_token）` | **Header Auth** | Name: `api-access-token`（**ハイフン**。本番の ALB はアンダースコアを含むヘッダーを捨てるため。Chatwoot はどちらでも読む。資格情報の名前は変えない）、Value: Chatwoot のアクセストークン（会話の一覧を読めればよい。**管理者のトークンは避け**、エージェントの権限のユーザーで発行する） | 週次 問い合わせの棚卸し |
 
 > **Crypto の資格情報の Hmac Secret は、必ず値を入れる。** 空のまま作ると、誰でも正しい署名を作れてしまう（n8n からは空かどうかを確かめられない）。
 

@@ -9,6 +9,10 @@
 [Interface]
 Address = 10.99.0.2/32
 PrivateKey = <ONPREM_PRIVATE_KEY>
+# EC2 側（cloud/stacks/wireguard.yaml）と同じ値。自動に任せると EC2 側は ENI の 9001 から 8921 になり、
+# 国内の回線のトンネル（PPPoE は 1454、IPv4 over IPv6〈DS-Lite・MAP-E〉は 1460）で外側の UDP が分割される。
+# 1380 はどちらから WireGuard の 60 バイト（IPv4）を引いても収まる値
+MTU = 1380
 
 [Peer]
 # EC2（VPC 側）の公開鍵。SSM パラメータから取り出す（README.md）

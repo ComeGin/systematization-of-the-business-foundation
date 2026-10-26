@@ -53,10 +53,10 @@ describe("ChatwootClient.request（URL とクエリ）", () => {
 
 describe("ChatwootClient.request（ヘッダーと本文）", () => {
   describe("正常系", () => {
-    it("ユーザーのアクセストークンを api_access_token ヘッダーで送る（Authorization ではない）", async () => {
+    it("ユーザーのアクセストークンを api-access-token ヘッダーで送る（Authorization ではない。本番の ALB がアンダースコアのヘッダーを捨てるためハイフン）", async () => {
       const { calls } = installFetch(() => ({ json: {} }));
       await client().get("/agents");
-      expect(calls[0]!.headers.api_access_token).toBe(ACCESS_TOKEN);
+      expect(calls[0]!.headers["api-access-token"]).toBe(ACCESS_TOKEN);
       expect(calls[0]!.headers.Accept).toBe("application/json");
       expect(calls[0]!.headers).not.toHaveProperty("Authorization");
     });

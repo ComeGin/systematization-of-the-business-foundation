@@ -96,6 +96,8 @@ servers:
   # ---------- n8n（組み込みの MCP。HTTP）----------
   # どのエージェントにも割り当てていない（AA-03 の 8 節の未決定事項）。管理者の指示で起動した実行が使う。
   # 本番はワークフローの作成と更新まで。有効化と実行は人間が行う。
+  # n8n の MCP のトークンでは publish_workflow・execute_workflow などを絞れない（tools/list に出る。2026-10-26 に開発で確認）。
+  # これらを tools に含むエージェント定義は control-plane が起動しない（backend/control-plane/src/runner/agent.ts の HUMAN_ONLY_PROD_TOOLS）。
   - name: n8n
     env: dev
     transport: http

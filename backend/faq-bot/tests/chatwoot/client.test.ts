@@ -24,7 +24,7 @@ describe("createChatwootClient", () => {
         labels: ["vip"],
         lastMessage: { id: 101, messageType: 0, senderType: "contact", inReplyTo: null },
       });
-      expect(calls[0]).toMatchObject({ url: `${BASE}/12`, method: "GET", headers: { api_access_token: "bot-token" } });
+      expect(calls[0]).toMatchObject({ url: `${BASE}/12`, method: "GET", headers: { "api-access-token": "bot-token" } });
     });
 
     it("ボットの返事の in_reply_to を読む", async () => {
@@ -99,7 +99,7 @@ describe("createChatwootClient", () => {
     it("createConversation は source_id と inbox_id で会話を作り、番号とステータスを返す（status は渡さない）", async () => {
       const { fetchImpl, calls } = recordingFetch(jsonResponse({ id: 31, status: "pending", inbox_id: 3, messages: [], meta: { sender: { id: 7 } } }));
       expect(await makeClient(fetchImpl).createConversation("3f1c2b9e-0000-4000-8000-000000000000", 3)).toEqual({ id: 31, status: "pending" });
-      expect(calls[0]).toMatchObject({ url: BASE, method: "POST", headers: { api_access_token: "bot-token" } });
+      expect(calls[0]).toMatchObject({ url: BASE, method: "POST", headers: { "api-access-token": "bot-token" } });
       expect(calls[0]!.body).toEqual({ source_id: "3f1c2b9e-0000-4000-8000-000000000000", inbox_id: 3 });
     });
 

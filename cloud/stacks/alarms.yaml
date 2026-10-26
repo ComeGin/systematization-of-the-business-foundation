@@ -31,12 +31,18 @@ Parameters:
   ConsentApiTargetGroupFullName:
     Type: String
     Description: services/consent-api.yaml の TargetGroupFullName（targetgroup/<名前>/<ID>。ADR-26 で Lambda のターゲット）
+  MysqlClusterIdentifier:
+    Type: String
+    Description: data.yaml の MysqlClusterIdentifier（Aurora のクラスター）
   MysqlInstanceIdentifier:
     Type: String
-    Description: data.yaml の MysqlInstanceIdentifier
+    Description: data.yaml の MysqlInstanceIdentifier（Aurora の書き込みのインスタンス。CPU と接続数はインスタンス単位）
+  PostgresClusterIdentifier:
+    Type: String
+    Description: data.yaml の PostgresClusterIdentifier（Aurora のクラスター）
   PostgresInstanceIdentifier:
     Type: String
-    Description: data.yaml の PostgresInstanceIdentifier
+    Description: data.yaml の PostgresInstanceIdentifier（Aurora の書き込みのインスタンス）
   WireguardInstanceId:
     Type: String
     Description: wireguard.yaml の InstanceId（オンプレとの WireGuard の EC2）
@@ -66,21 +72,17 @@ Parameters:
     Type: Number
     Default: 20
     Description: 5 分あたりのリクエストがこれ以下のときは比率を見ない（少ない件数の 1 件で鳴らないため）。
-  RdsFreeStorageThresholdBytes:
-    Type: Number
-    Default: 5368709120
-    Description: RDS の空きストレージのしきい値（5 GiB）。ストレージの自動拡張の上限に近づいたことを知るための値。
   RdsCpuThresholdPercent:
     Type: Number
     Default: 80
   MysqlConnectionsThreshold:
     Type: Number
     Default: 60
-    Description: MySQL（db.t4g.micro）の接続数のしきい値。インスタンスクラスを変えたら見直す。
+    Description: Aurora MySQL（db.t4g.medium）の接続数のしきい値。インスタンスクラスを変えたら見直す。
   PostgresConnectionsThreshold:
     Type: Number
     Default: 120
-    Description: PostgreSQL（db.t4g.small）の接続数のしきい値。6 つのデータベースが共有する。インスタンスクラスを変えたら見直す。
+    Description: Aurora PostgreSQL（db.t4g.medium）の接続数のしきい値。4 つのデータベース（chatwoot・admin_auth・strapi・n8n）が共有する。インスタンスクラスを変えたら見直す。
   ValkeyMemoryThresholdPercent:
     Type: Number
     Default: 80
@@ -273,6 +275,27 @@ Resources:
       AlarmDescription: faq-bot（Lambda）が失敗した。会話は Chatwoot が担当者に回している。
       Namespace: AWS/Lambda
       MetricName: Errors
+      Dimensions:
+        - { Name: FunctionName, Value: !Ref FaqBotFunctionName }
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  # 関数 URL は AuthType NONE で、署名は関数の中で検査する。署名の無い要求を大量に送られると予約同時実行数が埋まり、
+  # 正規の Webhook も 429 になる（Chatwoot は送り直さず担当者に回す）。Errors には数えられないので、Throttles で気づく
+  FaqBotThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-faq-bot-throttles'
+      AlarmDescription: faq-bot（Lambda）が同時実行数の上限に達し、呼び出しを拒否した（大量の要求か、アカウントの上限）。ボットが答えずに担当者に回っている。
+      Namespace: AWS/Lambda
+      MetricName: Throttles
       Dimensions:
         - { Name: FunctionName, Value: !Ref FaqBotFunctionName }
       Statistic: Sum
@@ -500,29 +523,10 @@ Resources:
           Expression: !Sub 'IF(FILL(requests, 0) > ${Alb5xxMinRequestsPer5Min}, 100 * (FILL(target5xx, 0) + FILL(elb5xx, 0)) / FILL(requests, 0), 0)'
           ReturnData: true
 
-  # ---------------------------------------------------------------- RDS（TA-05 の項目 13）
-  # オンプレの n8n の実行履歴は RDS に増え続けるため、PostgreSQL のストレージの空きは n8n の実行履歴の保持設定（EXECUTIONS_DATA_MAX_AGE）と合わせて見る。
-  # バックアップの成否は、下の EventSubscription（バックアップの失敗など）で知る。
-  MysqlFreeStorageAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub 'comegin-${EnvName}-mysql-free-storage'
-      AlarmDescription: Mysql の空きストレージがしきい値を下回っている。
-      Namespace: AWS/RDS
-      MetricName: FreeStorageSpace
-      Dimensions:
-        - { Name: DBInstanceIdentifier, Value: !Ref MysqlInstanceIdentifier }
-      Statistic: Minimum
-      Period: 300
-      EvaluationPeriods: 1
-      DatapointsToAlarm: 1
-      Threshold: !Ref RdsFreeStorageThresholdBytes
-      ComparisonOperator: LessThanThreshold
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions: [!Ref OpsAlertTopicArn]
-      OKActions: [!Ref OpsAlertTopicArn]
-
+  # ---------------------------------------------------------------- Aurora（TA-05 の項目 13）
+  # Aurora のストレージは自動で伸びる（空き容量のアラームは置かない。FreeStorageSpace のメトリクスも無い）。
+  # オンプレの n8n の実行履歴は増え続けて費用（GB 月）に効くので、n8n の実行履歴の保持設定（EXECUTIONS_DATA_MAX_AGE）で抑える。
+  # 障害・フェイルオーバー・メンテナンスは、下の EventSubscription（インスタンスとクラスター）で知る。
   MysqlCpuAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -558,26 +562,6 @@ Resources:
       DatapointsToAlarm: 3
       Threshold: !Ref MysqlConnectionsThreshold
       ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions: [!Ref OpsAlertTopicArn]
-      OKActions: [!Ref OpsAlertTopicArn]
-
-  PostgresFreeStorageAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub 'comegin-${EnvName}-postgres-free-storage'
-      AlarmDescription: Postgres の空きストレージがしきい値を下回っている。
-      Namespace: AWS/RDS
-      MetricName: FreeStorageSpace
-      Dimensions:
-        - { Name: DBInstanceIdentifier, Value: !Ref PostgresInstanceIdentifier }
-      Statistic: Minimum
-      Period: 300
-      EvaluationPeriods: 1
-      DatapointsToAlarm: 1
-      Threshold: !Ref RdsFreeStorageThresholdBytes
-      ComparisonOperator: LessThanThreshold
       TreatMissingData: notBreaching
       ActionsEnabled: true
       AlarmActions: [!Ref OpsAlertTopicArn]
@@ -623,9 +607,9 @@ Resources:
       AlarmActions: [!Ref OpsAlertTopicArn]
       OKActions: [!Ref OpsAlertTopicArn]
 
-  # 自動バックアップの成否など。メトリクスでは分からないため、RDS のイベントを ops トピックへ直接送る。
+  # メトリクスでは分からない障害を、RDS のイベントで ops トピックへ直接送る。
   # 発行を許すのは observability.yaml の ops トピックのポリシー（AllowRdsEvents）。
-  # TODO(未検証): イベントのカテゴリ名（low storage など）は実機で通知が届くことを確かめる。
+  # カテゴリは 2026-10-26 に DescribeEventCategories（ap-northeast-1）で、インスタンスとクラスターのそれぞれで使えるものを確かめた。
   RdsEventSubscription:
     Type: AWS::RDS::EventSubscription
     Properties:
@@ -636,10 +620,24 @@ Resources:
         - !Ref PostgresInstanceIdentifier
       EventCategories:
         - availability
-        - backup
         - failure
-        - low storage
+        - failover
         - recovery
+      Enabled: true
+
+  RdsClusterEventSubscription:
+    Type: AWS::RDS::EventSubscription
+    Properties:
+      SnsTopicArn: !Ref OpsAlertTopicArn
+      SourceType: db-cluster
+      SourceIds:
+        - !Ref MysqlClusterIdentifier
+        - !Ref PostgresClusterIdentifier
+      EventCategories:
+        - failover
+        - failure
+        - maintenance
+        - notification
       Enabled: true
 
   # ---------------------------------------------------------------- ElastiCache（Valkey。TA-05 の項目 13）

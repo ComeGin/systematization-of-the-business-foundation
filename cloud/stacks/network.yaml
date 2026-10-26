@@ -48,6 +48,10 @@ Parameters:
     Type: Number
     Default: 5680
     Description: オンプレのリバースプロキシ（n8n の /webhook/* だけを通す）のポート。WireGuard のアドレスにだけ開く。
+  OnpremPeerAddress:
+    Type: String
+    Default: 10.99.0.2
+    Description: オンプレ側の WireGuard のアドレス（Webhook の宛先）。Chatwoot の SG の出口をここの OnpremWebhookPort だけに絞るのに使う。
 
 Resources:
   # ---------------------------------------------------------------- VPC
@@ -240,8 +244,15 @@ Resources:
     Properties:
       GroupDescription: chatwoot-web tasks
       VpcId: !Ref Vpc
+      # 出口は宛先で絞る（ほかのタスクの SG と違う）。Chatwoot はオンプレの n8n への Webhook のために SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true が要り、
+      # 製品側の SSRF 対策（私設アドレスへの送信の拒否）が宛先を問わず外れるため、SG で届く先を絞る（setup/README.md の「Webhook の送り先と SSRF 対策」）。
+      # RDS と Valkey は下の SecurityGroupEgress（SG の参照。循環を避けて別リソース）。
+      # 10.99.0.2 は VPC の外（経路表で WireGuard の ENI へ）なので、WireGuard の SG の参照では一致しない。CIDR で書く。
+      # タスクのメタデータ（169.254.170.2）と Amazon の DNS は SG の対象外で、ここでは止められない。
       SecurityGroupEgress:
-        - { IpProtocol: tcp, FromPort: 0, ToPort: 65535, CidrIp: 0.0.0.0/0, Description: Outbound via NAT for ECR and Secrets Manager and SES and external APIs }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS via NAT for ECR and Secrets Manager and S3 and logs and external APIs }
+        - { IpProtocol: tcp, FromPort: 587, ToPort: 587, CidrIp: 0.0.0.0/0, Description: SES SMTP STARTTLS }
+        - { IpProtocol: tcp, FromPort: !Ref OnpremWebhookPort, ToPort: !Ref OnpremWebhookPort, CidrIp: !Sub '${OnpremPeerAddress}/32', Description: Webhook to onprem n8n via WireGuard }
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-chatwoot-web' }
 
@@ -250,8 +261,15 @@ Resources:
     Properties:
       GroupDescription: chatwoot-worker (Sidekiq) tasks (no ingress)
       VpcId: !Ref Vpc
+      # 出口は宛先で絞る（ほかのタスクの SG と違う）。Chatwoot はオンプレの n8n への Webhook のために SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true が要り、
+      # 製品側の SSRF 対策（私設アドレスへの送信の拒否）が宛先を問わず外れるため、SG で届く先を絞る（setup/README.md の「Webhook の送り先と SSRF 対策」）。
+      # RDS と Valkey は下の SecurityGroupEgress（SG の参照。循環を避けて別リソース）。
+      # 10.99.0.2 は VPC の外（経路表で WireGuard の ENI へ）なので、WireGuard の SG の参照では一致しない。CIDR で書く。
+      # タスクのメタデータ（169.254.170.2）と Amazon の DNS は SG の対象外で、ここでは止められない。
       SecurityGroupEgress:
-        - { IpProtocol: tcp, FromPort: 0, ToPort: 65535, CidrIp: 0.0.0.0/0, Description: Outbound via NAT for ECR and Secrets Manager and SES and external APIs }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS via NAT for ECR and Secrets Manager and S3 and logs and external APIs }
+        - { IpProtocol: tcp, FromPort: 587, ToPort: 587, CidrIp: 0.0.0.0/0, Description: SES SMTP STARTTLS }
+        - { IpProtocol: tcp, FromPort: !Ref OnpremWebhookPort, ToPort: !Ref OnpremWebhookPort, CidrIp: !Sub '${OnpremPeerAddress}/32', Description: Webhook to onprem n8n via WireGuard }
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-chatwoot-worker' }
 
@@ -311,7 +329,7 @@ Resources:
   MysqlSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS for MySQL (mautic)
+      GroupDescription: Aurora MySQL cluster (mautic)
       VpcId: !Ref Vpc
       SecurityGroupEgress:
         - { IpProtocol: tcp, FromPort: 1, ToPort: 1, CidrIp: 127.0.0.1/32, Description: No outbound traffic needed }
@@ -321,7 +339,7 @@ Resources:
   PostgresSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS for PostgreSQL (chatwoot, admin_auth, strapi, n8n)
+      GroupDescription: Aurora PostgreSQL cluster (chatwoot, admin_auth, strapi, n8n)
       VpcId: !Ref Vpc
       SecurityGroupEgress:
         - { IpProtocol: tcp, FromPort: 1, ToPort: 1, CidrIp: 127.0.0.1/32, Description: No outbound traffic needed }
@@ -374,6 +392,20 @@ Resources:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref WireguardSecurityGroup, SourceSecurityGroupId: !Ref ChatwootWorkerSecurityGroup, IpProtocol: tcp, FromPort: !Ref OnpremWebhookPort, ToPort: !Ref OnpremWebhookPort, Description: Webhook from chatwoot-worker }
 
+  # ---------------------------------------------------------------- egress: Chatwoot からデータストア（Chatwoot の SG は出口を絞っている。上の注記）
+  ChatwootWebToPostgres:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: { GroupId: !Ref ChatwootWebSecurityGroup, DestinationSecurityGroupId: !Ref PostgresSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: To PostgreSQL }
+  ChatwootWorkerToPostgres:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: { GroupId: !Ref ChatwootWorkerSecurityGroup, DestinationSecurityGroupId: !Ref PostgresSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: To PostgreSQL }
+  ChatwootWebToValkey:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: { GroupId: !Ref ChatwootWebSecurityGroup, DestinationSecurityGroupId: !Ref ValkeySecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: To Valkey }
+  ChatwootWorkerToValkey:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: { GroupId: !Ref ChatwootWorkerSecurityGroup, DestinationSecurityGroupId: !Ref ValkeySecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: To Valkey }
+
   # ---------------------------------------------------------------- ingress: データストア
   # RDS・ElastiCache・EFS は、対応するタスクの SG からだけ受ける。
   MysqlFromMauticWeb:
@@ -404,19 +436,15 @@ Resources:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref PostgresSecurityGroup, SourceSecurityGroupId: !Ref OpsTasksSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, Description: From ops-tasks }
 
-  # Valkey: Chatwoot（必須）、Mautic（キャッシュ。任意）、consent-api（同意の記録。TA-06 の 4.8）。
+  # Valkey: Chatwoot（必須）、consent-api（同意の記録。TA-06 の 4.8）。
+  # Mautic からの許可は 2026-10-26 に外した（タスク定義が Valkey を使っていない）。mautic-web を 2 タスク以上にしてセッションを
+  # Valkey に置くときに、mautic-web・mautic-cron の SG からの 6379 を戻す（README の 5 節の Mautic の ④）。
   ValkeyFromChatwootWeb:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref ValkeySecurityGroup, SourceSecurityGroupId: !Ref ChatwootWebSecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: From chatwoot-web }
   ValkeyFromChatwootWorker:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref ValkeySecurityGroup, SourceSecurityGroupId: !Ref ChatwootWorkerSecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: From chatwoot-worker }
-  ValkeyFromMauticWeb:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref ValkeySecurityGroup, SourceSecurityGroupId: !Ref MauticWebSecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: From mautic-web }
-  ValkeyFromMauticCron:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties: { GroupId: !Ref ValkeySecurityGroup, SourceSecurityGroupId: !Ref MauticCronSecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: From mautic-cron }
   ValkeyFromConsentApi:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: { GroupId: !Ref ValkeySecurityGroup, SourceSecurityGroupId: !Ref ConsentApiSecurityGroup, IpProtocol: tcp, FromPort: 6379, ToPort: 6379, Description: From consent-api }

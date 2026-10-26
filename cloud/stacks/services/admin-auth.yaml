@@ -41,7 +41,10 @@ Parameters:
     Description: 管理者の許可リストの初期値（カンマ区切り）。運用の Lambda の migrate の最後に表へ追加するだけ。以後の追加と削除は README の SQL で行う。
   AlbClientId:
     Type: String
-    Default: alb
+    Default: alb-admin-gate
+    MinLength: 8
+    AllowedPattern: '^[A-Za-z0-9_-]+$'
+    ConstraintDescription: 8 文字以上の英数字と _ - だけ（src/config.ts の ALB_CLIENT_ID の検査と同じ）。
     Description: ALB の OIDC のクライアント ID（edge.yaml の AlbOidcClientId と同じ値）
   AlbProtectedHosts:
     Type: String
@@ -49,8 +52,13 @@ Parameters:
   ReservedConcurrency:
     Type: Number
     Default: 5
-    MinValue: 1
-    Description: 本体の予約同時実行数（管理者だけが使う。RDS の接続数の上限にもなる。暫定値。仕様 12 節）
+    MinValue: 0
+    Description: 本体の予約同時実行数（管理者だけが使う。RDS の接続数の上限にもなる。暫定値。仕様 12 節）。0 なら付けない（Lambda に 0 を渡すと全部止まるので、条件で外す）。アカウントの同時実行数の上限が 121 未満のあいだは、予約を付けると作成が失敗する（cloud/README.md の 2 節）
+  OpsReservedConcurrency:
+    Type: Number
+    Default: 1
+    AllowedValues: [0, 1]
+    Description: 運用の Lambda の予約同時実行数（1 で移行と登録が重ねて走らない）。0 なら付けない（Lambda に 0 を渡すと全部止まるので、条件で外す）。アカウントの同時実行数の上限が 121 未満のあいだは、予約を付けると作成が失敗する（cloud/README.md の 2 節）。0 のあいだは、運用の Lambda を同時に 2 回呼ばない
   ProvisionedConcurrency:
     Type: Number
     Default: 0
@@ -63,6 +71,8 @@ Parameters:
 
 Conditions:
   HasProvisionedConcurrency: !Not [!Equals [!Ref ProvisionedConcurrency, '0']]
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, '0']]
+  HasOpsReservedConcurrency: !Not [!Equals [!Ref OpsReservedConcurrency, '0']]
 
 Resources:
   LogGroup:
@@ -93,7 +103,7 @@ Resources:
       MemorySize: 512
       # DB の接続（5 秒）と問い合わせ（5 秒）の上限。ALB の IdP の呼び出しを長く待たせない
       Timeout: 10
-      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
       AutoPublishAlias: live
       ProvisionedConcurrencyConfig: !If
         - HasProvisionedConcurrency
@@ -147,7 +157,7 @@ Resources:
       # 移行は時間がかかりうる
       Timeout: 60
       # 移行と登録が重ねて走らないように
-      ReservedConcurrentExecutions: 1
+      ReservedConcurrentExecutions: !If [HasOpsReservedConcurrency, !Ref OpsReservedConcurrency, !Ref AWS::NoValue]
       LoggingConfig:
         LogGroup: !Ref OpsLogGroup
       VpcConfig:

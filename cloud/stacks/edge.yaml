@@ -65,7 +65,10 @@ Parameters:
   # Better Auth の OAuth 2.1 Provider のパスは edge（担当）の実装に合わせた暫定値。ALB と実地で合うかは未確認。
   AlbOidcClientId:
     Type: String
-    Default: alb
+    Default: alb-admin-gate
+    MinLength: 8
+    AllowedPattern: '^[A-Za-z0-9_-]+$'
+    ConstraintDescription: 8 文字以上の英数字と _ - だけ（admin-auth の config.ts の ALB_CLIENT_ID の検査と同じ）。
     Description: admin-auth の ALB_CLIENT_ID と同じ値にする。
   OidcIssuerPath:
     Type: String
@@ -96,9 +99,9 @@ Parameters:
   # ---- WAF（暫定値。5 分あたり・送信元 IP あたりのリクエスト数。実測して決める。TA-06 の 5.5・11 節）
   WafRateLimitConsent:
     Type: Number
-    Default: 30
+    Default: 100
     MinValue: 10
-    Description: consent-api。正常な利用の上限が明確な唯一の口なので最も厳しくする。
+    Description: consent-api。1 回の同意は OPTIONS と POST の 2 リクエスト（公開サイトは同意を変えたときだけ送る。ページの表示では呼ばない）。100 は 1 つの IP あたり 5 分で同意 50 回分。携帯回線の共有 NAT（CGNAT）で正規の訪問者の記録が欠けないよう、30 から上げた（2026-10-26）。乱用の守りは Lambda の予約同時実行数と Valkey の側にもある
   WafRateLimitForm:
     Type: Number
     Default: 100
@@ -168,6 +171,8 @@ Resources:
       LoadBalancerAttributes:
         - { Key: idle_timeout.timeout_seconds, Value: !Ref AlbIdleTimeoutSeconds }
         - { Key: deletion_protection.enabled, Value: !Ref AlbDeletionProtection }
+        # 名前が [-A-Za-z0-9]+ に合わないヘッダーを捨てる。Chatwoot の api_access_token（アンダースコア）も捨てられるので、
+        # ALB を通るクライアント（faq-bot・chatwoot-mcp・control-plane・n8n の資格情報）は api-access-token（ハイフン）で送る
         - { Key: routing.http.drop_invalid_header_fields.enabled, Value: 'true' }
         - { Key: routing.http.desync_mitigation_mode, Value: defensive }
       Tags:
@@ -243,6 +248,9 @@ Resources:
       Actions:
         - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
 
+  # /vite/assets/* はウィジェットの JS と CSS（v4.18 の widgets/show.html.erb は vite_javascript_tag 'widget'。/packs に残るのは js/sdk.js だけ）。
+  # 無いと /widget の HTML だけが返り、JS が OIDC の内側（ルール 1001）に落ちてウィジェットが空になる。2026-10-26 に開発の v4.18.0 で実測。
+  # 管理画面（/app）の JS も同じ /vite/assets にあるが、静的な資産だけで、画面とデータは OIDC の内側のまま。
   VisitorChatwootStorageRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -250,7 +258,7 @@ Resources:
       Priority: 103
       Conditions:
         - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
-        - { Field: path-pattern, PathPatternConfig: { Values: [/rails/active_storage/*] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/rails/active_storage/*, /vite/assets/*] } }
       Actions:
         - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
 
@@ -303,7 +311,8 @@ Resources:
       Priority: 201
       Conditions:
         - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
-        - { Field: path-pattern, PathPatternConfig: { Values: [/api/v1/accounts/*, /api/v2/accounts/*] } }
+        # /api/v1/profile は chatwoot-mcp の chatwoot_get_account（トークンの持ち主の確認）が呼ぶ。トークンが無ければ Chatwoot が 401 を返す（accounts と同じ守り）
+        - { Field: path-pattern, PathPatternConfig: { Values: [/api/v1/accounts/*, /api/v2/accounts/*, /api/v1/profile] } }
       Actions:
         - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
 
@@ -393,6 +402,8 @@ Resources:
         MetricName: !Sub 'comegin-${EnvName}-alb'
       Rules:
         # consent-api は最も厳しい。
+        # 個別のレート制限の Host の照合は前方一致（STARTS_WITH）。完全一致だと、ポート付き（consent.comegin.com:443）や末尾のドット付きの Host が
+        # 個別の制限から外れ、全体の制限だけになるおそれがある。前方一致で余分に一致しても、制限が広く掛かるだけ（守りが弱くなる側には倒れない）。
         - Name: rate-limit-consent
           Priority: 0
           Action: { Block: {} }
@@ -406,7 +417,7 @@ Resources:
                 ByteMatchStatement:
                   FieldToMatch: { SingleHeader: { Name: host } }
                   SearchString: !Ref ConsentHost
-                  PositionalConstraint: EXACTLY
+                  PositionalConstraint: STARTS_WITH
                   TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
         # Mautic のフォーム受付。スパムの投稿がそのまま E-09 を汚す。
         - Name: rate-limit-form
@@ -424,7 +435,7 @@ Resources:
                     - ByteMatchStatement:
                         FieldToMatch: { SingleHeader: { Name: host } }
                         SearchString: !Ref MktHost
-                        PositionalConstraint: EXACTLY
+                        PositionalConstraint: STARTS_WITH
                         TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
                     - ByteMatchStatement:
                         FieldToMatch: { UriPath: {} }
@@ -456,6 +467,11 @@ Resources:
                         TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
                     - ByteMatchStatement:
                         FieldToMatch: { UriPath: {} }
+                        SearchString: /api/v1/profile
+                        PositionalConstraint: STARTS_WITH
+                        TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                    - ByteMatchStatement:
+                        FieldToMatch: { UriPath: {} }
                         SearchString: /oauth/v2/token
                         PositionalConstraint: STARTS_WITH
                         TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
@@ -464,7 +480,7 @@ Resources:
                           - ByteMatchStatement:
                               FieldToMatch: { SingleHeader: { Name: host } }
                               SearchString: !Ref MktHost
-                              PositionalConstraint: EXACTLY
+                              PositionalConstraint: STARTS_WITH
                               TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
                           - ByteMatchStatement:
                               FieldToMatch: { UriPath: {} }
@@ -485,7 +501,7 @@ Resources:
                 ByteMatchStatement:
                   FieldToMatch: { SingleHeader: { Name: host } }
                   SearchString: !Ref AuthHost
-                  PositionalConstraint: EXACTLY
+                  PositionalConstraint: STARTS_WITH
                   TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
         # 上記以外のすべて（訪問者向けのパスを含む）。
         - Name: rate-limit-visitor

@@ -1,13 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   ローカル（オンプレ）側の主体に付ける管理ポリシー 2 本と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ。
-  アクセスキーはここでは作らない（キーを CloudFormation の出力や状態に残さないため。発行は運用者が人の操作で行い、
-  オンプレの秘匿ファイルにだけ置く。README の 4.5）。管理ポリシー 2 本の付与先の IAM ユーザーも、人が作る。
-  1) 監視アプリ用: E-15 の写しへの追記と、ハートビートの送信だけ（TA-04 の 1 節、TA-06 の 4.7・7 節）。
-  2) デプロイ用: Astro の配信（s3 sync と無効化）だけ（TA-02 の 6 節）。
-  3) IAM ユーザー comegin-<env>-onprem-strapi-media: Strapi のメディアのバケットだけ（ADR-21）。
-  4) IAM ユーザー comegin-<env>-onprem-n8n-sns: ops・lead の 2 トピックへの sns:Publish と、n8n のスケジュール実行のハートビート
-     （名前空間 N8nHeartbeatNamespace だけへの cloudwatch:PutMetricData）だけ（ADR-21、TA-05 の 4 節の項目 3）。
+# テンプレートの Description は 1024 バイトまで（日本語は 1 文字 3 バイト。超えるとスタックの作成が失敗する）。詳しい説明は以下のコメント。
+# アクセスキーはここでは作らない（キーを CloudFormation の出力や状態に残さないため。発行は運用者が人の操作で行い、
+# オンプレの秘匿ファイルにだけ置く。README の 4.5）。管理ポリシー 2 本の付与先の IAM ユーザーも、人が作る。
+# 1) 監視アプリ用: E-15 の写しへの追記と、ハートビートの送信だけ（TA-04 の 1 節、TA-06 の 4.7・7 節）。
+# 2) デプロイ用: Astro の配信（s3 sync と無効化）だけ（TA-02 の 6 節）。
+# 3) IAM ユーザー comegin-<env>-onprem-strapi-media: Strapi のメディアのバケットだけ（ADR-21）。
+# 4) IAM ユーザー comegin-<env>-onprem-n8n-sns: ops・lead の 2 トピックへの sns:Publish と、n8n のスケジュール実行のハートビート
+#    （名前空間 N8nHeartbeatNamespace だけへの cloudwatch:PutMetricData）だけ（ADR-21、TA-05 の 4 節の項目 3）。
 
 Parameters:
   EnvName:

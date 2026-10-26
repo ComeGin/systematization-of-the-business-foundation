@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # check=skip=InvalidDefaultArgInFrom
-# Mautic の公式イメージ（mautic/mautic）に RDS の CA を足し、MySQL（RDS）への接続でサーバー証明書を検証させる派生イメージ。
+# Mautic の公式イメージ（mautic/mautic）の派生イメージ。RDS の CA を足して MySQL（RDS）への接続でサーバー証明書を検証させ、
+# インストーラーの TLS・cron の Webhook の送信・信頼するプロキシの設定を足す（下の 1〜5）。
 # TA-06 の 3.2（イメージは ECR に置く）。上流のイメージのかわりに、これをビルドして ECR の mautic リポジトリに置く（cloud/README.md の 4.7）。
 #
 # ビルド:
@@ -36,3 +37,31 @@ RUN set -eux; \
     test "$(grep -c 'PDO::MYSQL_ATTR_SSL_CA' "$f")" = 2; \
     test "$(grep -c 'PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT' "$f")" = 2; \
     php -l "$f"
+
+# 3) インストーラー（/installer と mautic:install）の DB 接続も、CA を指定して検証つきの TLS にする。
+#    インストーラーは 2) の config.php を通らず、InstallBundle の SchemaHelper が DriverManager::getConnection で直接つなぐ
+#    （InstallService の DB の作成とスキーマの作成の 2 か所）。SSL の指定が無いと平文で接続し、
+#    require_secure_transport=1 の RDS に拒否されて、インストールが DB の段階で止まる。
+#    接続のパラメータを組み立てる行（charset を utf8mb4 にする行）の直後に、Doctrine の driverOptions（PDO に渡す）を足す。
+#    足した行がちょうど 1 か所であることと、PHP の構文を確かめる。
+RUN set -eux; \
+    f=/var/www/html/docroot/app/bundles/InstallBundle/Helper/SchemaHelper.php; \
+    perl -0pi -e 's/(\$dbParams\[\x27charset\x27\]\s*=\s*\x27utf8mb4\x27;)/$1\n        \$dbParams[\x27driverOptions\x27] = (\$dbParams[\x27driverOptions\x27] ?? []) + [\\PDO::MYSQL_ATTR_SSL_CA => \x27\/etc\/rds\/global-bundle.pem\x27, \\PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => true];/' "$f"; \
+    test "$(grep -c 'PDO::MYSQL_ATTR_SSL_CA' "$f")" = 1; \
+    test "$(grep -c 'PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT' "$f")" = 1; \
+    php -l "$f"
+
+# 4) mautic-cron で Webhook のキューを毎分送る（mautic:webhooks:process）。
+#    本番の Mautic は queue_mode=command_process（Webhook をフォームの送信などの要求の中で送らず、キューに積む。setup/README.md）。
+#    公式イメージの cron の定義（/templates/mautic_cron。entrypoint が起動のたびにコンテナの中へ写す）では、この行がコメントアウトされていて、
+#    そのままだとキューに積まれるだけで、オンプレの n8n（I-11）に届かない。コメントを外し、有効な行がちょうど 1 つであることを確かめる。
+RUN set -eux; \
+    f=/templates/mautic_cron; \
+    sed -i -E 's|^#[[:space:]]*(\* \* \* \* \* php /var/www/html/bin/console mautic:webhooks:process)|\1|' "$f"; \
+    test "$(grep -cE '^\* \* \* \* \* php /var/www/html/bin/console mautic:webhooks:process' "$f")" = 1
+
+# 5) 信頼するプロキシ（ALB）を Mautic に効かせる。環境変数 MAUTIC_TRUSTED_PROXIES だけでは効かない（Mautic は config/local.php と
+#    config/parameters_local.php からしか読まない）。起動のたびに parameters_local.php を書く薄い entrypoint を前に置く
+#    （comegin-entrypoint.sh。最後に公式の /entrypoint.sh を exec する）。上流には CMD が無いので、ENTRYPOINT を替えても CMD は失われない。
+COPY --chmod=0755 comegin-entrypoint.sh /comegin-entrypoint.sh
+ENTRYPOINT ["/comegin-entrypoint.sh"]

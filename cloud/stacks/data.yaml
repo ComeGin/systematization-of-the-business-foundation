@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  データストア。RDS for MySQL 8.4（Mautic）、RDS for PostgreSQL 16（1 インスタンスに複数 DB）、
+  データストア。Aurora MySQL 8.4 互換（Mautic）、Aurora PostgreSQL 16 互換（1 クラスターに複数 DB）、
   ElastiCache（Valkey）、EFS（Mautic の media と config）、S3（Chatwoot の添付・Strapi のメディア・Astro の配信用）。
-  TA-06 の 4 節。すべて単一構成（Single-AZ・1 ノード。4.6 で決定）。データを持つリソースは Retain。
-  PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / admin_auth / strapi / n8n）は
+  TA-06 の 4 節。Aurora はクラスター（各 1 インスタンスから。2026-10-26 にユーザーの方針で RDS の単一インスタンスから移した）。
+  データを持つリソースは Retain。PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / admin_auth / strapi / n8n）は
   CloudFormation では作れない。ops-tasks.yaml の 1 回だけのタスクで作る（README の手順）。
 
 Parameters:
@@ -25,50 +25,38 @@ Parameters:
     Type: String
     Description: secrets.yaml の SecretNamePrefix。Valkey の AUTH トークンを名前で読む。
 
-  # ---- RDS（暫定値。TA-06 の 9 節の見積もり前）
+  # ---- Aurora（ユーザーの方針: DB はサーバーレスが高コストか互換が無ければクラスター。2026-10-26）
+  # Aurora Serverless v2 は互換があるが、Mautic の毎分の cron と常時の接続（Chatwoot・n8n・Strapi）で一時停止できず、
+  # 最小 0.5 ACU でも RDS の単一インスタンスの約 3 倍になるため、プロビジョンドのクラスターにした（README の 6 節）。
+  # インスタンスクラスは東京で選べるいちばん安いもの（db.t4g.medium。$0.113/時。2026-10-26 に DescribeOrderableDBInstanceOptions と Pricing API で確認）。
   MysqlInstanceClass:
     Type: String
-    Default: db.t4g.micro
+    Default: db.t4g.medium
   MysqlEngineVersion:
     Type: String
-    Default: '8.4'
-    Description: >-
-      バージョンのプレフィックス（CloudFormation が許す）。開発環境の MySQL 8.4 と同じ系列。
-      TODO: 本番に出す前に 8.4.x の最新のマイナーを確かめて固定する（AWS の API を呼べないため未確認）。
-  MysqlAllocatedStorageGiB:
-    Type: Number
-    Default: 20
-  MysqlMaxAllocatedStorageGiB:
-    Type: Number
-    Default: 100
-    Description: ストレージの自動拡張の上限。
+    Default: 8.4.mysql_aurora.8.4.8
+    Description: Aurora MySQL の版（8.4 互換。開発環境の MySQL 8.4 と同じ系列）。2026-10-26 時点の東京の最新。マイナーは AutoMinorVersionUpgrade で上がる。
   PostgresInstanceClass:
     Type: String
-    Default: db.t4g.small
+    Default: db.t4g.medium
   PostgresEngineVersion:
     Type: String
-    Default: '16'
-    Description: 'バージョンのプレフィックス。TODO: 最新の 16.x を確かめて固定する。'
-  PostgresAllocatedStorageGiB:
-    Type: Number
-    Default: 20
-  PostgresMaxAllocatedStorageGiB:
-    Type: Number
-    Default: 100
+    Default: '16.15'
+    Description: Aurora PostgreSQL の版（16 互換。pgvector を含む）。2026-10-26 時点の東京の 16 系の最新。
   MysqlRequireSecureTransport:
     Type: String
-    Default: '1'
-    AllowedValues: ['0', '1']
+    Default: 'ON'
+    AllowedValues: ['ON', 'OFF']
     Description: >-
-      require_secure_transport。1 だと TLS でない接続を拒否する。Mautic は派生イメージ（cloud/images/mautic/Dockerfile）が
-      CA の検証つきの TLS で接続する（entrypoint の mysqladmin ping も同じ設定）。
+      require_secure_transport（Aurora MySQL ではクラスターのパラメータで ON/OFF）。ON だと TLS でない接続を拒否する。
+      Mautic は派生イメージ（cloud/images/mautic/Dockerfile）が CA の検証つきの TLS で接続する（インストーラーと entrypoint の mysqladmin ping も同じ）。
   PostgresForceSsl:
     Type: String
     Default: '1'
     AllowedValues: ['0', '1']
     Description: >-
-      rds.force_ssl。1 だとクライアントは TLS 必須。すべてのサービスが RDS の CA で証明書を検証して接続する（各サービスのテンプレートと
-      cloud/images/<製品>/Dockerfile）。繋がらない製品があれば、0 にする前に製品側の設定を探すこと。
+      rds.force_ssl（Aurora PostgreSQL ではクラスターのパラメータ。既定は 0 なので 1 を明示する）。1 だとクライアントは TLS 必須。
+      すべてのサービスが RDS の CA で証明書を検証して接続する。繋がらない製品があれば、0 にする前に製品側の設定を探すこと。
   BackupRetentionDays:
     Type: Number
     Default: 7
@@ -120,78 +108,82 @@ Parameters:
     Description: Astro の配信用バケットで、古い版を何日で消すか。誤ったデプロイからの復旧に使う期間。
 
 Resources:
-  # ---------------------------------------------------------------- RDS
+  # ---------------------------------------------------------------- Aurora（MySQL・PostgreSQL）
   DbSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: !Sub 'comegin-${EnvName} private subnets'
       SubnetIds: !Ref PrivateSubnetIds
 
-  MysqlParameterGroup:
-    Type: AWS::RDS::DBParameterGroup
+  # TLS の必須はクラスターのパラメータ、スロークエリはインスタンスのパラメータ（aurora-mysql8.4。2026-10-26 に DescribeEngineDefault*Parameters で確認）
+  MysqlClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
     Properties:
-      Description: !Sub 'comegin-${EnvName} mysql8.4'
-      Family: mysql8.4
+      Description: !Sub 'comegin-${EnvName} aurora-mysql8.4'
+      Family: aurora-mysql8.4
       Parameters:
         require_secure_transport: !Ref MysqlRequireSecureTransport
 
-  PostgresParameterGroup:
+  MysqlInstanceParameterGroup:
     Type: AWS::RDS::DBParameterGroup
     Properties:
-      Description: !Sub 'comegin-${EnvName} postgres16'
-      Family: postgres16
+      Description: !Sub 'comegin-${EnvName} aurora-mysql8.4 instance'
+      Family: aurora-mysql8.4
+      Parameters:
+        # スロークエリを CloudWatch Logs に出す（クラスターの EnableCloudwatchLogsExports の slowquery）。既定は slow_query_log が無効で、
+        # そのままではロググループが空のまま。動的なパラメータで再起動は要らない。2 秒は暫定（Mautic のセグメント更新・キャンペーンの実行の実測で見直す）
+        slow_query_log: '1'
+        log_output: FILE
+        long_query_time: '2'
+
+  PostgresClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: !Sub 'comegin-${EnvName} aurora-postgresql16'
+      Family: aurora-postgresql16
       Parameters:
         rds.force_ssl: !Ref PostgresForceSsl
 
-  # RDS のログ。ロググループを先に作って保持期間を付ける（RDS に任せると期限なしで残り続けるため）。
-  # cfn-guard の指摘のうち次は意図した例外: RDS_MULTI_AZ_SUPPORT（単一構成。TA-06 の 4.6 で決定）、
+  # Aurora のログ（クラスター単位）。ロググループを先に作って保持期間を付ける（RDS に任せると期限なしで残り続けるため）。
+  # cfn-guard の指摘のうち次は意図した例外: RDS_MULTI_AZ_SUPPORT（各 1 インスタンスから。読み取りの複製は止まった時間の実績を見て足す。TA-06 の 4.6）、
   #   RDS_MASTER_USER_*（ManageMasterUserPassword で RDS が管理する。ユーザー名は秘密値ではない）。
-  # TODO: Enhanced Monitoring（MonitoringInterval）は費用が出るため付けていない。必要になったら足す。
+  # TODO: Enhanced Monitoring・Performance Insights は費用が出るため付けていない。必要になったら足す。
   MysqlErrorLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-mysql/error'
+      LogGroupName: !Sub '/aws/rds/cluster/comegin-${EnvName}-mysql/error'
       RetentionInDays: !Ref DbLogRetentionDays
 
   MysqlSlowQueryLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-mysql/slowquery'
+      LogGroupName: !Sub '/aws/rds/cluster/comegin-${EnvName}-mysql/slowquery'
       RetentionInDays: !Ref DbLogRetentionDays
 
   PostgresLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-postgres/postgresql'
-      RetentionInDays: !Ref DbLogRetentionDays
-
-  PostgresUpgradeLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/rds/instance/comegin-${EnvName}-postgres/upgrade'
+      LogGroupName: !Sub '/aws/rds/cluster/comegin-${EnvName}-postgres/postgresql'
       RetentionInDays: !Ref DbLogRetentionDays
 
   # マスターパスワードは RDS に管理させる（Secrets Manager に自動で作られる）。アプリのタスクには渡さない。
   # 読めるのは ops-tasks の実行ロールだけ（アプリ用のユーザーを作るため。ops-tasks.yaml）。
-  MysqlInstance:
-    Type: AWS::RDS::DBInstance
+  # ストレージは Standard（aurora。I/O 最適化 aurora-iopt1 はインスタンスが約 30% 高い。I/O が少ないうちは Standard が安い）。
+  # 容量は自動で伸びる（空き容量のアラームは要らない）。
+  MysqlCluster:
+    Type: AWS::RDS::DBCluster
     DependsOn: [MysqlErrorLogGroup, MysqlSlowQueryLogGroup]
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      DBInstanceIdentifier: !Sub 'comegin-${EnvName}-mysql'
-      Engine: mysql
+      DBClusterIdentifier: !Sub 'comegin-${EnvName}-mysql'
+      Engine: aurora-mysql
       EngineVersion: !Ref MysqlEngineVersion
-      DBInstanceClass: !Ref MysqlInstanceClass
-      StorageType: gp3
-      AllocatedStorage: !Ref MysqlAllocatedStorageGiB
-      MaxAllocatedStorage: !Ref MysqlMaxAllocatedStorageGiB
+      StorageType: aurora
       StorageEncrypted: true
-      MultiAZ: false
-      PubliclyAccessible: false
       DBSubnetGroupName: !Ref DbSubnetGroup
-      DBParameterGroupName: !Ref MysqlParameterGroup
-      VPCSecurityGroups:
+      DBClusterParameterGroupName: !Ref MysqlClusterParameterGroup
+      VpcSecurityGroupIds:
         - !Ref MysqlSecurityGroupId
       MasterUsername: admin
       ManageMasterUserPassword: true
@@ -202,40 +194,60 @@ Resources:
       PreferredBackupWindow: !Ref DbBackupWindow
       PreferredMaintenanceWindow: !Ref DbMaintenanceWindow
       CopyTagsToSnapshot: true
-      AutoMinorVersionUpgrade: true
       DeletionProtection: true
 
-  PostgresInstance:
+  # クラスターの書き込みのインスタンス。データはクラスターのボリュームにあり、インスタンスは持たない（置き換えても失われない）
+  MysqlInstance:
     Type: AWS::RDS::DBInstance
-    DependsOn: [PostgresLogGroup, PostgresUpgradeLogGroup]
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub 'comegin-${EnvName}-mysql-1'
+      DBClusterIdentifier: !Ref MysqlCluster
+      Engine: aurora-mysql
+      DBInstanceClass: !Ref MysqlInstanceClass
+      DBParameterGroupName: !Ref MysqlInstanceParameterGroup
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
+      PreferredMaintenanceWindow: !Ref DbMaintenanceWindow
+
+  PostgresCluster:
+    Type: AWS::RDS::DBCluster
+    DependsOn: [PostgresLogGroup]
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      DBInstanceIdentifier: !Sub 'comegin-${EnvName}-postgres'
-      Engine: postgres
+      DBClusterIdentifier: !Sub 'comegin-${EnvName}-postgres'
+      Engine: aurora-postgresql
       EngineVersion: !Ref PostgresEngineVersion
-      DBInstanceClass: !Ref PostgresInstanceClass
-      StorageType: gp3
-      AllocatedStorage: !Ref PostgresAllocatedStorageGiB
-      MaxAllocatedStorage: !Ref PostgresMaxAllocatedStorageGiB
+      StorageType: aurora
       StorageEncrypted: true
-      MultiAZ: false
-      PubliclyAccessible: false
       DBSubnetGroupName: !Ref DbSubnetGroup
-      DBParameterGroupName: !Ref PostgresParameterGroup
-      VPCSecurityGroups:
+      DBClusterParameterGroupName: !Ref PostgresClusterParameterGroup
+      VpcSecurityGroupIds:
         - !Ref PostgresSecurityGroupId
       MasterUsername: postgres_admin
       ManageMasterUserPassword: true
       EnableCloudwatchLogsExports:
         - postgresql
-        - upgrade
       BackupRetentionPeriod: !Ref BackupRetentionDays
       PreferredBackupWindow: !Ref DbBackupWindow
       PreferredMaintenanceWindow: !Ref DbMaintenanceWindow
       CopyTagsToSnapshot: true
-      AutoMinorVersionUpgrade: true
       DeletionProtection: true
+
+  PostgresInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub 'comegin-${EnvName}-postgres-1'
+      DBClusterIdentifier: !Ref PostgresCluster
+      Engine: aurora-postgresql
+      DBInstanceClass: !Ref PostgresInstanceClass
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
+      PreferredMaintenanceWindow: !Ref DbMaintenanceWindow
 
   # ---------------------------------------------------------------- ElastiCache（Valkey）
   # ElastiCache Serverless は使えない（クラスターモード専用で、Chatwoot の Sidekiq が動かない。TA-06 の 4.2）。
@@ -252,7 +264,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       ReplicationGroupId: !Sub 'comegin-${EnvName}'
-      ReplicationGroupDescription: !Sub 'comegin-${EnvName} valkey (Chatwoot, Mautic cache, consent-api)'
+      ReplicationGroupDescription: !Sub 'comegin-${EnvName} valkey (Chatwoot, consent-api)'
       Engine: valkey
       EngineVersion: !Ref ValkeyEngineVersion
       CacheNodeType: !Ref ValkeyNodeType
@@ -494,19 +506,25 @@ Resources:
 
 Outputs:
   MysqlEndpoint:
-    Value: !GetAtt MysqlInstance.Endpoint.Address
+    Description: クラスターの書き込みのエンドポイント（インスタンスを足したり入れ替えたりしても変わらない）。
+    Value: !GetAtt MysqlCluster.Endpoint.Address
+  MysqlClusterIdentifier:
+    Value: !Ref MysqlCluster
   MysqlInstanceIdentifier:
     Value: !Ref MysqlInstance
   MysqlMasterSecretArn:
     Description: RDS が管理するマスターパスワード。読めるのは ops-tasks の実行ロールだけにする。
-    Value: !GetAtt MysqlInstance.MasterUserSecret.SecretArn
+    Value: !GetAtt MysqlCluster.MasterUserSecret.SecretArn
   PostgresEndpoint:
-    Value: !GetAtt PostgresInstance.Endpoint.Address
+    Description: クラスターの書き込みのエンドポイント。
+    Value: !GetAtt PostgresCluster.Endpoint.Address
+  PostgresClusterIdentifier:
+    Value: !Ref PostgresCluster
   PostgresInstanceIdentifier:
     Value: !Ref PostgresInstance
   PostgresMasterSecretArn:
     Description: RDS が管理するマスターパスワード。読めるのは ops-tasks の実行ロールだけにする。
-    Value: !GetAtt PostgresInstance.MasterUserSecret.SecretArn
+    Value: !GetAtt PostgresCluster.MasterUserSecret.SecretArn
   ValkeyEndpoint:
     Description: クライアントは TLS（rediss://）で、AUTH トークンを付けて接続する。
     Value: !GetAtt ValkeyReplicationGroup.PrimaryEndPoint.Address

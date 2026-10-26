@@ -203,6 +203,10 @@ Resources:
             - { Name: LOG_LEVEL, Value: info }
             - { Name: RAILS_MAX_THREADS, Value: '5' }
             - { Name: VIPS_BLOCK_UNTRUSTED, Value: '1' }
+            # Webhook の宛先（オンプレの n8n。10.99.0.2:5680。WireGuard 経由）は私設アドレスなので、許可が無いと SafeFetch が送らない
+            # （Sidekiq のログに "has no public ip addresses" が出るだけで再送もしない）。宛先ごとの許可が無い切り替えなので、
+            # 届く先は SG の出口で絞る（network.yaml の ChatwootWebSecurityGroup・ChatwootWorkerSecurityGroup）
+            - { Name: SAFE_FETCH_ALLOW_PRIVATE_NETWORK, Value: 'true' }
             - { Name: REDIS_URL, Value: !Sub 'rediss://${ValkeyEndpoint}:6379' }
             - { Name: POSTGRES_HOST, Value: !Ref PostgresEndpoint }
             - { Name: POSTGRES_PORT, Value: '5432' }
@@ -221,14 +225,14 @@ Resources:
             - { Name: SMTP_ENABLE_STARTTLS_AUTO, Value: 'true' }
             - { Name: SMTP_OPENSSL_VERIFY_MODE, Value: peer }
           Secrets:
-            - { Name: SECRET_KEY_BASE, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/SECRET_KEY_BASE' }
-            - { Name: ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY' }
-            - { Name: ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY' }
-            - { Name: ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT' }
-            - { Name: POSTGRES_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/DB_PASSWORD' }
-            - { Name: SMTP_USERNAME, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/SMTP_USERNAME' }
-            - { Name: SMTP_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/chatwoot/SMTP_PASSWORD' }
-            - { Name: REDIS_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/shared/VALKEY_AUTH_TOKEN' }
+            - { Name: SECRET_KEY_BASE, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/SECRET_KEY_BASE' }
+            - { Name: ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY' }
+            - { Name: ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY' }
+            - { Name: ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT' }
+            - { Name: POSTGRES_PASSWORD, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/DB_PASSWORD' }
+            - { Name: SMTP_USERNAME, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/SMTP_USERNAME' }
+            - { Name: SMTP_PASSWORD, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/chatwoot/SMTP_PASSWORD' }
+            - { Name: REDIS_PASSWORD, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/shared/VALKEY_AUTH_TOKEN' }
           LinuxParameters:
             InitProcessEnabled: true
           LogConfiguration:

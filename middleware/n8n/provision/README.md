@@ -8,7 +8,7 @@
 2. **Data Table**: 5 つの表（`dedup_mautic` `dedup_chatwoot` `ops_settings` `monitor_state` `contact_link`）を作る（あれば足りない列だけを足す）。`ops_settings` に設定の行を入れる。**接続先など環境から決まる行**（`notifyBackend`・`mauticBaseUrl`・`snsTopicArn*`・`chatwootBaseUrl`・`chatwootAccountId`）は毎回上書きし、**定期実行のスイッチ**（`inventoryEnabled`・`heartbeatEnabled`・`opsMonitorEnabled`・`heartbeatNamespace`）は**無いときだけ**既定値（`false`）で入れる（人が `true` にした値を再実行で戻さない）。
 3. **Mautic の Webhook**（I-11 用）を作る。Mautic が作った **Secret をそのまま受け取る**。
 4. **Chatwoot の Webhook**（I-12 用）を作る。Chatwoot が作った **シークレットをそのまま受け取る**。
-5. **n8n の資格情報**を作る（あれば値を入れ直す）: 署名鍵 2 つ（3・4 のシークレット）、Mautic の API、Chatwoot の API（Header Auth `api_access_token`。週次の棚卸し用。`CHATWOOT_N8N_API_TOKEN`、空なら管理者のトークンで代用して、本番では警告を出す）、開発は MailHog の SMTP と、使われない AWS のダミー（I-21 の SNS のノードは資格情報が必須で、無いと n8n が公開を拒むため。開発は MailHog に送るので SNS のノードは通らない）／本番は AWS（SNS）と、使われない SMTP のダミー（同じ理由。本番は SNS に送るので MailHog のノードは通らない）。
+5. **n8n の資格情報**を作る（あれば値を入れ直す）: 署名鍵 2 つ（3・4 のシークレット）、Mautic の API、Chatwoot の API（Header Auth。ヘッダー名は `api-access-token`〈ハイフン。本番の ALB がアンダースコアのヘッダーを捨てるため〉。週次の棚卸し用。`CHATWOOT_N8N_API_TOKEN`、空なら管理者のトークンで代用して、本番では警告を出す）、開発は MailHog の SMTP と、使われない AWS のダミー（I-21 の SNS のノードは資格情報が必須で、無いと n8n が公開を拒むため。開発は MailHog に送るので SNS のノードは通らない）／本番は AWS（SNS）と、使われない SMTP のダミー（同じ理由。本番は SNS に送るので MailHog のノードは通らない）。
 6. **ワークフロー**を子 → 親の順に取り込む（あれば更新）。資格情報を割り当て、子の呼び出し先を取り込み先の ID に付け替え、タグを付ける。
 7. **子（I-21・I-19）を公開する**。親（I-11・I-12）は `--publish` を付けたときだけ公開する。I-18 は公開しない。**定期実行の 3 本（週次の棚卸し・ハートビート・運用監視）は、`--publish` を付けても公開しない**（人が確かめてから公開する。`ops-monitor` は開発だけに取り込む）。
 

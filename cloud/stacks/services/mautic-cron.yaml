@@ -3,6 +3,9 @@ Description: >-
   mautic-cron: セグメント更新・キャンペーン実行・メールのキュー処理などの定期実行（ECS on Fargate）。TA-06 の 3.1。
   DOCKER_MAUTIC_ROLE=mautic_cron。ALB には繋がない（待ち受けない）。公式の entrypoint は、インストール済みになるまで待ってから cron を起動する。
   Mautic のメッセンジャーのワーカー（mautic_worker）は、既定が同期のため作らない。非同期のキューを使うことにしたら足す（TODO）。
+# cron の定義は公式イメージの /templates/mautic_cron（セグメント・キャンペーンの更新と実行）に、派生イメージで mautic:webhooks:process（毎分）を
+# 足したもの（cloud/images/mautic/Dockerfile の 4）。本番は queue_mode=command_process なので、これが無いと Webhook がオンプレの n8n に届かない。
+# 定義はコンテナの中（/opt/mautic/cron。EFS ではない）に起動のたびに写るので、イメージを更新すれば変わる。
 
 Parameters:
   EnvName:
@@ -217,10 +220,12 @@ Resources:
             - { Name: MAUTIC_DB_USER, Value: mautic }
             - { Name: PHP_INI_VALUE_DATE_TIMEZONE, Value: Asia/Tokyo }
             - { Name: MAUTIC_SITE_URL, Value: !Sub 'https://${MktHost}' }
+            # Mautic はこの環境変数を直接は読まない。派生イメージの entrypoint（cloud/images/mautic/comegin-entrypoint.sh）が
+            # 起動のたびに config/parameters_local.php の trusted_proxies に写す（ALB 越しの要求を https・訪問者の IP と判定させる）
             - { Name: MAUTIC_TRUSTED_PROXIES, Value: !Sub '["${TrustedProxyCidr}"]' }
           Secrets:
-            - { Name: MAUTIC_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/mautic/DB_PASSWORD' }
-            - { Name: MAUTIC_SECRET_KEY, ValueFrom: !Sub '${SecretNamePrefix}/mautic/SECRET_KEY' }
+            - { Name: MAUTIC_DB_PASSWORD, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/mautic/DB_PASSWORD' }
+            - { Name: MAUTIC_SECRET_KEY, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/mautic/SECRET_KEY' }
           MountPoints:
             - { SourceVolume: mautic-media-images, ContainerPath: /var/www/html/docroot/media/images, ReadOnly: false }
             - { SourceVolume: mautic-media-files, ContainerPath: /var/www/html/docroot/media/files, ReadOnly: false }

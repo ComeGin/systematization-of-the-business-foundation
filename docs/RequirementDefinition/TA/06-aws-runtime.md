@@ -125,8 +125,8 @@ flowchart LR
 
 | ストア | 使うシステム | 構成（4.6 で単一構成に決定） | 開発環境での対応 |
 |---|---|---|---|
-| **RDS for MySQL 8.4** | Mautic | Single-AZ、自動バックアップ 7 日（ポイントインタイムリカバリ） | `mysql:8.4`（Docker） |
-| **RDS for PostgreSQL 16** | Chatwoot・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加）（**2026-10-06 ADR-25: Umami を外した**） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）（**ADR-24 で `calcom`、ADR-25 で `umami` を作らないことにし、5 つになった**）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
+| **RDS for MySQL 8.4**（**2026-10-26: Aurora MySQL 8.4 互換のクラスター〈db.t4g.medium × 1〉に変えた。ユーザーの方針「DB は、高コストでなくアプリに互換があればサーバーレス、それ以外はクラスター」。Serverless v2 は常時の接続で止まらず約 3 倍の費用になるためクラスター。判断と単価は `cloud/README.md` の 6 節**） | Mautic | Single-AZ、自動バックアップ 7 日（ポイントインタイムリカバリ） | `mysql:8.4`（Docker） |
+| **RDS for PostgreSQL 16**（**2026-10-26: Aurora PostgreSQL 16 互換のクラスター〈db.t4g.medium × 1〉に変えた。理由は上と同じ**） | Chatwoot・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加）（**2026-10-06 ADR-25: Umami を外した**） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）（**ADR-24 で `calcom`、ADR-25 で `umami` を作らないことにし、5 つになった**）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
 | **ElastiCache（Valkey）** | Chatwoot（必須）・Mautic（キャッシュ。任意）・**Cookie 同意の状態の記録**（4.8。受け口は未決） | **ノードベース・クラスターモード無効**・1 ノード。転送中の暗号化（TLS）と AUTH を有効にする | `redis:alpine` |
 | **S3** | Chatwoot（添付ファイル。Active Storage）・**Strapi（メディア。`@strapi/provider-upload-aws-s3`）** | バケットはシステムごとに分ける。パブリックアクセスを全ブロック。バージョニング有効 | Chatwoot はローカルのディスク（`ACTIVE_STORAGE_SERVICE=local`）、Strapi は `public/uploads` |
 | **EFS** | Mautic（`media/` と設定ファイル） | `mautic-web` と `mautic-cron` の両方にマウントする | ホストのディレクトリ |
@@ -359,7 +359,7 @@ sequenceDiagram
 
 | システム | パス（想定） | 製品側の認証 | 開けるか |
 |---|---|---|---|
-| Chatwoot | `/api/v1/accounts/*`、`/api/v2/accounts/*` | `api_access_token`（ユーザーに紐づく。**エージェント専用のユーザーで発行**） | **開ける**（`chatwoot-prod`〈`read_write` まで〉） |
+| Chatwoot | `/api/v1/accounts/*`、`/api/v2/accounts/*`、`/api/v1/profile`（2026-10-26 追加。chatwoot-mcp の `chatwoot_get_account`） | `api-access-token` ヘッダー（2026-10-26: ALB の `drop_invalid_header_fields` がアンダースコアの `api_access_token` を捨てるためハイフンで送る。ユーザーに紐づく。**エージェント専用のユーザーで発行**） | **開ける**（`chatwoot-prod`〈`read_write` まで〉） |
 | Mautic | `/api/*`、`/oauth/v2/token` | OAuth2 client_credentials（**エージェント専用の API クライアント**） | **開ける**（`mautic-prod`〈`read_write` まで〉） |
 | Strapi | `/mcp` | **Admin トークン**（Strapi の管理画面で発行。**MCP のツールはトークンに与えた権限の範囲に絞られる**。本番のトークンは**下書きまで**に絞り、公開・非公開化・削除の権限を与えない。ADR-17） | **開ける**（`strapi-prod`。ADR-16） |
 | Strapi | `/api/*`（Content API） | **API トークン（読み取り専用）** | **開ける**（ローカルのビルド。DD-05 の `I-09`。**監視アプリの定期実行の公開の確認も読む**。ADR-17。案。使うトークンは TA-04 の 9 節） |

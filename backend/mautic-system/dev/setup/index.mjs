@@ -32,6 +32,9 @@ const DEFAULT_WEBHOOK_TARGET = "http://127.0.0.1:5678/webhook/mautic-event";
 // 公開サイト（frontend/verdant-virgo）の開発のオリジン: dev サーバー・Lighthouse の preview・ngrok（astro.config.mjs の allowedHosts）。dev.conf の MAUTIC_CORS_VALID_DOMAINS で足せる
 const DEFAULT_CORS_VALID_DOMAINS = "http://localhost:4321,http://localhost:4322,https://comegin-astro-dev.ngrok.app";
 
+// API の接続先。本番のモジュール（prod/index.mjs）は ctx.mauticBase を与えて、下の API の ensure* をそのまま使う
+const apiBase = (ctx) => ctx.mauticBase ?? BASE_URL;
+
 const root = (ctx) => join(ctx.W, DIR);
 const composeFile = (ctx) => join(root(ctx), "docker/compose.yaml");
 
@@ -166,16 +169,16 @@ async function ensureWebhookConfig(ctx) {
 // ---------------------------------------------------------------------------
 
 /** 未認証で /api を叩いて、API が有効かを見る（無効は 403 api_disabled、有効なら 401） */
-async function apiEnabled() {
-  const res = await fetch(`${BASE_URL}/api/contacts?limit=1`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8_000) }).catch(() => null);
+export async function apiEnabled(ctx) {
+  const res = await fetch(`${apiBase(ctx)}/api/contacts?limit=1`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8_000) }).catch(() => null);
   if (!res) return null;
   const body = await res.json().catch(() => null);
   return body?.errors?.[0]?.type !== "api_disabled";
 }
 
-async function fetchToken(ctx, clientId, clientSecret) {
+export async function fetchToken(ctx, clientId, clientSecret) {
   try {
-    const body = await ctx.http("Mautic トークン", `${BASE_URL}/oauth/v2/token`, { method: "POST", form: { grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret } });
+    const body = await ctx.http("Mautic トークン", `${apiBase(ctx)}/oauth/v2/token`, { method: "POST", form: { grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret } });
     return body.access_token;
   } catch (e) {
     if (e.status === 400 || e.status === 401) return null;
@@ -199,7 +202,7 @@ function manualCredentials(ctx, enabled) {
 }
 
 async function api(ctx, token, label, path, { method = "GET", json } = {}) {
-  return ctx.http(label, `${BASE_URL}/api${path}`, { method, headers: { Authorization: `Bearer ${token}` }, json });
+  return ctx.http(label, `${apiBase(ctx)}/api${path}`, { method, headers: { Authorization: `Bearer ${token}` }, json });
 }
 
 const list = (body, key) => Object.values(body?.[key] ?? {});
@@ -209,7 +212,7 @@ const list = (body, key) => Object.values(body?.[key] ?? {});
 // ---------------------------------------------------------------------------
 
 // コンタクトのカスタム項目 3 つ（フォームの同意の記録に使う）
-const CONTACT_FIELDS = [
+export const CONTACT_FIELDS = [
   { alias: "privacy_consent_at", label: "プライバシーポリシーへの同意日時", type: "datetime" },
   { alias: "privacy_consent_version", label: "同意したプライバシーポリシーの版（最終改定日）", type: "text" },
   { alias: "email_optin", label: "お知らせメールの受信の希望", type: "boolean", properties: { no: "いいえ", yes: "はい" } },
@@ -236,7 +239,7 @@ const TRACKING_FIELDS = [
 // フォームの名前と alias は設計の正本（consult）に合わせる。alias は Mautic のフォームの結果の表の名前に入るため、英数字と _ だけにする。
 // 無料 DL のフォーム（source_dl）は 2026-10-20 に公開サイトから消したので作らない（どのページも「ソースコードを無料 DL」の CTA で、メールを受け取らない）。
 // 以前の版で作ったフォームは Mautic に残る。消すかは画面（フォーム一覧）で決める（送信の結果も一緒に消える）
-const FORMS = [
+export const FORMS = [
   {
     stateKey: "MAUTIC_FORM_ID_CONSULT",
     name: "consult",
@@ -256,7 +259,7 @@ const FORMS = [
 ];
 
 // BA-04: 累計ポイントが 50 以上でセグメント mql に追加（50 は暫定値）
-const SEGMENT_MQL = {
+export const SEGMENT_MQL = {
   stateKey: "MAUTIC_SEGMENT_ID_MQL",
   name: "mql",
   alias: "mql",
@@ -266,7 +269,7 @@ const SEGMENT_MQL = {
 
 // 無料相談の自動返信（01-content-spec.md の 6'-1a が文面の正本。C16 は 2026-10-11 に「送る」で解決）。
 // 入力の値（氏名・会社名・相談内容）は差し込まない。宛先は検証していない入力なので、差し込むと他人のアドレスへ任意の文を送らせる踏み台になる
-const CONSULT_AUTO_REPLY = {
+export const CONSULT_AUTO_REPLY = {
   stateKey: "MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY",
   formStateKey: "MAUTIC_FORM_ID_CONSULT",
   name: "consult_auto_reply",
@@ -286,7 +289,7 @@ const autoReplyPlainText = (def) => def.paragraphs.map((p) => p.join("\n")).join
 const autoReplyHtml = (def) =>
   `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>${def.subject}</title></head><body style="font-family: sans-serif; line-height: 1.75; color: #1a2b3c;">${def.paragraphs.map((p) => `<p>${p.join("<br>")}</p>`).join("")}</body></html>`;
 
-async function ensureContactFields(ctx, token) {
+export async function ensureContactFields(ctx, token) {
   const existing = list(await api(ctx, token, "Mautic 項目一覧", "/fields/contact?limit=1000"), "fields").map((f) => f.alias);
   for (const f of CONTACT_FIELDS) {
     if (existing.includes(f.alias)) continue;
@@ -295,7 +298,7 @@ async function ensureContactFields(ctx, token) {
   }
 }
 
-async function ensureForms(ctx, token) {
+export async function ensureForms(ctx, token) {
   const existing = list(await api(ctx, token, "Mautic フォーム一覧", "/forms?limit=1000"), "forms");
   for (const def of FORMS) {
     const alias = def.name.replace(/[^0-9a-z_]/gi, "").toLowerCase();
@@ -314,7 +317,7 @@ async function ensureForms(ctx, token) {
 
 // 自動返信のメールを作り、フォーム consult の送信の後に送るアクション（email.send.lead）を付ける。
 // アクションの追加は PATCH（FormApiController は PUT のときだけ、要求に無い既存のアクションを消す）
-async function ensureAutoReply(ctx, token) {
+export async function ensureAutoReply(ctx, token) {
   const def = CONSULT_AUTO_REPLY;
   const emails = list(await api(ctx, token, "Mautic メール一覧", `/emails?search=${encodeURIComponent(def.name)}&limit=100`), "emails");
   let email = emails.find((e) => e.name === def.name);
@@ -347,7 +350,7 @@ async function ensureAutoReply(ctx, token) {
   ctx.log(`フォーム consult の送信の後に自動返信（メール ID ${email.id}）を送るようにした`);
 }
 
-async function ensureSegment(ctx, token) {
+export async function ensureSegment(ctx, token) {
   const existing = list(await api(ctx, token, "Mautic セグメント一覧", "/segments?limit=1000"), "lists");
   let segment = existing.find((s) => s.alias === SEGMENT_MQL.alias);
   if (!segment) {
@@ -376,7 +379,7 @@ export async function check(ctx) {
     notes.push(allowed ? `Webhook の送り先 ${host} は私設アドレスとして許可済み` : `webhook_allowed_private_addresses に ${host} が無い（n8n の I-11 に Webhook が届かない）`);
     notes.push(config.disableAutoUnpublish ? "送信に失敗した Webhook は自動で非公開にならない（disable_auto_unpublish）" : "disable_auto_unpublish が true でない（I-11 が未公開の間に「n8n I-11」が止まる）");
     if (!allowed || !config.disableAutoUnpublish) ok = false;
-    const enabled = await apiEnabled();
+    const enabled = await apiEnabled(ctx);
     notes.push(enabled ? "API は有効" : "API が無効（設定 > API 設定 で有効にする）");
     if (!enabled) ok = false;
     const id = ctx.value("MAUTIC_CLIENT_ID");
@@ -404,7 +407,7 @@ export async function apply(ctx) {
   await ensureInstalled(ctx);
   await ensureWebhookConfig(ctx);
 
-  const enabled = await apiEnabled();
+  const enabled = await apiEnabled(ctx);
   const clientId = ctx.value("MAUTIC_CLIENT_ID");
   const clientSecret = ctx.value("MAUTIC_CLIENT_SECRET");
   if (!enabled || !clientId || !clientSecret) manualCredentials(ctx, enabled);

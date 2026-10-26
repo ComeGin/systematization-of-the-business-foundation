@@ -4,7 +4,7 @@
 各製品の起動・管理者の作成・トークンの発行・MCP の env ファイル・n8n のワークフローの取り込みまでを、**公式の CLI と API だけで**行う。
 画面でしかできない操作に当たると、手順を表示して止まる。終わったら同じコマンドを実行し直せば、済んだ手順は飛ばして続きから進む。
 
-本番（`--target prod`）は枠だけ（AWS のデプロイの後に実装する。ADR-21）。
+本番（`--target prod`）は、外部の値の形式の確認（GA4）・OpenSEO・admin-auth の確認・オンプレの確認・本番の Chatwoot と Mautic の API でできる初期設定（`chatwoot-prod`・`mautic-prod`）・本番の MCP の env ファイル（`mcp-prod`）まで。画面でしかできないこと（Chatwoot の onboarding、Mautic のインストールと設定）と AWS への書き込み（Secrets Manager・運用の Lambda）は、案内して止まり、人が行う。
 
 親スクリプトは 2 本ある。**バックエンド全体**（`setup/setup.mjs`）を先に、**フロントエンド全体**（`setup/frontend.mjs`。公開サイトと監視アプリ）を後に実行する（[フロントエンド全体](#フロントエンド全体setupfrontendmjs)）。オプション・終了コード・設定ファイル・状態ファイルは 2 本で共通（引数の解釈と実行の順番は `setup/lib/runner.mjs`）。
 
@@ -50,13 +50,16 @@ node setup/setup.mjs --target dev
 | `strapi` | `backend/strapi-system/setup/` | 環境変数ファイル・`pnpm install`・管理者（0 人のときだけ）・MCP 用の Admin トークン（下書きまで）・ビルド用の読み取りトークン → `strapi-dev.env` | 開発サーバーの起動（別の端末で `pnpm dev`）／既にいる管理者のパスワード |
 | `n8n` | `middleware/n8n/setup/` | init-env・起動・オーナー・公開 API のキー・MCP の有効化とトークン → `n8n-dev.env`・provision（Data Table・Mautic と Chatwoot の Webhook・資格情報・ワークフローの取り込みと子の公開） | 既にいるオーナーのパスワード／作成済みの MCP トークン（写すか `N8N_MCP_ROTATE=true`） |
 | `consent-api` | `backend/consent-api/setup/` | 環境変数ファイル・起動（Valkey 付き）・`/healthz` | なし |
-| `admin-auth` | `backend/admin-auth/setup/` | init-env・起動・discovery と JWKS の確認。許可リストに `ADMIN_EMAIL` | なし（Google の資格情報は任意。無ければ警告だけ） |
+| `admin-auth` | `backend/admin-auth/setup/`（dev・prod） | **dev**: init-env・起動・discovery と JWKS の確認。許可リストに `ADMIN_EMAIL`。**prod**: 本番の discovery を読むだけ（AWS には書き込まない） | dev: なし（Google の資格情報は任意。無ければ警告だけ）／prod: 運用の Lambda での `migrate`・`register-alb-client`（人が実行して `ADMIN_AUTH_PROD_READY=yes`。`manual-steps.md` の 8.1） |
 | `chatwoot-mcp` | `backend/chatwoot-mcp/setup/` | `pnpm install`・`pnpm build`・トークンの確認 → `chatwoot-dev.env` | なし |
 | `faq-bot` | `backend/faq-bot/setup/` | 状態のボットのトークンと secret を環境変数ファイルに写す・`pnpm install`・開発サーバーの死活の表示 | 開発サーバーの起動（別の端末で `pnpm dev`） |
 | `mautic-mcp` | `backend/mautic-mcp/setup/` | `pnpm install`・`pnpm build`・資格情報の確認 → `mautic-dev.env` | なし（資格情報が無ければ失敗。mautic を先に） |
 | `control-plane` | `backend/control-plane/setup/` | Node と pnpm の版の確認・`pnpm install`・`pnpm build`・E-15 の置き場（700） | なし |
 | `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・Google の資格情報と許可リスト（`CONTROL_ADMIN_EMAILS`）・`pnpm install`・Google ログインを始められるかの確認（認可 URL の `hd` とリダイレクト URI） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／**Google の OAuth クライアントの作成**／監視アプリの起動・起動し直し（別の端末で `pnpm dev`） |
 | `onprem` | `onprem/setup/`（prod だけ） | 読むだけの確認（wg0・systemd・待ち受け） | 本番の立ち上げ手順の案内（枠だけ） |
+| `chatwoot-prod` | `backend/chatwoot-system/setup/prod/`（prod だけ） | 開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`。ALB のルール 201）に向けて行う: 受信箱「Web サイト」（解決後は新しいチャット・管理者とエージェント専用ユーザーをメンバーに）・FAQ のラベル 4 つ・FAQ ボット（送り先は本番の faq-bot の関数 URL）と受信箱への接続・マクロ・管理者の引き継ぎのメール通知。website_token を prod の状態に置く（公開サイトの本番のビルドが読む） | 最初の管理者（画面の onboarding）とエージェント専用ユーザーとそれぞれのトークン／FAQ ボットのトークンと secret を Secrets Manager に入れる（`manual-steps.md` の 8.3） |
+| `mautic-prod` | `backend/mautic-system/dev/setup/prod/`（prod だけ） | 開発の `mautic` と同じ API の手順を、本番（`https://mkt.comegin.com`。ALB のルール 202）に向けて行う: カスタム項目 3 つ・フォーム consult と自動返信・セグメント mql。フォームの ID を prod の状態に置く | インストール（`/installer`）と画面の設定（API・Webhook のキューモードと私設アドレス `10.99.0.2`・CORS・メール）と初期設定用の API 認証情報（`manual-steps.md` の 8.4） |
+| `mcp-prod` | `ops/setup/`（prod だけ） | 本番の MCP の env ファイル 6 つ（`chatwoot-prod`・`mautic-prod`・`mautic-prod-ro`・`strapi-prod`・`n8n-prod`・`posthog-prod`）を `prod.conf` から書く（600）。読み取りだけで確かめる（Chatwoot の `/api/v1/profile`、Mautic の client_credentials、Strapi と n8n の MCP の `tools/list`。strapi-prod に公開・非公開化・削除のツールが出たら失敗） | トークンと API 認証情報の発行（本番の各管理画面。エージェント専用のアカウント。`manual-steps.md` の 8.2） |
 
 ## フロントエンド全体（setup/frontend.mjs）
 

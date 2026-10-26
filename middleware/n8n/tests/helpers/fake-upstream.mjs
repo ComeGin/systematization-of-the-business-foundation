@@ -150,7 +150,7 @@ export function createFakeUpstream({ pageSize = 250 } = {}) {
       }
     }
     if (origin === CHATWOOT && path.startsWith("/api/v1/accounts/1/webhooks")) {
-      if (headers.api_access_token !== SECRETS.CHATWOOT_API_ACCESS_TOKEN) return json(401, { error: "You are not authorized to access this page." });
+      if (headers["api-access-token"] !== SECRETS.CHATWOOT_API_ACCESS_TOKEN) return json(401, { error: "You are not authorized to access this page." });
       const withSecret = (h) => (state.chatwootReturnsSecret ? h : { ...h, secret: undefined });
       if (method === "GET" && path === "/api/v1/accounts/1/webhooks") return json(200, { payload: { webhooks: state.chatwootHooks.map(withSecret) } });
       if (method === "POST" && path === "/api/v1/accounts/1/webhooks") {

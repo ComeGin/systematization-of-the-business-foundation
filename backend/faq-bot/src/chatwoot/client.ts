@@ -74,7 +74,9 @@ export function createChatwootClient(options: ChatwootClientOptions): ChatwootCl
       res = await fetchImpl(`${base}${path}`, {
         method,
         headers: {
-          api_access_token: options.token,
+          // ハイフンの綴りにする。本番の ALB（drop_invalid_header_fields）はアンダースコアを含むヘッダーを捨てる。
+          // Chatwoot は HTTP_API_ACCESS_TOKEN として読むので、どちらの綴りでも同じトークンとして通る
+          "api-access-token": options.token,
           Accept: "application/json",
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         },

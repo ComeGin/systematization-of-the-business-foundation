@@ -159,7 +159,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 - **中身**: Chatwoot の `GET /api/v1/accounts/{id}/conversations`（`status=open`・`assignee_type=unassigned`・`sort_by=waiting_since_asc` の 1 回）。件数は応答の `meta.unassigned_count`（全ページの総数）、最も長い待ちは 1 ページ目（25 件）の `waiting_since` の最小値、`display_id` は応答の `id`（先頭 10 件）。ページは進めない（`R3` の決定）。
 - **通知**: `I-21` の `lead`（`kind=weekly-inventory`）。件名 `[comegin] lead: weekly-inventory (unassigned 12)`、本文の「内訳」に `未割り当て 12 件／最も長い待ち 53 時間／未割り当ての会話 #101 #102 ... ほか`。**0 件のときは通知しない**（生きていることはハートビートで見る。毎週のメールを出さない）。**氏名・email・会話の本文は読まず、載せない。**
 - **失敗**: Chatwoot が応答しない・トークンが無効のときは `I-21` の `ops`（`kind=weekly-inventory:fetch`。`ok → ng` のときだけ 1 通。回復も 1 通）。
-- **必要な資格情報**: `Chatwoot API（api_access_token）`（種類は **Header Auth**。Name `api_access_token`）。`ops_settings` の `chatwootBaseUrl`・`chatwootAccountId`。
+- **必要な資格情報**: `Chatwoot API（api_access_token）`（種類は **Header Auth**。Name `api-access-token`〈ハイフン。本番の ALB がアンダースコアのヘッダーを捨てるため〉）。`ops_settings` の `chatwootBaseUrl`・`chatwootAccountId`。
 - **実行履歴**: 成功した実行のデータは保存しない。**失敗した実行には Chatwoot の応答（コンタクトの名前・メールを含みうる）が 90 日残る**（`I-11` `I-12` と同じ残り方。DA-05 の未決定事項）。
 - **確認したこと**: `test_workflow`（Chatwoot の応答はピン留め）で、集計・通知（MailHog に届いた件名と本文を確認）・0 件のとき通知しない・取得失敗で `ng`・回復で `ok` を確認した。**実際の Chatwoot への接続（中継 3100 とトークン）と、本番の `chat.comegin.com` への到達は未確認。**
 

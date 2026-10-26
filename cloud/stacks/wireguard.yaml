@@ -1,16 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   オンプレとの WireGuard の終端（EC2 1 台。t4g.nano）。ADR-21、TA-06 の 5.6。
-  - public サブネットに置き、Elastic IP を持つ。オンプレから外向き（UDP）に接続する（オンプレの IP が変わっても使える）。
-  - オンプレ → AWS: オンプレの Strapi・n8n が RDS（PostgreSQL の 5432）に届く。EC2 で SNAT する（送信元が EC2 になる）。
-  - AWS → オンプレ: Mautic・Chatwoot のタスクから、オンプレの n8n の Webhook の受け口（<OnpremPeerAddress>:<OnpremWebhookPort>）に届く。
-    private サブネットの経路表の「<OnpremWireguardCidr> → この EC2 の ENI」で EC2 に来る。EC2 でも SNAT する（オンプレから見える送信元は WireguardServerAddress だけ）。
-  - EC2 の nftables は forward を既定で落とし、オンプレ → VPC の tcp 5432 と、VPC → オンプレの <OnpremPeerAddress>:<OnpremWebhookPort> だけを許す。
-  - 秘密鍵は初回の起動時に EC2 の中で生成し、EC2 の外に出さない。公開鍵だけを SSM のパラメータに書く。
-    オンプレの公開鍵は SSM のパラメータ（このスタックが作る）に入れ、EC2 が数分ごとに読んでピアを更新する（インスタンスを置き換えない）。
-  - SG は network.yaml（SG はすべてそこにまとめる流儀）。入ってよい通信は SG と nftables の二重で絞る。
-  - 運用は SSM Session Manager（SSH の鍵と 22 番は使わない）。IMDSv2 必須、ルートボリュームは暗号化。
-  重要: インスタンスが置き換わる（AMI の変更など）と秘密鍵が失われ、公開鍵が変わる。オンプレの wg0.conf の更新が要る（README の 4.2）。
+# テンプレートの Description は 1024 バイトまで（日本語は 1 文字 3 バイト。超えるとスタックの作成が失敗する）。詳しい説明は以下のコメント。
+# - public サブネットに置き、Elastic IP を持つ。オンプレから外向き（UDP）に接続する（オンプレの IP が変わっても使える）。
+# - オンプレ → AWS: オンプレの Strapi・n8n が RDS（PostgreSQL の 5432）に届く。EC2 で SNAT する（送信元が EC2 になる）。
+# - AWS → オンプレ: Mautic・Chatwoot のタスクから、オンプレの n8n の Webhook の受け口（<OnpremPeerAddress>:<OnpremWebhookPort>）に届く。
+#   private サブネットの経路表の「<OnpremWireguardCidr> → この EC2 の ENI」で EC2 に来る。EC2 でも SNAT する（オンプレから見える送信元は WireguardServerAddress だけ）。
+# - EC2 の nftables は forward を既定で落とし、オンプレ → VPC の tcp 5432 と、VPC → オンプレの <OnpremPeerAddress>:<OnpremWebhookPort> だけを許す。
+# - 秘密鍵は初回の起動時に EC2 の中で生成し、EC2 の外に出さない。公開鍵だけを SSM のパラメータに書く。
+#   オンプレの公開鍵は SSM のパラメータ（このスタックが作る）に入れ、EC2 が数分ごとに読んでピアを更新する（インスタンスを置き換えない）。
+# - SG は network.yaml（SG はすべてそこにまとめる流儀）。入ってよい通信は SG と nftables の二重で絞る。
+# - 運用は SSM Session Manager（SSH の鍵と 22 番は使わない）。IMDSv2 必須、ルートボリュームは暗号化。
+# 重要: インスタンスが置き換わる（AMI の変更など）と秘密鍵が失われ、公開鍵が変わる。オンプレの wg0.conf の更新が要る（README の 4.2）。
 
 Parameters:
   EnvName:
@@ -85,7 +86,8 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub 'comegin-${EnvName}-wireguard'
-      Description: WireGuard の EC2。SSM Session Manager と、公開鍵のパラメータの読み書きだけ。
+      # Description は ASCII と Latin-1 だけ（CreateRole の制約。日本語を入れると作成が失敗する）
+      Description: WireGuard EC2. SSM Session Manager and read/write of the public key parameters only.
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -110,10 +112,13 @@ Resources:
             Effect: Allow
             Action: ssm:PutParameter
             Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/comegin/${EnvName}/wireguard/server-public-key'
-          - Sid: ReadOnpremPublicKey
+          # server-public-key は、user-data が書いたあとに読み返して確かめるため（公開鍵。秘密値ではない）
+          - Sid: ReadPublicKeys
             Effect: Allow
             Action: ssm:GetParameter
-            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/comegin/${EnvName}/wireguard/onprem-public-key'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/comegin/${EnvName}/wireguard/onprem-public-key'
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/comegin/${EnvName}/wireguard/server-public-key'
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -200,10 +205,13 @@ Resources:
           wg pubkey < /etc/wireguard/server.key > /etc/wireguard/server.pub
 
           # wg0。ピアはここに書かない（wg-peer-sync が SSM のパラメータから設定する）。
+          # MTU はオンプレ（onprem/wireguard/wg0.conf.example）と同じ 1380。自動に任せると ENI の 9001 から 8921 になり、
+          # オンプレの回線（PPPoE 1454・DS-Lite／MAP-E 1460）で外側の UDP が分割される。
           ( umask 077; cat > /etc/wireguard/wg0.conf <<WGCONF
           [Interface]
           Address = ${WireguardServerAddress}/24
           ListenPort = ${WireguardPort}
+          MTU = 1380
           PrivateKey = $(cat /etc/wireguard/server.key)
           WGCONF
           )
@@ -278,13 +286,20 @@ Resources:
           systemctl enable --now wg-peer-sync.timer
 
           # 公開鍵を SSM に書く（起動の直後は経路が整うまで数回失敗しうるので再試行する）。
+          # 10 回とも失敗したら、done と書かずに失敗で終える（運用者が SSM のパラメータを読んで「無い」となったとき、ログで原因が分かるように）。
+          PUBLISHED=no
           for i in 1 2 3 4 5 6 7 8 9 10; do
             if aws ssm put-parameter --region "$REGION" --name "$SERVER_KEY_PARAM" --type String --overwrite \
                  --description "WireGuard public key of the VPC-side EC2 (not secret)" --value "$(cat /etc/wireguard/server.pub)"; then
+              PUBLISHED=yes
               break
             fi
             sleep 15
           done
+          if [ "$PUBLISHED" != yes ] || [ "$(aws ssm get-parameter --region "$REGION" --name "$SERVER_KEY_PARAM" --query Parameter.Value --output text)" != "$(cat /etc/wireguard/server.pub)" ]; then
+            echo "wireguard setup: FAILED to publish the public key to SSM ($SERVER_KEY_PARAM). Check the instance role and the NAT/IGW route, then re-run: sudo bash /var/lib/cloud/instance/scripts/part-001" >&2
+            exit 1
+          fi
           echo "wireguard setup: done"
 
   # ---------------------------------------------------------------- 経路

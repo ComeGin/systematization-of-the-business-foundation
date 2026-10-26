@@ -17,13 +17,13 @@ afterEach(() => vi.useRealTimers());
 
 describe("ChatwootReader.conversationsPage", () => {
   describe("正常系", () => {
-    it("アカウントの API を api_access_token で読む（タイムアウト 12 秒）", async () => {
+    it("アカウントの API を api-access-token ヘッダーで読む（タイムアウト 12 秒）", async () => {
       const timeout = vi.spyOn(AbortSignal, "timeout");
       fetchMock.mockResolvedValue(json({ data: { payload: [] } }));
       await new ChatwootReader(config).conversationsPage(2);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://chat.example.test/api/v1/accounts/3/conversations?status=all&page=2");
-      expect(init.headers).toMatchObject({ api_access_token: "cw_read_token" });
+      expect(init.headers).toMatchObject({ "api-access-token": "cw_read_token" });
       expect(timeout).toHaveBeenCalledWith(12_000);
     });
 

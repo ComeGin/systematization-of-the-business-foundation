@@ -2,12 +2,13 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >-
   consent-api: Cookie 同意の状態を受け取り、ElastiCache（Valkey）に記録する。ADR-26 により VPC の中の Lambda（ALB のターゲット）。
-  仕様は docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md。環境変数名は backend/consent-api/.env.example が正本。
-  訪問者のリクエストを直接受ける唯一の自作のコード。DB を持たず、RDS の資格情報を一切渡さない（実行ロールは Valkey の AUTH トークンだけを読める。
-  セキュリティグループも Valkey と、NAT 経由の Secrets Manager にしか使わない）。
-  ALB の許可パスは /v1/consent の 1 本だけ（edge.yaml のルール 106）。ターゲットグループはこのスタックが持つ
-  （CloudFormation で関数を登録する手段が TargetGroup の Targets だけのため。edge に置くと循環する。仕様 2.1）。
-  Valkey の証明書は Amazon の CA が署名しており、Node の標準の信頼ストアで検証できる（RDS の CA とは違う）。
+# テンプレートの Description は 1024 バイトまで（日本語は 1 文字 3 バイト。超えるとスタックの作成が失敗する）。詳しい説明は以下のコメント。
+# 仕様は docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md。環境変数名は backend/consent-api/.env.example が正本。
+# 訪問者のリクエストを直接受ける唯一の自作のコード。DB を持たず、RDS の資格情報を一切渡さない（実行ロールは Valkey の AUTH トークンだけを読める。
+# セキュリティグループも Valkey と、NAT 経由の Secrets Manager にしか使わない）。
+# ALB の許可パスは /v1/consent の 1 本だけ（edge.yaml のルール 106）。ターゲットグループはこのスタックが持つ
+# （CloudFormation で関数を登録する手段が TargetGroup の Targets だけのため。edge に置くと循環する。仕様 2.1）。
+# Valkey の証明書は Amazon の CA が署名しており、Node の標準の信頼ストアで検証できる（RDS の CA とは違う）。
 
 Parameters:
   EnvName:
@@ -39,12 +40,15 @@ Parameters:
   ReservedConcurrency:
     Type: Number
     Default: 10
-    MinValue: 1
-    Description: 予約同時実行数（費用と乱用の上限。WAF のレート制限とは別の保険。Valkey の接続数の上限にもなる。暫定値。仕様 12 節）
+    MinValue: 0
+    Description: 予約同時実行数（費用と乱用の上限。WAF のレート制限とは別の保険。Valkey の接続数の上限にもなる。暫定値。仕様 12 節）。0 なら付けない（Lambda に 0 を渡すと全部止まるので、条件で外す）。アカウントの同時実行数の上限が 121 未満のあいだは、予約を付けると作成が失敗する（cloud/README.md の 2 節）
   LogRetentionDays:
     Type: Number
     Default: 30
     Description: ロググループの保持日数（cluster.yaml と同じ暫定値）
+
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, '0']]
 
 Resources:
   LogGroup:
@@ -68,7 +72,7 @@ Resources:
       MemorySize: 256
       # 最悪の待ち時間（接続の待ち 3 秒＋コマンド 2 秒 × 2 ＝ 7 秒。コールドスタートは Secrets Manager の読み込みが足される）を収める（仕様 2.2）
       Timeout: 10
-      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
       # ALB にはエイリアスを登録する（デプロイのたびに ALB が現行の版を呼ぶ。AWS の推奨）
       AutoPublishAlias: live
       LoggingConfig:

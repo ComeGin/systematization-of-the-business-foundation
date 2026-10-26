@@ -137,6 +137,45 @@ GSC_DOMAIN=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
+# ---- 本番の admin-auth（prod.conf にだけ書く。--target prod の admin-auth モジュール。setup/manual-steps.md の 8.1） ----
+# 管理画面のホスト（任意。既定 auth.comegin.com。cloud/template.yaml の AuthHost と同じ）
+AUTH_HOST=
+# 運用の Lambda（admin-auth-ops）で migrate と register-alb-client を済ませ、管理画面に Google でログインできたら yes
+ADMIN_AUTH_PROD_READY=
+
+# ---- 本番の Chatwoot（prod.conf にだけ書く。--target prod の chatwoot-prod モジュール。setup/manual-steps.md の 8.3） ----
+# 画面の onboarding で作った管理者のアクセストークン（受信箱・ボット・ラベル・マクロを作るのに使う）。アカウントの ID と
+# エージェント専用ユーザーのトークンは、下の「本番の MCP」の CHATWOOT_ACCOUNT_ID・CHATWOOT_AGENT_TOKEN と共用
+CHATWOOT_ADMIN_TOKEN=
+# 親スタックの出力 FaqBotFunctionUrl の末尾に webhook を付けた URL（FAQ ボットの送り先）
+FAQ_BOT_WEBHOOK_URL=
+# FAQ ボットの access_token と secret を Secrets Manager に入れたら yes（AWS への書き込みなので人が行う）
+FAQ_BOT_SECRETS_STORED=
+
+# ---- 本番の Mautic（prod.conf にだけ書く。--target prod の mautic-prod モジュール。setup/manual-steps.md の 8.4） ----
+# 初期設定用の API 認証情報（管理者が作る。項目・フォーム・メール・セグメントを作る権限が要る。エージェント用の MAUTIC_CLIENT_* とは別）
+MAUTIC_SETUP_CLIENT_ID=
+MAUTIC_SETUP_CLIENT_SECRET=
+# インストールと画面の設定（API・Webhook のキューモードと私設アドレス・CORS・メール）が済んだら yes
+MAUTIC_PROD_SETTINGS_DONE=
+
+# ---- 本番の MCP（prod.conf にだけ書く。--target prod の mcp-prod モジュール。setup/manual-steps.md の 8.2） ----
+# どれもエージェント専用のアカウントで発行する（人間の管理者のトークンを使わない。ADR-17）。
+# CHATWOOT_BASE_URL・MAUTIC_BASE_URL は上の「接続先の上書き」と同じキー（prod.conf では既定が https://chat.comegin.com・https://mkt.comegin.com）。
+# 本番の Chatwoot のエージェント専用ユーザー（担当者の権限）のアクセストークンと、アカウントの数値 ID
+CHATWOOT_AGENT_TOKEN=
+CHATWOOT_ACCOUNT_ID=
+# 本番の Mautic の API 認証情報は上の MAUTIC_CLIENT_ID・MAUTIC_CLIENT_SECRET（prod.conf に本番の値を書く）。
+# 参照専用ロールの別の API 認証情報（mautic-prod-ro。analytics-reporter 専用。mautic-prod と共有しない）
+MAUTIC_RO_CLIENT_ID=
+MAUTIC_RO_CLIENT_SECRET=
+# オンプレの本番の Strapi の Admin トークン（下書きまで。公開・非公開化・削除の権限を与えない）と、本番の n8n の MCP のアクセストークン
+STRAPI_PROD_TOKEN=
+N8N_PROD_TOKEN=
+# PostHog の個人 API キー（phx_。「MCP Server」のプリセットで本番のプロジェクトの読み取りだけ）と、本番のプロジェクトの数値 ID
+POSTHOG_PROD_API_KEY=
+POSTHOG_PROD_PROJECT_ID=
+
 # ---- 本番だけ（--target prod。AWS のデプロイの後。いまは枠だけ） ----
 # IAM ユーザー comegin-prod-onprem-n8n-sns のアクセスキー（cloud/README.md の 4.5 で発行）
 AWS_ACCESS_KEY_ID=

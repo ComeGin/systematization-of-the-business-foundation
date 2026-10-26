@@ -5,8 +5,10 @@
 // compose.yml（postgres → migrate（一度だけ）→ admin-auth）、README.md の「起動（ローカル）」
 // （Google の ID とシークレットが空でも discovery と JWKS は返る。ログインはできない）。
 //
-// 本番（prod）は枠だけ。ALB のクライアント登録（dist/scripts/register-alb-client.js。ALB_CLIENT_ID と ALB_CLIENT_SECRET を
-// ALB のリスナールールと同じ値で渡す）と DB の移行は、本番の ECS のタスクで行う設計のため、AWS のデプロイの後に実装する。
+// 本番（prod。ADR-26 で ALB 配下の Lambda）: DB の移行と ALB のクライアント登録は、運用の Lambda（admin-auth-ops）に
+// {"action":"migrate"}・{"action":"register-alb-client"} を送って行う（cloud/README.md の 4.19）。AWS への書き込みになるので、
+// このスクリプトは呼ばずに手順を案内して止まる。check と apply は、本番の discovery（ALB のルール 300 経由）を読むだけ。
+// 済んだことは prod.conf の ADMIN_AUTH_PROD_READY=yes で知らせる（移行の有無は DB の中で、外から読み取りだけでは確かめられない）。
 // 開発環境では ALB が無いので、register-alb-client は呼ばない。
 import { join } from "node:path";
 
@@ -15,6 +17,33 @@ export const meta = { id: "admin-auth", title: "admin-auth（Better Auth の OID
 const DIR = "backend/admin-auth";
 const BASE = "http://127.0.0.1:3103";
 const DISCOVERY = `${BASE}/.well-known/openid-configuration`;
+const PROD_AUTH_HOST = "auth.comegin.com"; // cloud/template.yaml の AuthHost の既定。違うなら prod.conf の AUTH_HOST
+
+const prodDiscoveryUrl = (ctx) => `https://${ctx.value("AUTH_HOST") || PROD_AUTH_HOST}/.well-known/openid-configuration`;
+const prodReady = (ctx) => /^(yes|true|1)$/i.test(String(ctx.value("ADMIN_AUTH_PROD_READY") ?? "").trim());
+
+/** 本番の discovery を読む（読み取りだけ）。応答が無い・形が違うときは null */
+async function prodDiscovery(ctx) {
+  try {
+    const doc = await ctx.http("本番の admin-auth（discovery）", prodDiscoveryUrl(ctx), { timeoutMs: 10_000 });
+    return doc?.issuer && doc?.jwks_uri ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+function prodSteps() {
+  const ops = `OPS=$(aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='AdminAuthOpsFunctionName'].OutputValue" --output text)`;
+  const invoke = (action) => `aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"${action}"}' /dev/stdout（結果が {"ok":true,…} であること）`;
+  return [
+    "前提（cloud/README.md）: 4.6 の Secret admin-auth/GOOGLE_CLIENT_SECRET、デプロイの設定ファイル（2 節）のパラメータ GoogleClientId と AdminBootstrapEmails（空のまま migrate すると誰もログインできない）、4.8 の DB とアプリ用ユーザーの作成",
+    `人が自分の端末で実行する（AWS への書き込み）: ${ops}`,
+    invoke("migrate"),
+    invoke("register-alb-client"),
+    "管理画面（https://chat.comegin.com/app/ など）を開き、auth. で Google ログインして戻ってこられることを確かめる（cloud/README.md の 4.19 の 4）",
+    "~/.config/comegin/setup/prod.conf に ADMIN_AUTH_PROD_READY=yes を書き、同じコマンドを実行し直す",
+  ];
+}
 
 async function discovery(ctx) {
   try {
@@ -42,7 +71,16 @@ async function syncDbPassword(ctx, dir) {
 }
 
 export async function check(ctx) {
-  if (ctx.target === "prod") return { ok: false, notes: ["本番は未実装（AWS のデプロイの後に実装する）"] };
+  if (ctx.target === "prod") {
+    const doc = await prodDiscovery(ctx);
+    return {
+      ok: Boolean(doc) && prodReady(ctx),
+      notes: [
+        `本番の discovery（${prodDiscoveryUrl(ctx)}）: ${doc ? `応答あり（issuer ${doc.issuer}）` : "応答なし（sam deploy の前か、ALB・Lambda の不調）"}`,
+        prodReady(ctx) ? "移行と ALB の登録は済みと申告されている（ADMIN_AUTH_PROD_READY）" : "移行と ALB の登録（運用の Lambda）が済んだと申告されていない（ADMIN_AUTH_PROD_READY=yes）",
+      ],
+    };
+  }
   const env = ctx.readEnvFile(join(ctx.W, DIR, ".env"));
   const doc = await discovery(ctx);
   const google = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
@@ -58,7 +96,17 @@ export async function check(ctx) {
 
 export async function apply(ctx) {
   if (ctx.target === "prod") {
-    ctx.log("本番の admin-auth の設定は AWS のデプロイの後に実装する（ALB クライアントの登録と DB の移行は本番のタスクで行う）。ここでは何もしない");
+    const doc = await prodDiscovery(ctx);
+    if (!doc) {
+      ctx.manual("prod-deploy", `本番の admin-auth が応答しない（${prodDiscoveryUrl(ctx)}）`, [
+        "cloud/README.md の 4.2 で sam build → sam deploy を済ませる（faq-bot・consent-api・admin-auth の Lambda は sam build でまとめる）",
+        "済んでいて応答しないなら、ロググループ /aws/lambda/comegin-prod-admin-auth と、アラーム admin-auth-errors・admin-auth-target-5xx を見る",
+        "同じコマンドを実行し直す",
+      ]);
+    }
+    ctx.log(`本番の discovery に応答あり（issuer ${doc.issuer}）`);
+    if (!prodReady(ctx)) ctx.manual("prod-migrate", "運用の Lambda（admin-auth-ops）で DB を移行し、ALB のクライアントを登録する", prodSteps());
+    ctx.log("移行と ALB の登録は済みと申告されている（ADMIN_AUTH_PROD_READY）");
     return;
   }
   const dir = join(ctx.W, DIR);

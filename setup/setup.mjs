@@ -29,6 +29,9 @@ const MODULES = [
   "backend/control-plane/setup/index.mjs",
   "frontend/next-js/setup/index.mjs",
   "onprem/setup/index.mjs",
+  "backend/chatwoot-system/setup/prod/index.mjs",
+  "backend/mautic-system/dev/setup/prod/index.mjs",
+  "ops/setup/index.mjs",
 ];
 
 runSetup({ title: "バックエンド全体の設定スクリプト", script: "setup/setup.mjs", modules: MODULES });
