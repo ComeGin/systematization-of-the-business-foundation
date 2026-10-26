@@ -1,4 +1,17 @@
 import type { Redis } from "ioredis";
+import { VALKEY_COMMAND_TIMEOUT_MS, VALKEY_WRITE_DEADLINE_MARGIN_MS } from "./constants.js";
+
+// 期限（Valkey の時計のミリ秒）を過ぎていれば書かずに 0、書けたら 1 を返す。
+// コマンドのタイムアウトはクライアントが待つのをやめるだけで、送った XADD は取り消せない
+// （接続が切れずに応答だけが止まると、Valkey は戻ったときに届いていたコマンドを実行する）。
+// 期限があれば、503 を返して Cookie を書かなかった記録が、どの Cookie からも指されずに残ることがない。
+// スクリプトは固定で、値はすべて KEYS・ARGV で渡す（スクリプトの文字列に埋め込まない）
+const APPEND_BEFORE_DEADLINE = `
+local now = redis.call('TIME')
+if tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000) > tonumber(ARGV[1]) then return 0 end
+redis.call('XADD', KEYS[1], '*', 'state', ARGV[2], 'at', ARGV[3], 'policy', ARGV[4])
+return 1
+`;
 
 export type ConsentState = "granted" | "denied";
 
@@ -45,12 +58,24 @@ export class ConsentStore {
     }
   }
 
+  /** 期限までに Valkey が実行できたときだけ積む。期限切れ（書いていない）も StoreUnavailableError */
   async append(id: string, record: ConsentRecord): Promise<void> {
+    const deadline = Date.now() + VALKEY_COMMAND_TIMEOUT_MS - VALKEY_WRITE_DEADLINE_MARGIN_MS;
+    let written: unknown;
     try {
-      await this.redis.xadd(this.key(id), "*", "state", record.state, "at", record.at, "policy", record.policy);
+      written = await this.redis.eval(
+        APPEND_BEFORE_DEADLINE,
+        1,
+        this.key(id),
+        String(deadline),
+        record.state,
+        record.at,
+        record.policy,
+      );
     } catch (error) {
       throw new StoreUnavailableError(error);
     }
+    if (Number(written) !== 1) throw new StoreUnavailableError(new Error("write deadline passed"));
   }
 
   /** 最新の 1 件。Stream が無ければ null */

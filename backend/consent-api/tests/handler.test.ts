@@ -580,6 +580,15 @@ describe("POST /v1/consent", () => {
       expect(res.headers["access-control-allow-origin"]).toBe(SITE);
     });
 
+    it("サーバ: 書き込みの期限を過ぎて Valkey が書かなかったときも 503 で、Cookie も記録も残さない", async () => {
+      redis.serverTimeMs = Date.now() + 60_000;
+      const res = await post('{"state":"granted"}');
+      expect(res.status).toBe(503);
+      expect(res.json).toEqual({ error: "unavailable" });
+      expect(setCookie(res)).toBeUndefined();
+      expect(redis.streams.size).toBe(0);
+    });
+
     it.each(VALKEY_FAILURES)(
       "サーバ: 書き込みが %s（%s）で失敗したら 503 で、本文に失敗理由を出さない",
       async (_label, message) => {

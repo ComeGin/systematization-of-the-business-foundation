@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConsentStore, StoreUnavailableError } from "../src/store.js";
 import { FakeRedis } from "./helpers/fake-redis.js";
 
@@ -83,6 +83,31 @@ describe("append", () => {
       expect(xadd.args).not.toContain("MAXLEN");
       expect(xadd.args).not.toContain("MINID");
     });
+
+    it("書き込みは 1 本のスクリプト（EVAL）で送り、期限は受け付けからコマンドのタイムアウトの 0.5 秒手前", async () => {
+      const before = Date.now();
+      await store.append(ID, RECORD);
+      const after = Date.now();
+      expect(redis.evals).toHaveLength(1);
+      const { keys, args } = redis.evals[0]!;
+      expect(keys).toEqual([KEY]);
+      expect(args.slice(1)).toEqual(["granted", RECORD.at, "2026-10-01"]);
+      const deadline = Number(args[0]);
+      expect(deadline).toBeGreaterThanOrEqual(before + 1_500);
+      expect(deadline).toBeLessThanOrEqual(after + 1_500);
+    });
+
+    it("Valkey の時計が期限ちょうどなら書く（期限を過ぎたときだけ書かない）", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-10-26T00:00:00.000Z"));
+        redis.serverTimeMs = Date.now() + 1_500;
+        await store.append(ID, RECORD);
+        expect(redis.records(KEY)).toEqual([RECORD]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("異常系", () => {
@@ -106,6 +131,39 @@ describe("append", () => {
       };
       await expectUnavailable(store.append(ID, RECORD), cause);
       expect(redis.streams.size).toBe(0);
+    });
+
+    it("サーバ: 止まっていた書き込みが期限の後に Valkey で実行されても、書かずに StoreUnavailableError にする", async () => {
+      // Valkey の応答が止まり、クライアントが待つのをやめた後に、届いていたスクリプトが実行された状態
+      redis.serverTimeMs = Date.now() + 60_000;
+      const error = await store.append(ID, RECORD).catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(StoreUnavailableError);
+      expect(((error as Error).cause as Error).message).toBe("write deadline passed");
+      expect(redis.streams.size).toBe(0);
+      expect(redis.calls.some((call) => call.command === "xadd")).toBe(false);
+    });
+
+    it("サーバ: Valkey の時計が期限を 1 ミリ秒でも過ぎていれば書かない", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-10-26T00:00:00.000Z"));
+        redis.serverTimeMs = Date.now() + 1_501;
+        await expectUnavailable(store.append(ID, RECORD));
+        expect(redis.streams.size).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("サーバ: スクリプトが 1 以外（null など想定外の値）を返したら、書けたとみなさず StoreUnavailableError", async () => {
+      redis.eval = async () => null as unknown as number;
+      await expectUnavailable(store.append(ID, RECORD));
+    });
+
+    it("サーバ: スクリプトの送信そのものの失敗（NOSCRIPT など）も StoreUnavailableError に包む", async () => {
+      const cause = new Error("ERR Error running script");
+      redis.fail.eval = cause;
+      await expectUnavailable(store.append(ID, RECORD), cause);
     });
 
     it("サーバ: Error でない値で失敗しても StoreUnavailableError に包み、cause に元の値を持つ", async () => {

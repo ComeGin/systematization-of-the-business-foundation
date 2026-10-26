@@ -45,10 +45,12 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 3106 | points-api（採掘の貢献量の取り込みと譲渡不可ポイントの付与。**本システムの完成後に着手**。本番は ALB 配下の ECS on Fargate。設計は `docs/DetailedDesign/08-monetization-flows.md`） |
 | 3107 | faq-bot の開発サーバー（`backend/faq-bot` の `pnpm dev`。`127.0.0.1` にバインド。開発の Chatwoot からは host-relay 経由。本番は Lambda の関数 URL でポートを持たない。ADR-26） |
 | 3200 | 監視アプリ（`frontend/next-js`。Next.js の既定 3000 は以前 Umami と衝突していたため 3200 を使う〈Umami の廃止後も変えない〉。`127.0.0.1` にバインドする。**開発では ngrok で公開してよい**（ADR-23。`https://comegin-next-js-dev.ngrok.app`。ログインは Google〈Workspace〉だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る）。サーバー側のロジックは `backend/control-plane`。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`） |
+| 3201 | 監視アプリの E2E（`frontend/next-js` の `pnpm e2e`。Playwright が E2E 専用のインスタンスを `127.0.0.1` で起動する。サンドボックスの置き場〈一時ディレクトリ〉と `distDir` `.next/e2e` を使い、3200 の記録とロックに触れない。`e2e/support/sandbox.mjs` で固定） |
 | 1337 | Strapi（開発環境） |
 | 1338 | Strapi（**本番。オンプレ**。ADR-21。データは AWS の RDS・S3。`127.0.0.1` だけに開く。構成は `onprem/strapi`） |
 | 4321 / 4322 | Astro dev / Lighthouse CI が使う preview（`lighthouserc.cjs` で固定） |
 | 4323 | a11y の自動検査（`pnpm a11y`。Playwright ＋ axe）が使う preview（`playwright.config.ts` で固定。builtin の `a11y` ジョブも同じ。計画は `docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`） |
+| 4324 | 公開サイトの E2E（`frontend/verdant-virgo` の `pnpm e2e`。Playwright が E2E 専用の Astro dev を `127.0.0.1` で起動し、送信先を開発スタックの `127.0.0.1` に向け直す。`playwright.e2e.config.ts`・`e2e/flows/support/env.ts` で固定） |
 | 5432 | Chatwoot の PostgreSQL |
 | 5433 | n8n の PostgreSQL |
 | 5434 | admin-auth の開発の PostgreSQL（`127.0.0.1` だけ。admin-auth の結合テストが Lambda の入口から直接つなぐ） |
@@ -127,7 +129,7 @@ dev/reset.sh --help    # DB を消して再インストールする破壊的ス�
 docker compose up -d
 ```
 
-**開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
+**開発環境の一式は `setup/setup.mjs` が 1 本で用意する**（`node setup/setup.mjs --target dev [--check]`。各スタックの起動・管理者・トークン・MCP の env ファイル・n8n の取り込み。画面でしかできない操作は止まって案内し、再実行で続きから。手順は `setup/README.md`）。**フロントエンド（公開サイトの Astro と監視アプリ）は `setup/frontend.mjs` が用意する**（`node setup/frontend.mjs --target dev [--check]`。バックエンドの後に実行する。Astro の `.env` はバックエンドが状態に置いたトークン・ID から写す）。モジュールは各ディレクトリの `setup/index.mjs`（上流取り込みのものは `dev/setup/`）で、`setup/lib/core.mjs` の契約に従う（親スクリプトの共通部分は `setup/lib/runner.mjs`）。生成した秘密値は `~/.config/comegin/setup/<target>.state.json` にだけ置き、画面に出さない。
 
 **コンテナからホストの開発環境のサービスへは `host.docker.internal` で届く**（`middleware/host-relay` が docker0 のアドレス〈172.17.0.1〉の 8000・1025・5678・3100・3001・3107 だけで待ち受け、`127.0.0.1` に転送する。3001〈OpenSEO〉は無認証で費用の出る `/mcp` を持つため、`GET /api/health` だけを通す。n8n と Chatwoot の compose に `extra_hosts: host-gateway` を設定済み）。中継に新しいポートを足すときは、`middleware/host-relay/README.md` の表も更新する。本番には置かない。
 

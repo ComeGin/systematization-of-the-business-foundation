@@ -29,6 +29,17 @@ pnpm typecheck   # next typegen && tsc --noEmit
 pnpm lint
 ```
 
+## E2E（`pnpm e2e`）
+
+Playwright（`playwright.config.mts`。テストは `e2e/`）。**E2E 専用のインスタンスを `127.0.0.1:3201` で起動し、開発の監視アプリ（3200）とその記録・Google の資格情報・`ANTHROPIC_API_KEY` には触れない**（`e2e/support/sandbox.mjs`）。
+
+- **サンドボックス**: 起動の前に、一時ディレクトリ（`$TMPDIR/comegin-next-js-e2e`）に E-15・ログイン用の SQLite・承認済み main の写し（テスト用の定期実行の定義 4 本とエージェント定義 1 本）・作業ツリーを作り直す。Next の `distDir` は `.next/e2e`（`next dev` は `distDir` の下でロックを取るため、3200 と並べて起動するには分ける。型の置き場は `tsconfig.json` の `include` に書いてある）。
+- **境界（2026-10-25 にユーザーが決めた）**: オンプレの開発の Chatwoot は本物として読む（誤った書き込みの突き合わせ）。オンプレの外（Google・Anthropic・AWS・GitHub）は、環境変数を空文字で渡して繋がない（Next は既にある環境変数を環境変数ファイルで上書きしない。control-plane は空を未設定として扱う）。ブラウザの外への通信は fixture が止める。
+- **ログイン**: Google の画面とトークンの交換は通さない。「Google でログイン」で認可の画面へ向かう URL を、Google に届く前に止めて `hd`・戻り先を確かめる。ログイン済みの状態は、サンドボックスの SQLite に本物の Better Auth でユーザーとセッションを作り、Cookie として渡す（`e2e/support/auth.mts`。結合テストの harness と同じ考え方）。
+- **エージェントの起動**: `ANTHROPIC_API_KEY` が無いので、Agent SDK を呼ぶ前に「設定が無いため見送った」になる（Anthropic には届かない）。
+- **テスト用データ**: 実行記録はテストの中で手動の起動から作る（1 ページを超える 51 件を含む）。Chatwoot の会話とエージェント専用ユーザーの送信は結合テストの補助（`integration/helpers/chatwoot.ts`）で作り、テストの終わりに消す。
+- **前提**: `node setup/setup.mjs --target dev` が済み（Chatwoot の状態の値）、`backend/control-plane` の `pnpm build` が済んでいること。
+
 ## 構成
 
 ```

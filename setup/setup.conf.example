@@ -97,6 +97,42 @@ OPENROUTER_API_KEY=
 # イメージの上書き（任意。空なら版とダイジェストで固定した既定〈0.1.8〉。middleware/open-seo-main/dev/setup/index.mjs の PINNED_IMAGE）
 OPEN_SEO_IMAGE=
 
+# ---- 公開サイト（frontend/verdant-virgo。node setup/frontend.mjs が使う） ----
+# 開発の公開サイトの URL は上の PUBLIC_SITE_URL（SITE_URL に書く。空なら http://localhost:4321）。prod.conf では本番の URL（https）を書く（必須）
+# PostHog のプロジェクトのトークン（phc_ で始まる。公開ページに埋め込む前提の値）。dev.conf で空なら backend/strapi-system の
+# 環境変数ファイルの POSTHOG_PROJECT_TOKEN を使う（Strapi と同じプロジェクトに送る）。prod.conf では本番のプロジェクトの値を書く（必須）
+SITE_POSTHOG_PROJECT_TOKEN=
+SITE_POSTHOG_HOST=
+# Cal.com の予約するイベント（<ユーザー名>/<イベントの slug>。URL ではなくオリジンの後ろだけ）。空なら予約枠の代わりにメールの案内を出す
+CALCOM_LINK=
+# ---- ここから「公開サイトの本番」は prod.conf にだけ書く（--target prod で .env.production を作る。ビルドと配信はしない） ----
+# 本番のビルドを行う承認済みの main のチェックアウト（絶対パス。空なら CONTROL_MAIN_CHECKOUT）。.env.production はここにだけ書く。
+# 作業ツリーと同じ場所は止める（作業ツリーに置くと pnpm lh などの開発のビルドまで本番の値で焼かれる）
+SITE_BUILD_CHECKOUT=
+# 本番の Strapi の読み取り専用 API トークン（必須。権限は article・category・author の find / findOne だけ）と Content API の URL（任意。既定 http://127.0.0.1:1338。
+# 本番の Strapi はオンプレの 127.0.0.1 だけに開く〈ADR-21〉。記事はビルド時に読んで dist/ に取り込む）。
+# dev.conf の SITE_STRAPI_URL は開発の Strapi の URL（任意。既定 http://localhost:1337。ngrok なら https://comegin-strapi-dev.ngrok.app）。
+# 配信用のビルドは開発の Strapi（localhost の 1338 以外・comegin-strapi-dev.ngrok.app）を止める（src/modules/blog/integration.ts）
+SITE_STRAPI_API_TOKEN=
+SITE_STRAPI_URL=
+# 本番の Strapi のメディアのバケット（必須。onprem/strapi と同じ値）とリージョン（任意。既定 ap-northeast-1）
+UPLOAD_S3_BUCKET=
+UPLOAD_S3_REGION=
+# 本番の Chatwoot の受信箱「Web サイト」の website_token と、本番の Mautic のフォーム consult の数値 ID（どちらも必須。秘密値ではない）
+CHATWOOT_WEBSITE_TOKEN=
+MAUTIC_FORM_ID_CONSULT=
+# 受け口の URL（任意。既定は https://chat.comegin.com・https://mkt.comegin.com・https://consent.comegin.com・https://app.cal.com）
+SITE_CHATWOOT_BASE=
+SITE_MAUTIC_BASE=
+SITE_CONSENT_BASE=
+SITE_CALCOM_BASE=
+# 同意の Cookie の Domain（任意。既定 .comegin.com）。本番の consent-api の COOKIE_DOMAIN と同じ値にする
+CONSENT_COOKIE_DOMAIN=
+# 現行のプライバシーポリシーの版（本番の consent-api と同じ値。dev.conf に書くと開発の consent-api にも使われる。空なら consent-api の環境変数の値）
+CONSENT_POLICY_VERSION=
+# Search Console のドメインプロパティ（任意。既定 comegin.com）。所有権は Route 53 の TXT を DNS で読んで確かめる。使わないなら上の OPENSEO_SKIP_GSC=yes
+GSC_DOMAIN=
+
 # ---- admin-auth（任意。空でも開発環境は起動する。Google ログインを試すときだけ） ----
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=

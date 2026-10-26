@@ -23,6 +23,9 @@ const nextConfig: NextConfig = {
   // control-plane は backend/control-plane を link: で取り込み、dist/ を読む（先に control-plane の pnpm build が要る）。
   serverExternalPackages: ["control-plane", "@anthropic-ai/claude-agent-sdk"],
   allowedDevOrigins: tunnelHosts(),
+  // E2E 専用のインスタンス（3201。playwright.config.mts）は出力先を分ける。next dev は distDir の下でロックを取るため、
+  // 同じ .next では開発のインスタンス（3200）と並べて起動できない。型の置き場は tsconfig.json の include に書いてある
+  ...(process.env.COMEGIN_NEXT_DIST_DIR?.trim() ? { distDir: process.env.COMEGIN_NEXT_DIST_DIR.trim() } : {}),
 };
 
 export default nextConfig;

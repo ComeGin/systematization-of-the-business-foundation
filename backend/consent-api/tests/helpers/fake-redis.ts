@@ -1,11 +1,13 @@
 import type { Redis } from "ioredis";
 
 type Entry = [id: string, fields: string[]];
-type Failable = "exec" | "exists" | "xlen" | "xadd" | "xrevrange";
+type Failable = "exec" | "exists" | "xlen" | "eval" | "xadd" | "xrevrange";
 
 /**
- * ConsentStore が使うコマンド（pipeline の exists/xlen・xadd・xrevrange）だけを持つ Valkey の偽物。
+ * ConsentStore が使うコマンド（pipeline の exists/xlen・eval・xadd・xrevrange）だけを持つ Valkey の偽物。
  * Stream は Map に持つ。fail に入れたコマンドはその Error で失敗する。
+ * eval は append の書き込みのスクリプト（store.ts）だけを真似る。期限を Valkey の時計（serverTimeMs）で比べ、
+ * 過ぎていなければ xadd に任せる（calls には中で実行した xadd が残り、eval の引数は evals に残る）。
  * 実装していないコマンド（expire・xtrim など）に触れると unexpected に名前を残し、呼べば例外にする。
  * 遅延や Error でない値での失敗を再現したいときは、テストの中で xadd・xrevrange をインスタンスごとに上書きする
  * （restoreMocks が true のため vi.fn の実装には頼らない）
@@ -14,7 +16,11 @@ export class FakeRedis {
   readonly streams = new Map<string, Entry[]>();
   readonly calls: Array<{ command: string; args: unknown[] }> = [];
   readonly unexpected: string[] = [];
+  /** eval に渡されたキーと引数（スクリプトの本文は持たない） */
+  readonly evals: Array<{ keys: string[]; args: string[] }> = [];
   fail: Partial<Record<Failable, Error>> = {};
+  /** スクリプトの TIME が返す Valkey の時計（ミリ秒）。未設定なら Date.now() */
+  serverTimeMs: number | undefined = undefined;
   /** pipeline().exec() が null を返す状態（ioredis では接続が無いときなどに起こる） */
   execReturnsNull = false;
   /** pipeline().exec() が返す結果を差し替える（件数が足りない・形が違うなど、想定外の応答を再現する） */
@@ -67,6 +73,18 @@ export class FakeRedis {
       },
     };
     return pipe;
+  }
+
+  /** 引数は KEYS[1]（Stream）と ARGV（期限・state・at・policy）。期限を過ぎていれば書かずに 0、書けたら 1 */
+  async eval(_script: string, numKeys: number, ...rest: string[]): Promise<number> {
+    const keys = rest.slice(0, numKeys);
+    const args = rest.slice(numKeys);
+    this.evals.push({ keys, args });
+    if (this.fail.eval) throw this.fail.eval;
+    const [deadline, state, at, policy] = args;
+    if ((this.serverTimeMs ?? Date.now()) > Number(deadline)) return 0;
+    await this.xadd(keys[0]!, "*", "state", state!, "at", at!, "policy", policy!);
+    return 1;
   }
 
   async xadd(key: string, id: string, ...fields: string[]): Promise<string> {

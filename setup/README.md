@@ -1,10 +1,12 @@
-# バックエンド全体の設定スクリプト（setup/）
+# バックエンド・フロントエンド全体の設定スクリプト（setup/）
 
 オンプレの開発環境（`--target dev`）を、1 本のコマンドで最初から最後まで用意する。
 各製品の起動・管理者の作成・トークンの発行・MCP の env ファイル・n8n のワークフローの取り込みまでを、**公式の CLI と API だけで**行う。
 画面でしかできない操作に当たると、手順を表示して止まる。終わったら同じコマンドを実行し直せば、済んだ手順は飛ばして続きから進む。
 
 本番（`--target prod`）は枠だけ（AWS のデプロイの後に実装する。ADR-21）。
+
+親スクリプトは 2 本ある。**バックエンド全体**（`setup/setup.mjs`）を先に、**フロントエンド全体**（`setup/frontend.mjs`。公開サイトと監視アプリ）を後に実行する（[フロントエンド全体](#フロントエンド全体setupfrontendmjs)）。オプション・終了コード・設定ファイル・状態ファイルは 2 本で共通（引数の解釈と実行の順番は `setup/lib/runner.mjs`）。
 
 ## 使い方
 
@@ -55,6 +57,41 @@ node setup/setup.mjs --target dev
 | `control-plane` | `backend/control-plane/setup/` | Node と pnpm の版の確認・`pnpm install`・`pnpm build`・E-15 の置き場（700） | なし |
 | `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・Google の資格情報と許可リスト（`CONTROL_ADMIN_EMAILS`）・`pnpm install`・Google ログインを始められるかの確認（認可 URL の `hd` とリダイレクト URI） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／**Google の OAuth クライアントの作成**／監視アプリの起動・起動し直し（別の端末で `pnpm dev`） |
 | `onprem` | `onprem/setup/`（prod だけ） | 読むだけの確認（wg0・systemd・待ち受け） | 本番の立ち上げ手順の案内（枠だけ） |
+
+## フロントエンド全体（setup/frontend.mjs）
+
+公開サイト（`frontend/verdant-virgo`。Astro）と監視アプリ（`frontend/next-js`）を用意する。**公開サイトの環境変数は、バックエンドのモジュールが状態に置いた値から写す**ので、`setup/setup.mjs` を先に終わらせておく。
+
+```bash
+node setup/frontend.mjs --target dev --check   # 何も変えずに、どこまで用意できているかを見る
+node setup/frontend.mjs --target dev           # 実行する（止まったら案内に従い、同じコマンドを実行し直す）
+node setup/frontend.mjs --target prod          # 本番のビルド用の .env.production と Search Console の所有権（ビルドと配信はしない）
+```
+
+| id | 場所 | 自動でやること | 止まって頼むこと（manual） |
+|---|---|---|---|
+| `ga4` | `middleware/ga4/setup/` | バックエンドと同じモジュール（開発の環境変数に測定 ID が無いことの確認。prod は ID の形式） | prod だけ: `ga4:property` |
+| `verdant-virgo` | `frontend/verdant-virgo/setup/` | **dev**: `.env`（600）を書く（下の表）・`pnpm install`・Lighthouse CI の Chrome の確認・a11y の検査の Chromium（`pnpm exec playwright install chromium`）・受け口の確認（Strapi の公開記事の件数・Chatwoot のウィジェット・Mautic のフォーム・consent-api。止まっていても警告だけ）・dev サーバーの起動（`astro dev --background`。環境変数を書き換えたら `astro dev stop` してから起動し直す）。**prod**: 承認済みの `main` のチェックアウトに `.env.production`（600）を `prod.conf` から書く・そこで `pnpm install`・本番の Strapi（`127.0.0.1:1338`）を読めるかと公開記事の件数（警告だけ）・Search Console の所有権の TXT を DNS で確かめる | dev: `verdant-virgo:restart-dev`（前景の `pnpm dev` が動いていて止められない）／prod: `verdant-virgo:prod-values`（本番の値が足りない）・`verdant-virgo:gsc-domain`（ドメインプロパティの所有権） |
+| `next-js` | `frontend/next-js/setup/` | バックエンドと同じモジュール（監視アプリ） | `next-js:google-client`・`next-js:start-app`・`next-js:restart-app` |
+
+`ga4`・`next-js` はバックエンドの `setup.mjs` にもある（どちらから実行しても同じ結果になる）。
+
+**公開サイトの環境変数の出どころ**（dev。状態・設定にある値は、ファイルの今の値より優先して書き換える。既定値は空のキーだけ）:
+
+| 環境変数 | 出どころ |
+|---|---|
+| `SITE_URL` | 設定の `PUBLIC_SITE_URL`（空なら `http://localhost:4321`。`.env.example` の `https://example.com` のままなら書き換える） |
+| `STRAPI_API_TOKEN` | 状態の `STRAPI_BUILD_TOKEN`（strapi） |
+| `PUBLIC_CHATWOOT_WEBSITE_TOKEN` | 状態の `CHATWOOT_WEBSITE_TOKEN`（chatwoot） |
+| `MAUTIC_FORM_ID_CONSULT` | 状態の `MAUTIC_FORM_ID_CONSULT`（mautic） |
+| `CONSENT_POLICY_VERSION`・`PUBLIC_CONSENT_COOKIE_DOMAIN` | `backend/consent-api` の環境変数ファイルの `CONSENT_POLICY_VERSION`・`COOKIE_DOMAIN`（同じ値にそろえる決まり） |
+| `PUBLIC_POSTHOG_PROJECT_TOKEN`・`PUBLIC_POSTHOG_HOST` | 設定の `SITE_POSTHOG_PROJECT_TOKEN`・`SITE_POSTHOG_HOST`。空なら `backend/strapi-system` の環境変数ファイルの値（Strapi と同じプロジェクトに送る） |
+| `PUBLIC_CALCOM_LINK` | 設定の `CALCOM_LINK`（任意） |
+| `PUBLIC_GA4_MEASUREMENT_ID` | **書かない**（開発ではタグを出さない。ADR-25。あれば失敗） |
+
+- **`.env.production` は承認済みの `main` のチェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）にだけ書く。** `astro build` は production モードで、`.env.production` を `.env` より優先して読む（`astro.config.mjs` の `loadEnv` は `NODE_ENV` で読むので、`--mode` では逃がせない）。作業ツリーに置くと `pnpm lh` などの開発のビルドまで本番の値で焼かれるため、作業ツリーと同じ場所は止める。dev の `--check` は作業ツリーにこのファイルがあると警告する。そのチェックアウトの監視アプリの builtin の `lighthouse`・`a11y` も本番の値でビルドされる（同意の前は GA4・PostHog を読み込まないので、計測で本番の数値は汚れない）
+- **本番の `STRAPI_URL` は `http://127.0.0.1:1338`**（オンプレの本番の Strapi。ADR-21。`cms.comegin.com` は ADR-21 で ALB から外した）。記事はビルドのときに読んで `dist/` に取り込み、公開サイトは実行時に Strapi を読まない。配信用のビルドは開発の Strapi（localhost の 1338 以外・`comegin-strapi-dev.ngrok.app`）を止める（`src/modules/blog/integration.ts`）。開発で ngrok の Strapi を読むなら `dev.conf` に `SITE_STRAPI_URL=https://comegin-strapi-dev.ngrok.app`
+- 計測（`pnpm lh`・`pnpm a11y:ci`）とビルドは実行しない（人が指示したときだけ）。配信は人間が承認して実行する（`cloud/README.md` の 4.14）
 
 ## 画面での操作（このスクリプトでは自動にできないもの）
 
@@ -108,7 +145,7 @@ Mautic と Chatwoot は、私設アドレスへの Webhook を既定で送らな
 ## モジュールを足すとき
 
 1. `<モジュール>/setup/index.mjs` に、`setup/lib/core.mjs` の冒頭に書いた形（`meta`・`check`・`apply`）で書く。見本は `middleware/host-relay/setup/index.mjs`
-2. `setup/setup.mjs` の `MODULES` に、依存の順で 1 行足す
+2. `setup/setup.mjs`（フロントエンドのモジュールなら `setup/frontend.mjs`）の `MODULES` に、依存の順で 1 行足す
 3. 新しい設定のキーは `setup.conf.example` に、新しい状態のキーはこの README の「作られる値」に足す
 
 ## 既知の未確認（最初の実行で分かる）

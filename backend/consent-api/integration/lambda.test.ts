@@ -113,16 +113,20 @@ describe("ALB → Lambda → Valkey", () => {
       expect((await testKeys()).length).toBe(before);
     });
 
-    it("サーバ: ウォームの状態で Valkey が止まると 503 で Cookie を書かず、再開すると記録できる", async () => {
+    it("サーバ: ウォームの状態で Valkey が止まると 503 で Cookie を書かず、再開しても止めていた間の書き込みは残らず、次は記録できる", async () => {
       const handler = coldHandler();
       expect((await handler(get())).statusCode).toBe(200); // 初期化を済ませる
+      const before = (await testKeys()).length;
+      // docker pause は接続を切らずに応答だけを止める。送った書き込みは Valkey に届いたまま、再開を待つ
       pauseValkey();
       const failed = await handler(post("granted"));
       expect(failed.statusCode).toBe(503);
       expect(JSON.parse(failed.body)).toEqual({ error: "unavailable" });
       expect(failed.headers["Set-Cookie"]).toBeUndefined();
       unpauseValkey();
+      // 同じ接続のコマンドは順に実行されるので、次の 201 が返った時点で、止まっていた書き込みは実行済み（期限切れで書かれない）
       await vi.waitFor(async () => expect((await handler(post("granted"))).statusCode).toBe(201), { timeout: 20_000, interval: 500 });
+      expect((await testKeys()).length).toBe(before + 1);
     });
 
     it("サーバ: Valkey が止まった状態のコールドスタートは初期化の失敗になり、再開後の呼び出しで回復する", async () => {

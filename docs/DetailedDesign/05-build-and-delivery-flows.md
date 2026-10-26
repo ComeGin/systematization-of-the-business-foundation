@@ -22,6 +22,8 @@
 | 観測点 | ビルドの終了コード ／ 生成されたページ数 |
 | 完成度 | `条件付き`（本番の Strapi に公開記事が 1 件以上あること／`SITE_URL` の設定／ビルド用の読み取り専用 API トークンの発行／メディアの S3 の取得方法。1.5.1） |
 
+> **2026-10-25 の注記（ADR-21 の反映）**: 本番の Strapi はオンプレの `127.0.0.1:1338` だけに開き、`cms.comegin.com` は ALB から外した（`cloud/stacks/edge.yaml`）。**本番の配信用のビルドの `STRAPI_URL` は `http://127.0.0.1:1338`** で、記事はビルドのときに読んで `dist/` に取り込む（公開サイトは実行時に Strapi を読まない）。開発は `http://localhost:1337`（ngrok で開くときは `https://comegin-strapi-dev.ngrok.app`）。1.2 の「`localhost` なら停止」は「**開発の Strapi**（localhost の 1338 以外と、開発の ngrok のホスト）なら停止」に改めた（`src/modules/blog/integration.ts`）。本番の値（`.env.production`）は承認済みの `main` のチェックアウトにだけ置く（`setup/frontend.mjs --target prod`。`setup/README.md` の「フロントエンド全体」）。以下の `cms.comegin.com` の記述は ADR-21 より前のもの。
+
 **接続先は `STRAPI_URL` で、本番の配信用のビルドでは `https://cms.comegin.com` にする**（ADR-16）。**これまでの `http://localhost:1337` は開発時の値として残す**（`astro dev` と、開発環境の Strapi を読む試験のビルド）。Strapi の API トークンは**読み取り専用**で、権限は `find` / `findOne` に限る（書き込みを持たせない）。本番のトークンはローカルの PC の本番用の設定（`.env.production`。Git で追跡しない）に置き、AWS には置かない（TA-06 の 7 節）。ビルドと計測は Claude Code が行ってよいが、**配信は人間が承認する**（3 節）。**記事の公開も人間（`R2`）が本番の Strapi の管理画面で行う**（ADR-17。エージェントの `strapi-prod` のトークンには公開の権限が無い。[03 の 4.1](03-operation-path-flows.md)）。
 
 - **本番の配信用のビルドが開発環境の Strapi を読んではならない。** 開発環境の Strapi は試験用で、記事の正本ではない（TA-07 の 6 節）。取り違えると、試験の記事が公開される。**`SITE_URL` と同じく、配信用のビルドで `STRAPI_URL` が `localhost` を指していたら停止する**（1.2。この層の判断）。

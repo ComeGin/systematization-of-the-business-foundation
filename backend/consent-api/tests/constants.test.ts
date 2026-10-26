@@ -6,6 +6,7 @@ import {
   REQUEST_TIMEOUT_MS,
   SHUTDOWN_TIMEOUT_MS,
   VALKEY_COMMAND_TIMEOUT_MS,
+  VALKEY_WRITE_DEADLINE_MARGIN_MS,
 } from "../src/constants.js";
 
 // 値の書き写しではなく、コメントに書かれた定数どうしの関係を確かめる
@@ -23,6 +24,11 @@ describe("タイムアウトの関係", () => {
 
     it("POST の Valkey への 2 往復（inspect と append）がともにタイムアウトしても、リクエストのタイムアウト前に 503 を返せる", () => {
       expect(VALKEY_COMMAND_TIMEOUT_MS * 2).toBeLessThan(REQUEST_TIMEOUT_MS);
+    });
+
+    it("書き込みの期限はコマンドのタイムアウトより手前にある（待つのをやめた後に実行された書き込みを残さない）", () => {
+      expect(VALKEY_WRITE_DEADLINE_MARGIN_MS).toBeGreaterThan(0);
+      expect(VALKEY_WRITE_DEADLINE_MARGIN_MS).toBeLessThan(VALKEY_COMMAND_TIMEOUT_MS);
     });
 
     it("停止の猶予は ECS の既定の stopTimeout（30 秒）に収まる", () => {
