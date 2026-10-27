@@ -173,80 +173,150 @@ WireGuard の EC2 は、デプロイの直後から起動する（オンプレ�
 #### 4.2.1 WireGuard（オンプレとの接続）: 鍵の受け渡しとオンプレ側の設定
 
 鍵は、EC2 の秘密鍵が EC2 の外に出ない形で受け渡す。**秘密鍵を CloudFormation・SSM・Secrets Manager・チャットに載せない。** 渡すのは公開鍵だけ（秘密鍵ではないので、CloudFormation のパラメータと SSM のパラメータに載せてよい）。
+下の手順は、2026-10-28 に本番でトンネルが通った順番。オンプレ側の詳細は `onprem/wireguard/README.md`。
+
+```
+オンプレ（10.99.0.2）                                 AWS（VPC 10.20.0.0/16）
+ ├ 秘密鍵: ~/.config/comegin/wireguard/private.key     ├ WireGuard の EC2（wg0 = 10.99.0.1 / Elastic IP = 出力 WireguardPublicIp）
+ │   （このマシンから出さない）                         │   秘密鍵: /etc/wireguard/server.key（EC2 から出さない）
+ └ wg0 ──── UDP 51820（オンプレから外向きに接続）───▶   ├ オンプレ → RDS の 5432 だけを通す
+          ◀─── Webhook（10.99.0.2:5680 だけ）────────   └ Mautic・Chatwoot → n8n の Webhook だけを通す
+```
+
+| 値 | 作る場所 | 渡し方 |
+|---|---|---|
+| EC2 の公開鍵 | EC2 の中（user-data が初回の起動で作る） | EC2 が SSM の `/comegin/<env>/wireguard/server-public-key` に書く → オンプレが読む |
+| オンプレの公開鍵 | オンプレ（`onprem/wireguard/dev/gen-keys.sh`） | SSM の `/comegin/<env>/wireguard/onprem-public-key` と `samconfig.toml` の `OnpremWireguardPublicKey` → EC2 が 2 分ごとに読んでピアにする（`wg-peer-sync.timer`） |
+| Elastic IP | CloudFormation | スタックの出力 `WireguardPublicIp` → オンプレの `Endpoint`（ポートは `WireguardPort`。既定 51820） |
+
+| アドレス | 中身 |
+|---|---|
+| `10.99.0.0/24`（`OnpremWireguardCidr`） | トンネルの中だけで使うアドレス帯。VPC（`VpcCidr`。既定 `10.20.0.0/16`）の外で、重ならない値として決めた（AWS が割り当てたものではない） |
+| `10.99.0.1`（`WireguardServerAddress`） | EC2 の `wg0`（仮想の NIC）。EC2 の本物の NIC（ENI）は VPC のアドレス（`10.20.0.x`）と Elastic IP を持ち、それとは別 |
+| `10.99.0.2`（`OnpremPeerAddress`） | オンプレの `wg0`。Mautic・Chatwoot の Webhook の宛先（`10.99.0.2:5680`） |
+
+以下のコマンドは、次の関数を定義してから使う（スタックの出力を読む）:
 
 ```bash
 OUT() { aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+```
 
-# 1. 初回のデプロイのあと（OnpremWireguardPublicKey は空のまま）、EC2 が起動して公開鍵を SSM に書くまで数分待つ。
-#    うまくいかないときは、SSM Session Manager で入って user-data のログを見る（SSH は使わない）:
-aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"
-#   （EC2 の中）sudo tail -n 50 /var/log/wireguard-setup.log ; sudo wg show
+**1. EC2 の公開鍵と Elastic IP を取り出す**（初回のデプロイのあと数分。`OnpremWireguardPublicKey` は空のままでよい）
 
-# 2. EC2 の公開鍵と、Endpoint の IP を取り出す（オンプレの Peer に入れる値）
+```bash
 aws ssm get-parameter --region ap-northeast-1 --name "$(OUT WireguardServerPublicKeyParameterName)" --query Parameter.Value --output text
 OUT WireguardPublicIp
 ```
 
-オンプレ側（人が実行。`onprem/` の README が詳細）。鍵対は、オンプレで作り、**秘密鍵はオンプレの秘匿ファイルにだけ置く**（画面に出さない）:
+- 公開鍵が `ParameterNotFound` のままなら、EC2 の user-data が途中で止まっている（下の「つまずいたとき」）。
+
+**2. オンプレで鍵を作る**（前提: `sudo apt install wireguard-tools`）
 
 ```bash
-( umask 077; wg genkey > wg-onprem.key )      # 秘密鍵。リポジトリに入れない
-wg pubkey < wg-onprem.key > wg-onprem.pub     # 公開鍵（これを EC2 に渡す）
+cd onprem/wireguard && ./dev/gen-keys.sh
 ```
 
-オンプレの `wg0.conf` の形（`<...>` は置き換える）:
+- 秘密鍵は `~/.config/comegin/wireguard/private.key`（600）に置かれ、画面には公開鍵だけが出る。何度実行しても、既にある鍵は作り直さない。
+- オンプレの LAN が `10.99.0.0/24` や `10.20.0.0/16` と重なっていないことを、`ip -br addr` と `ip route` で確かめる（重なると経路が食い違う。重なるなら上の 3 つのパラメータと `onprem/wireguard/wg0.conf.example` をそろえて変える）。
+
+**3. オンプレの公開鍵を AWS に渡す**（**SSM と `samconfig.toml` の両方に入れる**）
+
+```bash
+# すぐ効く。EC2 は 2 分ごとにこの値を読み直して、ピアを足す
+aws ssm put-parameter --region ap-northeast-1 --name "$(OUT OnpremPublicKeyParameterName)" \
+  --type String --overwrite --value '<手順 2 で表示された公開鍵>'
+```
+
+同じ値を `cloud/samconfig.toml` の `parameter_overrides` に書く。あわせて AMI も固定する（次の `sam deploy` で反映。デプロイは急がなくてよい）:
+
+```
+"OnpremWireguardPublicKey=<手順 2 で表示された公開鍵>",
+"WireguardFixedAmiId=<下のコマンドの値>",
+```
+
+```bash
+aws ec2 describe-instances --region ap-northeast-1 --instance-ids "$(OUT WireguardInstanceId)" --query 'Reservations[0].Instances[0].ImageId' --output text
+```
+
+- **SSM だけに入れると、CloudFormation の管理値（`UNSET`）とずれ、次の `sam deploy` で `UNSET` に戻ってトンネルが切れる。** `samconfig.toml` だけだと、反映が次のデプロイまで待ちになる。
+- **渡すのを忘れると、EC2 はオンプレを知らないので、要求を黙って捨てる**（オンプレの `wg show` に `latest handshake` が出ず、`0 B received` のまま。2026-10-28 の初回で起きた）。
+- **AMI の固定は初回のデプロイのあとに必ず行う。** 既定は SSM の「最新」の AMI で、新しい AMI が出たあとのデプロイでインスタンスが置き換わると、**EC2 の秘密鍵が失われ、公開鍵が変わる**（オンプレの設定の作り直しが要る）。空でなければ SSM の「最新」より優先される。
+- このデプロイに `UserData` の変更（2026-10-27 のスワップの追加など）も入っていると、EC2 は 1 回停止・起動する（置き換えはしない）。鍵とスワップはディスクに残るので、トンネルは数十秒で戻る。
+
+**4. オンプレの設定を作って置く**
+
+```bash
+./dev/render-conf.sh --endpoint <手順 1 の Elastic IP> --server-public-key <手順 1 の EC2 の公開鍵>
+sudo install -m 600 -o root -g root ~/.config/comegin/wireguard/wg0.conf /etc/wireguard/wg0.conf
+```
+
+- `render-conf.sh` は雛形 `onprem/wireguard/wg0.conf.example` に値を入れる。秘密鍵はファイルから直接読み、コマンドラインにも画面にも出さない。作られる設定の形:
 
 ```ini
 [Interface]
 Address = 10.99.0.2/32
-PrivateKey = <wg-onprem.key の中身>
+PrivateKey = <オンプレの秘密鍵>
 MTU = 1380
 [Peer]
-PublicKey = <手順 2 の EC2 の公開鍵>
+PublicKey = <EC2 の公開鍵>
 Endpoint = <WireguardPublicIp>:51820
-AllowedIPs = 10.99.0.1/32, 10.20.0.0/16
+AllowedIPs = 10.20.0.0/16, 10.99.0.1/32
 PersistentKeepalive = 25
 ```
 
-- `AllowedIPs` は EC2 のアドレス（`10.99.0.1/32`）と VPC の CIDR（`VpcCidr`。RDS への経路）。**`PersistentKeepalive` が要る**（EC2 から先にオンプレへ送れない。オンプレの送信元ポートは NAT で変わる）。**`MTU = 1380` は EC2 側と同じ値**（自動に任せると EC2 側が 8921 になり、PPPoE〈1454〉や DS-Lite・MAP-E〈1460〉の回線で外側の UDP が分割される。`onprem/wireguard/wg0.conf.example` にも入れてある）。
-- **EC2 の公開鍵の SSM パラメータ（`server-public-key`）がいつまでも無いときは、user-data が途中で止まっている。** SSM で入らなくても、`aws ec2 get-console-output --region ap-northeast-1 --instance-id "$(OUT WireguardInstanceId)" --latest --output text | grep -E 'part-001|Killed|FAILED'` で起動時の出力が読める（読み取りだけ）。
-  **2026-10-27 の初回のデプロイでは、t4g.nano（512 MiB）で `dnf install` がメモリ不足で強制終了され（`Out of memory: Killed process ... (dnf)`）、鍵の生成から先が一つも実行されなかった。** テンプレートは、dnf の前に 1 GiB のスワップファイル（`/swapfile`）を作るように直した。user-data は初回の起動でしか流れないので、既に動いている EC2 は SSM で入って直す（テンプレートの `UserData` の変更をデプロイすると EC2 は停止・起動するが、user-data は流れ直さない）:
+- `AllowedIPs` は VPC の CIDR（`VpcCidr`。RDS への経路）と EC2 のアドレス（`10.99.0.1/32`）。**`PersistentKeepalive` が要る**（EC2 から先にオンプレへ送れない。オンプレの送信元ポートは NAT で変わる）。`ListenPort` は書かない（オンプレから外向きに接続する。`wg show` の `listening port` が毎回変わるのは正常）。
+- **`MTU = 1380` は EC2 側と同じ値**（自動に任せると EC2 側が 8921 になり、PPPoE〈1454〉や DS-Lite・MAP-E〈1460〉の回線で外側の UDP が分割される）。
+- EC2 側のピアの `AllowedIPs` は `10.99.0.2/32`（`OnpremPeerAddress`）だけ。EC2 は、オンプレからの通信も VPC からの通信も masquerade するので、オンプレに VPC のタスクの IP への経路は要らない（オンプレから見た Webhook の送信元は常に `10.99.0.1`）。
 
-  ```bash
-  aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"
-  # （EC2 の中。テンプレートの user-data の冒頭と同じことを手で行ってから、user-data をもう一度実行する。どれも何度実行しても同じ結果になる）
-  sudo bash -c 'if [ ! -f /swapfile ]; then dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; chmod 600 /swapfile; mkswap /swapfile; fi; swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile; grep -q "^/swapfile " /etc/fstab || echo "/swapfile none swap defaults 0 0" >> /etc/fstab'
-  free -m                                                  # Swap の total が 1023 前後になる
-  sudo bash /var/lib/cloud/instance/scripts/part-001       # 最後に「wireguard setup: done」（数分かかる）
-  sudo wg show                                             # interface: wg0 と listening port: 51820。ピアはまだ無い（オンプレの公開鍵が UNSET）
-  ```
-
-- **EC2 の user-data は、公開鍵を SSM に書けなかったときは失敗で終わる**（`/var/log/wireguard-setup.log` の最後が `FAILED to publish` になる）。インスタンスのロールと、public サブネットのインターネットへの経路を確かめてから、ログの案内のとおり user-data を実行し直す。
-- EC2 側のピアの `AllowedIPs` は `10.99.0.2/32`（`OnpremPeerAddress`）だけ。EC2 は、オンプレからの通信を masquerade するので、オンプレに VPC のタスクの IP への経路は要らない。
-
-オンプレの公開鍵を EC2 に渡す（EC2 は 2 分ごとに SSM のパラメータを読んで、ピアを更新する。インスタンスは置き換わらない）:
-
-| 方法 | 手順 | 注意 |
-|---|---|---|
-| (a) 推奨 | `samconfig.toml` の `parameter_overrides` に `"OnpremWireguardPublicKey=<wg-onprem.pub の中身>"` を書いて `sam deploy` | CloudFormation の値が正になる |
-| (b) すぐに反映したい | `aws ssm put-parameter --region ap-northeast-1 --name /comegin/prod/wireguard/onprem-public-key --type String --overwrite --value '<wg-onprem.pub の中身>'`（人が実行） | **CloudFormation の管理値（初期は `UNSET`）とずれる（ドリフト）。** 同じ値を `samconfig.toml` の `OnpremWireguardPublicKey` にも書いておく（書かないと、ドリフトの検知で差が出る。あとで別の値をこのパラメータに入れるときに、元の値と食い違う） |
-
-確認（オンプレの鍵を渡してから、数分以内）:
-
-- オンプレ: `sudo wg show` に `latest handshake` が出る。`ping 10.99.0.1` が通る。`psql "host=<PostgresEndpoint> dbname=strapi user=strapi sslmode=verify-full sslrootcert=<RDS の CA 束>"` で RDS に繋がる（TLS の検証は、4.7 と同じ CA 束で行う。接続先は RDS のエンドポイント名のまま。名前は VPC の private IP に解決される）。
-- AWS 側: `aws ssm start-session --target <WireguardInstanceId>` で入り、`sudo wg show`（`latest handshake` と転送量）と `sudo nft list ruleset`（forward の既定が drop で、許可が、戻りの通信（`ct state established,related accept`）と新しい接続の 2 行の、計 3 行だけであること）を見る。
-- **Webhook の送信先**（人が各製品の管理画面で設定する）: Mautic は `http://10.99.0.2:5680/webhook/mautic-event`、Chatwoot は `http://10.99.0.2:5680/webhook/chatwoot-event`。HTTP だが、WireGuard の内側を通る。署名の検証（`I-11` `I-12`）は引き続き n8n 側で必須。
-  Mautic・Chatwoot のタスクは、宛先が VPC の外（`10.99.0.0/24`）なので、private サブネットの経路表（`PrivateRouteToOnprem`）で EC2 に届く。届かないときは、SG（`WireguardSecurityGroup` の ingress が 4 つの SG から tcp 5680 か）、EC2 の送信元／宛先チェックが無効か、nftables のカウンターを順に見る。
-
-**AMI を固定する（初回のデプロイのあとに必ず行う）。** 既定では、AMI は SSM の「最新」を指す。新しい AMI が出たあとの更新でインスタンスが置き換わる設計になると、**秘密鍵が失われ、公開鍵が変わる（オンプレの `wg0.conf` の `PublicKey` の更新が要る）**。動いている EC2 の AMI の ID を取り出して、`samconfig.toml` の `parameter_overrides` に書く:
+**5. 起動する**
 
 ```bash
-aws ec2 describe-instances --region ap-northeast-1 --instance-ids "$(OUT WireguardInstanceId)" --query 'Reservations[0].Instances[0].ImageId' --output text
-# → "WireguardFixedAmiId=<ami-...>" を samconfig.toml に書いて sam deploy（空でなければ SSM の「最新」より優先される）
+sudo systemctl enable --now wg-quick@wg0
 ```
 
-- ENI は別のリソースで、EC2 に差している。**インスタンスの置き換え（AMI やインスタンスタイプの変更）は、新しい EC2 が同じ ENI を使おうとして「使用中」で失敗し、ロールバックする見込み**（未検証）。意図せず鍵が入れ替わることを防ぐ副作用でもある。意図して置き換えるときは、古い EC2 を手で終了（`aws ec2 terminate-instances`）してから `sam deploy` する。ENI・Elastic IP・経路は引き継がれるので、オンプレの `Endpoint` は変わらない。**新しい EC2 の公開鍵（手順 2）を、オンプレの `wg0.conf` の `PublicKey` に入れて `wg-quick` を再起動する。**
-- OS の更新: SSM Session Manager で入り、`sudo dnf upgrade --security -y`。カーネルが更新されたときは再起動（ENI・Elastic IP・秘密鍵・nftables・systemd のユニットは変わらない。短く止まる）。止まっている間は、オンプレの Strapi・n8n が RDS に届かず、Webhook が欠落する（TA-05 の縮退運転）。
+- 再起動後も自動で上がる。Strapi・n8n より先に上がる必要がある（`onprem/README.md` の「起動の順番」）。
+
+**6. 疎通を確かめる**（手順 3 から数分以内）
+
+| 場所 | コマンド | 合格の目安 |
+|---|---|---|
+| オンプレ | `sudo wg show wg0` | `latest handshake` が 2 分以内に出ていて、`transfer` の `received` が 0 B でない |
+| オンプレ | `ping -c 3 10.99.0.1` | EC2 まで届く |
+| オンプレ | `psql "host=<PostgresEndpoint> dbname=strapi user=strapi sslmode=verify-full sslrootcert=<RDS の CA 束>"` | RDS に繋がる（TLS の検証は 4.7 と同じ CA 束。接続先は RDS のエンドポイント名のまま。名前は VPC の private IP に解決される） |
+| EC2（`aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"`） | `sudo wg show` | ピアが 1 つ（オンプレの公開鍵）で、`latest handshake` がある |
+| EC2 | `sudo nft list ruleset` | forward の既定が drop で、許可が、戻りの通信（`ct state established,related accept`）と新しい接続の 2 行の、計 3 行だけ |
+
+**7. その後**
+
+- Strapi・n8n を立ち上げる（WireGuard → Strapi → n8n の順。`onprem/README.md`）。設定スクリプトでは、段階 apps の `onprem` モジュールが手順 2〜6 と立ち上げを案内する。
+- n8n の受け口が起動したら、各製品の管理画面で Webhook の送信先を設定する: Mautic は `http://10.99.0.2:5680/webhook/mautic-event`、Chatwoot は `http://10.99.0.2:5680/webhook/chatwoot-event`。HTTP だが、WireGuard の内側を通る。署名の検証（`I-11` `I-12`）は引き続き n8n 側で必須。
+  Mautic・Chatwoot のタスクは、宛先が VPC の外（`10.99.0.0/24`）なので、private サブネットの経路表（`PrivateRouteToOnprem`）で EC2 に届く。届かないときは、SG（`WireguardSecurityGroup` の ingress が 4 つの SG から tcp 5680 か）、EC2 の送信元／宛先チェックが無効か、nftables のカウンターを順に見る。
+
+**つまずいたとき**（上の 2 つは 2026-10-27〜28 の初回で起きた）:
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| 手順 1 の EC2 の公開鍵が `ParameterNotFound` のまま | user-data が途中で止まっている。初回は t4g.nano（512 MiB）で `dnf install` がメモリ不足で強制終了され（`Out of memory: Killed process ... (dnf)`）、鍵の生成から先が一つも実行されなかった | 下の「user-data が止まったとき」 |
+| オンプレの `wg show` に `latest handshake` が無く、`0 B received`（`ping 10.99.0.1` は 100% loss） | **オンプレの公開鍵が EC2 に渡っていない**（SSM の `onprem-public-key` が `UNSET`）。WireGuard は知らない相手の要求を黙って捨てるので、オンプレからは「送っているのに返事が無い」としか見えない | 手順 3 を行う。`aws ssm get-parameter --region ap-northeast-1 --name "$(OUT OnpremPublicKeyParameterName)" --query Parameter.Value --output text` が、オンプレの `wg show` の `interface:` の `public key` と同じか確かめる |
+| 上と同じ症状で、鍵は合っている | EC2 の公開鍵か Endpoint の取り違え／UDP 51820 の外向きを、オンプレの回線・ルーター・仮想マシンの NAT が止めている | オンプレの `[Peer] PublicKey` が手順 1 の値と同じか、`Endpoint` が手順 1 の Elastic IP か。EC2 の SG（`WireguardSecurityGroup`）は UDP 51820 を `WireguardIngressCidr`（既定 `0.0.0.0/0`）から受ける |
+| handshake はあるが RDS に届かない | RDS の SG が WireGuard の EC2 からの 5432 を許していない／DB 名の違い（DB ユーザーの権限は `strapi` `n8n` だけ） | `network.yaml` の SG。EC2 で `sudo nft list ruleset` のカウンター |
+| `/var/log/wireguard-setup.log` の最後が `FAILED to publish` | EC2 が公開鍵を SSM に書けなかった | インスタンスのロールと、public サブネットのインターネットへの経路を確かめ、下の手順で user-data を実行し直す |
+
+**user-data が止まったとき**: SSM で入らなくても、`aws ec2 get-console-output --region ap-northeast-1 --instance-id "$(OUT WireguardInstanceId)" --latest --output text | grep -E 'part-001|Killed|FAILED'` で起動時の出力が読める（読み取りだけ）。テンプレートは、dnf の前に 1 GiB のスワップファイル（`/swapfile`）を作るように直してある。**user-data は初回の起動でしか流れない**（テンプレートの `UserData` の変更をデプロイすると EC2 は停止・起動するが、流れ直さない）ので、既に動いている EC2 は SSM で入って直す:
+
+```bash
+aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"
+# （EC2 の中。テンプレートの user-data の冒頭と同じことを手で行ってから、user-data をもう一度実行する。どれも何度実行しても同じ結果になる）
+sudo bash -c 'if [ ! -f /swapfile ]; then dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; chmod 600 /swapfile; mkswap /swapfile; fi; swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile; grep -q "^/swapfile " /etc/fstab || echo "/swapfile none swap defaults 0 0" >> /etc/fstab'
+free -m                                                  # Swap の total が 1023 前後になる
+sudo bash /var/lib/cloud/instance/scripts/part-001       # 最後に「wireguard setup: done」（数分かかる）
+sudo wg show                                             # interface: wg0 と listening port: 51820（ピアは手順 3 まで無い）
+```
+
+**運用**:
+
+- ENI は別のリソースで、EC2 に差している。**インスタンスの置き換え（AMI やインスタンスタイプの変更）は、新しい EC2 が同じ ENI を使おうとして「使用中」で失敗し、ロールバックする見込み**（未検証）。意図せず鍵が入れ替わることを防ぐ副作用でもある。意図して置き換えるときは、古い EC2 を手で終了（`aws ec2 terminate-instances`）してから `sam deploy` する。ENI・Elastic IP・経路は引き継がれるので、オンプレの `Endpoint` は変わらない。**新しい EC2 の公開鍵（手順 1）でオンプレの設定を作り直し（`./dev/render-conf.sh ... --force`）、`sudo systemctl restart wg-quick@wg0` する。**
+- OS の更新: SSM Session Manager で入り、`sudo dnf upgrade --security -y`（スワップがあるので t4g.nano でも足りる）。カーネルが更新されたときは再起動（ENI・Elastic IP・秘密鍵・nftables・systemd のユニットは変わらない。短く止まる）。止まっている間は、オンプレの Strapi・n8n が RDS に届かず、Webhook が欠落する（TA-05 の縮退運転）。
 - 停止（ステータスチェックの失敗）は ops トピックに通知される。システム側の障害は自動復旧する（`WireguardSystemRecoverAlarm`）。トンネルそのもの（`latest handshake` の途絶）の監視は作っていない（5 節）。
 
 ### 4.3 global の 2 回目: フラットレートプランの購読
@@ -348,11 +418,41 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 
 - **RDS の CA**（`https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`）は、DB に接続する各イメージが持つ。上流のイメージは、薄い**派生イメージ**（`cloud/images/<製品>/Dockerfile`）にして ECR に置く。
   `FROM <上流>:<固定のタグ>` に CA を足すだけで、Mautic だけは設定ファイルへの小さなパッチも入る（下の表）。**Strapi と n8n はオンプレで動かす（ADR-21）ので、ECR に置かない。** オンプレの Strapi・n8n も、同じ CA 束（下の SHA-256 で確かめたもの）で RDS の証明書とホスト名を検証して接続する（`onprem/` 側の設定）。
-- CA の取得はビルド時（`ADD --checksum=sha256:...`）で、**SHA-256 は `fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c`**（2026-10-04 に取得した 111 証明書の束）。
+- CA の取得はビルド時（`ADD --checksum=sha256:...`）で、**SHA-256 は `90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b`**（2026-10-28 に取得した 114 証明書の束。配信元の更新日は 2026-10-14）。履歴: 2026-10-04 の 111 証明書の束（`fe45bbebf92a…`）→ 2026-10-28 に、オンプレの Strapi のビルドが `digest mismatch` で止まって更新に気づいた。増えた 3 枚は sa-west-1 の Amazon RDS のルート CA（RSA2048・RSA4096・ECC384。発行日 2026-09-02）で、114 枚すべてが O=Amazon Web Services・OU=Amazon RDS の自己署名のルート CA、東京（ap-northeast-1）の 3 枚も入っていることを確かめた。
   AWS が束を更新すると、**ビルドも ops-tasks のタスクも失敗する（意図した動作。改ざんの検知と、CA の更新を人が確かめるため）。** 更新の手順:
-  1. `curl -fsS https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o /tmp/b.pem` で取得し、中身（証明書の数、発行者）を確かめる。
-  2. `sha256sum /tmp/b.pem` の値を、`cloud/images/*/Dockerfile` の `RDS_CA_SHA256`、親のパラメータ `RdsCaSha256`（ops-tasks）、**オンプレの `onprem/n8n/Dockerfile` と `backend/strapi-system/Dockerfile` の `RDS_CA_SHA256`** に反映する（どれも `ADD --checksum` で照合する。2026-10-27 に Strapi も照合する形にそろえた）。
-  3. 2 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。オンプレの Strapi・n8n もビルドし直す（`onprem/` の README）。
+  気づき方: `docker compose build`（オンプレの Strapi・n8n）や派生イメージのビルドが `failed to solve: digest mismatch sha256:<今の束>: sha256:<固定した値>` で止まる。DB 作成のタスク（4.8）はログに `sha256sum: WARNING: 1 computed checksum did NOT match` が出て `exitCode` が 1 になる。
+  1. 束を取得し、**中身が正規の更新か**を確かめる（2026-10-28 に行った手順）:
+
+     ```bash
+     mkdir -p /tmp/rds-ca && cd /tmp/rds-ca
+     curl -fsS -o a.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+     curl -fsS -o b.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem   # 2 回取って同じか
+     sha256sum a.pem b.pem                                     # ビルドのエラーの「今の束」の値と一致するか
+     curl -fsSI https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem | grep -i last-modified
+     grep -c 'BEGIN CERTIFICATE' a.pem                         # 枚数（前回から何枚増えたか）
+     awk '/BEGIN CERT/{n++} {print > ("c" n ".pem")}' a.pem
+     for f in c*.pem; do openssl x509 -in "$f" -noout -subject -issuer -startdate -nameopt RFC2253 | paste -sd'|'; done > certs.txt
+     grep -vc 'O=Amazon Web Services' certs.txt                # 0 であること（ほかの発行者が混ざっていない）
+     grep -c 'ap-northeast-1 Root CA' certs.txt                # 3 であること（本番の RDS の CA が残っている）
+     sort -t'|' -k3 -r certs.txt | head -5                     # 新しい証明書（増えた分）が何か
+     ```
+
+     合格の目安: すべてが `O=Amazon Web Services`・`OU=Amazon RDS` の自己署名のルート CA（subject と issuer が同じ）で、増えた分が新しいリージョンのものなど説明のつくもの。説明のつかない発行者や中間 CA が混ざっていたら、値を更新せずに止まって調べる。
+  2. `sha256sum` の値を、次の **8 か所** に反映する（7 か所はリポジトリ。どれも `ADD --checksum` か `sha256sum -c` で照合する）:
+     - `cloud/images/chatwoot/Dockerfile`・`cloud/images/mautic/Dockerfile` の `RDS_CA_SHA256`
+     - `onprem/n8n/Dockerfile`・`backend/strapi-system/Dockerfile` の `RDS_CA_SHA256`（オンプレ。2026-10-27 に Strapi も照合する形にそろえた）
+     - `cloud/template.yaml` の親のパラメータ `RdsCaSha256` の既定値と、`cloud/stacks/ops-tasks.yaml` の `RdsCaSha256` の既定値
+     - この節の上の SHA-256 の値（と履歴）
+     - **`samconfig.toml` の `parameter_overrides` の `RdsCaSha256`**（書いてある場合。**テンプレートの既定値より優先されるので、ここが古いままだとデプロイしても反映されない**。2026-10-28 に、既定値だけを直してデプロイし、タスク定義が古い値のまま残った）。`grep -n RdsCaSha256 cloud/samconfig.toml` で確かめる
+  3. `cd cloud && sam build && sam deploy` で、DB 作成のタスク定義を新しい版にする。反映されたかは、次の値が新しい SHA-256 になっていることで確かめる:
+
+     ```bash
+     aws ecs describe-task-definition --region ap-northeast-1 --task-definition comegin-prod-db-init-postgres \
+       --query "taskDefinition.containerDefinitions[0].environment[?name=='RDS_CA_SHA256'].value | [0]" --output text
+     ```
+
+     待てないときは `aws ecs run-task` に `--overrides '{"containerOverrides":[{"name":"psql","environment":[{"name":"RDS_CA_SHA256","value":"<新しい値>"}]}]}'` を付けて 1 回だけ新しい値で照合できる（CloudFormation の値とずれるので、あとで必ずデプロイする）。
+  4. オンプレの Strapi・n8n をビルドし直す（`docker compose build --no-cache`。`onprem/README.md` の「起動の順番」）。2 つの派生イメージは、次に版を上げるときに、ビルドの連番を上げたタグでビルドし直して push する（古い束でも東京〈ap-northeast-1〉の CA が入っていれば、動いているイメージはそのままでよい）。
 - ElastiCache（`rediss://`）は、Amazon の公開 CA で署名されており、Node（consent-api）と Ruby（Chatwoot）の既定の信頼ストアで検証される。検証を無効にする設定は入れていない。
 - 自作の admin-auth（Lambda。ADR-26）は、Lambda の実行環境の `/var/runtime/ca-cert.pem`（RDS の CA を含む）を `NODE_EXTRA_CA_CERTS` で読む（2026-10-12 まではイメージに同梱していた）。
 
@@ -400,18 +500,66 @@ PostgreSQL に `chatwoot` / `admin_auth` / `strapi` / `n8n` のデータベー�
 `strapi` と `n8n` は、オンプレの Strapi・n8n が WireGuard 経由で使う（ADR-21）。作り方は同じで、使うのはオンプレ側だけ。
 冪等なので、何度実行してもよい（パスワードを Secret の値に揃え直す）。chatwoot のデータベースには拡張（`vector`・`pg_trgm`・`pg_stat_statements`）も入れる。
 
-```bash
-OUT() { aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
-CLUSTER=$(OUT ClusterName); SUBNETS=$(OUT PrivateSubnetIds); OPS_SG=$(OUT OpsTasksSecurityGroupId)
+手順（2026-10-28 に本番で通した形。端末の幅で長い行が折り返されても壊れないよう、1 行を短くして `\` でつないである。`\` の後ろに空白を入れない）:
 
-TASK=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition comegin-prod-db-init-postgres \
+```bash
+# 1. 変数を用意する（関数の定義と変数の設定は行を分ける。端末を開き直したら、ここからやり直す）
+REGION=ap-northeast-1
+OUT() {
+  aws cloudformation describe-stacks \
+    --region "$REGION" \
+    --stack-name comegin-prod \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
+}
+CLUSTER=$(OUT ClusterName)
+SUBNETS=$(OUT PrivateSubnetIds)
+OPS_SG=$(OUT OpsTasksSecurityGroupId)
+echo "CLUSTER=$CLUSTER"     # comegin-prod
+echo "SUBNETS=$SUBNETS"     # subnet-...,subnet-...（private サブネット 2 つ）
+echo "OPS_SG=$OPS_SG"       # sg-...
+
+# 2. タスク定義の CA 束のハッシュが、今の束と同じかを確かめる（4.7。違うと手順 3 のタスクが照合で失敗する）
+aws ecs describe-task-definition \
+  --region "$REGION" \
+  --task-definition comegin-prod-db-init-postgres \
+  --query "taskDefinition.containerDefinitions[0].environment[?name=='RDS_CA_SHA256'].value | [0]" \
+  --output text
+
+# 3. PostgreSQL（chatwoot・admin_auth・strapi・n8n）
+TASK=$(aws ecs run-task \
+  --region "$REGION" \
+  --cluster "${CLUSTER:?CLUSTER が空}" \
+  --launch-type FARGATE \
+  --task-definition comegin-prod-db-init-postgres \
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$OPS_SG],assignPublicIp=DISABLED}" \
-  --query 'tasks[0].taskArn' --output text)
-aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
-aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].[exitCode,reason]'   # exitCode が 0 であること
-aws logs tail /comegin/prod/tasks --since 15m                                                                      # 結果のログ
-# MySQL は --task-definition comegin-prod-db-init-mysql
+  --query 'tasks[0].taskArn' \
+  --output text)
+echo "TASK=$TASK"           # arn:aws:ecs:...（None なら --query を外して実行し、failures を見る）
+
+aws ecs wait tasks-stopped \
+  --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK"      # 止まるまで待つだけ（成否は次で見る。最長 10 分）
+
+aws ecs describe-tasks \
+  --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK" \
+  --query 'tasks[0].[containers[0].exitCode, stoppedReason]'
+#  → [0, "Essential container in task exited"] なら成功
+
+aws logs tail /comegin/prod/tasks --region "$REGION" --since 15m
+#  → CREATE ROLE・CREATE DATABASE・CREATE EXTENSION（chatwoot の 3 つ）の後に「db-init-postgres: done」
+
+# 4. MySQL（mautic）。手順 3 の --task-definition を comegin-prod-db-init-mysql にして同じことを行う
+#    → ログの最後が「db-init-mysql: done」
 ```
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| `ClusterNotFoundException: Cluster not found` | 変数 `CLUSTER` が空（端末を開き直した・手順 1 を飛ばした）。空の `--cluster` は `default` のクラスターを探しに行く | 手順 1 からやり直す。`${CLUSTER:?...}` の書き方なら、空のときは AWS を呼ぶ前に止まる |
+| `bash: 予期しないトークン ... 周辺に構文エラー` | 関数の定義の `}` の後ろに `;` が無いまま、同じ行で次のコマンドを続けた | 手順 1 のとおり行を分ける |
+| `aws: error: argument --query: expected one argument` と「コマンドが見つかりません」 | 貼り付けたときに長い行が `--query` の直後で折り返され、改行が入った | 手順 1 の、行を短くして `\` でつないだ形を使う |
+| `exitCode` が 1 で、ログに `sha256sum: WARNING: 1 computed checksum did NOT match` | タスク定義の `RDS_CA_SHA256` が今の束と違う | 4.7 の更新の手順（特に `samconfig.toml` の `RdsCaSha256`） |
+| `exitCode` が `null` で `stoppedReason` に `CannotPullContainerError` | Docker Hub のイメージを取得できない | private サブネットの NAT の経路 |
+| ログに `password authentication failed` か `could not connect` | RDS のマスターの資格情報か、ops-tasks の SG から RDS への 5432 | `ops-tasks.yaml`・`network.yaml` |
 
 - このタスクは、Docker Hub の公開イメージ（`postgres:16.15-alpine`、`mysql:8.4.11`。マイナーまで固定）を NAT 経由で取得し、**起動時に RDS の CA 束を取得して SHA-256 を照合したうえで、サーバー証明書とホスト名を検証して接続する**（PostgreSQL は `verify-full`、MySQL は `VERIFY_IDENTITY`）。AWS が束を更新すると照合に失敗する（4.7 の更新の手順）。
 - **RDS のマスターの資格情報を読めるのは、このタスクの実行ロール（`comegin-<env>-ops-tasks-execution`）だけ。どのサービスのタスク定義からも参照しない。** 運用者が RunTask で起動したときだけ読まれる。
@@ -425,6 +573,14 @@ aws logs tail /comegin/prod/tasks --since 15m                                   
   aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/n8n/DB_PASSWORD --query SecretString --output text > ./n8n-db.pw )
 # 値をオンプレの秘匿ファイルに写したら、./strapi-db.pw と ./n8n-db.pw を消す（shred -u）。
 ```
+
+あわせて、オンプレの秘匿ファイルの `DATABASE_HOST`（Strapi）と `DB_POSTGRESDB_HOST`（n8n）には、PostgreSQL のクラスターのエンドポイントを入れる（親スタックの出力には無い。IP アドレスで書かない。TLS の検証はこのホスト名で行う）:
+
+```bash
+aws rds describe-db-clusters --region ap-northeast-1 --db-cluster-identifier comegin-prod-postgres --query 'DBClusters[0].Endpoint' --output text
+```
+
+Secret は、スタックを作り直すと新しい値になる（2026-10-27 の作り直しで変わった）。**前に写した値は使わず、DB 作成のあとに取り出し直す。** オンプレの起動の手順は `onprem/README.md` の「起動の順番」。
 
 この 2 つの Secret は、ECS のどのタスク定義も参照しない（`ops-tasks` の DB 作成タスクだけが読む）。**値を変えたら、`db-init-postgres` を再実行して RDS 側のユーザーのパスワードを揃え、オンプレの秘匿ファイルも更新する。**
 

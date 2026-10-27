@@ -15,7 +15,7 @@ ARG UPSTREAM_TAG
 ARG UPSTREAM_DIGEST
 # RDS の CA 束（global-bundle.pem）の SHA-256。内容が変わるとビルドが失敗する（改ざんの検知と、CA の更新を人が確かめるため）。
 # AWS が束を更新したら、取得して中身を確かめたうえで、この値を更新する（cloud/README.md の 4.7）。
-ARG RDS_CA_SHA256=fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c
+ARG RDS_CA_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
 FROM scratch AS rds-ca
 ARG RDS_CA_SHA256

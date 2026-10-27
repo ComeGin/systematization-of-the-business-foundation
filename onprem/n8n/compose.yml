@@ -15,6 +15,11 @@
 #   docker compose build     # 派生イメージ（RDS の CA つき）
 #   docker compose up -d
 
+# プロジェクト名を明示する（2026-10-28）。省略するとディレクトリ名（n8n）になり、開発の middleware/n8n と同じ名前になる。
+# 同じ名前だと、ボリューム・ネットワーク・コンテナ名を共有してしまう（本番の n8n が開発の n8n-data〈開発の暗号化キー入り〉を読み、
+# 「Mismatching encryption keys」で起動しなかった）。変えると別のボリュームになるので、変えない
+name: comegin-prod-n8n
+
 services:
   n8n:
     build:

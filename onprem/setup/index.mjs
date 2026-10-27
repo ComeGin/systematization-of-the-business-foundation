@@ -90,7 +90,7 @@ export async function apply(ctx) {
   if (!r.wg || !r.units["wg-quick@wg0.service"]?.enabled) {
     steps.push(
       `WireGuard の鍵を作る: cd ${onprem}/wireguard && ./dev/gen-keys.sh（公開鍵だけが表示される。秘密鍵は ~/.config/comegin/wireguard/ から出さない）`,
-      "公開鍵を AWS に渡す: samconfig.toml の OnpremWireguardPublicKey に書いて sam deploy、または親スタックの出力 OnpremPublicKeyParameterName の SSM パラメータに aws ssm put-parameter --overwrite（cloud/README.md の 4.2.1）",
+      "公開鍵を AWS に渡す（両方に入れる）: 親スタックの出力 OnpremPublicKeyParameterName の SSM パラメータに aws ssm put-parameter --overwrite（すぐ効く）と、samconfig.toml の OnpremWireguardPublicKey（入れないと次の sam deploy で UNSET に戻る。同じときに WireguardFixedAmiId も書く。cloud/README.md の 4.2.1 の手順 3）",
       "EC2 の公開鍵（SSM の WireguardServerPublicKeyParameterName）と Elastic IP（出力 WireguardPublicIp）を取り出す",
       "設定を作って置く: ./dev/render-conf.sh --endpoint <Elastic IP> --server-public-key <EC2 の公開鍵> && sudo install -m 600 -o root -g root ~/.config/comegin/wireguard/wg0.conf /etc/wireguard/wg0.conf",
       "sudo systemctl enable --now wg-quick@wg0",

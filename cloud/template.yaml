@@ -420,7 +420,7 @@ Parameters:
       より優先する。初回のデプロイのあと、動いている EC2 の AMI の ID を入れて固定する。
   RdsCaSha256:
     Type: String
-    Default: fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c
+    Default: 90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
     Description: RDS の CA 束（global-bundle.pem）の SHA-256。ops-tasks の DB
       作成タスクが起動時に束を取得して照合する。 cloud/images/*/Dockerfile の RDS_CA_SHA256
       と同じ値にする（README の 4.7）。

@@ -33,13 +33,75 @@ ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い
 
 ## 起動の順番
 
-**WireGuard → Strapi → n8n** の順に上げる。
+**WireGuard → Strapi → n8n** の順に上げる。下の手順は 2026-10-28 に本番で通した順番。
 
-1. **WireGuard**（`sudo systemctl enable --now wg-quick@wg0`）。手順は [wireguard/README.md](wireguard/README.md)。RDS に届くことを `nc` で確かめてから次へ進む。
-2. **Strapi**（`strapi/`）: `./dev/init-env.sh` → RDS のパスワード・IAM のキー・バケット名・PostHog のトークンを `.env` に入れる → `docker compose build && docker compose up -d`。
-3. **n8n**（`n8n/`）: `./dev/init-env.sh` → RDS のパスワードを入れる → `docker compose build && docker compose up -d`。
+### 前提（AWS 側。`cloud/README.md`）
 
-順番の理由:
+| 済ませること | 節 | 済んだかの確かめ方 |
+|---|---|---|
+| 本番スタックのデプロイ。RDS の CA 束のハッシュ（`RdsCaSha256`）が今の束と合っている | 4.2・4.7 | DB 作成のタスク定義の `RDS_CA_SHA256` が今の束の SHA-256（4.7 の手順 3） |
+| WireGuard の接続 | 4.2.1 | `sudo wg show wg0` に `latest handshake` が出ていて、`received` が 0 B でない |
+| DB とアプリ用ユーザーの作成（`db-init-postgres`） | 4.8 | `aws logs tail /comegin/prod/tasks` の最後が `db-init-postgres: done` |
+| Strapi のメディア用の IAM ユーザーのキー | 4.5 | 発行して控えてある |
+
+### 1. WireGuard
+
+`sudo systemctl enable --now wg-quick@wg0`。手順は `cloud/README.md` の 4.2.1 と [wireguard/README.md](wireguard/README.md)。`ping -c 3 10.99.0.1` が通ってから次へ進む。
+
+### 2. Strapi（`strapi/`）
+
+```bash
+cd onprem/strapi
+./dev/init-env.sh             # .env（600）を作り、鍵類を生成する。既にある値は変えない
+```
+
+`.env` に人が入れる値（エディタで書く。画面に出さない）:
+
+| キー | 値の出どころ |
+|---|---|
+| `DATABASE_HOST` | `aws rds describe-db-clusters --region ap-northeast-1 --db-cluster-identifier comegin-prod-postgres --query 'DBClusters[0].Endpoint' --output text`（IP アドレスで書かない） |
+| `DATABASE_PASSWORD` | Secrets Manager の `comegin/prod/strapi/DB_PASSWORD`（`cloud/README.md` の 4.8。**DB 作成のあとに取り出す**。スタックを作り直すと値が変わる） |
+| `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` | Strapi のメディア用の IAM ユーザーのキー（4.5） |
+| バケット名・PostHog のトークンなど | `.env.example` のコメント |
+
+```bash
+docker compose build          # RDS の CA 束を取得して SHA-256 を照合する（合わなければ止まる。下の「つまずいたとき」）
+docker compose up -d
+docker compose logs -f        # エラーが繰り返されないことを見て Ctrl+C
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:1338/_health   # 204
+```
+
+### 3. n8n（`n8n/`）
+
+```bash
+cd onprem/n8n
+./dev/init-env.sh             # .env（600）を作り、暗号化キーなどを生成する。N8N_ENCRYPTION_KEY は別の場所にも控える
+```
+
+`.env` に人が入れる値: `DB_POSTGRESDB_HOST`（Strapi の `DATABASE_HOST` と同じエンドポイント）と `DB_POSTGRESDB_PASSWORD`（Secrets Manager の `comegin/prod/n8n/DB_PASSWORD`。4.8）。
+
+```bash
+docker compose build
+docker compose up -d
+docker compose ps             # n8n・runners・webhook-proxy の 3 つが動いている（webhook-proxy は wg0 の 10.99.0.2 にバインドする）
+docker compose logs -f n8n    # エラーが繰り返されないことを見て Ctrl+C
+curl -s http://127.0.0.1:5679/healthz                                            # {"status":"ok"}
+```
+
+本番の n8n の Compose のプロジェクト名は `comegin-prod-n8n`、Strapi は `comegin-prod-strapi`（`compose.yml` の `name:`）。開発の `middleware/n8n`（プロジェクト名 `n8n`）とボリュームを分けるため（下の表）。
+
+### つまずいたとき（どれも 2026-10-28 の初回で起きた）
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| `docker compose build` が `failed to solve: digest mismatch sha256:<今の束>: sha256:<固定した値>` | AWS が RDS の CA 束を更新した（意図して止めている。改ざんの検知のため） | `cloud/README.md` の 4.7 の更新の手順（中身を確かめてから、8 か所の値を更新する）→ `docker compose build --no-cache` |
+| Strapi のログに `password authentication failed for user "strapi"` が繰り返される | RDS にまだ `strapi` ユーザーが無い（PostgreSQL はユーザーが無いときも同じ文言で断る）か、パスワードが Secret と違う | `cloud/README.md` の 4.8 の `db-init-postgres`（`/comegin/prod/tasks` にログが無ければ未実施）→ パスワードを取り出し直して `.env` に写す → `docker compose up -d` |
+| n8n のログに `Mismatching encryption keys. The encryption key in the settings file /home/node/.n8n/config does not match the N8N_ENCRYPTION_KEY env var` | **本番の n8n が、開発の n8n のボリュームを読んだ。** プロジェクト名を書いていなかったころは、`onprem/n8n` も `middleware/n8n` もディレクトリ名から `n8n` になり、ボリューム `n8n_n8n-data`（開発の暗号化キー入り）を共有した | 今の `compose.yml` は `name:` で分けてある。古い名前で上げたコンテナが残っていれば `docker compose -p n8n down`（Strapi は `docker compose -p strapi down`）で止めてから `docker compose up -d`。**`-v` と `--remove-orphans` は付けない**（`n8n_n8n-data`・`n8n_db-data` は開発の n8n のデータ） |
+| `dependency failed to start: container ... is unhealthy` | n8n 本体が起動に失敗している（runners・webhook-proxy は n8n の health を待つ） | `docker compose logs n8n` で、上の 2 行の原因を見る |
+| n8n のログに `DB_POSTGRESDB_SSL_CA_FILE contained leading or trailing whitespace; the value was trimmed` | n8n は末尾が `_FILE` の環境変数をファイルの中身として読む。CA の PEM の末尾の改行を取り除いたという知らせ | 無害。対処は要らない |
+| `webhook-proxy` が起動しない（`cannot assign requested address`） | wg0 が上がっておらず、`10.99.0.2` にバインドできない | 手順 1 の WireGuard を先に上げる |
+
+### 順番の理由
 
 - Strapi・n8n は起動時に RDS につなぐ。WireGuard が上がっていないと DB に届かず、起動に失敗する。
 - **`webhook-proxy` は WireGuard のアドレス（`10.99.0.2`）にバインドする。wg0 が上がっていないと Docker がバインドできず、起動に失敗する。** `restart: unless-stopped` が再試行するが、基本は WireGuard を先に上げる。
@@ -67,6 +129,7 @@ sudo systemctl enable --now comegin-strapi.service comegin-n8n.service
 | n8n の Webhook の受け口 | ngrok などのトンネルを手で張る | `10.99.0.2:5680`（WireGuard。`webhook-proxy`） |
 | n8n のサンドボックス・SearXNG | あり | **なし**（privileged な Docker-in-Docker をオンプレの本番に置かない） |
 | 環境変数ファイル | `backend/strapi-system/.env`、`middleware/n8n/.env` | `onprem/strapi/.env`、`onprem/n8n/.env`（別ファイル。値も別） |
+| Compose のプロジェクト名とボリューム | `n8n`（`middleware/n8n`。ボリューム `n8n_n8n-data`・`n8n_db-data` など。開発の Strapi は Compose を使わない） | `comegin-prod-n8n`（ボリューム `comegin-prod-n8n_n8n-data`）・`comegin-prod-strapi`。`compose.yml` の `name:` で固定（2026-10-28。書かないとディレクトリ名から開発と同じ `n8n` になり、ボリュームを共有する） |
 | 暗号化キー・鍵類 | 開発用 | **本番用を別に作る**。開発の値を流用しない |
 
 MCP の登録は `ops/mcp-registry.yaml` の `strapi-prod`（`http://127.0.0.1:1338/mcp`）と `n8n-prod`（`http://127.0.0.1:5679/mcp-server/http`）。開発の `strapi-mcp`・`n8n` は 1337・5678 のまま。

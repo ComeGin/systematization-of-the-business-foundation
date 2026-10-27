@@ -12,7 +12,7 @@ ARG NODE_IMAGE=node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a3
 ARG PNPM_VERSION=11.17.0
 # RDS の CA 束（global-bundle.pem）の SHA-256。内容が変わるとビルドが失敗する（黙って別の CA を信頼しないため）。
 # AWS が CA 束を更新したら、新しい値を人が確かめてから、cloud/ 側（RdsCaSha256・cloud/images/*）と onprem/n8n と揃えて更新する（cloud/README.md の 4.7）
-ARG RDS_CA_SHA256=fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c
+ARG RDS_CA_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
 # ---------- 依存の解決とビルド ----------
 FROM ${NODE_IMAGE} AS build
