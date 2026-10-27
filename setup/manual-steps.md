@@ -34,6 +34,7 @@
 | `verdant-virgo:prod-values`（`--target prod`） | 本番の公開サイトのビルドの値が `prod.conf` に足りない（ビルドを行う承認済みの `main` のチェックアウト `SITE_BUILD_CHECKOUT` が無い・作業ツリーと同じときは失敗として止まる） | 表示されたキーを `prod.conf` に書く（雛形は `setup/setup.conf.example` の「公開サイト」） | `setup/README.md` の「フロントエンド全体」 |
 | `verdant-virgo:gsc-domain`（`--target prod`） | `comegin.com` に Search Console の所有権の TXT が無い | Search Console にドメインプロパティを登録し、Route 53 に TXT を足す（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
 | `cloud:env`（`--target prod`。段階 `env`） | 道具・AWS の認証・`cloud/samconfig.toml` の必須の値が足りない | 道具を入れる／`aws sso login` など／`samconfig.toml` を雛形から作って値を書く | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:rollback`／`cloud:leftovers`（段階 `deploy`） | 本番スタックの初回の作成が失敗して戻された／戻されずに残ったリソースがある | スタックを消す／表示されたコマンドで残りを消す | [8.5](#85-aws-のデプロイcloud) |
 | `cloud:global`／`cloud:cloudfront-params`／`cloud:sam-deploy`（段階 `deploy`） | global・本番のスタックが無い・失敗している／CloudFront の 2 つのパラメータが雛形のまま | `sam deploy --config-env global`／表示された ARN を書く／`sam build` → `sam deploy` | [8.5](#85-aws-のデプロイcloud) |
 | `cloud:secrets`（段階 `deploy`） | `admin-auth/GOOGLE_CLIENT_SECRET` に値が無い | シェルの履歴に残らない方法で `put-secret-value` | [8.5](#85-aws-のデプロイcloud) |
 | `cloud:push`（段階 `images`） | 本番スタックのイメージのタグが ECR に無い | 表示されたコマンドでビルドしてプッシュする | [8.5](#85-aws-のデプロイcloud) |
@@ -317,6 +318,8 @@ Mautic と Chatwoot から n8n（I-11・I-12）への Webhook は、オンプレ
 | `cloud:global` | `cd cloud && sam deploy --config-env global`（`cloud/README.md` の 4.1） |
 | `cloud:cloudfront-params` | 表示された global の出力（`CertificateArn`・`WebAclArn`）を `samconfig.toml` の `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く |
 | `cloud:sam-deploy` | `cd cloud && sam build`（必須）→ `sam deploy`（4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
+| `cloud:rollback` | 本番スタックが `ROLLBACK_COMPLETE`（初回の作成が失敗して戻された。更新できない）。イベントで原因を確かめてテンプレートを直し、`aws cloudformation delete-stack` → `wait stack-delete-complete` で消す（入れ子のスタックの Validation failure は `aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true` で見る） |
+| `cloud:leftovers` | 本番スタックが無いのに、固定の名前の Retain のリソース（SNS 2・`comegin/prod/*` の Secret・runlog-archive の S3・ECR 2）が残っている。作成の失敗で戻されずに残ったもので、そのままでは `sam deploy` が名前の衝突で失敗する。中身が空なのを確かめてから、表示されたコマンドで消す（Secret は `--force-delete-without-recovery`。データがあるなら消さずに止まって、リソースのインポートを考える）。2026-10-27 の初回のデプロイで起きた |
 | `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は警告だけで、Chatwoot・Mautic の DesiredCount を上げる前（4.11）に入れる。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
 | `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
 

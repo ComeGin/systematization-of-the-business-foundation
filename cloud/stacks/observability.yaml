@@ -62,8 +62,10 @@ Resources:
 
   # 通知先を n8n やエージェントが書き換えられないようにする（TA-04 の 1 節の「要点」）。
   # この 2 トピックを操作できる主体は、このアカウントの管理者（IAM の許可を持つ者）だけにする。
-  # sns:Unsubscribe の Deny は補助である。メールの購読解除リンクからの解除を実際に止めるのは、
-  # 購読を確認するときに ConfirmSubscription の AuthenticateOnUnsubscribe を true にすること（README の手順）。
+  # メールの購読解除リンクからの解除を止めるのは、購読を確認するときに ConfirmSubscription の AuthenticateOnUnsubscribe を
+  # true にすること（README の 4.4）。トピックポリシーに sns:Unsubscribe は書けない（SNS がトピックポリシーで受け付ける action に
+  # Unsubscribe は無く、書くと「Policy statement action out of service scope!」で作成に失敗する。2026-10-27 の初回のデプロイで判明）。
+  # 出典: https://docs.aws.amazon.com/sns/latest/dg/sns-access-policy-language-api-permissions-reference.html（Valid Amazon SNS policy actions）
   LeadAlertTopicPolicy:
     Type: AWS::SNS::TopicPolicy
     Properties:
@@ -85,14 +87,6 @@ Resources:
               - sns:ListSubscriptionsByTopic
               - sns:Publish
             Resource: !Ref LeadAlertTopic
-          - Sid: DenyUnsubscribeFromOutsideAccount
-            Effect: Deny
-            Principal: { AWS: '*' }
-            Action: sns:Unsubscribe
-            Resource: !Ref LeadAlertTopic
-            Condition:
-              StringNotEquals:
-                'aws:PrincipalAccount': !Ref AWS::AccountId
 
   OpsAlertTopicPolicy:
     Type: AWS::SNS::TopicPolicy
@@ -140,14 +134,6 @@ Resources:
                 'aws:SourceArn':
                   - !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:comegin-${EnvName}-*'
                   - !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:cluster:comegin-${EnvName}-*'
-          - Sid: DenyUnsubscribeFromOutsideAccount
-            Effect: Deny
-            Principal: { AWS: '*' }
-            Action: sns:Unsubscribe
-            Resource: !Ref OpsAlertTopic
-            Condition:
-              StringNotEquals:
-                'aws:PrincipalAccount': !Ref AWS::AccountId
 
   # オンプレの生存信号（TA-05 の 4 節の項目 16）。
   # 5 分の期間で合計が 1 未満の状態が 3 期間続いたら発火する。欠損データは違反として扱う（信号が来ないこと自体を異常にする）。

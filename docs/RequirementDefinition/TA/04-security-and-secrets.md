@@ -84,7 +84,7 @@ ADR-08 により、n8n から Amazon SNS へ通知を発行する（TA-01 の経
 **`sns:Subscribe` と `sns:SetTopicAttributes` を与えないことが、この設計の要点にあたる。** 与えると **n8n が通知先を自分で書き換えられる＝自分への通知を止められる**。これは AA-03 の 6 節が「エージェントは自分の権限・実行条件を変更できない」として到達不能性で担保した構造と同じ形であり、**通知の側にも同じ境界を置く**。
 
 - **トピックの作成と購読の設定は人間（`R1`）が行う。** n8n（本番のタスクロール・開発環境の IAM ユーザーのどちらにも）にもエージェントにも権限を与えない。
-- **トピックポリシーで `sns:Unsubscribe` を制限する。** SNS の通知メールには購読解除リンクが付いており、**転送を受けた人でも解除できてしまう**（解除されると通知が静かに止まる。TA-05 の 4 節）。（**2026-10-04 追記**: 実装中に、SNS の公式ドキュメントでは、メールの解除リンクからの解除を止めるのはトピックポリシーではなく、購読の確認時に `ConfirmSubscription` へ `AuthenticateOnUnsubscribe=true` を付けることだと分かった。トピックポリシーの Deny は補助として残し、確認は `aws sns confirm-subscription --authenticate-on-unsubscribe true` で行う。手順は `cloud/README.md`。コンソールで確認 URL を貼り付ける方法でこのフラグが付くかは未確認）
+- **トピックポリシーで `sns:Unsubscribe` を制限する。** SNS の通知メールには購読解除リンクが付いており、**転送を受けた人でも解除できてしまう**（解除されると通知が静かに止まる。TA-05 の 4 節）。（**2026-10-04 追記**: 実装中に、SNS の公式ドキュメントでは、メールの解除リンクからの解除を止めるのはトピックポリシーではなく、購読の確認時に `ConfirmSubscription` へ `AuthenticateOnUnsubscribe=true` を付けることだと分かった。トピックポリシーの Deny は補助として残し、確認は `aws sns confirm-subscription --authenticate-on-unsubscribe true` で行う。手順は `cloud/README.md`。コンソールで確認 URL を貼り付ける方法でこのフラグが付くかは未確認）（**2026-10-27 追記**: トピックポリシーには `sns:Unsubscribe` を書けない〈SNS がトピックポリシーで受け付ける action に無い〉。補助として残した Deny で初回のデプロイが失敗したので外した。購読解除を止める手段は `AuthenticateOnUnsubscribe=true` だけになる）
 - **購読の確認は受信者の手作業である**（自動化できない）。担当者変更の手順（BA-05）に購読の追加と削除を含める。
 
 ### AWS 上の秘密値（ADR-12・ADR-15・ADR-16）

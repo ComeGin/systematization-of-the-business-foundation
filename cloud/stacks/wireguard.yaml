@@ -157,6 +157,8 @@ Resources:
   # ---------------------------------------------------------------- EC2
   # TODO(未検証): AL2023 のカーネルに wireguard のモジュールがあるか、wireguard-tools が core のリポジトリにあるか。
   #   無ければ user-data の modprobe または dnf で失敗し、/var/log/wireguard-setup.log に残る（SSM で入って確かめる）。
+  # UserData を変えると、CloudFormation はこの EC2 を停止・起動する（EBS のルートなので置き換えはしない）が、user-data は流れ直さない。
+  # 動いている EC2 に反映するときは、SSM で入って sudo bash /var/lib/cloud/instance/scripts/part-001 を実行する（README の 4.2.1）。
   # user-data は初回の起動の 1 回だけ実行される。再起動や自動復旧のあとは、systemd のユニット（wg-quick@wg0・nftables・wg-peer-sync.timer）が立ち上げる。
   # UserData の中の ${...} は CloudFormation が展開する。シェルの変数は $NAME の形で書く（波括弧を使わない）。
   Instance:
@@ -191,6 +193,18 @@ Resources:
           REGION=${AWS::Region}
           SERVER_KEY_PARAM=/comegin/${EnvName}/wireguard/server-public-key
           PEER_KEY_PARAM=/comegin/${EnvName}/wireguard/onprem-public-key
+
+          # t4g.nano（512 MiB）では、dnf がリポジトリの目録を読む間にメモリを使い切り、OOM killer に止められる
+          # （2026-10-27 の初回のデプロイで、この下の dnf install が起動から 79 秒で強制終了された。AL2023 の既定の zram だけでは足りなかった）。
+          # 先にディスクのスワップを 1 GiB 足し、再起動後も使う（運用の dnf upgrade --security も同じだけメモリを使う。README の 4.2.1）。
+          # 何度実行しても同じ結果になる。出典: https://docs.aws.amazon.com/linux/al2023/ug/system-requirements.html（dnf は 512 MB を超えうる）
+          if [ ! -f /swapfile ]; then
+            dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+            chmod 600 /swapfile
+            mkswap /swapfile
+          fi
+          swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile
+          grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap defaults 0 0' >> /etc/fstab
 
           dnf install -y wireguard-tools nftables
           command -v aws >/dev/null || dnf install -y awscli-2

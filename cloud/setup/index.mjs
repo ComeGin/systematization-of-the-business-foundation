@@ -182,6 +182,50 @@ function globalSteps() {
   ];
 }
 
+// 初回の作成が失敗して戻されたスタック（ROLLBACK_COMPLETE）は更新できず、消して作り直すしかない。
+// DeletionPolicy: Retain のリソースは戻しても消えずに残り、固定の名前なので、次の作成が「既にある」で失敗する（2026-10-27 の初回で起きた）
+function rollbackSteps() {
+  return [
+    "CloudFormation のイベントで失敗したリソースと理由を確かめ、テンプレートを直す（入れ子のスタックは、親のイベントの「Embedded stack ... was not successfully created」の ARN のイベントを見る。Validation failure は aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true）",
+    `スタックを消す: aws cloudformation delete-stack --region ${REGION} --stack-name ${STACK} → aws cloudformation wait stack-delete-complete --region ${REGION} --stack-name ${STACK}`,
+    "同じコマンドを実行し直す（戻しても残った Retain のリソースがあれば、次に削除のコマンドを表示する）",
+  ];
+}
+
+// 本番スタックが無いときに、あってはならない固定の名前の Retain のリソース（作成の失敗で残ったもの）。
+// あると sam deploy が NAME_CONFLICT_VALIDATION か AlreadyExists で失敗する（2026-10-27 の 2 回目で起きた）。
+// 名前は cloud/stacks/observability.yaml・secrets.yaml・runlog-archive.yaml・ecr.yaml
+async function leftovers(ctx, account) {
+  const found = [];
+  const topics = (await awsJson(ctx, ["sns", "list-topics", "--region", REGION]))?.Topics ?? [];
+  for (const name of ["comegin-lead-alert", "comegin-ops-alert"]) {
+    const arn = topics.map((t) => t.TopicArn).find((a) => a.endsWith(`:${name}`));
+    if (arn) found.push({ label: `SNS ${name}`, command: `aws sns delete-topic --region ${REGION} --topic-arn ${arn}` });
+  }
+  const secrets = (await awsJson(ctx, ["secretsmanager", "list-secrets", "--region", REGION, "--filters", `Key=name,Values=comegin/${ENV_NAME}/`]))?.SecretList ?? [];
+  // 名前の前方一致なので、念のため接頭辞で絞り直す。--force-delete-without-recovery を付けないと、同じ名前が 7〜30 日使えない
+  for (const s of secrets.filter((x) => x.Name.startsWith(`comegin/${ENV_NAME}/`))) {
+    found.push({ label: `Secret ${s.Name}`, command: `aws secretsmanager delete-secret --region ${REGION} --secret-id ${s.Name} --force-delete-without-recovery` });
+  }
+  const bucket = `comegin-${ENV_NAME}-runlog-archive-${account}`;
+  const buckets = (await awsJson(ctx, ["s3api", "list-buckets"]))?.Buckets ?? [];
+  if (buckets.some((b) => b.Name === bucket)) found.push({ label: `S3 ${bucket}`, command: `aws s3api delete-bucket --region ${REGION} --bucket ${bucket}（空でなければ先に中身を確かめる。消せないなら止まって相談する）` });
+  const repos = (await awsJson(ctx, ["ecr", "describe-repositories", "--region", REGION]))?.repositories ?? [];
+  for (const img of IMAGES) {
+    if (repos.some((r) => r.repositoryName === img.repo)) found.push({ label: `ECR ${img.repo}`, command: `aws ecr delete-repository --region ${REGION} --repository-name ${img.repo}（--force は付けない。イメージがあれば失敗して止まる）` });
+  }
+  return found;
+}
+
+function leftoverSteps(found) {
+  return [
+    `本番スタックが無いのに、固定の名前のリソースが ${found.length} 個残っている（前の作成の失敗で、DeletionPolicy: Retain のものが戻されずに残った）。このままでは sam deploy が名前の衝突で失敗する`,
+    "中身が空か（作りかけで、データが無いか）を確かめてから消す。データがあるなら消さずに止まって相談する（CloudFormation のリソースのインポートで取り込む）:",
+    ...found.map((f) => `  ${f.label}: ${f.command}`),
+    "同じコマンドを実行し直す",
+  ];
+}
+
 function mainSteps() {
   return [
     "cd cloud && sam build（必須。faq-bot・consent-api・admin-auth の Lambda を pnpm と esbuild でまとめる。飛ばすと index.handler の無い zip になり、同意の受け口とログインが 502 になる）",
@@ -193,6 +237,7 @@ function mainSteps() {
 function stackProblem(stack, name) {
   if (!stack) return `スタック ${name} が無い`;
   if (stack.StackStatus.endsWith("_IN_PROGRESS")) return `スタック ${name} が ${stack.StackStatus}（終わるまで待つ）`;
+  if (stack.StackStatus === "ROLLBACK_COMPLETE") return `スタック ${name} が ROLLBACK_COMPLETE（初回の作成が失敗して戻された。更新できないので、消して作り直す）`;
   if (!COMPLETE.has(stack.StackStatus)) return `スタック ${name} が ${stack.StackStatus}（CloudFormation のイベントで原因を確かめる。cloud/README.md の 4.2）`;
   return null;
 }
@@ -244,6 +289,10 @@ export async function check(ctx) {
     const main = await describeStack(ctx, STACK, REGION);
     const params = samParameters(ctx) ?? new Map();
     for (const p of [stackProblem(global, GLOBAL_STACK), ...CLOUDFRONT_PARAMS.filter((k) => unset(params, k)).map((k) => `${SAMCONFIG} の ${k} が雛形のまま`), stackProblem(main, STACK)]) if (p) notes.push(p);
+    if (!main) {
+      const found = await leftovers(ctx, (await callerIdentity(ctx)).Account);
+      if (found.length) notes.push(`前の作成の失敗で残ったリソースが ${found.length} 個（${found.map((f) => f.label).join("、")}）。sam deploy の前に消す`);
+    }
     let ok = notes.length === 0;
     if (main && ok) {
       notes.push(`スタック ${STACK}: ${main.StackStatus}（${main.LastUpdatedTime ?? main.CreationTime}）`);
@@ -296,6 +345,11 @@ export async function apply(ctx) {
 
     const main = await describeStack(ctx, STACK, REGION);
     const mainProblem = stackProblem(main, STACK);
+    if (main?.StackStatus === "ROLLBACK_COMPLETE") ctx.manual("rollback", `本番スタックを消して作り直す（${mainProblem}）`, rollbackSteps());
+    if (!main) {
+      const found = await leftovers(ctx, (await callerIdentity(ctx)).Account);
+      if (found.length) ctx.manual("leftovers", "前の作成の失敗で残ったリソースを消す", leftoverSteps(found));
+    }
     if (mainProblem) ctx.manual("sam-deploy", `本番スタックを sam build → sam deploy する（${mainProblem}）`, mainSteps());
     if (main.StackStatus === "UPDATE_ROLLBACK_COMPLETE") ctx.warn(`スタック ${STACK} の直近の更新は戻された（UPDATE_ROLLBACK_COMPLETE）。前の版のまま進む。CloudFormation のイベントで原因を確かめる`);
     ctx.log(`スタック ${STACK}: ${main.StackStatus}（${main.LastUpdatedTime ?? main.CreationTime}）`);

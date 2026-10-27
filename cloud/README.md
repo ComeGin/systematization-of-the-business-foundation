@@ -198,7 +198,7 @@ wg pubkey < wg-onprem.key > wg-onprem.pub     # 公開鍵（これを EC2 に渡
 
 ```ini
 [Interface]
-Address = 10.99.0.2/24
+Address = 10.99.0.2/32
 PrivateKey = <wg-onprem.key の中身>
 MTU = 1380
 [Peer]
@@ -209,6 +209,18 @@ PersistentKeepalive = 25
 ```
 
 - `AllowedIPs` は EC2 のアドレス（`10.99.0.1/32`）と VPC の CIDR（`VpcCidr`。RDS への経路）。**`PersistentKeepalive` が要る**（EC2 から先にオンプレへ送れない。オンプレの送信元ポートは NAT で変わる）。**`MTU = 1380` は EC2 側と同じ値**（自動に任せると EC2 側が 8921 になり、PPPoE〈1454〉や DS-Lite・MAP-E〈1460〉の回線で外側の UDP が分割される。`onprem/wireguard/wg0.conf.example` にも入れてある）。
+- **EC2 の公開鍵の SSM パラメータ（`server-public-key`）がいつまでも無いときは、user-data が途中で止まっている。** SSM で入らなくても、`aws ec2 get-console-output --region ap-northeast-1 --instance-id "$(OUT WireguardInstanceId)" --latest --output text | grep -E 'part-001|Killed|FAILED'` で起動時の出力が読める（読み取りだけ）。
+  **2026-10-27 の初回のデプロイでは、t4g.nano（512 MiB）で `dnf install` がメモリ不足で強制終了され（`Out of memory: Killed process ... (dnf)`）、鍵の生成から先が一つも実行されなかった。** テンプレートは、dnf の前に 1 GiB のスワップファイル（`/swapfile`）を作るように直した。user-data は初回の起動でしか流れないので、既に動いている EC2 は SSM で入って直す（テンプレートの `UserData` の変更をデプロイすると EC2 は停止・起動するが、user-data は流れ直さない）:
+
+  ```bash
+  aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"
+  # （EC2 の中。テンプレートの user-data の冒頭と同じことを手で行ってから、user-data をもう一度実行する。どれも何度実行しても同じ結果になる）
+  sudo bash -c 'if [ ! -f /swapfile ]; then dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; chmod 600 /swapfile; mkswap /swapfile; fi; swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile; grep -q "^/swapfile " /etc/fstab || echo "/swapfile none swap defaults 0 0" >> /etc/fstab'
+  free -m                                                  # Swap の total が 1023 前後になる
+  sudo bash /var/lib/cloud/instance/scripts/part-001       # 最後に「wireguard setup: done」（数分かかる）
+  sudo wg show                                             # interface: wg0 と listening port: 51820。ピアはまだ無い（オンプレの公開鍵が UNSET）
+  ```
+
 - **EC2 の user-data は、公開鍵を SSM に書けなかったときは失敗で終わる**（`/var/log/wireguard-setup.log` の最後が `FAILED to publish` になる）。インスタンスのロールと、public サブネットのインターネットへの経路を確かめてから、ログの案内のとおり user-data を実行し直す。
 - EC2 側のピアの `AllowedIPs` は `10.99.0.2/32`（`OnpremPeerAddress`）だけ。EC2 は、オンプレからの通信を masquerade するので、オンプレに VPC のタスクの IP への経路は要らない。
 
@@ -262,7 +274,7 @@ aws sns confirm-subscription --region ap-northeast-1 --topic-arn "$OPS_TOPIC" --
 
 **`--authenticate-on-unsubscribe true` が要点。** SNS の通知メールには購読解除のリンクが付いており、転送を受けた人でも解除できてしまう。
 これを防ぐのは、トピックポリシーではなく、購読の確認時にこのフラグを付けること（公式: Amazon SNS security best practices）。
-トピックポリシーの `sns:Unsubscribe` の Deny は補助にすぎない。`comegin-lead-alert` も同じ手順で購読する。
+**トピックポリシーで `sns:Unsubscribe` は制限できない**（SNS がトピックポリシーで受け付ける action に無く、書くと作成に失敗する。2026-10-27 の初回のデプロイで判明し、Deny を外した。公式: Valid Amazon SNS policy actions）。`comegin-lead-alert` も同じ手順で購読する。
 TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」方法では、このフラグを付けられない。
 
 購読の状態（`Confirmed` の数）の監視（TA-05 の項目 8）は作っていない。通知経路そのものが壊れた場合に SNS では知らせられないため、SNS 以外の手段が要る（未決定。5 節）。
@@ -728,7 +740,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - **`ec2:recover`**: `StatusCheckFailed_System` のアラームに自動復旧のアクションを付けた（固定シートの「StatusCheckFailed（ops トピック）」に足した）。
 - **パラメータ名**: `OnpremWireguardCidr` は WireGuard のアドレス帯（`10.99.0.0/24`）。UDP の受信元は別名の `WireguardIngressCidr`（既定 `0.0.0.0/0`）。`OnpremWebhookPort`（5680）、`WireguardServerAddress`（10.99.0.1）、`WireguardInstanceType`、`WireguardAmiSsmId`・`WireguardFixedAmiId`（AMI の固定）を足した。
 - **`CAPABILITY_NAMED_IAM`**: 既存のテンプレートが IAM ロールに固定の名前を付けていたのに、`samconfig.toml.example` は `CAPABILITY_IAM` だけだった（デプロイで拒否される）。IAM ユーザーも固定の名前なので、例を直した。
-- **SNS の購読解除**: トピックポリシーだけでは止まらず、`AuthenticateOnUnsubscribe` が要る（4.4）。TA-04・TA-05 には、リードが訂正を追記済み。
+- **SNS の購読解除**: トピックポリシーだけでは止まらず、`AuthenticateOnUnsubscribe` が要る（4.4）。TA-04・TA-05 には、リードが訂正を追記済み。**2026-10-27**: 補助として残していたトピックポリシーの `sns:Unsubscribe` の Deny は、SNS が受け付けない action で初回のデプロイが失敗した（`Policy statement action out of service scope!`）ので外した。
 - **PostgreSQL のデータベースは 4 つ**（`chatwoot`・`admin_auth`・`strapi`・`n8n`。`points` と、ADR-24 で外した `calcom`、ADR-25 で外した `umami` を除く。もとは 6 つで、TA-05 は 5 つ、TA-06 は 7 つと食い違っていた）。
 - **mautic-web はローリング更新**、mautic-cron は止めてから起動する（二重実行の防止。更新中は短く止まる）。
 - **WAF**: `auth.` ホストにもレート制限をかけた（Better Auth のレート制限は `X-Forwarded-For` を信頼するため、効き目は WAF に頼る）。
