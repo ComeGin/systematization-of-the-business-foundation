@@ -5,6 +5,10 @@
 //   export async function check(ctx)  // 読むだけ。用意できているかを確かめる。{ ok: boolean, notes: string[] } を返す
 //   export async function apply(ctx)  // 何度実行しても同じ結果になる。終わったら何も返さない
 //
+// ctx.siteRouted: 公開サイト（Astro）が本番のドメインで Route 53 から配信されているか。--target prod で、--before-route53 を付けていないときだけ true。
+//   公開サイトに届かないと進められない手順（GA4 のプロパティ・OpenSEO の Search Console と GA4 の接続・公開サイトの測定 ID と
+//   Search Console の所有権）は、これが false なら飛ばす（dev は公開サイトが AWS に無いので常に false）
+//
 // 秘密値の扱い:
 //   - 秘密値は ctx.state.set(key, value, { secret: true }) で状態ファイルに置く。ctx.log などの出力からは自動で伏せる
 //   - 状態ファイル: ~/.config/comegin/setup/<target>.state.json（600）。ユーザーが `--show <key>` で 1 つだけ表示できる
@@ -255,10 +259,11 @@ export async function waitForHttp(url, { timeoutMs = 180_000, intervalMs = 3_000
 // ctx（モジュールに渡すもの）
 // ---------------------------------------------------------------------------
 
-export function createContext({ target, conf, state, moduleId }) {
+export function createContext({ target, conf, state, moduleId, siteRouted = target === "prod" }) {
   const prefix = `  [${moduleId}]`;
   return {
     target,
+    siteRouted, // 公開サイトが Route 53 から配信されているか（冒頭の説明）
     conf, // ユーザーの設定（~/.config/comegin/setup/<target>.conf）
     state, // スクリプトが作った値（State）
     W,

@@ -3,6 +3,7 @@
 //
 //   node setup/setup.mjs --target dev               # 開発環境を最初から最後まで用意する（途中で止まったら、同じコマンドで続きから）
 //   node setup/setup.mjs --target dev --check       # 何も変えずに、どこまで用意できているかを表示する
+//   node setup/setup.mjs --target prod --before-route53  # 本番。公開サイトが Route 53 から配信される前（GA4・OpenSEO の Google の手順を飛ばす）
 //   node setup/setup.mjs --target dev --only n8n    # 指定したモジュールだけ（カンマ区切りで複数可）
 //   node setup/setup.mjs --target dev --list        # モジュールの一覧と順番
 //   node setup/setup.mjs --target dev --show KEY    # 状態ファイルの値を 1 つだけ表示する（作った管理者のパスワードなど）

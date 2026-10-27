@@ -225,6 +225,8 @@ OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・
 
 **`--target dev` では Google（OAuth クライアント・Search Console・GA4）の手順を飛ばす**（2026-10-06）。開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いため。dev で案内するのは DataForSEO だけで、check も Google の接続を求めない。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使うので、**AWS に展開した後に `node setup/setup.mjs --target prod --only ga4,openseo` で Google の手順を行う**（値は `~/.config/comegin/setup/prod.conf` に書く）。dev の実行は Google の OAuth クライアントを OpenSEO の環境変数ファイルに書かない（prod で設定したクライアントを `dev.conf` の `GOOGLE_CLIENT_ID`〈admin-auth 用〉で上書きしないため）。
 
+**`--target prod --before-route53` でも Google の手順を飛ばす**（2026-10-27）。AWS に展開しても、公開サイト（Astro）が Route 53 から配信されるまでは Search Console にも GA4 にもデータが無いため。起動と DataForSEO は prod と同じに行い、`prod.conf` の OAuth クライアントは環境変数ファイルに書いておく。**配信の後に `--before-route53` を付けずに** `node setup/setup.mjs --target prod --only ga4,openseo` を実行する。
+
 | 表示の id | すること |
 |---|---|
 | `openseo:dataforseo-key` | https://app.dataforseo.com/api-access で認証情報を取り寄せ、「Base64」と書かれた長いほうの値（`login:password` を base64 にしたもの。ダッシュボードの API キーではない）を `DATAFORSEO_API_KEY=` に書く |
@@ -241,7 +243,7 @@ Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_G
 
 アクセス解析（流入・ページ・参照元）の正本は GA4（ADR-25）。エージェント（`analytics-reporter`）は OpenSEO の MCP（`get_google_analytics_*`）で読む。**プロパティは本番の 1 つだけ**で、開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない）。構成の正本は `middleware/ga4/README.md`。
 
-**`--target dev` では、本番のプロパティの作成（`ga4:property`）と OpenSEO への接続（`openseo:ga4-connect`）を飛ばす**（2026-10-06。7.4 と同じ理由）。dev の `ga4` が確かめるのは「開発の Astro に測定 ID が無いこと」だけ。下の 2 つは AWS に展開した後に `--target prod --only ga4,openseo` で行い、値は `prod.conf` に書く。
+**`--target dev` では、本番のプロパティの作成（`ga4:property`）と OpenSEO への接続（`openseo:ga4-connect`）を飛ばす**（2026-10-06。7.4 と同じ理由）。dev の `ga4` が確かめるのは「開発の Astro に測定 ID が無いこと」だけ。下の 2 つは AWS に展開した後に `--target prod --only ga4,openseo` で行い、値は `prod.conf` に書く。**`--target prod --before-route53`（公開サイトが Route 53 から配信される前）でも飛ばし**、公開サイトの `.env.production` には測定 ID を空で書く（タグを出さない）。配信の後に付けずに `setup.mjs --target prod --only ga4,openseo` と `frontend.mjs --target prod` を実行し、ビルドし直す（2026-10-27）。
 
 | 表示の id | すること |
 |---|---|

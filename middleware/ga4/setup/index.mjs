@@ -4,6 +4,8 @@
 //   - --target dev: 開発の Astro の環境変数に測定 ID が無いことだけを確かめる。本番のプロパティの作成と ID の確認は飛ばす
 //     （開発の時点では公開サイトが AWS に展開されておらず、本番のプロパティにはまだ送るものも読むものも無い）
 //   - --target prod（AWS に展開した後）: 本番のプロパティの作成（ga4:property）と、2 つの値の形式の確認
+//   - --target prod --before-route53（AWS に展開したが、公開サイトがまだ Route 53 から配信されていない）: 何もしない。
+//     Web ストリームの URL（https://comegin.com）に届かないうちはプロパティに送るものが無いので、配信の後に付けずに実行し直す
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - GA4 は Google の SaaS で、動かすものが無い。プロパティは本番の 1 つだけで、作るのも設定するのも画面の操作（ctx.manual）
@@ -76,6 +78,8 @@ function propertySteps() {
 
 const isProd = (ctx) => ctx.target === "prod";
 const PROPERTY_SKIPPED_IN_DEV = "本番の GA4 プロパティの手順は開発では飛ばす（公開サイトが AWS に無い）。AWS に展開した後に node setup/setup.mjs --target prod --only ga4,openseo で行う";
+const PROPERTY_SKIPPED_BEFORE_ROUTE53 =
+  "本番の GA4 プロパティの手順は飛ばした（--before-route53。公開サイトがまだ Route 53 から配信されていない）。配信の後に node setup/setup.mjs --target prod --only ga4,openseo で行う";
 
 export async function check(ctx) {
   if (!isProd(ctx)) {
@@ -83,12 +87,17 @@ export async function check(ctx) {
     const note = files.length ? `開発の Astro の環境変数に ${TAG_ENV} がある（${files.join("、")}。開発ではタグを出さない）` : `開発の Astro の環境変数に ${TAG_ENV} は無い`;
     return { ok: files.length === 0, notes: [note, PROPERTY_SKIPPED_IN_DEV] };
   }
+  if (!ctx.siteRouted) return { ok: true, notes: [PROPERTY_SKIPPED_BEFORE_ROUTE53] };
   const problems = configProblems(ctx);
   const notes = problems.length ? [...problems] : [`本番のプロパティ ${ctx.value("GA4_PROPERTY_ID")}／測定 ID ${ctx.value("GA4_MEASUREMENT_ID")}（形式だけを確かめた。プロパティの設定は画面で確かめる）`];
   return { ok: problems.length === 0, notes };
 }
 
 export async function apply(ctx) {
+  if (isProd(ctx) && !ctx.siteRouted) {
+    ctx.log(PROPERTY_SKIPPED_BEFORE_ROUTE53);
+    return;
+  }
   if (isProd(ctx)) {
     const problems = configProblems(ctx);
     if (problems.length) {

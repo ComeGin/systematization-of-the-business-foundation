@@ -12,6 +12,8 @@
 //     記事は本番の Strapi（オンプレの 127.0.0.1:1338。ADR-21）をビルド時に読み、dist/ に取り込む（公開サイトは実行時に Strapi を読まない）。
 //     ビルドと配信はしない（ビルドの実行は人が指示する。配信は人間が承認する。ADR-15・cloud/README.md の 4.14）。
 //     Search Console のドメインプロパティの所有権（Route 53 の TXT）を DNS で確かめる（AA-02 の表の 1。人の作業）
+//   - --target prod --before-route53（公開サイトがまだ Route 53 から配信されていない）: GA4 の測定 ID を空で書き（タグを出さない）、
+//     Search Console の所有権の確認を飛ばす（ga4・openseo モジュールと同じく、配信の後に付けずに実行し直して、測定 ID を入れてビルドし直す）
 //
 // 方針:
 //   - 状態・設定から写す値（トークン・ID・同意の版）は、環境変数ファイルの今の値より優先して書き換える（正本は状態・設定）。
@@ -301,10 +303,10 @@ function prodValues(ctx) {
       "本番の Strapi のメディアのバケット。onprem/strapi と同じ値",
     ),
     UPLOAD_S3_REGION: ctx.value("UPLOAD_S3_REGION") || "ap-northeast-1",
-    PUBLIC_GA4_MEASUREMENT_ID: req(
-      "GA4_MEASUREMENT_ID",
-      "ga4 モジュールで設定する",
-    ),
+    // 公開サイトが Route 53 から配信される前（--before-route53）は空にする（未設定ならタグを出さない。ga4 モジュールもプロパティの手順を飛ばす）
+    PUBLIC_GA4_MEASUREMENT_ID: ctx.siteRouted
+      ? req("GA4_MEASUREMENT_ID", "ga4 モジュールで設定する")
+      : "",
     PUBLIC_POSTHOG_PROJECT_TOKEN: req(
       "SITE_POSTHOG_PROJECT_TOKEN",
       "本番の PostHog プロジェクトのトークン。phc_ で始まる",
@@ -607,6 +609,9 @@ async function prodStrapiNote(ctx, env) {
       };
 }
 
+const GSC_SKIPPED_BEFORE_ROUTE53 =
+  "GA4 の測定 ID は空で書き（タグを出さない）、Search Console の所有権の確認は飛ばした（--before-route53）。公開サイトが Route 53 から配信されたら node setup/frontend.mjs --target prod で実行し直し、ビルドし直す";
+
 function gscSteps(domain) {
   return [
     `https://search.google.com/search-console を comegin.com の Workspace のアカウントで開き、プロパティを追加 → 「ドメイン」に ${domain} を入れて続行（URL プレフィックスではなくドメインプロパティ。apex と www の両方を覆う）`,
@@ -658,7 +663,8 @@ export async function check(ctx) {
     const strapi = await prodStrapiNote(ctx, env);
     mark(strapi.ok, strapi.text, strapi.text);
     const domain = ctx.value("GSC_DOMAIN") || "comegin.com";
-    if (ctx.value("OPENSEO_SKIP_GSC") !== "yes")
+    if (!ctx.siteRouted) notes.push(GSC_SKIPPED_BEFORE_ROUTE53);
+    else if (ctx.value("OPENSEO_SKIP_GSC") !== "yes")
       mark(
         await gscVerified(domain),
         `Search Console の所有権の TXT が ${domain} にある`,
@@ -782,7 +788,8 @@ export async function apply(ctx) {
 
     // 4. Search Console のドメインプロパティ（OpenSEO が GSC を読む前提。使わないなら OPENSEO_SKIP_GSC=yes）
     const domain = ctx.value("GSC_DOMAIN") || "comegin.com";
-    if (ctx.value("OPENSEO_SKIP_GSC") !== "yes") {
+    if (!ctx.siteRouted) ctx.log(GSC_SKIPPED_BEFORE_ROUTE53);
+    else if (ctx.value("OPENSEO_SKIP_GSC") !== "yes") {
       if (!(await gscVerified(domain)))
         ctx.manual(
           "gsc-domain",

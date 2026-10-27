@@ -5,6 +5,7 @@
 //   node setup/frontend.mjs --target dev --check       # 何も変えずに、どこまで用意できているかを表示する
 //   node setup/frontend.mjs --target dev --only verdant-virgo
 //   node setup/frontend.mjs --target prod              # 本番のビルド用の .env.production と Search Console の所有権（ビルド・配信はしない）
+//   node setup/frontend.mjs --target prod --before-route53  # 公開サイトが Route 53 から配信される前（測定 ID は空・Search Console は飛ばす）
 //
 // 設定（~/.config/comegin/setup/<target>.conf）と状態（<target>.state.json）はバックエンド全体の setup.mjs と共通。
 // 公開サイトの環境変数は、バックエンドのモジュールが状態に置いた値（Strapi のビルド用トークン・Chatwoot の website_token・
