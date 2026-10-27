@@ -1,12 +1,14 @@
 // setup の共通部品。各モジュールの setup/index.mjs は、ここの ctx（コンテキスト）だけを使って書く。
 //
 // モジュールの形（契約）:
-//   export const meta = { id, title, targets: ["dev"] | ["dev", "prod"], after: ["<id>", ...] };
+//   export const meta = { id, title, targets: ["dev"] | ["dev", "prod"], phases: ["<段階>", ...], after: ["<id>", ...] };
+//     phases は prod で動くモジュールだけが持つ（本番の段階。setup/lib/runner.mjs の PROD_PHASES。2 つ以上なら段階ごとに 1 回ずつ呼ばれる）
 //   export async function check(ctx)  // 読むだけ。用意できているかを確かめる。{ ok: boolean, notes: string[] } を返す
 //   export async function apply(ctx)  // 何度実行しても同じ結果になる。終わったら何も返さない
 //
-// ctx.siteRouted: 公開サイト（Astro）が本番のドメインで Route 53 から配信されているか。--target prod で、--before-route53 を付けていないときだけ true。
-//   公開サイトに届かないと進められない手順（GA4 のプロパティ・OpenSEO の Search Console と GA4 の接続・公開サイトの測定 ID と
+// ctx.phase: 今の本番の段階の id（dev では null）。phases を 2 つ以上持つモジュールは、これで中身を切り替える
+// ctx.siteRouted: 公開サイト（Astro）が本番のドメインで Route 53 から配信されているか。段階 google のときだけ true
+//   （google は配信の後に --phase google で明示したときだけ動く）。公開サイトに届かないと進められない手順（公開サイトの測定 ID と
 //   Search Console の所有権）は、これが false なら飛ばす（dev は公開サイトが AWS に無いので常に false）
 //
 // 秘密値の扱い:
@@ -259,10 +261,11 @@ export async function waitForHttp(url, { timeoutMs = 180_000, intervalMs = 3_000
 // ctx（モジュールに渡すもの）
 // ---------------------------------------------------------------------------
 
-export function createContext({ target, conf, state, moduleId, siteRouted = target === "prod" }) {
+export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" }) {
   const prefix = `  [${moduleId}]`;
   return {
     target,
+    phase, // 本番の段階（冒頭の説明）
     siteRouted, // 公開サイトが Route 53 から配信されているか（冒頭の説明）
     conf, // ユーザーの設定（~/.config/comegin/setup/<target>.conf）
     state, // スクリプトが作った値（State）

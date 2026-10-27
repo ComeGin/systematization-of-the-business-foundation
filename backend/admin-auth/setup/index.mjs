@@ -12,7 +12,7 @@
 // 開発環境では ALB が無いので、register-alb-client は呼ばない。
 import { join } from "node:path";
 
-export const meta = { id: "admin-auth", title: "admin-auth（Better Auth の OIDC Provider）", targets: ["dev", "prod"], after: [] };
+export const meta = { id: "admin-auth", title: "admin-auth（Better Auth の OIDC Provider）", targets: ["dev", "prod"], phases: ["apps"], after: [] };
 
 const DIR = "backend/admin-auth";
 const BASE = "http://127.0.0.1:3103";
@@ -99,7 +99,7 @@ export async function apply(ctx) {
     const doc = await prodDiscovery(ctx);
     if (!doc) {
       ctx.manual("prod-deploy", `本番の admin-auth が応答しない（${prodDiscoveryUrl(ctx)}）`, [
-        "cloud/README.md の 4.2 で sam build → sam deploy を済ませる（faq-bot・consent-api・admin-auth の Lambda は sam build でまとめる）",
+        "先に段階 deploy を済ませる: node setup/setup.mjs --target prod --phase deploy（cloud/README.md の 4.2。faq-bot・consent-api・admin-auth の Lambda は sam build でまとめる。ECR は使わない）",
         "済んでいて応答しないなら、ロググループ /aws/lambda/comegin-prod-admin-auth と、アラーム admin-auth-errors・admin-auth-target-5xx を見る",
         "同じコマンドを実行し直す",
       ]);

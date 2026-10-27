@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const meta = { id: "onprem", title: "オンプレの本番（WireGuard・Strapi・n8n。枠だけ）", targets: ["prod"], after: [] };
+export const meta = { id: "onprem", title: "オンプレの本番（WireGuard・Strapi・n8n。枠だけ）", targets: ["prod"], phases: ["apps"], after: [] };
 
 const WG_ADDRESS = "10.99.0.2";
 const UNITS = ["wg-quick@wg0.service", "comegin-strapi.service", "comegin-n8n.service"];

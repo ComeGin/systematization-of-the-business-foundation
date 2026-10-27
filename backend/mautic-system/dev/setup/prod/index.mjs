@@ -10,7 +10,7 @@
 // 作ったフォーム consult の ID は prod の状態（MAUTIC_FORM_ID_CONSULT）に置く。公開サイトの本番のビルド（setup/frontend.mjs）がそれを読む。
 import { apiEnabled, ensureAutoReply, ensureContactFields, ensureForms, ensureSegment, fetchToken } from "../index.mjs";
 
-export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・セグメント）", targets: ["prod"], after: [] };
+export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・セグメント）", targets: ["prod"], phases: ["apps"], after: [] };
 
 const DEFAULT_BASE_URL = "https://mkt.comegin.com";
 // オンプレの n8n の Webhook の受け口（WireGuard のアドレス。cloud/template.yaml の OnpremPeerAddress）。変えたら prod.conf の ONPREM_WEBHOOK_HOST

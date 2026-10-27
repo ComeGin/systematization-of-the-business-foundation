@@ -25,7 +25,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-export const meta = { id: "mcp-prod", title: "本番の MCP の env ファイル（chatwoot・mautic・strapi・n8n・posthog）", targets: ["prod"], after: ["onprem", "chatwoot-prod", "mautic-prod"] };
+export const meta = { id: "mcp-prod", title: "本番の MCP の env ファイル（chatwoot・mautic・strapi・n8n・posthog）", targets: ["prod"], phases: ["apps"], after: ["onprem", "chatwoot-prod", "mautic-prod"] };
 
 const DEFAULTS = {
   CHATWOOT_BASE_URL: "https://chat.comegin.com",

@@ -12,8 +12,9 @@
 //     記事は本番の Strapi（オンプレの 127.0.0.1:1338。ADR-21）をビルド時に読み、dist/ に取り込む（公開サイトは実行時に Strapi を読まない）。
 //     ビルドと配信はしない（ビルドの実行は人が指示する。配信は人間が承認する。ADR-15・cloud/README.md の 4.14）。
 //     Search Console のドメインプロパティの所有権（Route 53 の TXT）を DNS で確かめる（AA-02 の表の 1。人の作業）
-//   - --target prod --before-route53（公開サイトがまだ Route 53 から配信されていない）: GA4 の測定 ID を空で書き（タグを出さない）、
-//     Search Console の所有権の確認を飛ばす（ga4・openseo モジュールと同じく、配信の後に付けずに実行し直して、測定 ID を入れてビルドし直す）
+//   - prod は段階 apps と google の 2 回動く（ctx.siteRouted は google のときだけ true）。apps（公開サイトが Route 53 から配信される前）は
+//     GA4 の測定 ID を空で書き（タグを出さない）、Search Console の所有権の確認を飛ばす。google（配信の後に --phase google）で
+//     測定 ID を入れて書き直し、所有権を確かめる（書き直したらビルドし直す）
 //
 // 方針:
 //   - 状態・設定から写す値（トークン・ID・同意の版）は、環境変数ファイルの今の値より優先して書き換える（正本は状態・設定）。
@@ -36,6 +37,7 @@ export const meta = {
   id: "verdant-virgo",
   title: "公開サイト（Astro。環境変数・導入・計測の道具・dev サーバー）",
   targets: ["dev", "prod"],
+  phases: ["apps", "google"],
   // dev は開発のモジュール、prod は chatwoot-prod・mautic-prod（website_token とフォームの ID を状態に置く）の後
   after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api", "chatwoot-prod", "mautic-prod"],
 };
@@ -303,7 +305,7 @@ function prodValues(ctx) {
       "本番の Strapi のメディアのバケット。onprem/strapi と同じ値",
     ),
     UPLOAD_S3_REGION: ctx.value("UPLOAD_S3_REGION") || "ap-northeast-1",
-    // 公開サイトが Route 53 から配信される前（--before-route53）は空にする（未設定ならタグを出さない。ga4 モジュールもプロパティの手順を飛ばす）
+    // 公開サイトが Route 53 から配信される前（段階 apps）は空にする（未設定ならタグを出さない。ga4 モジュールもプロパティの手順を飛ばす）
     PUBLIC_GA4_MEASUREMENT_ID: ctx.siteRouted
       ? req("GA4_MEASUREMENT_ID", "ga4 モジュールで設定する")
       : "",
@@ -610,7 +612,7 @@ async function prodStrapiNote(ctx, env) {
 }
 
 const GSC_SKIPPED_BEFORE_ROUTE53 =
-  "GA4 の測定 ID は空で書き（タグを出さない）、Search Console の所有権の確認は飛ばした（--before-route53）。公開サイトが Route 53 から配信されたら node setup/frontend.mjs --target prod で実行し直し、ビルドし直す";
+  "GA4 の測定 ID は空で書き（タグを出さない）、Search Console の所有権の確認は飛ばした（段階 apps）。公開サイトが Route 53 から配信されたら node setup/frontend.mjs --target prod --phase google で書き直し、ビルドし直す";
 
 function gscSteps(domain) {
   return [

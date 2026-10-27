@@ -3,7 +3,8 @@
 //
 //   node setup/setup.mjs --target dev               # 開発環境を最初から最後まで用意する（途中で止まったら、同じコマンドで続きから）
 //   node setup/setup.mjs --target dev --check       # 何も変えずに、どこまで用意できているかを表示する
-//   node setup/setup.mjs --target prod --before-route53  # 本番。公開サイトが Route 53 から配信される前（GA4・OpenSEO の Google の手順を飛ばす）
+//   node setup/setup.mjs --target prod              # 本番を段階の順に（env → deploy → images → apps。デプロイ・プッシュは案内して止まる）
+//   node setup/setup.mjs --target prod --phase google  # 公開サイトが Route 53 から配信された後に GA4・OpenSEO
 //   node setup/setup.mjs --target dev --only n8n    # 指定したモジュールだけ（カンマ区切りで複数可）
 //   node setup/setup.mjs --target dev --list        # モジュールの一覧と順番
 //   node setup/setup.mjs --target dev --show KEY    # 状態ファイルの値を 1 つだけ表示する（作った管理者のパスワードなど）
@@ -13,7 +14,8 @@
 
 import { runSetup } from "./lib/runner.mjs";
 
-// 呼ぶ順番（依存の順）。モジュールを足すときはここに 1 行足す。パスは W（リポジトリのルート）からの相対
+// 呼ぶ順番（依存の順）。モジュールを足すときはここに 1 行足す。パスは W（リポジトリのルート）からの相対。
+// prod は各モジュールの meta.phases で段階（lib/runner.mjs の PROD_PHASES）の順に並べ替えてから、この順で呼ぶ
 const MODULES = [
   "middleware/host-relay/setup/index.mjs",
   "backend/chatwoot-system/setup/index.mjs",
@@ -29,6 +31,7 @@ const MODULES = [
   "backend/mautic-mcp/setup/index.mjs",
   "backend/control-plane/setup/index.mjs",
   "frontend/next-js/setup/index.mjs",
+  "cloud/setup/index.mjs",
   "onprem/setup/index.mjs",
   "backend/chatwoot-system/setup/prod/index.mjs",
   "backend/mautic-system/dev/setup/prod/index.mjs",

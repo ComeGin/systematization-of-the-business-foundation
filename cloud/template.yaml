@@ -1,46 +1,134 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: >-
-  ComeGin の本番環境（ap-northeast-1）。親スタック。子スタックを AWS::Serverless::Application で呼ぶ。
-  子スタック同士は、この親が !GetAtt <Child>.Outputs.<Name> をパラメータに渡す形だけでつなぐ
-  （Fn::ImportValue と Export は使わない）。設計は docs/RequirementDefinition/TA/06-aws-runtime.md。
-  us-east-1 の ACM と CloudFront 用 WAF は別スタック（global/template.yaml。先にデプロイする）。
+Description: ComeGin の本番環境（ap-northeast-1）。親スタック。子スタックを
+  AWS::Serverless::Application で呼ぶ。 子スタック同士は、この親が !GetAtt <Child>.Outputs.<Name>
+  をパラメータに渡す形だけでつなぐ （Fn::ImportValue と Export は使わない）。設計は
+  docs/RequirementDefinition/TA/06-aws-runtime.md。 us-east-1 の ACM と CloudFront
+  用 WAF は別スタック（global/template.yaml。先にデプロイする）。
 
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-      - Label: { default: 全体 }
-        Parameters: [EnvName, DomainName, HostedZoneId]
-      - Label: { default: ホスト名（ALB の振り分け。TA-06 の 5.1） }
-        Parameters: [ChatHost, MktHost, AuthHost, ConsentHost]
-      - Label: { default: Astro の配信（CloudFront。global/template.yaml の出力を写す） }
-        Parameters: [SiteHost, CloudFrontCertificateArn, CloudFrontWebAclArn]
-      - Label: { default: コンテナの待ち受けポート }
-        Parameters: [MauticWebPort, ChatwootWebPort]
-      - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
-        Parameters: [AlbOidcClientId]
-      - Label: { default: データストア（暫定値） }
-        Parameters: [MysqlMinCapacity, MysqlMaxCapacity, PostgresMinCapacity, PostgresMaxCapacity, ValkeyNodeType]
-      - Label: { default: オンプレとの WireGuard（ADR-21。wireguard.yaml） }
-        Parameters: [OnpremWireguardCidr, WireguardServerAddress, OnpremPeerAddress, WireguardPort, WireguardIngressCidr, OnpremWebhookPort, OnpremWireguardPublicKey, WireguardInstanceType, WireguardAmiSsmId, WireguardFixedAmiId]
-      - Label: { default: WAF（暫定値） }
-        Parameters: [WafRateLimitConsent, WafRateLimitForm, WafRateLimitApi, WafRateLimitVisitor, WafRateLimitAuth, WafCommonRuleSetAction]
-      - Label: { default: サービスのイメージのタグ（製品ごと。latest は使えない） }
-        Parameters: [MauticImageTag, ChatwootImageTag]
-      - Label: { default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値） }
-        Parameters: [NightlyStopEnabled, NightlyStopSchedule, NightlyStartSchedule, NightlyStopTimezone, MauticWebDesiredCount, MauticWebCpu, MauticWebMemory, MauticWebHealthCheckGracePeriodSeconds, MauticCronDesiredCount, MauticCronCpu, MauticCronMemory, ChatwootWebDesiredCount, ChatwootWebCpu, ChatwootWebMemory, ChatwootWorkerDesiredCount, ChatwootWorkerCpu, ChatwootWorkerMemory]
-      - Label: { default: サービスの設定 }
-        Parameters: [VpcCidr, RdsCaSha256, MauticMountConfigVolume, ChatwootMailerSenderEmail, GoogleClientId, AdminBootstrapEmails, ConsentPolicyVersion]
-      - Label: { default: consent-api（ADR-26。services/consent-api.yaml） }
-        Parameters: [ConsentApiReservedConcurrency]
-      - Label: { default: admin-auth（ADR-26。services/admin-auth.yaml） }
-        Parameters: [AdminAuthReservedConcurrency, AdminAuthOpsReservedConcurrency, AdminAuthProvisionedConcurrency]
-      - Label: { default: FAQ ボット（ADR-26。services/faq-bot.yaml） }
-        Parameters: [FaqBotReservedConcurrency, FaqBotChatwootAccountId, FaqMatchHigh, FaqMatchLow, FaqMatchMargin]
-      - Label: { default: 通知と監視 }
-        Parameters: [HeartbeatAlarmActionsEnabled, SesTlsPolicy]
-      - Label: { default: E-15 の写し }
-        Parameters: [RunLogAdminPrincipalArns]
+      - Label:
+          default: 全体
+        Parameters:
+          - EnvName
+          - DomainName
+          - HostedZoneId
+      - Label:
+          default: ホスト名（ALB の振り分け。TA-06 の 5.1）
+        Parameters:
+          - ChatHost
+          - MktHost
+          - AuthHost
+          - ConsentHost
+      - Label:
+          default: Astro の配信（CloudFront。global/template.yaml の出力を写す）
+        Parameters:
+          - SiteHost
+          - CloudFrontCertificateArn
+          - CloudFrontWebAclArn
+      - Label:
+          default: コンテナの待ち受けポート
+        Parameters:
+          - MauticWebPort
+          - ChatwootWebPort
+      - Label:
+          default: 管理者の認証（ALB の authenticate-oidc）
+        Parameters:
+          - AlbOidcClientId
+      - Label:
+          default: データストア（暫定値）
+        Parameters:
+          - MysqlMinCapacity
+          - MysqlMaxCapacity
+          - PostgresMinCapacity
+          - PostgresMaxCapacity
+          - ValkeyNodeType
+      - Label:
+          default: オンプレとの WireGuard（ADR-21。wireguard.yaml）
+        Parameters:
+          - OnpremWireguardCidr
+          - WireguardServerAddress
+          - OnpremPeerAddress
+          - WireguardPort
+          - WireguardIngressCidr
+          - OnpremWebhookPort
+          - OnpremWireguardPublicKey
+          - WireguardInstanceType
+          - WireguardAmiSsmId
+          - WireguardFixedAmiId
+      - Label:
+          default: WAF（暫定値）
+        Parameters:
+          - WafRateLimitConsent
+          - WafRateLimitForm
+          - WafRateLimitApi
+          - WafRateLimitVisitor
+          - WafRateLimitAuth
+          - WafCommonRuleSetAction
+      - Label:
+          default: サービスのイメージのタグ（製品ごと。latest は使えない）
+        Parameters:
+          - MauticImageTag
+          - ChatwootImageTag
+      - Label:
+          default: サービスの台数・CPU・メモリ（暫定値。台数は 0 が初期値）
+        Parameters:
+          - NightlyStopEnabled
+          - NightlyStopSchedule
+          - NightlyStartSchedule
+          - NightlyStopTimezone
+          - MauticWebDesiredCount
+          - MauticWebCpu
+          - MauticWebMemory
+          - MauticWebHealthCheckGracePeriodSeconds
+          - MauticCronDesiredCount
+          - MauticCronCpu
+          - MauticCronMemory
+          - ChatwootWebDesiredCount
+          - ChatwootWebCpu
+          - ChatwootWebMemory
+          - ChatwootWorkerDesiredCount
+          - ChatwootWorkerCpu
+          - ChatwootWorkerMemory
+      - Label:
+          default: サービスの設定
+        Parameters:
+          - VpcCidr
+          - RdsCaSha256
+          - MauticMountConfigVolume
+          - ChatwootMailerSenderEmail
+          - GoogleClientId
+          - AdminBootstrapEmails
+          - ConsentPolicyVersion
+      - Label:
+          default: consent-api（ADR-26。services/consent-api.yaml）
+        Parameters:
+          - ConsentApiReservedConcurrency
+      - Label:
+          default: admin-auth（ADR-26。services/admin-auth.yaml）
+        Parameters:
+          - AdminAuthReservedConcurrency
+          - AdminAuthOpsReservedConcurrency
+          - AdminAuthProvisionedConcurrency
+      - Label:
+          default: FAQ ボット（ADR-26。services/faq-bot.yaml）
+        Parameters:
+          - FaqBotReservedConcurrency
+          - FaqBotChatwootAccountId
+          - FaqMatchHigh
+          - FaqMatchLow
+          - FaqMatchMargin
+      - Label:
+          default: 通知と監視
+        Parameters:
+          - HeartbeatAlarmActionsEnabled
+          - SesTlsPolicy
+      - Label:
+          default: E-15 の写し
+        Parameters:
+          - RunLogAdminPrincipalArns
 
 Parameters:
   EnvName:
@@ -76,7 +164,8 @@ Parameters:
   SiteHost:
     Type: String
     Default: comegin.com
-    Description: Astro の公開ホスト名。global/template.yaml の SiteHost と同じにする。TODO(未決定) apex か www か（TA-02 の 9 節）。
+    Description: Astro の公開ホスト名。global/template.yaml の SiteHost と同じにする。TODO(未決定) apex
+      か www か（TA-02 の 9 節）。
   CloudFrontCertificateArn:
     Type: String
     Description: 必須（既定なし）。global/template.yaml（us-east-1）の出力 CertificateArn。
@@ -96,11 +185,11 @@ Parameters:
     Type: String
     Default: alb-admin-gate
     MinLength: 8
-    AllowedPattern: '^[A-Za-z0-9_-]+$'
+    AllowedPattern: ^[A-Za-z0-9_-]+$
     ConstraintDescription: 8 文字以上の英数字と _ - だけ（admin-auth の config.ts の ALB_CLIENT_ID の検査と同じ）。
-    Description: >-
-      ALB の authenticate-oidc のクライアント ID。admin-auth の ALB_CLIENT_ID と同じ値になる。
-      8 文字未満だと admin-auth-ops が設定の検査で止まり、migrate も ALB の登録もできない（誰も管理画面に入れない）。
+    Description: ALB の authenticate-oidc のクライアント ID。admin-auth の ALB_CLIENT_ID
+      と同じ値になる。 8 文字未満だと admin-auth-ops が設定の検査で止まり、migrate も ALB
+      の登録もできない（誰も管理画面に入れない）。
 
   # 暫定値（TA-06 の 9 節の見積もり前）。
   # MySQL（Mautic）も PostgreSQL（4 アプリが共有）も Aurora Serverless v2（ユーザーの条件: 互換があればサーバーレス。2026-10-27）。
@@ -144,27 +233,30 @@ Parameters:
   WafCommonRuleSetAction:
     Type: String
     Default: Count
-    AllowedValues: [Count, Block]
+    AllowedValues:
+      - Count
+      - Block
     Description: 管理画面の誤検知が無いことを WAF のログで確かめてから Block にする。
 
   SesTlsPolicy:
     Type: String
     Default: REQUIRE
-    AllowedValues: [REQUIRE, OPTIONAL]
-    Description: >-
-      SES の受信サーバーへの TLS（stacks/ses.yaml の TlsPolicy）。REQUIRE は TLS の無い受信先に送らない（個人情報を平文で流さない）。
-      届かない宛先が業務に要ると分かったら、R1 の判断で OPTIONAL にする。
+    AllowedValues:
+      - REQUIRE
+      - OPTIONAL
+    Description: SES の受信サーバーへの TLS（stacks/ses.yaml の TlsPolicy）。REQUIRE は TLS
+      の無い受信先に送らない（個人情報を平文で流さない）。 届かない宛先が業務に要ると分かったら、R1 の判断で OPTIONAL にする。
   HeartbeatAlarmActionsEnabled:
     Type: String
     Default: 'true'
-    AllowedValues: ['true', 'false']
+    AllowedValues:
+      - 'true'
+      - 'false'
     Description: ハートビートのアラームの通知を有効にするか。監視アプリが信号を送り始めるまでは通知が出る。
   RunLogAdminPrincipalArns:
     Type: CommaDelimitedList
-    Description: >-
-      必須（既定なし）。E-15 の写しのバケットの削除系・設定変更系の拒否を免除する主体の ARN。
-      デプロイに使う主体（IAM ユーザー comegin-iam、または CloudFormation のサービスロール）の ARN を入れる。
-      入れないと、スタック自身の更新も拒否される。
+    Description: 必須（既定なし）。E-15 の写しのバケットの削除系・設定変更系の拒否を免除する主体の ARN。 デプロイに使う主体（IAM ユーザー
+      comegin-iam、または CloudFormation のサービスロール）の ARN を入れる。 入れないと、スタック自身の更新も拒否される。
 
   # ---- サービス（T1-3）
   # ECR のタグは「<上流のタグ>-<ビルドの連番>」（RDS の CA を足した派生イメージ。cloud/images/<製品>/Dockerfile。README の 4.7）。
@@ -172,12 +264,12 @@ Parameters:
   # latest は使えない。REPLACE-WITH-FIXED-TAG のままでは起動しない（DesiredCount は 0 が初期値）。
   MauticImageTag:
     Type: String
-    AllowedPattern: '^(?!latest$).+$'
+    AllowedPattern: ^(?!latest$).+$
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: 7.2.0-1
   ChatwootImageTag:
     Type: String
-    AllowedPattern: '^(?!latest$).+$'
+    AllowedPattern: ^(?!latest$).+$
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
   # 夜間の停止（2026-10-26。ユーザーの決定）。chatwoot-web・chatwoot-worker・mautic-cron を毎日 22 時〜翌 8 時（日本時間）に 0 台にする。
@@ -185,7 +277,9 @@ Parameters:
   NightlyStopEnabled:
     Type: String
     Default: 'true'
-    AllowedValues: ['true', 'false']
+    AllowedValues:
+      - 'true'
+      - 'false'
   NightlyStopSchedule:
     Type: String
     Default: cron(0 22 * * ? *)
@@ -198,11 +292,18 @@ Parameters:
   MauticWebDesiredCount:
     Type: Number
     Default: 0
-    AllowedValues: [0, 1]
+    AllowedValues:
+      - 0
+      - 1
   MauticWebCpu:
     Type: String
     Default: '1024'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
+    AllowedValues:
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
   MauticWebMemory:
     Type: String
     Default: '2048'
@@ -210,17 +311,23 @@ Parameters:
     Type: Number
     Default: 180
     MinValue: 60
-    Description: >-
-      mautic-web の起動直後のヘルスチェックの猶予（秒）。版を上げて移行（起動時の doctrine:migrations:migrate）が長いときだけ延ばし、
-      終わったら戻す（README の 4.12）。
+    Description: mautic-web の起動直後のヘルスチェックの猶予（秒）。版を上げて移行（起動時の
+      doctrine:migrations:migrate）が長いときだけ延ばし、 終わったら戻す（README の 4.12）。
   MauticCronDesiredCount:
     Type: Number
     Default: 0
-    AllowedValues: [0, 1]
+    AllowedValues:
+      - 0
+      - 1
   MauticCronCpu:
     Type: String
     Default: '512'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
+    AllowedValues:
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
   MauticCronMemory:
     Type: String
     Default: '1024'
@@ -231,7 +338,12 @@ Parameters:
   ChatwootWebCpu:
     Type: String
     Default: '1024'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
+    AllowedValues:
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
   ChatwootWebMemory:
     Type: String
     Default: '2048'
@@ -242,7 +354,12 @@ Parameters:
   ChatwootWorkerCpu:
     Type: String
     Default: '512'
-    AllowedValues: ['256', '512', '1024', '2048', '4096']
+    AllowedValues:
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
   ChatwootWorkerMemory:
     Type: String
     Default: '1024'
@@ -250,7 +367,8 @@ Parameters:
   OnpremWireguardCidr:
     Type: String
     Default: 10.99.0.0/24
-    Description: WireGuard のアドレス帯（VPC の外。VpcCidr と重ならない）。private サブネットの経路表の宛先と、EC2 の nftables に使う。EC2 の wg0 は WireguardServerAddress/24。
+    Description: WireGuard のアドレス帯（VPC の外。VpcCidr と重ならない）。private サブネットの経路表の宛先と、EC2 の
+      nftables に使う。EC2 の wg0 は WireguardServerAddress/24。
   WireguardServerAddress:
     Type: String
     Default: 10.99.0.1
@@ -266,7 +384,8 @@ Parameters:
   WireguardIngressCidr:
     Type: String
     Default: 0.0.0.0/0
-    Description: WireGuard の UDP を受ける送信元の CIDR。オンプレの送信元 IP が固定でないため既定は 0.0.0.0/0（守りは WireGuard の鍵の認証）。固定の IP が使えるなら絞る。
+    Description: WireGuard の UDP を受ける送信元の CIDR。オンプレの送信元 IP が固定でないため既定は 0.0.0.0/0（守りは
+      WireGuard の鍵の認証）。固定の IP が使えるなら絞る。
   OnpremWebhookPort:
     Type: Number
     Default: 5680
@@ -274,35 +393,37 @@ Parameters:
   OnpremWireguardPublicKey:
     Type: String
     Default: ''
-    AllowedPattern: '^$|^[A-Za-z0-9+/]{43}=$'
+    AllowedPattern: ^$|^[A-Za-z0-9+/]{43}=$
     ConstraintDescription: WireGuard の公開鍵（base64 の 44 文字）。空なら未設定。
-    Description: オンプレの WireGuard の公開鍵（秘密鍵ではない）。空のあいだ、EC2 はピアを持たない。EC2 の公開鍵を取り出してオンプレに設定してから入れる（README の 4.2）。
+    Description: オンプレの WireGuard の公開鍵（秘密鍵ではない）。空のあいだ、EC2 はピアを持たない。EC2
+      の公開鍵を取り出してオンプレに設定してから入れる（README の 4.2）。
   WireguardInstanceType:
     Type: String
     Default: t4g.nano
-    AllowedPattern: '^t4g\..+$'
+    AllowedPattern: ^t4g\..+$
     ConstraintDescription: arm64（Graviton）のインスタンスタイプにする（AMI が arm64）。
   # 親では String（SSM の名前のまま子に渡す）。解決は子（wireguard.yaml の AmiSsmId。SSM 型）が行う。
   # 親も SSM 型にすると、親が解決した ami-... を子がもう一度パラメータの名前として引きに行き、作成が失敗する。
   WireguardAmiSsmId:
     Type: String
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
-    Description: >-
-      AMI の SSM パラメータの名前（Amazon Linux 2023・arm64。AMI の ID ではない）。WireguardFixedAmiId が空のときだけ使う。
-      「最新」を指すので、新しい AMI が出たあとの更新でインスタンスが置き換わり、秘密鍵が失われて公開鍵が変わる（オンプレの更新が要る）。
-      初回のデプロイのあとは WireguardFixedAmiId で固定する（README の 4.2）。
+    Description: AMI の SSM パラメータの名前（Amazon Linux 2023・arm64。AMI の ID
+      ではない）。WireguardFixedAmiId が空のときだけ使う。 「最新」を指すので、新しい AMI
+      が出たあとの更新でインスタンスが置き換わり、秘密鍵が失われて公開鍵が変わる（オンプレの更新が要る）。 初回のデプロイのあとは
+      WireguardFixedAmiId で固定する（README の 4.2）。
   WireguardFixedAmiId:
     Type: String
     Default: ''
-    AllowedPattern: '^$|^ami-[0-9a-f]{8,17}$'
+    AllowedPattern: ^$|^ami-[0-9a-f]{8,17}$
     ConstraintDescription: AMI の ID（ami-...）か、空。
-    Description: WireGuard の EC2 の AMI の ID。空でなければ WireguardAmiSsmId より優先する。初回のデプロイのあと、動いている EC2 の AMI の ID を入れて固定する。
+    Description: WireGuard の EC2 の AMI の ID。空でなければ WireguardAmiSsmId
+      より優先する。初回のデプロイのあと、動いている EC2 の AMI の ID を入れて固定する。
   RdsCaSha256:
     Type: String
     Default: fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c
-    Description: >-
-      RDS の CA 束（global-bundle.pem）の SHA-256。ops-tasks の DB 作成タスクが起動時に束を取得して照合する。
-      cloud/images/*/Dockerfile の RDS_CA_SHA256 と同じ値にする（README の 4.7）。
+    Description: RDS の CA 束（global-bundle.pem）の SHA-256。ops-tasks の DB
+      作成タスクが起動時に束を取得して照合する。 cloud/images/*/Dockerfile の RDS_CA_SHA256
+      と同じ値にする（README の 4.7）。
   VpcCidr:
     Type: String
     Default: 10.20.0.0/16
@@ -310,8 +431,11 @@ Parameters:
   MauticMountConfigVolume:
     Type: String
     Default: 'true'
-    AllowedValues: ['true', 'false']
-    Description: Mautic の config ディレクトリを EFS で覆うか（local.php を再起動で消さない）。公式イメージの config は空（.gitkeep だけ）なので、覆っても既定のファイルは隠れない。
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Mautic の config ディレクトリを EFS で覆うか（local.php を再起動で消さない）。公式イメージの
+      config は空（.gitkeep だけ）なので、覆っても既定のファイルは隠れない。
   ChatwootMailerSenderEmail:
     Type: String
     Default: Chatwoot <no-reply@comegin.com>
@@ -319,7 +443,8 @@ Parameters:
   GoogleClientId:
     Type: String
     Default: ''
-    Description: admin-auth の Google の OAuth クライアント ID（Workspace の「内部」）。人間が Google Cloud で発行して入れる。
+    Description: admin-auth の Google の OAuth クライアント ID（Workspace の「内部」）。人間が Google
+      Cloud で発行して入れる。
   AdminBootstrapEmails:
     Type: String
     Default: ''
@@ -335,16 +460,21 @@ Parameters:
     Type: Number
     Default: 10
     MinValue: 0
-    Description: consent-api（Lambda）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md の 12 節）。0 なら付けない
+    Description: consent-api（Lambda）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md
+      の 12 節）。0 なら付けない
   AdminAuthReservedConcurrency:
     Type: Number
     Default: 5
     MinValue: 0
-    Description: admin-auth（Lambda の本体）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md の 12 節）。0 なら付けない
+    Description: admin-auth（Lambda
+      の本体）の予約同時実行数（暫定値。docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md
+      の 12 節）。0 なら付けない
   AdminAuthOpsReservedConcurrency:
     Type: Number
     Default: 1
-    AllowedValues: [0, 1]
+    AllowedValues:
+      - 0
+      - 1
     Description: admin-auth の運用の Lambda の予約同時実行数（1 で移行と登録が重ねて走らない）。0 なら付けない
   FaqBotReservedConcurrency:
     Type: Number
@@ -355,7 +485,8 @@ Parameters:
     Type: Number
     Default: 0
     MinValue: 0
-    Description: admin-auth（本体）のプロビジョニングされた同時実行数。0 なら付けない。Wave 4 で ALB の IdP の呼び出しが遅ければ 1 にする（月 4〜5 USD 前後）
+    Description: admin-auth（本体）のプロビジョニングされた同時実行数。0 なら付けない。Wave 4 で ALB の IdP
+      の呼び出しが遅ければ 1 にする（月 4〜5 USD 前後）
   FaqBotChatwootAccountId:
     Type: Number
     Default: 1
@@ -364,7 +495,8 @@ Parameters:
   FaqMatchHigh:
     Type: String
     Default: '0.5'
-    Description: faq-bot が答える 1 位のスコアの下限（docs/superpowers/specs/2026-10-11-faq-bot-design.md の 7.2）
+    Description: faq-bot が答える 1
+      位のスコアの下限（docs/superpowers/specs/2026-10-11-faq-bot-design.md の 7.2）
   FaqMatchLow:
     Type: String
     Default: '0.25'
@@ -379,104 +511,365 @@ Parameters:
 # CPU は各サービスのパラメータの AllowedValues（256〜4096）。メモリは MiB の文字列で書く（例 '2048'）。
 Rules:
   MauticWebCpu256Memory:
-    RuleCondition: !Equals [!Ref MauticWebCpu, '256']
+    RuleCondition: !Equals
+      - !Ref MauticWebCpu
+      - '256'
     Assertions:
-      - Assert: !Contains [['512', '1024', '2048'], !Ref MauticWebMemory]
+      - Assert: !Contains
+          - - '512'
+            - '1024'
+            - '2048'
+          - !Ref MauticWebMemory
         AssertDescription: MauticWebCpu=256 のとき MauticWebMemory は 512〜2048（512・1024・2048）
   MauticWebCpu512Memory:
-    RuleCondition: !Equals [!Ref MauticWebCpu, '512']
+    RuleCondition: !Equals
+      - !Ref MauticWebCpu
+      - '512'
     Assertions:
-      - Assert: !Contains [['1024', '2048', '3072', '4096'], !Ref MauticWebMemory]
+      - Assert: !Contains
+          - - '1024'
+            - '2048'
+            - '3072'
+            - '4096'
+          - !Ref MauticWebMemory
         AssertDescription: MauticWebCpu=512 のとき MauticWebMemory は 1024〜4096（1024 刻み）
   MauticWebCpu1024Memory:
-    RuleCondition: !Equals [!Ref MauticWebCpu, '1024']
+    RuleCondition: !Equals
+      - !Ref MauticWebCpu
+      - '1024'
     Assertions:
-      - Assert: !Contains [['2048', '3072', '4096', '5120', '6144', '7168', '8192'], !Ref MauticWebMemory]
+      - Assert: !Contains
+          - - '2048'
+            - '3072'
+            - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+          - !Ref MauticWebMemory
         AssertDescription: MauticWebCpu=1024 のとき MauticWebMemory は 2048〜8192（1024 刻み）
   MauticWebCpu2048Memory:
-    RuleCondition: !Equals [!Ref MauticWebCpu, '2048']
+    RuleCondition: !Equals
+      - !Ref MauticWebCpu
+      - '2048'
     Assertions:
-      - Assert: !Contains [['4096', '5120', '6144', '7168', '8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384'], !Ref MauticWebMemory]
+      - Assert: !Contains
+          - - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+          - !Ref MauticWebMemory
         AssertDescription: MauticWebCpu=2048 のとき MauticWebMemory は 4096〜16384（1024 刻み）
   MauticWebCpu4096Memory:
-    RuleCondition: !Equals [!Ref MauticWebCpu, '4096']
+    RuleCondition: !Equals
+      - !Ref MauticWebCpu
+      - '4096'
     Assertions:
-      - Assert: !Contains [['8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384', '17408', '18432', '19456', '20480', '21504', '22528', '23552', '24576', '25600', '26624', '27648', '28672', '29696', '30720'], !Ref MauticWebMemory]
+      - Assert: !Contains
+          - - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+            - '17408'
+            - '18432'
+            - '19456'
+            - '20480'
+            - '21504'
+            - '22528'
+            - '23552'
+            - '24576'
+            - '25600'
+            - '26624'
+            - '27648'
+            - '28672'
+            - '29696'
+            - '30720'
+          - !Ref MauticWebMemory
         AssertDescription: MauticWebCpu=4096 のとき MauticWebMemory は 8192〜30720（1024 刻み）
   MauticCronCpu256Memory:
-    RuleCondition: !Equals [!Ref MauticCronCpu, '256']
+    RuleCondition: !Equals
+      - !Ref MauticCronCpu
+      - '256'
     Assertions:
-      - Assert: !Contains [['512', '1024', '2048'], !Ref MauticCronMemory]
+      - Assert: !Contains
+          - - '512'
+            - '1024'
+            - '2048'
+          - !Ref MauticCronMemory
         AssertDescription: MauticCronCpu=256 のとき MauticCronMemory は 512〜2048（512・1024・2048）
   MauticCronCpu512Memory:
-    RuleCondition: !Equals [!Ref MauticCronCpu, '512']
+    RuleCondition: !Equals
+      - !Ref MauticCronCpu
+      - '512'
     Assertions:
-      - Assert: !Contains [['1024', '2048', '3072', '4096'], !Ref MauticCronMemory]
+      - Assert: !Contains
+          - - '1024'
+            - '2048'
+            - '3072'
+            - '4096'
+          - !Ref MauticCronMemory
         AssertDescription: MauticCronCpu=512 のとき MauticCronMemory は 1024〜4096（1024 刻み）
   MauticCronCpu1024Memory:
-    RuleCondition: !Equals [!Ref MauticCronCpu, '1024']
+    RuleCondition: !Equals
+      - !Ref MauticCronCpu
+      - '1024'
     Assertions:
-      - Assert: !Contains [['2048', '3072', '4096', '5120', '6144', '7168', '8192'], !Ref MauticCronMemory]
+      - Assert: !Contains
+          - - '2048'
+            - '3072'
+            - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+          - !Ref MauticCronMemory
         AssertDescription: MauticCronCpu=1024 のとき MauticCronMemory は 2048〜8192（1024 刻み）
   MauticCronCpu2048Memory:
-    RuleCondition: !Equals [!Ref MauticCronCpu, '2048']
+    RuleCondition: !Equals
+      - !Ref MauticCronCpu
+      - '2048'
     Assertions:
-      - Assert: !Contains [['4096', '5120', '6144', '7168', '8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384'], !Ref MauticCronMemory]
+      - Assert: !Contains
+          - - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+          - !Ref MauticCronMemory
         AssertDescription: MauticCronCpu=2048 のとき MauticCronMemory は 4096〜16384（1024 刻み）
   MauticCronCpu4096Memory:
-    RuleCondition: !Equals [!Ref MauticCronCpu, '4096']
+    RuleCondition: !Equals
+      - !Ref MauticCronCpu
+      - '4096'
     Assertions:
-      - Assert: !Contains [['8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384', '17408', '18432', '19456', '20480', '21504', '22528', '23552', '24576', '25600', '26624', '27648', '28672', '29696', '30720'], !Ref MauticCronMemory]
+      - Assert: !Contains
+          - - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+            - '17408'
+            - '18432'
+            - '19456'
+            - '20480'
+            - '21504'
+            - '22528'
+            - '23552'
+            - '24576'
+            - '25600'
+            - '26624'
+            - '27648'
+            - '28672'
+            - '29696'
+            - '30720'
+          - !Ref MauticCronMemory
         AssertDescription: MauticCronCpu=4096 のとき MauticCronMemory は 8192〜30720（1024 刻み）
   ChatwootWebCpu256Memory:
-    RuleCondition: !Equals [!Ref ChatwootWebCpu, '256']
+    RuleCondition: !Equals
+      - !Ref ChatwootWebCpu
+      - '256'
     Assertions:
-      - Assert: !Contains [['512', '1024', '2048'], !Ref ChatwootWebMemory]
+      - Assert: !Contains
+          - - '512'
+            - '1024'
+            - '2048'
+          - !Ref ChatwootWebMemory
         AssertDescription: ChatwootWebCpu=256 のとき ChatwootWebMemory は 512〜2048（512・1024・2048）
   ChatwootWebCpu512Memory:
-    RuleCondition: !Equals [!Ref ChatwootWebCpu, '512']
+    RuleCondition: !Equals
+      - !Ref ChatwootWebCpu
+      - '512'
     Assertions:
-      - Assert: !Contains [['1024', '2048', '3072', '4096'], !Ref ChatwootWebMemory]
+      - Assert: !Contains
+          - - '1024'
+            - '2048'
+            - '3072'
+            - '4096'
+          - !Ref ChatwootWebMemory
         AssertDescription: ChatwootWebCpu=512 のとき ChatwootWebMemory は 1024〜4096（1024 刻み）
   ChatwootWebCpu1024Memory:
-    RuleCondition: !Equals [!Ref ChatwootWebCpu, '1024']
+    RuleCondition: !Equals
+      - !Ref ChatwootWebCpu
+      - '1024'
     Assertions:
-      - Assert: !Contains [['2048', '3072', '4096', '5120', '6144', '7168', '8192'], !Ref ChatwootWebMemory]
+      - Assert: !Contains
+          - - '2048'
+            - '3072'
+            - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+          - !Ref ChatwootWebMemory
         AssertDescription: ChatwootWebCpu=1024 のとき ChatwootWebMemory は 2048〜8192（1024 刻み）
   ChatwootWebCpu2048Memory:
-    RuleCondition: !Equals [!Ref ChatwootWebCpu, '2048']
+    RuleCondition: !Equals
+      - !Ref ChatwootWebCpu
+      - '2048'
     Assertions:
-      - Assert: !Contains [['4096', '5120', '6144', '7168', '8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384'], !Ref ChatwootWebMemory]
+      - Assert: !Contains
+          - - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+          - !Ref ChatwootWebMemory
         AssertDescription: ChatwootWebCpu=2048 のとき ChatwootWebMemory は 4096〜16384（1024 刻み）
   ChatwootWebCpu4096Memory:
-    RuleCondition: !Equals [!Ref ChatwootWebCpu, '4096']
+    RuleCondition: !Equals
+      - !Ref ChatwootWebCpu
+      - '4096'
     Assertions:
-      - Assert: !Contains [['8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384', '17408', '18432', '19456', '20480', '21504', '22528', '23552', '24576', '25600', '26624', '27648', '28672', '29696', '30720'], !Ref ChatwootWebMemory]
+      - Assert: !Contains
+          - - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+            - '17408'
+            - '18432'
+            - '19456'
+            - '20480'
+            - '21504'
+            - '22528'
+            - '23552'
+            - '24576'
+            - '25600'
+            - '26624'
+            - '27648'
+            - '28672'
+            - '29696'
+            - '30720'
+          - !Ref ChatwootWebMemory
         AssertDescription: ChatwootWebCpu=4096 のとき ChatwootWebMemory は 8192〜30720（1024 刻み）
   ChatwootWorkerCpu256Memory:
-    RuleCondition: !Equals [!Ref ChatwootWorkerCpu, '256']
+    RuleCondition: !Equals
+      - !Ref ChatwootWorkerCpu
+      - '256'
     Assertions:
-      - Assert: !Contains [['512', '1024', '2048'], !Ref ChatwootWorkerMemory]
-        AssertDescription: ChatwootWorkerCpu=256 のとき ChatwootWorkerMemory は 512〜2048（512・1024・2048）
+      - Assert: !Contains
+          - - '512'
+            - '1024'
+            - '2048'
+          - !Ref ChatwootWorkerMemory
+        AssertDescription: ChatwootWorkerCpu=256 のとき ChatwootWorkerMemory は
+          512〜2048（512・1024・2048）
   ChatwootWorkerCpu512Memory:
-    RuleCondition: !Equals [!Ref ChatwootWorkerCpu, '512']
+    RuleCondition: !Equals
+      - !Ref ChatwootWorkerCpu
+      - '512'
     Assertions:
-      - Assert: !Contains [['1024', '2048', '3072', '4096'], !Ref ChatwootWorkerMemory]
+      - Assert: !Contains
+          - - '1024'
+            - '2048'
+            - '3072'
+            - '4096'
+          - !Ref ChatwootWorkerMemory
         AssertDescription: ChatwootWorkerCpu=512 のとき ChatwootWorkerMemory は 1024〜4096（1024 刻み）
   ChatwootWorkerCpu1024Memory:
-    RuleCondition: !Equals [!Ref ChatwootWorkerCpu, '1024']
+    RuleCondition: !Equals
+      - !Ref ChatwootWorkerCpu
+      - '1024'
     Assertions:
-      - Assert: !Contains [['2048', '3072', '4096', '5120', '6144', '7168', '8192'], !Ref ChatwootWorkerMemory]
+      - Assert: !Contains
+          - - '2048'
+            - '3072'
+            - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+          - !Ref ChatwootWorkerMemory
         AssertDescription: ChatwootWorkerCpu=1024 のとき ChatwootWorkerMemory は 2048〜8192（1024 刻み）
   ChatwootWorkerCpu2048Memory:
-    RuleCondition: !Equals [!Ref ChatwootWorkerCpu, '2048']
+    RuleCondition: !Equals
+      - !Ref ChatwootWorkerCpu
+      - '2048'
     Assertions:
-      - Assert: !Contains [['4096', '5120', '6144', '7168', '8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384'], !Ref ChatwootWorkerMemory]
+      - Assert: !Contains
+          - - '4096'
+            - '5120'
+            - '6144'
+            - '7168'
+            - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+          - !Ref ChatwootWorkerMemory
         AssertDescription: ChatwootWorkerCpu=2048 のとき ChatwootWorkerMemory は 4096〜16384（1024 刻み）
   ChatwootWorkerCpu4096Memory:
-    RuleCondition: !Equals [!Ref ChatwootWorkerCpu, '4096']
+    RuleCondition: !Equals
+      - !Ref ChatwootWorkerCpu
+      - '4096'
     Assertions:
-      - Assert: !Contains [['8192', '9216', '10240', '11264', '12288', '13312', '14336', '15360', '16384', '17408', '18432', '19456', '20480', '21504', '22528', '23552', '24576', '25600', '26624', '27648', '28672', '29696', '30720'], !Ref ChatwootWorkerMemory]
+      - Assert: !Contains
+          - - '8192'
+            - '9216'
+            - '10240'
+            - '11264'
+            - '12288'
+            - '13312'
+            - '14336'
+            - '15360'
+            - '16384'
+            - '17408'
+            - '18432'
+            - '19456'
+            - '20480'
+            - '21504'
+            - '22528'
+            - '23552'
+            - '24576'
+            - '25600'
+            - '26624'
+            - '27648'
+            - '28672'
+            - '29696'
+            - '30720'
+          - !Ref ChatwootWorkerMemory
         AssertDescription: ChatwootWorkerCpu=4096 のとき ChatwootWorkerMemory は 8192〜30720（1024 刻み）
 
 Resources:
@@ -515,7 +908,9 @@ Resources:
       Location: stacks/runlog-archive.yaml
       Parameters:
         EnvName: !Ref EnvName
-        RunLogAdminPrincipalArns: !Join [',', !Ref RunLogAdminPrincipalArns]
+        RunLogAdminPrincipalArns: !Join
+          - ','
+          - !Ref RunLogAdminPrincipalArns
 
   SecretsStack:
     Type: AWS::Serverless::Application
@@ -784,7 +1179,10 @@ Resources:
         GoogleClientId: !Ref GoogleClientId
         AdminBootstrapEmails: !Ref AdminBootstrapEmails
         AlbClientId: !Ref AlbOidcClientId
-        AlbProtectedHosts: !Join [',', [!Ref ChatHost, !Ref MktHost]]
+        AlbProtectedHosts: !Join
+          - ','
+          - - !Ref ChatHost
+            - !Ref MktHost
         ReservedConcurrency: !Ref AdminAuthReservedConcurrency
         OpsReservedConcurrency: !Ref AdminAuthOpsReservedConcurrency
         ProvisionedConcurrency: !Ref AdminAuthProvisionedConcurrency
@@ -800,8 +1198,8 @@ Resources:
         SecurityGroupId: !GetAtt NetworkStack.Outputs.ConsentApiSecurityGroupId
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
         ValkeyEndpoint: !GetAtt DataStack.Outputs.ValkeyEndpoint
-        SiteUrl: !Sub 'https://${SiteHost}'
-        CookieDomain: !Sub '.${DomainName}'
+        SiteUrl: !Sub https://${SiteHost}
+        CookieDomain: !Sub .${DomainName}
         ConsentPolicyVersion: !Ref ConsentPolicyVersion
         ReservedConcurrency: !Ref ConsentApiReservedConcurrency
 
@@ -813,9 +1211,9 @@ Resources:
       Parameters:
         EnvName: !Ref EnvName
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
-        ChatwootBaseUrl: !Sub 'https://${ChatHost}'
+        ChatwootBaseUrl: !Sub https://${ChatHost}
         ChatwootAccountId: !Ref FaqBotChatwootAccountId
-        FaqUrl: !Sub 'https://${SiteHost}/faq.json'
+        FaqUrl: !Sub https://${SiteHost}/faq.json
         FaqMatchHigh: !Ref FaqMatchHigh
         FaqMatchLow: !Ref FaqMatchLow
         FaqMatchMargin: !Ref FaqMatchMargin
@@ -847,7 +1245,8 @@ Resources:
 
 Outputs:
   FaqBotFunctionUrl:
-    Description: Chatwoot のエージェントボット「FAQ ボット」の outgoing_url（この値の末尾に webhook を付ける。cloud/README.md）
+    Description: Chatwoot のエージェントボット「FAQ ボット」の outgoing_url（この値の末尾に webhook
+      を付ける。cloud/README.md）
     Value: !GetAtt FaqBotService.Outputs.FunctionUrl
 
   # 監視アプリの設定（frontend/next-js の .env）に人が写す値。
@@ -899,7 +1298,8 @@ Outputs:
     Description: admin-auth の ALB_PROTECTED_HOSTS
     Value: !GetAtt EdgeStack.Outputs.AlbProtectedHosts
   ChatwootWebSecurityGroupId:
-    Description: chatwoot の db:chatwoot_prepare を RunTask で実行するときのセキュリティグループ（DB と Valkey に届く）
+    Description: chatwoot の db:chatwoot_prepare を RunTask で実行するときのセキュリティグループ（DB と
+      Valkey に届く）
     Value: !GetAtt NetworkStack.Outputs.ChatwootWebSecurityGroupId
   AdminAuthOpsFunctionName:
     Description: admin-auth の運用の Lambda（migrate・register-alb-client。cloud/README の 4.19）

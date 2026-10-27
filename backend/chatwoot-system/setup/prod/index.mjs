@@ -16,7 +16,7 @@
 import { createHash } from "node:crypto";
 import { ASK_RESOLVED_MACRO, FAQ_LABELS, HANDOFF_EMAIL_FLAG, ensureAskResolvedMacro, ensureFaqBot, ensureHandoffNotification, ensureInbox, ensureLabels, profile } from "../index.mjs";
 
-export const meta = { id: "chatwoot-prod", title: "Chatwoot（本番。受信箱・FAQ ボット・ラベル・マクロ）", targets: ["prod"], after: [] };
+export const meta = { id: "chatwoot-prod", title: "Chatwoot（本番。受信箱・FAQ ボット・ラベル・マクロ）", targets: ["prod"], phases: ["apps"], after: [] };
 
 const DEFAULT_BASE_URL = "https://chat.comegin.com";
 /** FAQ ボットのトークンの指紋（SHA-256 の先頭 8 文字）。Secrets Manager に入れた値と今のボットの値が同じかを、値を出さずに確かめる */

@@ -33,8 +33,12 @@
 | （verdant-virgo の失敗）`PUBLIC_GA4_MEASUREMENT_ID` がある | 開発の Astro の環境変数ファイルに測定 ID が書かれている | ga4 と同じ。その行を消して `node setup/frontend.mjs --target dev --from verdant-virgo` | [7.5](#75-ga4adr-25) |
 | `verdant-virgo:prod-values`（`--target prod`） | 本番の公開サイトのビルドの値が `prod.conf` に足りない（ビルドを行う承認済みの `main` のチェックアウト `SITE_BUILD_CHECKOUT` が無い・作業ツリーと同じときは失敗として止まる） | 表示されたキーを `prod.conf` に書く（雛形は `setup/setup.conf.example` の「公開サイト」） | `setup/README.md` の「フロントエンド全体」 |
 | `verdant-virgo:gsc-domain`（`--target prod`） | `comegin.com` に Search Console の所有権の TXT が無い | Search Console にドメインプロパティを登録し、Route 53 に TXT を足す（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
+| `cloud:env`（`--target prod`。段階 `env`） | 道具・AWS の認証・`cloud/samconfig.toml` の必須の値が足りない | 道具を入れる／`aws sso login` など／`samconfig.toml` を雛形から作って値を書く | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:global`／`cloud:cloudfront-params`／`cloud:sam-deploy`（段階 `deploy`） | global・本番のスタックが無い・失敗している／CloudFront の 2 つのパラメータが雛形のまま | `sam deploy --config-env global`／表示された ARN を書く／`sam build` → `sam deploy` | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:secrets`（段階 `deploy`） | `admin-auth/GOOGLE_CLIENT_SECRET` に値が無い | シェルの履歴に残らない方法で `put-secret-value` | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:push`（段階 `images`） | 本番スタックのイメージのタグが ECR に無い | 表示されたコマンドでビルドしてプッシュする | [8.5](#85-aws-のデプロイcloud) |
 | `onprem:onprem-bringup`（`--target prod`） | 本番のオンプレ | AWS のデプロイの後 | [8](#8-本番--target-prod) |
-| `admin-auth:prod-deploy`／`admin-auth:prod-migrate`（`--target prod`） | 本番の admin-auth の discovery が応答しない／運用の Lambda での移行と ALB の登録を申告していない | `sam deploy` を済ませる／`admin-auth-ops` に `migrate`・`register-alb-client` を送り、`ADMIN_AUTH_PROD_READY=yes` を書く | [8.1](#81-本番の-admin-auth) |
+| `admin-auth:prod-deploy`／`admin-auth:prod-migrate`（`--target prod`） | 本番の admin-auth の discovery が応答しない／運用の Lambda での移行と ALB の登録を申告していない | 段階 `deploy`（`--phase deploy`）を済ませる／`admin-auth-ops` に `migrate`・`register-alb-client` を送り、`ADMIN_AUTH_PROD_READY=yes` を書く | [8.1](#81-本番の-admin-auth) |
 | `chatwoot-prod:onboarding`／`chatwoot-prod:faq-bot-secrets`（`--target prod`） | 本番の Chatwoot の管理者・エージェント専用ユーザーのトークンが無い／FAQ ボットのトークンを Secrets Manager に入れたと申告していない | 画面の onboarding とエージェントの招待をしてトークンを書く／表示されたコマンドで Secrets Manager に入れて `FAQ_BOT_SECRETS_STORED=yes` | [8.3](#83-本番の-chatwootchatwoot-prod) |
 | `mautic-prod:settings`（`--target prod`） | 本番の Mautic が未インストール・API が無効・画面の設定を申告していない・初期設定用の API 認証情報が無い | インストールして画面で設定し、`MAUTIC_SETUP_CLIENT_*` と `MAUTIC_PROD_SETTINGS_DONE=yes` を書く | [8.4](#84-本番の-mauticmautic-prod) |
 | `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く | [8.2](#82-本番の-mcpmcp-prod) |
@@ -223,9 +227,9 @@ Claude Console（https://platform.claude.com）で API キーを作り、`dev.co
 
 OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・ループバックだけ）は、調査とランク追跡に DataForSEO（費用が出る）を、実績の取得に Google Search Console と GA4 を使う。スクリプトは環境変数ファイルを作って起動し、`/api/health` の `checks` を見て、足りないものだけを案内する。
 
-**`--target dev` では Google（OAuth クライアント・Search Console・GA4）の手順を飛ばす**（2026-10-06）。開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いため。dev で案内するのは DataForSEO だけで、check も Google の接続を求めない。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使うので、**AWS に展開した後に `node setup/setup.mjs --target prod --only ga4,openseo` で Google の手順を行う**（値は `~/.config/comegin/setup/prod.conf` に書く）。dev の実行は Google の OAuth クライアントを OpenSEO の環境変数ファイルに書かない（prod で設定したクライアントを `dev.conf` の `GOOGLE_CLIENT_ID`〈admin-auth 用〉で上書きしないため）。
+**`--target dev` では Google（OAuth クライアント・Search Console・GA4）の手順を飛ばす**（2026-10-06）。開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いため。dev で案内するのは DataForSEO だけで、check も Google の接続を求めない。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使うので、**公開サイトが Route 53 から配信された後に `node setup/setup.mjs --target prod --phase google` で Google の手順を行う**（値は `~/.config/comegin/setup/prod.conf` に書く）。dev の実行は Google の OAuth クライアントを OpenSEO の環境変数ファイルに書かない（prod で設定したクライアントを `dev.conf` の `GOOGLE_CLIENT_ID`〈admin-auth 用〉で上書きしないため）。
 
-**`--target prod --before-route53` でも Google の手順を飛ばす**（2026-10-27）。AWS に展開しても、公開サイト（Astro）が Route 53 から配信されるまでは Search Console にも GA4 にもデータが無いため。起動と DataForSEO は prod と同じに行い、`prod.conf` の OAuth クライアントは環境変数ファイルに書いておく。**配信の後に `--before-route53` を付けずに** `node setup/setup.mjs --target prod --only ga4,openseo` を実行する。
+**prod の `ga4`・`openseo` は段階 `google` だけで動く**（2026-10-27。`setup/README.md` の「本番の段階」）。AWS に展開しても、公開サイト（Astro）が Route 53 から配信されるまでは Search Console にも GA4 にもデータが無いため、`--phase` を付けない実行（`env`〜`apps`）には入らない。
 
 | 表示の id | すること |
 |---|---|
@@ -243,7 +247,7 @@ Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_G
 
 アクセス解析（流入・ページ・参照元）の正本は GA4（ADR-25）。エージェント（`analytics-reporter`）は OpenSEO の MCP（`get_google_analytics_*`）で読む。**プロパティは本番の 1 つだけ**で、開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない）。構成の正本は `middleware/ga4/README.md`。
 
-**`--target dev` では、本番のプロパティの作成（`ga4:property`）と OpenSEO への接続（`openseo:ga4-connect`）を飛ばす**（2026-10-06。7.4 と同じ理由）。dev の `ga4` が確かめるのは「開発の Astro に測定 ID が無いこと」だけ。下の 2 つは AWS に展開した後に `--target prod --only ga4,openseo` で行い、値は `prod.conf` に書く。**`--target prod --before-route53`（公開サイトが Route 53 から配信される前）でも飛ばし**、公開サイトの `.env.production` には測定 ID を空で書く（タグを出さない）。配信の後に付けずに `setup.mjs --target prod --only ga4,openseo` と `frontend.mjs --target prod` を実行し、ビルドし直す（2026-10-27）。
+**`--target dev` では、本番のプロパティの作成（`ga4:property`）と OpenSEO への接続（`openseo:ga4-connect`）を飛ばす**（2026-10-06。7.4 と同じ理由）。dev の `ga4` が確かめるのは「開発の Astro に測定 ID が無いこと」だけ。下の 2 つは公開サイトが Route 53 から配信された後に `--target prod --phase google` で行い、値は `prod.conf` に書く。それまで（段階 `apps`）は公開サイトの `.env.production` に測定 ID を空で書く（タグを出さない）。配信の後に `setup.mjs --target prod --phase google` と `frontend.mjs --target prod --phase google` を実行し、ビルドし直す（2026-10-27）。
 
 | 表示の id | すること |
 |---|---|
@@ -302,6 +306,19 @@ OAuth の同意画面が「テスト中」のままだと、更新トークン�
 - 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
 
 Mautic と Chatwoot から n8n（I-11・I-12）への Webhook は、オンプレの本番の n8n の provision が作る（`middleware/n8n/provision`。宛先は `http://10.99.0.2:5680/webhook/...`）。
+
+### 8.5 AWS のデプロイ（`cloud`）
+
+本番の段階 `env`・`deploy`・`images` は `cloud`（`cloud/setup/index.mjs`）が受け持つ（`setup/README.md` の「本番の段階」）。AWS には読み取り（`sts get-caller-identity`・`cloudformation describe-stacks`・`ecr describe-images`・`secretsmanager describe-secret`）しか行わず、デプロイ・プッシュ・Secret の値の書き込みは人が自分の端末で行う（`cloud/README.md` の 2 節）。`samconfig.toml` の値と Secret の値は表示しない。
+
+| 表示の id | すること |
+|---|---|
+| `cloud:env` | AWS CLI・SAM CLI（1.154 以上）・Docker・pnpm 11 を入れる。AWS の認証は `AWS_PROFILE` か `aws sso login`（アカウントが既定の `798560359429` でなければ止まる。別のアカウントに出すなら `prod.conf` の `AWS_ACCOUNT_ID`）。`cp cloud/samconfig.toml.example cloud/samconfig.toml`（600）にして、`RunLogAdminPrincipalArns`・`GoogleClientId`・`AdminBootstrapEmails` を書く（CloudFront の 2 つは次の段階で書く） |
+| `cloud:global` | `cd cloud && sam deploy --config-env global`（`cloud/README.md` の 4.1） |
+| `cloud:cloudfront-params` | 表示された global の出力（`CertificateArn`・`WebAclArn`）を `samconfig.toml` の `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く |
+| `cloud:sam-deploy` | `cd cloud && sam build`（必須）→ `sam deploy`（4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
+| `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は警告だけで、Chatwoot・Mautic の DesiredCount を上げる前（4.11）に入れる。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
+| `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
 
 ## 9. ログイン先の一覧
 

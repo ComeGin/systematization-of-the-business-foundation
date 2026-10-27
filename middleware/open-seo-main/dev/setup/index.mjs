@@ -4,10 +4,8 @@
 //   - OpenSEO はオンプレのローカルに 1 つだけあり（127.0.0.1:3001）、開発と本番のエージェントが同じものを使う（TA-07 の 3.7）
 //   - --target dev: 起動と DataForSEO まで。Google（OAuth クライアント・Search Console・GA4）の手順は飛ばし、check でも求めない。
 //     開発の時点では公開サイトが AWS に展開されておらず、Search Console のプロパティにも GA4 の本番のプロパティにもデータが無いため
-//   - --target prod（AWS に展開した後）: dev の内容に加えて、Google の OAuth クライアント・Search Console の接続・GA4 の接続を案内する
-//   - --target prod --before-route53（公開サイトがまだ Route 53 から配信されていない）: 起動と DataForSEO までは prod と同じ。
-//     Google の手順（OAuth クライアントの案内・Search Console と GA4 の接続）は dev と同じく飛ばす（プロパティにまだデータが無いため）。
-//     prod.conf の OAuth クライアントは環境変数ファイルに書いておく（配信の後に付けずに実行し直したとき、そのまま接続に進めるように）
+//   - --target prod（段階 google。公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く）:
+//     dev の内容に加えて、Google の OAuth クライアント・Search Console の接続・GA4 の接続を案内する
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - open-seo-main は上流の取り込み。独自の追加は dev/setup/ の中だけ。上流の compose.yaml は変えずに、そのまま docker compose up -d する
@@ -49,7 +47,7 @@
 //   src/lib/selfhost-preflight.ts（check のキーは auth・dataforseo・gsc・ai・runtime。ga4 は無い）、src/server/lib/setup-status.ts（これに database を足す）
 import { join } from "node:path";
 
-export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ。Search Console と GA4 の接続は prod だけ）", targets: ["dev", "prod"], after: [] };
+export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ。Search Console と GA4 の接続は prod だけ）", targets: ["dev", "prod"], phases: ["google"], after: [] };
 
 const DIR = "middleware/open-seo-main";
 const BASE_URL = "http://127.0.0.1:3001";
@@ -63,12 +61,9 @@ const root = (ctx) => join(ctx.W, DIR);
 const envPath = (ctx) => join(root(ctx), ".env");
 const templatePath = (ctx) => join(root(ctx), ".env.example");
 const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
-/** Google（Search Console・GA4）の手順を扱うか。公開サイトが Route 53 から配信されていないうち（dev と prod の --before-route53）は扱わない */
-const handlesGoogle = (ctx) => ctx.siteRouted;
-const googleSkipped = (ctx) =>
-  ctx.target === "prod"
-    ? "Search Console と GA4 の接続は飛ばした（--before-route53。公開サイトがまだ Route 53 から配信されていない）。配信の後に node setup/setup.mjs --target prod --only ga4,openseo で行う"
-    : "Search Console と GA4 の接続は開発では飛ばす（公開サイトが AWS に無い）。AWS に展開した後に node setup/setup.mjs --target prod --only ga4,openseo で行う";
+/** Google（Search Console・GA4）の手順を扱う target か。dev は AWS に展開されていないので扱わない */
+const handlesGoogle = (ctx) => ctx.target === "prod";
+const GOOGLE_SKIPPED_IN_DEV = "Search Console と GA4 の接続は開発では飛ばす（公開サイトが AWS に無い）。公開サイトが Route 53 から配信された後に node setup/setup.mjs --target prod --phase google で行う";
 
 // ---------------------------------------------------------------------------
 // 設定の値（設定ファイル → 環境変数ファイルの今の値の順）
@@ -85,7 +80,7 @@ function googleClient(ctx) {
  *  Google の OAuth クライアントは prod のときだけ書く（環境変数ファイルは dev と prod で 1 つなので、dev.conf の
  *  GOOGLE_CLIENT_ID〈admin-auth 用〉で prod の接続に使っているクライアントを上書きしないため） */
 function syncFromConf(ctx) {
-  const google = ctx.target === "prod" ? googleClient(ctx) : {};
+  const google = handlesGoogle(ctx) ? googleClient(ctx) : {};
   return ctx.writeEnvFile(
     envPath(ctx),
     {
@@ -204,7 +199,7 @@ export async function check(ctx) {
   if (health.checks?.dataforseo?.status !== "ok") ok = false;
 
   if (!handlesGoogle(ctx)) {
-    notes.push(googleSkipped(ctx));
+    notes.push(GOOGLE_SKIPPED_IN_DEV);
     return { ok, notes };
   }
 
@@ -250,7 +245,7 @@ export async function apply(ctx) {
   if (health.checks?.dataforseo?.status !== "ok") ctx.manual("dataforseo-key", "DataForSEO の API キーを設定に書く", dataForSeoSteps(ctx));
 
   if (!handlesGoogle(ctx)) {
-    ctx.log(googleSkipped(ctx));
+    ctx.log(GOOGLE_SKIPPED_IN_DEV);
     ctx.log(`終わった。画面: ${BASE_URL}（認証なし。ループバックだけ）`);
     return;
   }

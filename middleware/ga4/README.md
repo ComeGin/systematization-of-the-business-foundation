@@ -100,7 +100,7 @@ OpenSEO に接続するのは本番のプロパティだけ。
 
 ## 5. 手で行う操作（setup が止まって頼むもの）
 
-setup は GA4 の API を呼ばない。**`--target dev` では 1〜6 を飛ばし、7 だけを確かめる**（開発の時点では公開サイトが AWS に展開されておらず、本番のプロパティに送るものも読むものも無い）。AWS に展開した後に `node setup/setup.mjs --target prod --only ga4,openseo` を実行すると、値が `prod.conf` に無ければ次の手順を表示して止まる（id `ga4:property`）。OpenSEO への接続（`openseo:ga4-connect`）も prod だけで出る。**`--target prod --before-route53`（公開サイトが Route 53 から配信される前）では prod でも 1〜6 と OpenSEO への接続を飛ばし**、公開サイトの `.env.production` の測定 ID を空にする（タグを出さない）。配信の後に付けずに実行し直す（2026-10-27）。
+setup は GA4 の API を呼ばない。**`--target dev` では 1〜6 を飛ばし、7 だけを確かめる**（開発の時点では公開サイトが AWS に展開されておらず、本番のプロパティに送るものも読むものも無い）。公開サイトが Route 53 から配信された後に `node setup/setup.mjs --target prod --phase google` を実行すると、値が `prod.conf` に無ければ次の手順を表示して止まる（id `ga4:property`）。OpenSEO への接続（`openseo:ga4-connect`）も prod だけで出る。
 
 1. https://analytics.google.com/ で、本番のプロパティを作る（アカウントが無ければ先に作る）。タイムゾーン `日本`、通貨 `日本円（JPY）`
 2. Web データストリームを作る（URL `https://comegin.com`）。拡張計測の歯車で、ページビュー（詳細設定の「ブラウザの履歴イベントに基づくページの変更」を含む）・スクロール数・離脱クリック・サイト内検索・ファイルのダウンロードをオン、**フォームの操作と動画エンゲージメントをオフ**にする（1 節の表）
