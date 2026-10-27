@@ -23,7 +23,6 @@ export const meta = { id: "n8n", title: "n8n（ワークフロー基盤）", tar
 const DIR = "middleware/n8n";
 const BASE = "http://127.0.0.1:5678";
 const API_KEY_LABEL = "setup-provision";
-const MCP_URL = `${BASE}/mcp-server/http`;
 
 // provision が読む設定のうち、状態から渡さないもの。設定（dev.conf）に同じ名前で書いてあれば、そのまま渡す
 const PASS_THROUGH = [
@@ -39,19 +38,19 @@ function strongPassword(ctx) {
   }
 }
 
-async function healthy(ctx) {
+export async function healthy(ctx, base = BASE) {
   try {
-    const res = await ctx.http("n8n", `${BASE}/healthz`, { raw: true, timeoutMs: 5_000 });
+    const res = await ctx.http("n8n", `${base}/healthz`, { raw: true, timeoutMs: 5_000 });
     return res.status === 200;
   } catch {
     return false;
   }
 }
 
-async function apiKeyWorks(ctx, key) {
+export async function apiKeyWorks(ctx, key, base = BASE) {
   if (!key) return false;
   try {
-    await ctx.http("n8n", `${BASE}/api/v1/workflows?limit=1`, { headers: { "X-N8N-API-KEY": key }, timeoutMs: 8_000 });
+    await ctx.http("n8n", `${base}/api/v1/workflows?limit=1`, { headers: { "X-N8N-API-KEY": key }, timeoutMs: 8_000 });
     return true;
   } catch {
     return false;
@@ -59,10 +58,10 @@ async function apiKeyWorks(ctx, key) {
 }
 
 /** MCP のアクセストークンが通るか（initialize だけを送る。何も変えない） */
-async function mcpWorks(ctx, token) {
+export async function mcpWorks(ctx, token, base = BASE) {
   if (!token) return false;
   try {
-    const res = await ctx.http("n8n（MCP）", MCP_URL, {
+    const res = await ctx.http("n8n（MCP）", `${base}/mcp-server/http`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json, text/event-stream" },
       json: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "setup", version: "0" } } },
@@ -163,13 +162,13 @@ export async function apply(ctx) {
 // オーナーとログイン
 // ---------------------------------------------------------------------------
 
-/** オーナーを（未作成なら）作り、ログインして cookie を返す */
-async function openSession(ctx) {
+/** オーナーを（未作成なら）作り、ログインして cookie を返す。base は n8n の URL（本番のモジュール n8n-prod も使う） */
+export async function openSession(ctx, base = BASE) {
   const email = ctx.value("N8N_OWNER_EMAIL") || ctx.require("ADMIN_EMAIL");
-  const settings = await ctx.http("n8n", `${BASE}/rest/settings`);
+  const settings = await ctx.http("n8n", `${base}/rest/settings`);
   if (settings?.data?.userManagement?.showSetupOnFirstLoad) {
     const password = strongPassword(ctx);
-    await ctx.http("n8n（オーナーの作成）", `${BASE}/rest/owner/setup`, { method: "POST", json: { email, firstName: "Admin", lastName: "ComeGin", password } });
+    await ctx.http("n8n（オーナーの作成）", `${base}/rest/owner/setup`, { method: "POST", json: { email, firstName: "Admin", lastName: "ComeGin", password } });
     ctx.state.set("N8N_OWNER_PASSWORD", password, { secret: true });
     ctx.log(`オーナーを作った（${email}。パスワードは --show N8N_OWNER_PASSWORD）`);
   } else ctx.log("オーナーは作成済み");
@@ -177,16 +176,16 @@ async function openSession(ctx) {
   const password = ctx.value("N8N_OWNER_PASSWORD");
   if (!password) {
     ctx.manual("owner-password", "既にある n8n のオーナーのパスワードを設定に書く", [
-      `~/.config/comegin/setup/dev.conf に N8N_OWNER_PASSWORD=<オーナーのパスワード> を書く（メールが ADMIN_EMAIL と違うなら N8N_OWNER_EMAIL=<メール> も）`,
-      "忘れたとき: 開発の n8n は SMTP が無いのでメールでの再設定はできない。最後の手段は docker compose exec n8n n8n user-management:reset（全ユーザーを消して最初の状態に戻す。https://docs.n8n.io/deploy/host-n8n/configure-n8n/use-the-command-line）→ 再実行するとスクリプトがオーナーを作り直す",
+      `~/.config/comegin/setup/${ctx.target}.conf に N8N_OWNER_PASSWORD=<オーナーのパスワード> を書く（メールが ADMIN_EMAIL と違うなら N8N_OWNER_EMAIL=<メール> も）`,
+      "忘れたとき: n8n（開発も本番も）は SMTP を設定していないのでメールでの再設定はできない。最後の手段は docker compose exec n8n n8n user-management:reset（全ユーザーを消して最初の状態に戻す。https://docs.n8n.io/deploy/host-n8n/configure-n8n/use-the-command-line）→ 再実行するとスクリプトがオーナーを作り直す",
       "同じコマンドを実行し直す",
     ]);
   }
-  const res = await ctx.http("n8n（ログイン）", `${BASE}/rest/login`, { method: "POST", json: { emailOrLdapLoginId: email, password }, raw: true });
+  const res = await ctx.http("n8n（ログイン）", `${base}/rest/login`, { method: "POST", json: { emailOrLdapLoginId: email, password }, raw: true });
   await res.text();
   if (res.status === 401 || res.status === 400) {
     ctx.manual("owner-login", "n8n のオーナーでログインできない", [
-      `設定（~/.config/comegin/setup/dev.conf）か状態の N8N_OWNER_PASSWORD が、${email} の今のパスワードと合っていない`,
+      `設定（~/.config/comegin/setup/${ctx.target}.conf）か状態の N8N_OWNER_PASSWORD が、${email} の今のパスワードと合っていない`,
       "n8n の画面で今のパスワードを確かめるか、変えてから、設定の N8N_OWNER_PASSWORD を直す（状態に同名の値があるなら、設定のほうが優先される）",
       "同じコマンドを実行し直す",
     ]);
@@ -197,8 +196,8 @@ async function openSession(ctx) {
   return cookie;
 }
 
-const rest = async (ctx, cookie, label, path, opts = {}) => {
-  const body = await ctx.http(`n8n（${label}）`, `${BASE}/rest${path}`, { ...opts, headers: { Cookie: cookie } });
+const rest = async (ctx, cookie, label, path, opts = {}, base = BASE) => {
+  const body = await ctx.http(`n8n（${label}）`, `${base}/rest${path}`, { ...opts, headers: { Cookie: cookie } });
   return body?.data ?? body;
 };
 
@@ -206,22 +205,23 @@ const rest = async (ctx, cookie, label, path, opts = {}) => {
 // 公開 API のキー
 // ---------------------------------------------------------------------------
 
-async function ensureApiKey(ctx, cookie) {
-  const allowed = new Set(await rest(ctx, cookie, "API キーのスコープ", "/api-keys/scopes"));
+/** 公開 API のキー（ラベル setup-provision）を用意して生の値を返す。base は n8n の URL（n8n-prod も使う） */
+export async function ensureApiKey(ctx, cookie, base = BASE) {
+  const allowed = new Set(await rest(ctx, cookie, "API キーのスコープ", "/api-keys/scopes", {}, base));
   const lack = PROVISION_SCOPES.filter((s) => !allowed.has(s));
   if (lack.length) throw new Error(`n8n の API キーで使えないスコープがある: ${lack.join(", ")}（provision.mjs の PROVISION_SCOPES を n8n の版に合わせる）`);
 
-  const list = await rest(ctx, cookie, "API キーの一覧", "/api-keys?ownership=mine");
+  const list = await rest(ctx, cookie, "API キーの一覧", "/api-keys?ownership=mine", {}, base);
   const found = (list?.items ?? []).find((k) => k.label === API_KEY_LABEL);
   if (found) {
     // 値は作成時にしか返らない。状態に無い・通らないなら、スコープをそろえて rotate（作り直し）する
-    await rest(ctx, cookie, "API キーの更新", `/api-keys/${found.id}`, { method: "PATCH", json: { label: API_KEY_LABEL, scopes: PROVISION_SCOPES } });
-    const rotated = await rest(ctx, cookie, "API キーの rotate", `/api-keys/${found.id}/rotate`, { method: "POST" });
+    await rest(ctx, cookie, "API キーの更新", `/api-keys/${found.id}`, { method: "PATCH", json: { label: API_KEY_LABEL, scopes: PROVISION_SCOPES } }, base);
+    const rotated = await rest(ctx, cookie, "API キーの rotate", `/api-keys/${found.id}/rotate`, { method: "POST" }, base);
     if (!rotated?.rawApiKey) throw new Error("n8n: API キーを rotate したが、応答に値が無い");
     ctx.log(`API キー（${API_KEY_LABEL}）は既にあったが値が分からないので作り直した`);
     return rotated.rawApiKey;
   }
-  const created = await rest(ctx, cookie, "API キーの作成", "/api-keys", { method: "POST", json: { label: API_KEY_LABEL, scopes: PROVISION_SCOPES, expiresAt: null } });
+  const created = await rest(ctx, cookie, "API キーの作成", "/api-keys", { method: "POST", json: { label: API_KEY_LABEL, scopes: PROVISION_SCOPES, expiresAt: null } }, base);
   if (!created?.rawApiKey) throw new Error("n8n: API キーを作ったが、応答に値が無い（公開 API が無効になっていないか確かめる）");
   return created.rawApiKey;
 }
@@ -230,9 +230,13 @@ async function ensureApiKey(ctx, cookie) {
 // MCP のアクセストークン（インスタンス内蔵の MCP サーバー）
 // ---------------------------------------------------------------------------
 
-async function ensureMcpToken(ctx, cookie) {
+/**
+ * MCP のアクセストークンを用意して生の値を返す。tokenKey は状態と設定のキー（開発 N8N_DEV_TOKEN・本番 N8N_PROD_TOKEN）、
+ * envFile はそのトークンを読む MCP の env ファイルの名前（案内に出すだけ。書くのは呼び出し側）
+ */
+export async function ensureMcpToken(ctx, cookie, { base = BASE, tokenKey = "N8N_DEV_TOKEN", envFile = "n8n-dev.env" } = {}) {
   try {
-    await rest(ctx, cookie, "MCP の有効化", "/mcp/settings", { method: "PATCH", json: { mcpAccessEnabled: true } });
+    await rest(ctx, cookie, "MCP の有効化", "/mcp/settings", { method: "PATCH", json: { mcpAccessEnabled: true } }, base);
   } catch (e) {
     if (e.status === 403) {
       ctx.manual("mcp-managed-by-env", "n8n の MCP のアクセスが環境変数で管理されている", [
@@ -242,19 +246,19 @@ async function ensureMcpToken(ctx, cookie) {
     }
     throw e;
   }
-  const current = await rest(ctx, cookie, "MCP のトークン", "/mcp/api-key");
+  const current = await rest(ctx, cookie, "MCP のトークン", "/mcp/api-key", {}, base);
   if (current?.apiKey && !/^\*/.test(current.apiKey)) return current.apiKey; // 作ったばかりのときだけ生の値が返る
 
   // 既にあるトークンの値は、n8n からは読めない。作り直すと、そのトークンを使っている MCP クライアントが使えなくなる
-  const ours = ctx.state.has("N8N_DEV_TOKEN");
+  const ours = ctx.state.has(tokenKey);
   if (!ours && ctx.conf.N8N_MCP_ROTATE !== "true") {
     ctx.manual("mcp-token", "n8n の MCP のアクセストークンは作成済みで、値を読めない", [
-      "n8n の画面はトークンを作ったときにしか表示しない（\"you won't be able to see it again\"）。作ったときに控えた値（Claude Code の n8n の MCP の接続設定に入れた値など）があれば、~/.config/comegin/setup/dev.conf に N8N_DEV_TOKEN=… として書く",
-      "控えが無い、または作り直してよいとき: dev.conf に N8N_MCP_ROTATE=true を書く（今のトークンを使っている MCP クライアントは切れる。新しい値は ~/.config/comegin/mcp/n8n-dev.env に入るので、クライアント側の設定をそれに合わせる）",
+      `n8n の画面はトークンを作ったときにしか表示しない（\"you won't be able to see it again\"）。作ったときに控えた値（Claude Code の n8n の MCP の接続設定に入れた値など）があれば、~/.config/comegin/setup/${ctx.target}.conf に ${tokenKey}=… として書く`,
+      `控えが無い、または作り直してよいとき: ${ctx.target}.conf に N8N_MCP_ROTATE=true を書く（今のトークンを使っている MCP クライアントは切れる。新しい値は ~/.config/comegin/mcp/${envFile} に入るので、クライアント側の設定をそれに合わせる）`,
       "同じコマンドを実行し直す",
     ]);
   }
-  const rotated = await rest(ctx, cookie, "MCP のトークンの rotate", "/mcp/api-key/rotate", { method: "POST" });
+  const rotated = await rest(ctx, cookie, "MCP のトークンの rotate", "/mcp/api-key/rotate", { method: "POST" }, base);
   if (!rotated?.apiKey || /^\*/.test(rotated.apiKey)) throw new Error("n8n: MCP のトークンを rotate したが、応答に生の値が無い");
   ctx.log("MCP のアクセストークンを作り直した");
   return rotated.apiKey;

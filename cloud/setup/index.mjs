@@ -1,13 +1,19 @@
-// AWS（cloud/ の SAM）の本番の段階。setup/lib/core.mjs の契約に従う。1 つのモジュールで、本番の段階のうち前の 3 つを受け持つ:
+// AWS（cloud/ の SAM）の本番の段階。setup/lib/core.mjs の契約に従う。1 つのモジュールで、本番の段階のうち前の 3 つと、apps の最初を受け持つ:
 //   env     本番用の環境変数の設定: 道具（aws・sam・docker・pnpm）・AWS の認証とアカウント・デプロイの設定ファイル（cloud/samconfig.toml）の必須の値
 //   deploy  sam build → sam deploy（1 回目）: global（us-east-1）→ CloudFront の 2 つのパラメータ → 本番スタック → 人が入れる Secret の値
 //           （ECR のリポジトリはこのデプロイで作られる。ECS のサービスは 0 台で作られ、イメージが無くても通る。cloud/README.md の 4.2）
 //   images  イメージのビルドと ECR へのプッシュ: 本番スタックのパラメータ ChatwootImageTag・MauticImageTag のタグが ECR にあるか
 //           （タグを変えるときは、samconfig.toml を書き換えて sam build → sam deploy をもう 1 回。cloud/README.md の 4.7・4.12）
-// 段階の順番は setup/lib/runner.mjs の PROD_PHASES（ユーザーの決定。2026-10-27）。この後に apps（本番のアプリの設定）と google が続く。
+//   apps    段階 apps の前提（docs/runbooks/00-setup-overview.md の P4）。setup.mjs の MODULES で admin-auth より前に置き、段階 apps の先頭で動く。
+//           止めるのは DB 作成のタスク（4.8。admin-auth・onprem・chatwoot-prod・mautic-prod のすべての前提）だけ。
+//           ほかの人の作業（global の 2 回目・SNS の購読・SES・WireGuard の AMI の固定・オンプレの IAM のキー・SMTP の Secret）は、
+//           無くても後の設定は進められるので警告だけにする（どれも以前はスクリプトが確かめていなかった）
+// 段階の順番は setup/lib/runner.mjs の PROD_PHASES（ユーザーの決定。2026-10-27）。この後に google が続く。
 //
 // 方針:
-//   - AWS には読み取りだけ（sts get-caller-identity・cloudformation describe-stacks・ecr describe-images・secretsmanager describe-secret）。
+//   - AWS には読み取りだけ（sts get-caller-identity・cloudformation describe-stacks・ecr describe-images・secretsmanager describe-secret、
+//     段階 apps は logs filter-log-events・sns list-subscriptions-by-topic・get-subscription-attributes・sesv2 get-account・get-email-identity・
+//     iam list-access-keys）。AWS を読む部品は ./aws.mjs（段階 apps のほかのモジュールと共有する）。
 //     デプロイ・プッシュ・Secret の値の書き込みは人が実行する（cloud/README.md の 2 節「デプロイは運用者が実行する」）ので、案内して止まる（ctx.manual）
 //   - Secret は値を読まない（describe-secret は値を返さない。値が入っているかを版の有無で見るだけ）
 //   - samconfig.toml は秘匿ファイル扱い（cloud/.gitignore）。読むのはパラメータの名前と、値が雛形のまま（REPLACE-ME）か空かだけで、値は出さない
@@ -21,16 +27,13 @@
 //   4.7（派生イメージの表・X86_64・タグは不変で latest は使えない）、4.12（イメージの更新）
 //   cloud/samconfig.toml.example（スタック名・REPLACE-ME の 3 つ）、cloud/stacks/ecr.yaml（comegin/<env>/chatwoot・mautic）、
 //   cloud/template.yaml（ChatwootImageTag・MauticImageTag・GoogleClientId・AdminBootstrapEmails）
+import { resolveTxt } from "node:dns/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ENV_NAME, GLOBAL_REGION, GLOBAL_STACK, REGION, STACK, awsJson, dbInitDone, dbInitSteps, describeStack, outputOf, parameterOf, requireMainStack, secretHasValue } from "./aws.mjs";
 
-export const meta = { id: "cloud", title: "AWS（本番のスタック。環境変数・デプロイ・イメージ）", targets: ["prod"], phases: ["env", "deploy", "images"], after: [] };
+export const meta = { id: "cloud", title: "AWS（本番のスタック。環境変数・デプロイ・イメージ・apps の前提）", targets: ["prod"], phases: ["env", "deploy", "images", "apps"], after: [] };
 
-const ENV_NAME = "prod";
-const REGION = "ap-northeast-1";
-const GLOBAL_REGION = "us-east-1";
-const STACK = `comegin-${ENV_NAME}`;
-const GLOBAL_STACK = `comegin-global-${ENV_NAME}`;
 const DEFAULT_ACCOUNT_ID = "798560359429"; // cloud/README.md の 2 節
 const SAMCONFIG = "cloud/samconfig.toml";
 const MIN_SAM = [1, 154];
@@ -53,25 +56,10 @@ const IMAGES = [
   { label: "Mautic", param: "MauticImageTag", repo: `comegin/${ENV_NAME}/mautic`, dir: "cloud/images/mautic", upstreamTag: "7.2.0-apache", upstreamDigest: "sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f" },
 ];
 const COMPLETE = new Set(["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "IMPORT_COMPLETE"]);
-const NOT_FOUND = /does not exist|ImageNotFoundException|RepositoryNotFoundException|ResourceNotFoundException/;
 
 // ---------------------------------------------------------------------------
-// AWS（読み取りだけ）
+// AWS（読み取りだけ。共通の部品は ./aws.mjs）
 // ---------------------------------------------------------------------------
-
-/** aws CLI を JSON で呼ぶ。対象が無いときは null。出力に警告が混ざっても読めるよう、最初の { から読む */
-async function awsJson(ctx, args) {
-  let out;
-  try {
-    out = await ctx.run("aws", [...args, "--output", "json"], { timeoutMs: 60_000 });
-  } catch (e) {
-    if (NOT_FOUND.test(e.message)) return null;
-    throw e;
-  }
-  const i = out.indexOf("{");
-  if (i < 0) throw new Error(`aws ${args.slice(0, 2).join(" ")} の応答が JSON ではない`);
-  return JSON.parse(out.slice(i));
-}
 
 async function callerIdentity(ctx) {
   try {
@@ -79,22 +67,6 @@ async function callerIdentity(ctx) {
   } catch (e) {
     throw new Error(`AWS の認証が使えない（aws sts get-caller-identity が失敗した。AWS_PROFILE か aws sso login を確かめる）\n${e.message}`);
   }
-}
-
-/** スタックを 1 つ読む。無ければ null */
-async function describeStack(ctx, name, region) {
-  const r = await awsJson(ctx, ["cloudformation", "describe-stacks", "--region", region, "--stack-name", name]);
-  return r?.Stacks?.[0] ?? null;
-}
-
-const outputOf = (stack, key) => stack?.Outputs?.find((o) => o.OutputKey === key)?.OutputValue;
-const parameterOf = (stack, key) => stack?.Parameters?.find((p) => p.ParameterKey === key)?.ParameterValue;
-
-/** Secret に値（AWSCURRENT の版）が入っているか。値そのものは読まない。Secret が無ければ null */
-async function secretHasValue(ctx, name) {
-  const r = await awsJson(ctx, ["secretsmanager", "describe-secret", "--region", REGION, "--secret-id", `comegin/${ENV_NAME}/${name}`]);
-  if (!r) return null;
-  return Object.values(r.VersionIdsToStages ?? {}).some((stages) => stages.includes("AWSCURRENT"));
 }
 
 async function imageExists(ctx, repo, tag) {
@@ -275,6 +247,90 @@ function imageSteps(account, missing) {
 }
 
 // ---------------------------------------------------------------------------
+// 段階 apps（apps の前提。docs/runbooks/00-setup-overview.md の P4 と 4 節）
+// ---------------------------------------------------------------------------
+
+const DB_ENGINES = ["postgres", "mysql"];
+
+async function missingDbInit(ctx, main, opts) {
+  const missing = [];
+  for (const engine of DB_ENGINES) if (!(await dbInitDone(ctx, main, engine, opts))) missing.push(engine);
+  return missing;
+}
+
+/** 1 つの確かめが読めなくても（権限・一時的な失敗）、ほかを続ける。読めなかったことは警告に残す */
+async function tryWarn(warnings, label, fn) {
+  try {
+    await fn();
+  } catch (e) {
+    warnings.push(`${label}を確かめられない（${e.message.split("\n")[0]}）`);
+  }
+}
+
+/** 止めはしないが、済んでいなければ知らせる人の作業。文は「何が・どうなる・どこを見る」 */
+async function appsWarnings(ctx, main) {
+  const warnings = [];
+  const domain = parameterOf(main, "DomainName") || "comegin.com";
+
+  await tryWarn(warnings, "global の 2 回目", async () => {
+    const global = await describeStack(ctx, GLOBAL_STACK, GLOBAL_REGION);
+    if (!parameterOf(global, "DistributionArn")) warnings.push(`global の 2 回目が済んでいない（${GLOBAL_STACK} の DistributionArn が空。CloudFront のフラットレートプランを購読しておらず、従量課金のまま。cloud/README.md の 4.3）`);
+  });
+
+  for (const key of ["OpsAlertTopicArn", "LeadAlertTopicArn"]) {
+    const arn = outputOf(main, key);
+    if (!arn) continue;
+    const topic = arn.split(":").pop();
+    await tryWarn(warnings, `SNS ${topic} の購読`, async () => {
+      const subs = (await awsJson(ctx, ["sns", "list-subscriptions-by-topic", "--region", REGION, "--topic-arn", arn]))?.Subscriptions ?? [];
+      const confirmed = subs.filter((s) => s.SubscriptionArn?.startsWith("arn:"));
+      if (!confirmed.length) {
+        warnings.push(`SNS ${topic} を誰も購読していない（確認待ち ${subs.length - confirmed.length} 件）。アラームが誰にも届かない（cloud/README.md の 4.4）`);
+        return;
+      }
+      for (const s of confirmed) {
+        const attrs = (await awsJson(ctx, ["sns", "get-subscription-attributes", "--region", REGION, "--subscription-arn", s.SubscriptionArn]))?.Attributes ?? {};
+        if (attrs.ConfirmationWasAuthenticated !== "true") warnings.push(`SNS ${topic} の購読（${s.Protocol}）が --authenticate-on-unsubscribe true なしで確認されている。通知メールのリンクから誰でも解除できる（解除して、4.4 のとおり購読し直す）`);
+      }
+    });
+  }
+
+  await tryWarn(warnings, "SES", async () => {
+    const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
+    if (account && account.ProductionAccessEnabled !== true) warnings.push("SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。顧客向けのメールの前に済ませる（cloud/README.md の 4.9 の 1）");
+    const id = await awsJson(ctx, ["sesv2", "get-email-identity", "--region", REGION, "--email-identity", domain]);
+    if (!id) warnings.push(`SES のドメイン ID ${domain} が無い（ses.yaml。段階 deploy を確かめる）`);
+    else {
+      if (id.DkimAttributes?.Status !== "SUCCESS") warnings.push(`SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9 の 2）`);
+      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") warnings.push(`SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9 の 2）`);
+    }
+  });
+
+  await tryWarn(warnings, `${domain} の SPF・DMARC`, async () => {
+    const txt = async (name) => (await resolveTxt(name).catch((e) => (e.code === "ENODATA" || e.code === "ENOTFOUND" ? [] : Promise.reject(e)))).map((r) => r.join(""));
+    const spf = (await txt(domain)).find((r) => r.startsWith("v=spf1"));
+    if (!spf?.includes("include:amazonses.com")) warnings.push(`${domain} の SPF に include:amazonses.com が無い${spf ? "" : "（SPF の TXT が無い）"}。Google Workspace の SPF と 1 つの TXT にまとめて足す（cloud/README.md の 4.9 の 4）`);
+    if (!(await txt(`_dmarc.${domain}`)).some((r) => r.startsWith("v=DMARC1"))) warnings.push(`_dmarc.${domain} に DMARC の TXT が無い（cloud/README.md の 4.9 の 4）`);
+  });
+
+  if (!parameterOf(main, "WireguardFixedAmiId")) warnings.push("WireGuard の AMI が固定されていない（WireguardFixedAmiId が空）。新しい AMI が出た後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる。samconfig.toml に書く（cloud/README.md の 4.2.1 の手順 3）");
+
+  for (const [key, use] of [["OnpremStrapiMediaUserName", "オンプレの Strapi のメディアのアップロード"], ["OnpremN8nSnsUserName", "オンプレの n8n の通知とハートビート"]]) {
+    const user = outputOf(main, key);
+    if (!user) continue;
+    await tryWarn(warnings, `IAM ユーザー ${user} のキー`, async () => {
+      const keys = (await awsJson(ctx, ["iam", "list-access-keys", "--user-name", user]))?.AccessKeyMetadata ?? [];
+      if (!keys.some((k) => k.Status === "Active")) warnings.push(`IAM ユーザー ${user} に有効なアクセスキーが無い。${use}が失敗する（人が発行する。cloud/README.md の 4.5）`);
+    });
+  }
+
+  await tryWarn(warnings, "SMTP の Secret", async () => {
+    for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) warnings.push(`Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.6・4.11）`);
+  });
+  return warnings;
+}
+
+// ---------------------------------------------------------------------------
 // 契約
 // ---------------------------------------------------------------------------
 
@@ -315,6 +371,14 @@ export async function check(ctx) {
       if (!found) ok = false;
     }
     return { ok, notes };
+  }
+  if (ctx.phase === "apps") {
+    const main = await describeStack(ctx, STACK, REGION);
+    if (!main) return { ok: false, notes: [`スタック ${STACK} が無い（先に段階 deploy）`] };
+    const missing = await missingDbInit(ctx, main, { record: false });
+    const notes = DB_ENGINES.map((e) => `DB 作成（db-init-${e}）: ${missing.includes(e) ? "今のスタックの作成の後に成功した記録が無い（cloud/README.md の 4.8）" : "済み"}`);
+    for (const w of await appsWarnings(ctx, main)) notes.push(`! ${w}`);
+    return { ok: missing.length === 0, notes };
   }
   throw new Error(`cloud は段階 ${ctx.phase} を持たない`);
 }
@@ -376,6 +440,17 @@ export async function apply(ctx) {
       ctx.manual("push", "派生イメージをビルドして ECR にプッシュする", imageSteps(Account, missing));
     }
     ctx.log("イメージはそろっている（タスクはまだ 0 台。起動は段階 apps の各製品の手順と cloud/README.md の 4.11）。次は段階 apps");
+    return;
+  }
+
+  if (ctx.phase === "apps") {
+    const main = await requireMainStack(ctx);
+    const missing = await missingDbInit(ctx, main);
+    if (missing.length) ctx.manual("db-init", "DB とアプリ用ユーザーを作る（ECS の RunTask。段階 apps のすべての前提）", dbInitSteps(missing));
+    ctx.log(`DB 作成（${DB_ENGINES.map((e) => `db-init-${e}`).join("・")}）は今のスタックの作成の後に成功している`);
+    const warnings = await appsWarnings(ctx, main);
+    for (const w of warnings) ctx.warn(w);
+    ctx.log(warnings.length ? `人の作業が ${warnings.length} 件残っている（上の !。止めずに進む。docs/runbooks/00-setup-overview.md の 4 節）` : "global の 2 回目・SNS の購読・SES・AMI の固定・IAM のキー・SMTP の Secret は済んでいる");
     return;
   }
 

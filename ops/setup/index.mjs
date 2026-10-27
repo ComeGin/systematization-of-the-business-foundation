@@ -25,7 +25,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-export const meta = { id: "mcp-prod", title: "本番の MCP の env ファイル（chatwoot・mautic・strapi・n8n・posthog）", targets: ["prod"], phases: ["apps"], after: ["onprem", "chatwoot-prod", "mautic-prod"] };
+export const meta = { id: "mcp-prod", title: "本番の MCP の env ファイル（chatwoot・mautic・strapi・n8n・posthog）", targets: ["prod"], phases: ["apps"], after: ["onprem", "chatwoot-prod", "mautic-prod", "n8n-prod"] };
 
 const DEFAULTS = {
   CHATWOOT_BASE_URL: "https://chat.comegin.com",
@@ -42,14 +42,17 @@ const N8N_HUMAN_ONLY = /^(publish_workflow|unpublish_workflow|execute_workflow|a
 // main の chatwoot-mcp の dist が、ヘッダーをハイフンの綴りで送る版か（backend/chatwoot-mcp/src/services/chatwoot-client.ts）
 const CHATWOOT_MCP_CLIENT = "backend/chatwoot-mcp/dist/services/chatwoot-client.js";
 
+// n8n-prod（middleware/n8n/setup/prod）が本番の n8n で作る MCP のトークン
+const FROM_STATE = new Set(["N8N_PROD_TOKEN"]);
 const trim = (url) => String(url).replace(/\/+$/, "");
 const envPath = (ctx, name) => join(ctx.CONFIG_DIR, "mcp", `${name}.env`);
 
 /** prod.conf から 6 つの env ファイルの中身を組み立てる。足りないキーは missing に入れる */
 function plan(ctx) {
   const missing = [];
+  // 値は prod.conf から読む。FROM_STATE のキーだけは、前のモジュールが作って prod の状態に置いた値も使う（設定が優先）
   const req = (key, hint) => {
-    const v = ctx.conf[key];
+    const v = ctx.conf[key] || (FROM_STATE.has(key) ? ctx.state.get(key) : undefined);
     if (!v) missing.push(`${key}（${hint}）`);
     return v;
   };
@@ -72,7 +75,7 @@ function plan(ctx) {
       MAUTIC_CLIENT_SECRET: req("MAUTIC_RO_CLIENT_SECRET", "同上"),
     },
     "strapi-prod": { STRAPI_PROD_TOKEN: req("STRAPI_PROD_TOKEN", "オンプレの本番の Strapi の Admin トークン。下書きまで〈公開・非公開化・削除なし〉") },
-    "n8n-prod": { N8N_PROD_TOKEN: req("N8N_PROD_TOKEN", "オンプレの本番の n8n の MCP のアクセストークン") },
+    "n8n-prod": { N8N_PROD_TOKEN: req("N8N_PROD_TOKEN", "オンプレの本番の n8n の MCP のアクセストークン。n8n-prod が作って prod の状態に置く") },
     "posthog-prod": {
       POSTHOG_PROD_API_KEY: req("POSTHOG_PROD_API_KEY", "PostHog の個人 API キー。MCP Server のプリセットで本番のプロジェクトの読み取りだけ"),
       POSTHOG_PROD_PROJECT_ID: req("POSTHOG_PROD_PROJECT_ID", "PostHog の本番のプロジェクトの数値 ID"),

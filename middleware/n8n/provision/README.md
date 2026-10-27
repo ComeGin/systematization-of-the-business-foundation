@@ -75,6 +75,8 @@ await provision({ target: "dev", conf: buildConf("dev", values), publish: false,
 
 ## 本番（`--target prod`）
 
+**2026-10-28 から、本番も設定スクリプトの `n8n-prod`（`middleware/n8n/setup/prod/index.mjs`。`node setup/setup.mjs --target prod --phase apps`）がこの provision を呼ぶ。** オーナー・API キー・MCP のトークンの用意と、SNS のトピックの ARN（本番スタックの出力）を受け持つので、下の設定ファイルを手で書く必要は無い（`setup/manual-steps.md` の 8.6）。CLI は今までどおり使える。
+
 - 設定ファイルは `~/.config/comegin/n8n-provision/prod.conf`。本番の n8n（オンプレ。`127.0.0.1:5679`）の API キー、クラウドの Mautic の API 資格情報、クラウドの Chatwoot の**管理者**のトークン（Webhook の作成用）、**棚卸し専用のトークン `CHATWOOT_N8N_API_TOKEN`（会話の一覧を読むだけのエージェントの権限のユーザーで発行する。空だと管理者のトークンを n8n に入れることになり、警告が出る）**、SNS 用の IAM ユーザーのキー、SNS のトピックの ARN を書く。
 - **親（I-11・I-12）の公開（`--publish`）は `R1` の判断で行う**（エージェントは公開しない。README の「本番」）。
 - Webhook の送り先は WireGuard 越しの受け口（`http://10.99.0.2:5680/webhook/...`）になる。WireGuard と `onprem/n8n` が動いていること。

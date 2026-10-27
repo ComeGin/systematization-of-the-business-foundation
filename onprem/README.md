@@ -33,6 +33,8 @@ ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い
 
 ## 起動の順番
 
+本番の全体（AWS のデプロイから公開サイトの配信まで）の中での位置は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md) の P6。
+
 **WireGuard → Strapi → n8n** の順に上げる。下の手順は 2026-10-28 に本番で通した順番。
 
 ### 前提（AWS 側。`cloud/README.md`）

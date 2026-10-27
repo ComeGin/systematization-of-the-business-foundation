@@ -4,6 +4,8 @@
 それ以外の操作に当たると、**手順を表示して止まる**（終了コード 3）。この文書は、その操作をまとめたもの。
 操作が終わったら、**同じコマンドを実行し直す**。済んだ手順は飛ばして、続きから進む。
 
+**スクリプトが止まらない（確かめない）人の作業もある**（公開サイトのビルドと配信、オンプレの WireGuard・Strapi・n8n の立ち上げの手順そのものなど。SES や SNS の購読のように警告だけで止めないものもある）。全体の順番と一覧は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md)。
+
 パスはリポジトリのルートからの相対。画面の表記は、各製品の開発環境の言語（Mautic・n8n は英語）に合わせてある。
 画面の表記は 2026-10-05 に各製品のソース（翻訳ファイル）で確かめた。版が上がって表記が変わっていたら、この文書を直す。
 
@@ -38,6 +40,11 @@
 | `cloud:global`／`cloud:cloudfront-params`／`cloud:sam-deploy`（段階 `deploy`） | global・本番のスタックが無い・失敗している／CloudFront の 2 つのパラメータが雛形のまま | `sam deploy --config-env global`／表示された ARN を書く／`sam build` → `sam deploy` | [8.5](#85-aws-のデプロイcloud) |
 | `cloud:secrets`（段階 `deploy`） | `admin-auth/GOOGLE_CLIENT_SECRET` に値が無い | シェルの履歴に残らない方法で `put-secret-value` | [8.5](#85-aws-のデプロイcloud) |
 | `cloud:push`（段階 `images`） | 本番スタックのイメージのタグが ECR に無い | 表示されたコマンドでビルドしてプッシュする | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:db-init`（段階 `apps` の最初） | DB 作成のタスクが、今の本番スタックの作成の後に成功したログが無い | `db-init-postgres`・`db-init-mysql` を RunTask する | [8.5](#85-aws-のデプロイcloud) |
+| `chatwoot-prod:ecs`（`--target prod`） | `chatwoot-web`・`chatwoot-worker` の DesiredCount（親のパラメータ）が 0 | `db:chatwoot_prepare` の RunTask → `samconfig.toml` に台数を書いて `sam deploy` | [8.3](#83-本番の-chatwootchatwoot-prod) |
+| `mautic-prod:ecs-web`／`mautic-prod:ecs-cron`（`--target prod`） | `mautic-web` の DesiredCount が 0（インストールの前）／`mautic-cron` が 1 でない（初期設定の後） | `samconfig.toml` に台数を書いて `sam deploy` | [8.4](#84-本番の-mauticmautic-prod) |
+| `n8n-prod:mautic-api-credentials`／`n8n-prod:chatwoot-admin-token`／`n8n-prod:aws-key`（`--target prod`） | n8n 用の Mautic の API 認証情報が無い・ほかの用途と同じ値／Chatwoot の管理者のトークンが無い／SNS 用の IAM のキーが無い・そのユーザーのものでない | Mautic の画面で作る／`CHATWOOT_ADMIN_TOKEN` を書く／キーを発行して書く | [8.6](#86-本番の-n8nn8n-prod) |
+| `n8n-prod:owner-password`／`n8n-prod:owner-login`／`n8n-prod:mcp-token`（`--target prod`） | 本番の n8n に、スクリプトが作っていないオーナー・MCP のトークンが既にある | 開発の 3.5・4 と同じ（キーは `prod.conf` の `N8N_OWNER_PASSWORD`・`N8N_PROD_TOKEN`・`N8N_MCP_ROTATE`） | [8.6](#86-本番の-n8nn8n-prod) |
 | `onprem:onprem-bringup`（`--target prod`） | 本番のオンプレ | AWS のデプロイの後 | [8](#8-本番--target-prod) |
 | `admin-auth:prod-deploy`／`admin-auth:prod-migrate`（`--target prod`） | 本番の admin-auth の discovery が応答しない／運用の Lambda での移行と ALB の登録を申告していない | 段階 `deploy`（`--phase deploy`）を済ませる／`admin-auth-ops` に `migrate`・`register-alb-client` を送り、`ADMIN_AUTH_PROD_READY=yes` を書く | [8.1](#81-本番の-admin-auth) |
 | `chatwoot-prod:onboarding`／`chatwoot-prod:faq-bot-secrets`（`--target prod`） | 本番の Chatwoot の管理者・エージェント専用ユーザーのトークンが無い／FAQ ボットのトークンを Secrets Manager に入れたと申告していない | 画面の onboarding とエージェントの招待をしてトークンを書く／表示されたコマンドで Secrets Manager に入れて `FAQ_BOT_SECRETS_STORED=yes` | [8.3](#83-本番の-chatwootchatwoot-prod) |
@@ -321,7 +328,24 @@ Mautic と Chatwoot から n8n（I-11・I-12）への Webhook は、オンプレ
 | `cloud:rollback` | 本番スタックが `ROLLBACK_COMPLETE`（初回の作成が失敗して戻された。更新できない）。イベントで原因を確かめてテンプレートを直し、`aws cloudformation delete-stack` → `wait stack-delete-complete` で消す（入れ子のスタックの Validation failure は `aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true` で見る） |
 | `cloud:leftovers` | 本番スタックが無いのに、固定の名前の Retain のリソース（SNS 2・`comegin/prod/*` の Secret・runlog-archive の S3・ECR 2）が残っている。作成の失敗で戻されずに残ったもので、そのままでは `sam deploy` が名前の衝突で失敗する。中身が空なのを確かめてから、表示されたコマンドで消す（Secret は `--force-delete-without-recovery`。データがあるなら消さずに止まって、リソースのインポートを考える）。2026-10-27 の初回のデプロイで起きた |
 | `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は警告だけで、Chatwoot・Mautic の DesiredCount を上げる前（4.11）に入れる。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
+| `cloud:db-init` | 段階 `apps` の最初。`cloud/README.md` の 4.8 の手順で `comegin-prod-db-init-postgres` と `comegin-prod-db-init-mysql` を RunTask する（ログの最後が `db-init-<engine>: done`）。スクリプトはロググループ `/comegin/prod/tasks` を、今の本番スタックの作成の後に絞って読み、見つけたら状態に残す（ログは 30 日で消えるため。スタックを作り直すとパスワードが変わるので確かめ直す）。同じ段階で、global の 2 回目・SNS の購読（`--authenticate-on-unsubscribe` 付きか）・SES の本番アクセスと DKIM・MAIL FROM・`comegin.com` の SPF と DMARC・WireGuard の AMI の固定・オンプレの IAM ユーザーのキー・SMTP の Secret を読み、済んでいなければ警告する（止めない） |
 | `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
+
+### 8.6 本番の n8n（`n8n-prod`）
+
+オンプレの本番の n8n（`http://127.0.0.1:5679`。`onprem/n8n`）に、開発の `n8n` と同じ手順でオーナー・公開 API のキー・MCP のトークンを用意し、provision（`middleware/n8n/provision`）を `--target prod` で行う（2026-10-28 から設定スクリプトに入った。以前は provision を別に実行していた）。`onprem`・`chatwoot-prod`・`mautic-prod` の後に動く。
+
+| 表示の id | すること |
+|---|---|
+| `n8n-prod:mautic-api-credentials` | 本番の Mautic に管理者でログインし、設定 > API 認証情報 で OAuth 2 の認証情報を **n8n 用に別に** 作る（名前 `comegin-prod-n8n`。2 節と同じ手順）→ `N8N_MAUTIC_CLIENT_ID=`・`N8N_MAUTIC_CLIENT_SECRET=`。エージェント用（`MAUTIC_CLIENT_*`）・参照専用（`MAUTIC_RO_CLIENT_*`）・初期設定用（`MAUTIC_SETUP_CLIENT_*`）と同じ値は失敗にする（片方を失効しても、もう片方を止めないため。8.2） |
+| `n8n-prod:chatwoot-admin-token` | `CHATWOOT_ADMIN_TOKEN=`（8.3 と同じ値。Webhook を作る・secret をそろえるのに要る。初期設定の後に消したなら、この実行の間だけ戻す）。週次の棚卸し用に、会話を読むだけのユーザーのトークンを `CHATWOOT_N8N_API_TOKEN=` に書くのを勧める（空なら管理者のトークンが n8n に入り、警告が出る） |
+| `n8n-prod:aws-key` | IAM ユーザー `comegin-prod-onprem-n8n-sns` のアクセスキーを発行して `AWS_ACCESS_KEY_ID=`・`AWS_SECRET_ACCESS_KEY=` に書く（`cloud/README.md` の 4.5。表示されたコマンドでファイルに直接書き、写したら `shred -u`）。スクリプトは、そのキーがこのユーザーの有効なキーかを `iam list-access-keys` で確かめる（強い権限の別のキーを n8n に入れさせない） |
+
+- オーナーは、未作成ならスクリプトが作る（メールは `ADMIN_EMAIL`、パスワードは `--target prod --show N8N_OWNER_PASSWORD`）。先に画面で作ったなら、`prod.conf` に `N8N_OWNER_PASSWORD=` を書く（3.5 と同じ）。
+- MCP のトークンは prod の状態の `N8N_PROD_TOKEN` に入り、続く `mcp-prod` が `~/.config/comegin/mcp/n8n-prod.env` に書く。画面で作ったトークンがあるなら、その値を `prod.conf` の `N8N_PROD_TOKEN=` に書くか、`N8N_MCP_ROTATE=true`（4 節と同じ）。
+- SNS のトピックの ARN は本番スタックの出力から読む（書かなくてよい）。Mautic・Chatwoot の Webhook の送り先は `http://10.99.0.2:5680/webhook/...`（WireGuard 越し）。
+- **親（I-11・I-12）は未公開のまま**取り込む。公開は R1 の判断で、`prod.conf` に `N8N_PUBLISH_PARENTS=true` を書いて再実行する。
+- **ハートビート**: アラーム `comegin-prod-onprem-n8n-schedule-heartbeat` が OK でなければ警告が出る。n8n の画面で Data Table `ops_settings` の `heartbeatEnabled` を `true` にし、「n8n スケジュール実行のハートビート」を公開する（`middleware/n8n/workflows/GUIDE.md` の 9.7・`cloud/README.md` の 4.10）。
 
 ## 9. ログイン先の一覧
 

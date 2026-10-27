@@ -183,8 +183,17 @@ N8N_PROD_TOKEN=
 POSTHOG_PROD_API_KEY=
 POSTHOG_PROD_PROJECT_ID=
 
+# ---- 本番の n8n（prod.conf にだけ書く。--target prod の n8n-prod モジュール。setup/manual-steps.md の 8.6） ----
+# オーナー・公開 API のキー・MCP のトークン（N8N_PROD_TOKEN）はモジュールが作って prod の状態に置く（書かなくてよい）。
+# n8n 用の Mautic の API 認証情報（管理者が作る。エージェント用の MAUTIC_CLIENT_*・参照専用の MAUTIC_RO_CLIENT_*・初期設定用の MAUTIC_SETUP_CLIENT_* とは別）
+N8N_MAUTIC_CLIENT_ID=
+N8N_MAUTIC_CLIENT_SECRET=
+# Chatwoot の Webhook の作成には上の CHATWOOT_ADMIN_TOKEN、週次の棚卸しには上の CHATWOOT_N8N_API_TOKEN（任意）を使う。
+# 親（I-11・I-12）の公開は上の N8N_PUBLISH_PARENTS=true（本番は R1 の判断）
+
 # ---- 本番だけ（--target prod。AWS のデプロイの後） ----
-# IAM ユーザー comegin-prod-onprem-n8n-sns のアクセスキー（cloud/README.md の 4.5 で発行）
+# IAM ユーザー comegin-prod-onprem-n8n-sns のアクセスキー（cloud/README.md の 4.5 で発行）。n8n-prod が n8n の資格情報に入れる
+# （このユーザーのキーかを iam list-access-keys で確かめ、違うキーなら止まる）
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_REGION=

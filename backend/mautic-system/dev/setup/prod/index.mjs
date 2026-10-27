@@ -8,6 +8,10 @@
 //   - インストール（/installer。admin-auth の内側）と、設定の画面での確認（API・Webhook・CORS・メール。下の settingsSteps）
 //   - 初期設定用の API 認証情報（管理者のロール。MAUTIC_SETUP_CLIENT_ID・SECRET。エージェント用の mcp-prod の認証情報とは別）
 // 作ったフォーム consult の ID は prod の状態（MAUTIC_FORM_ID_CONSULT）に置く。公開サイトの本番のビルド（setup/frontend.mjs）がそれを読む。
+// ECS の台数は順番があるので、2 か所で読み取りだけで確かめる（cloud/README.md の 4.10・4.11）:
+//   - 最初に mautic-web の DesiredCount（親のパラメータ）が 1 か。0 ならインストールの画面が開かないので、上げる手順を案内して止まる
+//   - 最後に mautic-cron の DesiredCount が 1 か。cron はインストールが終わるまで待つので、初期設定の後に上げる（2 つ動くとメールが二重になるので 1 に固定）
+import { notRunningNote, raiseCountSteps, requireMainStack, serviceCounts } from "../../../../../cloud/setup/aws.mjs";
 import { apiEnabled, ensureAutoReply, ensureContactFields, ensureForms, ensureSegment, fetchToken } from "../index.mjs";
 
 export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・セグメント）", targets: ["prod"], phases: ["apps"], after: [] };
@@ -50,6 +54,16 @@ export async function check(ctx) {
     notes.push(cond ? good : bad);
     if (!cond) ok = false;
   };
+  try {
+    const main = await requireMainStack(ctx);
+    for (const [svc, param] of [["mautic-web", "MauticWebDesiredCount"], ["mautic-cron", "MauticCronDesiredCount"]]) {
+      const c = await serviceCounts(ctx, main, svc, param);
+      mark(c.desiredParam === 1, `comegin-prod-${svc}: DesiredCount 1（動いているタスク ${c.running}）`, `comegin-prod-${svc} の DesiredCount が ${c.desiredParam}（${svc === "mautic-web" ? "インストールの前に" : "初期設定の後に"} ${param}=1 にする。cloud/README.md の 4.11）`);
+      if (c.desiredParam === 1 && c.running === 0) notes.push(`! ${notRunningNote(c)}`);
+    }
+  } catch (e) {
+    mark(false, "", `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`);
+  }
   const state = await apiState(ctx);
   const describe = { enabled: "インストール済みで API は有効", disabled: "API が無効（設定 > API 設定）", "not-installed": "未インストール（/installer）", redirect: "API が認証の内側に落ちている（ALB のルール 202 を確かめる）", abnormal: "API の応答が異常（mautic-web が止まっているか、ALB の 502・503。台数とアラームを見る）", unreachable: `${baseOf(ctx)} に届かない` };
   mark(state === "enabled", `本番の Mautic: ${describe[state]}`, `本番の Mautic: ${describe[state]}`);
@@ -63,6 +77,16 @@ export async function check(ctx) {
 }
 
 export async function apply(ctx) {
+  const main = await requireMainStack(ctx);
+  const web = await serviceCounts(ctx, main, "mautic-web", "MauticWebDesiredCount");
+  if (web.desiredParam < 1) {
+    ctx.manual("ecs-web", "本番の Mautic（mautic-web）を起動する（DesiredCount が 0。インストールの画面が開かない）", raiseCountSteps([web.param], [
+      "前提: cloud/README.md の 4.6 の SMTP の Secret（mautic/SMTP_USERNAME・SMTP_PASSWORD）に値を入れてある。mautic-cron は 0 のまま（インストールが終わってから上げる）",
+      "移行の RunTask は要らない（公式の entrypoint が、インストール済みなら起動のたびに移行する。cloud/README.md の 4.10）",
+    ]));
+  }
+  if (web.running === 0) ctx.warn(notRunningNote(web));
+
   const state = await apiState(ctx);
   if (state === "abnormal") throw new Error(`本番の Mautic（${baseOf(ctx)}/api）の応答が異常。mautic-web の DesiredCount・タスク数のアラーム・ALB のターゲットの状態を見る（cloud/README.md の 4.11）`);
   if (state === "unreachable") throw new Error(`本番の Mautic（${baseOf(ctx)}）に届かない。mautic-web の DesiredCount とアラームを見る（cloud/README.md の 4.11）`);
@@ -82,5 +106,13 @@ export async function apply(ctx) {
   await ensureAutoReply(c, token);
   await ensureSegment(c, token);
   ctx.log("フォーム consult とセグメント mql の ID を prod の状態に置いた（MAUTIC_FORM_ID_CONSULT は node setup/frontend.mjs --target prod の .env.production が読む）");
-  ctx.log("Mautic から n8n（I-11）への Webhook は、オンプレの本番の n8n の provision が作る（middleware/n8n/provision。宛先 http://10.99.0.2:5680/webhook/mautic-event）");
+  ctx.log("Mautic から n8n（I-11）への Webhook は、オンプレの本番の n8n の provision（n8n-prod）が作る（宛先 http://10.99.0.2:5680/webhook/mautic-event）");
+
+  const cron = await serviceCounts(ctx, main, "mautic-cron", "MauticCronDesiredCount");
+  if (cron.desiredParam !== 1) {
+    ctx.manual("ecs-cron", `本番の Mautic の cron（mautic-cron）を起動する（DesiredCount が ${cron.desiredParam}。キャンペーン・セグメント・Webhook のキューが動かない）`, raiseCountSteps([cron.param], [
+      "インストールと初期設定は済んだので、cron を上げる（1 に固定。2 つ動くとキャンペーンとメールが二重になる。cloud/README.md の 4.11）",
+    ]));
+  }
+  if (cron.running === 0) ctx.warn(notRunningNote(cron));
 }

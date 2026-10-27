@@ -12,6 +12,8 @@
 
 収益化（`points-api`・`I-26`〜`I-30`・`E-19` の S3 Object Lock）は作っていない（本システムの完成後。ポート 3106 とフォルダ名を予約しているだけ）。
 
+**設定スクリプト（`setup/`）・オンプレ（`onprem/`）と合わせた本番の全体の順番と、人が行う作業の一覧は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md)。** この README の 4 節は、その各手順の詳細（コマンドと注意）。
+
 ## 1. 構成
 
 ```

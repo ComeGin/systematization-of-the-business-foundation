@@ -25,16 +25,18 @@ const MODULES = [
   "backend/strapi-system/setup/index.mjs",
   "middleware/n8n/setup/index.mjs",
   "backend/consent-api/setup/index.mjs",
+  // prod だけ。段階 apps の先頭で前提（DB の作成など）を確かめるので、段階 apps のモジュール（admin-auth から後ろ）より前に置く
+  "cloud/setup/index.mjs",
   "backend/admin-auth/setup/index.mjs",
   "backend/chatwoot-mcp/setup/index.mjs",
   "backend/faq-bot/setup/index.mjs",
   "backend/mautic-mcp/setup/index.mjs",
   "backend/control-plane/setup/index.mjs",
   "frontend/next-js/setup/index.mjs",
-  "cloud/setup/index.mjs",
   "onprem/setup/index.mjs",
   "backend/chatwoot-system/setup/prod/index.mjs",
   "backend/mautic-system/dev/setup/prod/index.mjs",
+  "middleware/n8n/setup/prod/index.mjs",
   "ops/setup/index.mjs",
 ];
 

@@ -13,7 +13,10 @@
 // 管理者のトークン（CHATWOOT_ADMIN_TOKEN）は prod.conf だけに置き、状態ファイルには写さない（開発のモジュールの ensure* には、
 // 状態の読み出しを包んだ ctx で渡す）。初期設定が終わったら prod.conf から消してよい（その後の apply と check は止まって案内する）
 // 作った受信箱の website_token は prod の状態（CHATWOOT_WEBSITE_TOKEN）に置く。公開サイトの本番のビルド（setup/frontend.mjs の verdant-virgo）がそれを読む。
+// 最初に、ECS の chatwoot-web・chatwoot-worker の DesiredCount（親のパラメータ）が 1 以上かを読み取りだけで確かめ、0 なら
+// db:chatwoot_prepare と台数を上げる手順を案内して止まる（cloud/README.md の 4.10・4.11。以前はスクリプトが確かめず、Chatwoot に届かないとだけ出ていた）
 import { createHash } from "node:crypto";
+import { notRunningNote, raiseCountSteps, requireMainStack, serviceCounts } from "../../../../cloud/setup/aws.mjs";
 import { ASK_RESOLVED_MACRO, FAQ_LABELS, HANDOFF_EMAIL_FLAG, ensureAskResolvedMacro, ensureFaqBot, ensureHandoffNotification, ensureInbox, ensureLabels, profile } from "../index.mjs";
 
 export const meta = { id: "chatwoot-prod", title: "Chatwoot（本番。受信箱・FAQ ボット・ラベル・マクロ）", targets: ["prod"], phases: ["apps"], after: [] };
@@ -44,6 +47,17 @@ function values(ctx) {
     missing,
   };
 }
+
+/** ECS の 2 つのサービスの台数（親のパラメータと、動いているタスク） */
+async function ecsCounts(ctx) {
+  const main = await requireMainStack(ctx);
+  return [await serviceCounts(ctx, main, "chatwoot-web", "ChatwootWebDesiredCount"), await serviceCounts(ctx, main, "chatwoot-worker", "ChatwootWorkerDesiredCount")];
+}
+
+const PREPARE_STEPS = [
+  "前提: cloud/README.md の 4.6 の SMTP の Secret（chatwoot/SMTP_USERNAME・SMTP_PASSWORD）に値を入れてある（段階 apps の cloud が警告する）",
+  "移行: chatwoot-web のタスク定義で RunTask し、コマンドを bundle exec rails db:chatwoot_prepare に上書きする（人が自分の端末で実行する。exitCode が 0 であること。初回とイメージを更新するたびに、台数を上げる前に行う。cloud/README.md の 4.10 の書式）",
+];
 
 function problems(v) {
   const p = [];
@@ -115,6 +129,14 @@ export async function check(ctx) {
     notes.push(cond ? good : bad);
     if (!cond) ok = false;
   };
+  try {
+    for (const c of await ecsCounts(ctx)) {
+      mark(c.desiredParam >= 1, `comegin-prod-${c.svc}: DesiredCount ${c.desiredParam}（動いているタスク ${c.running}）`, `comegin-prod-${c.svc} の DesiredCount が ${c.desiredParam}（db:chatwoot_prepare の後に ${c.param}=1 にする。cloud/README.md の 4.10・4.11）`);
+      if (c.desiredParam >= 1 && c.running === 0) notes.push(`! ${notRunningNote(c)}`);
+    }
+  } catch (e) {
+    mark(false, "", `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`);
+  }
   mark(v.missing.length === 0, "prod.conf に本番の Chatwoot の値がそろっている", `prod.conf に無いキー: ${v.missing.join("・")}`);
   for (const p of problems(v)) mark(false, "", p);
   if (!ok) return { ok, notes };
@@ -157,6 +179,11 @@ export async function check(ctx) {
 }
 
 export async function apply(ctx) {
+  const counts = await ecsCounts(ctx);
+  const low = counts.filter((c) => c.desiredParam < 1);
+  if (low.length) ctx.manual("ecs", `本番の Chatwoot を起動する（${low.map((c) => `comegin-prod-${c.svc}`).join("・")} の DesiredCount が 0）`, raiseCountSteps(low.map((c) => c.param), PREPARE_STEPS));
+  for (const c of counts) if (c.running === 0) ctx.warn(notRunningNote(c));
+
   const v = values(ctx);
   if (v.missing.length) {
     ctx.warn(`prod.conf に無いキー: ${v.missing.join("・")}`);
