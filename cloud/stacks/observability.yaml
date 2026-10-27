@@ -126,7 +126,8 @@ Resources:
                 'aws:SourceAccount': !Ref AWS::AccountId
               ArnLike:
                 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:*'
-          # RDS のイベント通知（バックアップの失敗など。alarms.yaml の EventSubscription）。この環境の DB インスタンスだけ。
+          # RDS のイベント通知（alarms.yaml の EventSubscription）。この環境の Aurora のインスタンス（db:）とクラスター（cluster:）だけ。
+          # クラスターのイベント（フェイルオーバーなど）は発行元の ARN が cluster: なので、db: だけだと拒否されて届かない（購読は作れるので気づけない）
           - Sid: AllowRdsEvents
             Effect: Allow
             Principal: { Service: events.rds.amazonaws.com }
@@ -136,7 +137,9 @@ Resources:
               StringEquals:
                 'aws:SourceAccount': !Ref AWS::AccountId
               ArnLike:
-                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:comegin-${EnvName}-*'
+                'aws:SourceArn':
+                  - !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:comegin-${EnvName}-*'
+                  - !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:cluster:comegin-${EnvName}-*'
           - Sid: DenyUnsubscribeFromOutsideAccount
             Effect: Deny
             Principal: { AWS: '*' }

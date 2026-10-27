@@ -181,7 +181,7 @@ describe("--list", () => {
       const lines = r.stdout.trimEnd().split("\n");
       expect(lines).toHaveLength(moduleCount());
       expect(lines[0]).toMatch(/^ {2}○ {2}host-relay\s/);
-      expect(lines.at(-1)).toMatch(/^ {2}× {2}onprem\s.*（dev では動かない）$/);
+      expect(lines.at(-1)).toMatch(/^ {2}× {2}mcp-prod\s.*（dev では動かない）$/);
       expect(r.stdout).not.toContain("未実装");
     });
 

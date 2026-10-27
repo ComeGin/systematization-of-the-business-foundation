@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  データストア。Aurora MySQL 8.4 互換（Mautic。Serverless v2）、Aurora PostgreSQL 16 互換（1 クラスターに複数 DB）、
+  データストア。Aurora MySQL 8.4 互換（Mautic）と Aurora PostgreSQL 16 互換（1 クラスターに複数 DB）。どちらも Serverless v2。
   ElastiCache（Valkey）、EFS（Mautic の media と config）、S3（Chatwoot の添付・Strapi のメディア・Astro の配信用）。
   TA-06 の 4 節。Aurora はクラスター（各 1 インスタンスから。2026-10-26 にユーザーの方針で RDS の単一インスタンスから移した）。
   データを持つリソースは Retain。PostgreSQL の中のデータベースとアプリ用ユーザー（chatwoot / admin_auth / strapi / n8n）は
@@ -25,13 +25,14 @@ Parameters:
     Type: String
     Description: secrets.yaml の SecretNamePrefix。Valkey の AUTH トークンを名前で読む。
 
-  # ---- Aurora（ユーザーの方針: DB は、高コストでなくアプリに互換があればサーバーレス、それ以外はクラスター。2026-10-26）
-  # 比べるのは「サーバーレス」と「クラスター（いちばん安い db.t4g.medium。$0.113/時＝月 $82）」。どちらも一時停止はできない
-  # （Mautic の毎分の cron と、Chatwoot・n8n・Strapi の常時の接続）。
-  #   MySQL（Mautic だけ）: 最小 0.5 ACU（約 1 GB）で足り、月 $55 前後でクラスターより安い → Serverless v2
-  #   PostgreSQL（4 アプリが共有）: 1 ACU 程度が要り、月 $110 前後でクラスターより高い → クラスター（db.t4g.medium）
+  # ---- Aurora（ユーザーの条件: DB は、アプリに互換があればサーバーレス、それ以外はクラスター。サーバーレスとクラスターでコストを比べる。2026-10-27）
+  # MySQL（Mautic）も PostgreSQL（Chatwoot・admin-auth・Strapi・n8n が共有）も Aurora Serverless v2 に互換がある（同じエンジン。
+  # Aurora MySQL 8.4 互換と Aurora PostgreSQL 16.15 の db.serverless は、2026-10-27 に DescribeOrderableDBInstanceOptions で確かめた）→ どちらもサーバーレス。
+  # コストの比較（Pricing API の東京の値。月 730 時間）: サーバーレスは $0.15/ACU 時（最小 0.5 ACU で月 $55）、クラスターのいちばん安い
+  # db.t4g.medium は $0.113/時（月 $82）。損益分岐は平均 0.75 ACU。どちらも一時停止はできない（Mautic の毎分の cron と、常時の接続）。
+  # 平均が 0.75 ACU を超え続けるなら、クラスターのほうが安くなる。ACUUtilization のアラームと Cost Explorer で見直す（README の 6 節）。
   # MySQL と PostgreSQL は 1 つにまとめられない（Aurora はクラスターごとにエンジンが 1 つ。Mautic は MySQL 専用、Chatwoot は PostgreSQL 専用）。
-  # 単価は 2026-10-26 に Pricing API（東京）で、db.serverless の対応は DescribeOrderableDBInstanceOptions で確かめた（README の 6 節）。
+  # max_connections は最大 ACU から決まり、最大 ACU を変えたらインスタンスの再起動まで反映されない（README の 4.11）。
   MysqlMinCapacity:
     Type: Number
     Default: 0.5
@@ -41,14 +42,21 @@ Parameters:
     Type: Number
     Default: 2
     MinValue: 1
-    Description: 最大 ACU（費用の上限。2 ACU で月 $219。セグメント更新などの山で伸びる。足りなければ ACUUtilization を見て上げる）。
+    Description: 最大 ACU（費用の上限。2 ACU で月 $219。セグメント更新などの山で伸びる。足りなければ ACUUtilization を見て上げ、インスタンスを再起動する）。
   MysqlEngineVersion:
     Type: String
     Default: 8.4.mysql_aurora.8.4.8
     Description: Aurora MySQL の版（8.4 互換。開発環境の MySQL 8.4 と同じ系列）。2026-10-26 時点の東京の最新。マイナーは AutoMinorVersionUpgrade で上がる。
-  PostgresInstanceClass:
-    Type: String
-    Default: db.t4g.medium
+  PostgresMinCapacity:
+    Type: Number
+    Default: 0.5
+    MinValue: 0.5
+    Description: Aurora Serverless v2 の最小 ACU（0.5 ACU は約 1 GB。月 $55 前後）。常時の接続（Chatwoot・n8n・Strapi）で一時停止しないので 0 は使わない。
+  PostgresMaxCapacity:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    Description: 最大 ACU（費用の上限。2 ACU で月 $219。4 アプリが共有する）。足りなければ ACUUtilization を見て上げ、インスタンスを再起動する。
   PostgresEngineVersion:
     Type: String
     Default: '16.15'
@@ -233,6 +241,9 @@ Resources:
       DBClusterIdentifier: !Sub 'comegin-${EnvName}-postgres'
       Engine: aurora-postgresql
       EngineVersion: !Ref PostgresEngineVersion
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref PostgresMinCapacity
+        MaxCapacity: !Ref PostgresMaxCapacity
       StorageType: aurora
       StorageEncrypted: true
       DBSubnetGroupName: !Ref DbSubnetGroup
@@ -257,7 +268,7 @@ Resources:
       DBInstanceIdentifier: !Sub 'comegin-${EnvName}-postgres-1'
       DBClusterIdentifier: !Ref PostgresCluster
       Engine: aurora-postgresql
-      DBInstanceClass: !Ref PostgresInstanceClass
+      DBInstanceClass: db.serverless
       PubliclyAccessible: false
       AutoMinorVersionUpgrade: true
       PreferredMaintenanceWindow: !Ref DbMaintenanceWindow

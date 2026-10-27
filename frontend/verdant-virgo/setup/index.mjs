@@ -34,7 +34,8 @@ export const meta = {
   id: "verdant-virgo",
   title: "公開サイト（Astro。環境変数・導入・計測の道具・dev サーバー）",
   targets: ["dev", "prod"],
-  after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api"],
+  // dev は開発のモジュール、prod は chatwoot-prod・mautic-prod（website_token とフォームの ID を状態に置く）の後
+  after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api", "chatwoot-prod", "mautic-prod"],
 };
 
 const DIR = "frontend/verdant-virgo";
@@ -274,11 +275,12 @@ function devValues(ctx, current) {
 /** 本番の値。すべて prod.conf（と状態）から。足りないキーは missing に入れる */
 function prodValues(ctx) {
   const missing = [];
-  const req = (key, hint) => {
-    const v = ctx.value(key);
-    if (!v) missing.push(hint ? `${key}（${hint}）` : key);
-    return v;
+  const req = (key, hint, value = ctx.value(key)) => {
+    if (!value) missing.push(hint ? `${key}（${hint}）` : key);
+    return value;
   };
+  // chatwoot-prod・mautic-prod が状態に置く値は、状態を先に読む（受信箱やフォームを作り直したとき、prod.conf の古い値を焼かない）
+  const stateFirst = (key) => ctx.state.get(key) || ctx.conf[key];
   const consent = consentValues(ctx);
   const values = {
     SITE_URL: trimUrl(
@@ -310,19 +312,26 @@ function prodValues(ctx) {
     PUBLIC_POSTHOG_HOST: trimUrl(
       ctx.value("SITE_POSTHOG_HOST") || "https://us.i.posthog.com",
     ),
+    // 接続先は chatwoot-prod・mcp-prod と同じ CHATWOOT_BASE_URL を既定にする（公開サイトだけ別にするときだけ SITE_CHATWOOT_BASE）
     PUBLIC_CHATWOOT_BASE: trimUrl(
-      ctx.value("SITE_CHATWOOT_BASE") || "https://chat.comegin.com",
+      ctx.value("SITE_CHATWOOT_BASE") ||
+        ctx.conf.CHATWOOT_BASE_URL ||
+        "https://chat.comegin.com",
     ),
     PUBLIC_CHATWOOT_WEBSITE_TOKEN: req(
       "CHATWOOT_WEBSITE_TOKEN",
-      "本番の Chatwoot の受信箱「Web サイト」の website_token",
+      "本番の Chatwoot の受信箱「Web サイト」の website_token。chatwoot-prod が状態に置く（node setup/setup.mjs --target prod --only chatwoot-prod）",
+      stateFirst("CHATWOOT_WEBSITE_TOKEN"),
     ),
     PUBLIC_MAUTIC_BASE: trimUrl(
-      ctx.value("SITE_MAUTIC_BASE") || "https://mkt.comegin.com",
+      ctx.value("SITE_MAUTIC_BASE") ||
+        ctx.conf.MAUTIC_BASE_URL ||
+        "https://mkt.comegin.com",
     ),
     MAUTIC_FORM_ID_CONSULT: req(
       "MAUTIC_FORM_ID_CONSULT",
-      "本番の Mautic のフォーム consult の数値 ID",
+      "本番の Mautic のフォーム consult の数値 ID。mautic-prod が状態に置く（node setup/setup.mjs --target prod --only mautic-prod）",
+      stateFirst("MAUTIC_FORM_ID_CONSULT"),
     ),
     PUBLIC_CALCOM_BASE: trimUrl(
       ctx.value("SITE_CALCOM_BASE") || "https://app.cal.com",

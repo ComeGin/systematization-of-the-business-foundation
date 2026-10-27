@@ -14,6 +14,9 @@ config_dir="${MAUTIC_VOLUME_CONFIG:-/var/www/html/config}"
 target="${config_dir}/parameters_local.php"
 
 if [ -n "${MAUTIC_TRUSTED_PROXIES:-}" ]; then
+  # 一時ファイルはプロセスごとに分ける（mautic-web と mautic-cron は同じ EFS の config を使い、同時に起動しうる。
+  # 同じ名前だと一方の mv が ENOENT になり、set -e でそのコンテナが落ちる）。同じディレクトリに作るので mv は置き換えになる
+  tmp="${target}.tmp.$$"
   # 値は JSON として検査してから PHP の配列として書く（壊れた値で Mautic を起動させない）
   php -r '
     $v = json_decode(getenv("MAUTIC_TRUSTED_PROXIES"), true);
@@ -23,12 +26,18 @@ if [ -n "${MAUTIC_TRUSTED_PROXIES:-}" ]; then
     }
     $php = "<?php\n// comegin-entrypoint.sh が起動のたびに書く（MAUTIC_TRUSTED_PROXIES から）。手で直さない。\n"
          . "\$parameters = [\x27trusted_proxies\x27 => " . var_export(array_values($v), true) . "];\n";
-    file_put_contents($argv[1] . ".tmp", $php);
-  ' "$target"
-  mv "${target}.tmp" "$target"
-  chown "${MAUTIC_WWW_USER:-www-data}:${MAUTIC_WWW_GROUP:-www-data}" "$target"
-  chmod 0640 "$target"
+    file_put_contents($argv[1], $php);
+  ' "$tmp"
+  # EFS のアクセスポイントは POSIX ユーザー（www-data。33:33）を強制するので、書いたファイルは既にその所有者になっている。
+  # 違うとき（EFS で覆わない MountConfigVolume=false の構成で root が書いたとき）だけ chown する
+  owner="${MAUTIC_WWW_USER:-www-data}:${MAUTIC_WWW_GROUP:-www-data}"
+  [ "$(stat -c %U:%G "$tmp")" = "$owner" ] || chown "$owner" "$tmp"
+  chmod 0640 "$tmp"
+  mv -f "$tmp" "$target"
   echo "comegin-entrypoint: ${target} に trusted_proxies を書いた"
+else
+  # 変数を外したら、前に書いたファイルも消す（EFS に残ると、外したはずの trusted_proxies が効き続ける）
+  rm -f "$target"
 fi
 
 exec /entrypoint.sh "$@"

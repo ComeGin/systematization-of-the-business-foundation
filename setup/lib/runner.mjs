@@ -16,7 +16,7 @@ function helpText(title, script) {
 使い方:
   node ${script} --target <dev|prod> [--check] [--only <id,...>] [--from <id>] [--list] [--show <KEY>] [--config <path>]
 
-  --target  dev（オンプレの開発環境）か prod（本番。AWS のデプロイの後。いまは枠だけ）
+  --target  dev（オンプレの開発環境）か prod（本番。AWS のデプロイの後。画面の操作と AWS への書き込みは案内して止まる）
   --check   何も変えずに、各モジュールの用意の状態を表示する
   --only    指定したモジュールだけを実行する（--list の id。カンマ区切り）
   --from    指定したモジュールから後ろを実行する

@@ -168,12 +168,17 @@ async function ensureWebhookConfig(ctx) {
 // API（OAuth2 client_credentials）
 // ---------------------------------------------------------------------------
 
-/** 未認証で /api を叩いて、API が有効かを見る（無効は 403 api_disabled、有効なら 401） */
+/**
+ * 未認証で /api を叩いて、API が有効かを見る。有効なら 401（true）、無効なら 403 api_disabled（false）。
+ * 届かない・それ以外の応答（ALB の 502・503 など）は null（有効とも無効とも判断しない）
+ */
 export async function apiEnabled(ctx) {
-  const res = await fetch(`${apiBase(ctx)}/api/contacts?limit=1`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8_000) }).catch(() => null);
+  const res = await fetch(`${apiBase(ctx)}/api/contacts?limit=1`, { headers: { Accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(8_000) }).catch(() => null);
   if (!res) return null;
+  if (res.status === 401) return true;
   const body = await res.json().catch(() => null);
-  return body?.errors?.[0]?.type !== "api_disabled";
+  if (res.status === 403 && body?.errors?.[0]?.type === "api_disabled") return false;
+  return null;
 }
 
 export async function fetchToken(ctx, clientId, clientSecret) {
@@ -380,7 +385,7 @@ export async function check(ctx) {
     notes.push(config.disableAutoUnpublish ? "送信に失敗した Webhook は自動で非公開にならない（disable_auto_unpublish）" : "disable_auto_unpublish が true でない（I-11 が未公開の間に「n8n I-11」が止まる）");
     if (!allowed || !config.disableAutoUnpublish) ok = false;
     const enabled = await apiEnabled(ctx);
-    notes.push(enabled ? "API は有効" : "API が無効（設定 > API 設定 で有効にする）");
+    notes.push(enabled ? "API は有効" : enabled === false ? "API が無効（設定 > API 設定 で有効にする）" : "API の応答が異常（届かないか、401・403 以外を返した）");
     if (!enabled) ok = false;
     const id = ctx.value("MAUTIC_CLIENT_ID");
     const secret = ctx.value("MAUTIC_CLIENT_SECRET");
@@ -408,6 +413,7 @@ export async function apply(ctx) {
   await ensureWebhookConfig(ctx);
 
   const enabled = await apiEnabled(ctx);
+  if (enabled === null) throw new Error(`Mautic の API の応答が異常（${BASE_URL}/api に届かないか、401・403 以外を返した）。dev/serve.sh のログを見る`);
   const clientId = ctx.value("MAUTIC_CLIENT_ID");
   const clientSecret = ctx.value("MAUTIC_CLIENT_SECRET");
   if (!enabled || !clientId || !clientSecret) manualCredentials(ctx, enabled);

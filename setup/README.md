@@ -121,7 +121,17 @@ node setup/frontend.mjs --target prod          # 本番のビルド用の .env.p
 
 管理者のメールアドレスはすべて `ADMIN_EMAIL`（Chatwoot のエージェント専用ユーザーだけは `+ai-agent` 付き）。
 
-**MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`n8n-dev.env`（`umami-dev.env` は ADR-25 で Umami を廃止したので作らない。前に作られたものは自分で消す）。
+**本番の状態ファイル**（`~/.config/comegin/setup/prod.state.json`、600。`--target prod --show <KEY>`）:
+
+| キー | 作る | 用途 |
+|---|---|---|
+| `CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_USER_ID`・`CHATWOOT_INBOX_ID`・`CHATWOOT_WEBSITE_TOKEN` | chatwoot-prod | 受信箱・メンバー。website_token は公開サイトの本番のビルド（verdant-virgo の `.env.production`）が読む |
+| `CHATWOOT_FAQ_BOT_ID`・`CHATWOOT_FAQ_BOT_TOKEN`✔・`CHATWOOT_FAQ_BOT_SECRET`✔ | chatwoot-prod | FAQ ボット。トークンと secret は人が Secrets Manager に入れる（`manual-steps.md` の 8.3） |
+| `MAUTIC_FORM_ID_CONSULT`・`MAUTIC_SEGMENT_ID_MQL`・`MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY` | mautic-prod | フォーム consult の ID は公開サイトの本番のビルドが読む |
+
+本番の管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）と、Mautic の初期設定用の API 認証情報は、`prod.conf` にだけ置く（状態には写さない）。
+
+**MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: 開発は `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`n8n-dev.env`（`umami-dev.env` は ADR-25 で Umami を廃止したので作らない。前に作られたものは自分で消す）。本番は `mcp-prod` が `chatwoot-prod.env`・`mautic-prod.env`・`mautic-prod-ro.env`・`strapi-prod.env`・`n8n-prod.env`・`posthog-prod.env` を `prod.conf` から書く。
 
 **各プロジェクトの環境変数ファイル**: 既存の `dev/init-env.sh` と同じく、**空のキーだけを書く**（暗号化の鍵などを上書きしない）。
 

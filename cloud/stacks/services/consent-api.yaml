@@ -41,7 +41,7 @@ Parameters:
     Type: Number
     Default: 10
     MinValue: 0
-    Description: 予約同時実行数（費用と乱用の上限。WAF のレート制限とは別の保険。Valkey の接続数の上限にもなる。暫定値。仕様 12 節）。0 なら付けない（Lambda に 0 を渡すと全部止まるので、条件で外す）。アカウントの同時実行数の上限が 121 未満のあいだは、予約を付けると作成が失敗する（cloud/README.md の 2 節）
+    Description: 予約同時実行数（費用と乱用の上限。WAF のレート制限とは別の保険。Valkey の接続数の上限にもなる。暫定値。仕様 12 節）。0 なら付けない（Lambda に 0 を渡すと全部止まるので、条件で外す）。アカウントの同時実行数の上限が 121 未満だと、予約を付けると作成が失敗する（このアカウントは 1,000 に引き上げ済み。cloud/README.md の 2 節）
   LogRetentionDays:
     Type: Number
     Default: 30

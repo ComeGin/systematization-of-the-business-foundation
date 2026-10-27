@@ -7,14 +7,24 @@
 // 人が行うもの（止まって案内する）:
 //   - 最初の管理者とアカウント（画面の onboarding。本番は rails runner を使わない）と、管理者のアクセストークンを prod.conf に書く
 //   - エージェント専用ユーザー（担当者の権限。招待メールで確認する）とそのトークン（mcp-prod と同じ CHATWOOT_AGENT_TOKEN）
-//   - FAQ ボットの access_token と secret を Secrets Manager に入れる（AWS への書き込み。cloud/README.md の 4.17）
+//   - FAQ ボットの access_token と secret を Secrets Manager に入れる（AWS への書き込み。cloud/README.md の 4.17）。
+//     済んだら prod.conf の FAQ_BOT_SECRETS_STORED に、案内に出るトークンの指紋（SHA-256 の先頭 8 文字）を書く。ボットが作り直されて
+//     トークンが変わると指紋が合わなくなり、Secrets Manager の値が古いことに気づける
+// 管理者のトークン（CHATWOOT_ADMIN_TOKEN）は prod.conf だけに置き、状態ファイルには写さない（開発のモジュールの ensure* には、
+// 状態の読み出しを包んだ ctx で渡す）。初期設定が終わったら prod.conf から消してよい（その後の apply と check は止まって案内する）
 // 作った受信箱の website_token は prod の状態（CHATWOOT_WEBSITE_TOKEN）に置く。公開サイトの本番のビルド（setup/frontend.mjs の verdant-virgo）がそれを読む。
+import { createHash } from "node:crypto";
 import { ASK_RESOLVED_MACRO, FAQ_LABELS, HANDOFF_EMAIL_FLAG, ensureAskResolvedMacro, ensureFaqBot, ensureHandoffNotification, ensureInbox, ensureLabels, profile } from "../index.mjs";
 
 export const meta = { id: "chatwoot-prod", title: "Chatwoot（本番。受信箱・FAQ ボット・ラベル・マクロ）", targets: ["prod"], after: [] };
 
 const DEFAULT_BASE_URL = "https://chat.comegin.com";
-const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
+/** FAQ ボットのトークンの指紋（SHA-256 の先頭 8 文字）。Secrets Manager に入れた値と今のボットの値が同じかを、値を出さずに確かめる */
+const fingerprint = (token) => createHash("sha256").update(String(token)).digest("hex").slice(0, 8);
+const secretsStored = (ctx) => {
+  const token = ctx.state.get("CHATWOOT_FAQ_BOT_TOKEN");
+  return Boolean(token) && String(ctx.value("FAQ_BOT_SECRETS_STORED") ?? "").trim() === fingerprint(token);
+};
 
 /** prod.conf の値。足りないキーは missing に入れる */
 function values(ctx) {
@@ -55,7 +65,21 @@ function onboardingSteps(v) {
   ];
 }
 
-/** 本番の文脈。開発のモジュールの ensure* が読む状態のキーに、prod.conf の値を置く（prod の状態ファイル。600） */
+/**
+ * 本番の文脈。開発のモジュールの ensure* が読む状態のキーに値を置く（prod の状態ファイル。600）。
+ * 管理者のトークンだけは状態に写さず、状態の読み出しを包んで渡す（prod.conf だけに置く）
+ */
+function withAdminToken(ctx, v) {
+  const state = ctx.state;
+  const wrapped = {
+    get: (key) => (key === "CHATWOOT_ADMIN_TOKEN" ? v.adminToken : state.get(key)),
+    has: (key) => (key === "CHATWOOT_ADMIN_TOKEN" ? Boolean(v.adminToken) : state.has(key)),
+    set: (key, value, opts) => state.set(key, value, opts),
+    isSecret: (key) => state.isSecret(key),
+  };
+  return { ...ctx, state: wrapped, chatwootBase: v.base, faqBotUrl: v.faqBotUrl };
+}
+
 async function prepare(ctx, v) {
   const admin = await profile({ ...ctx, chatwootBase: v.base }, v.adminToken);
   if (!admin) throw new Error("CHATWOOT_ADMIN_TOKEN で本番の Chatwoot に認証できない（401）。管理者のプロフィール設定のトークンを書き直す");
@@ -67,12 +91,11 @@ async function prepare(ctx, v) {
   if (agentRole !== "agent") throw new Error(`CHATWOOT_AGENT_TOKEN のユーザーはアカウント ${v.accountId} の担当者（agent）ではない（role=${agentRole ?? "所属なし"}。ADR-17）`);
 
   ctx.state.set("CHATWOOT_ACCOUNT_ID", String(v.accountId));
-  ctx.state.set("CHATWOOT_ADMIN_TOKEN", v.adminToken, { secret: true });
   ctx.state.set("CHATWOOT_AGENT_USER_ID", String(agent.id));
-  return { ...ctx, chatwootBase: v.base, faqBotUrl: v.faqBotUrl };
+  return withAdminToken(ctx, v);
 }
 
-function secretsSteps() {
+function secretsSteps(ctx) {
   const put = (key, secret) =>
     `node setup/setup.mjs --target prod --show ${key} | tr -d '\\n' | aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/${secret} --secret-string file:///dev/stdin`;
   return [
@@ -80,7 +103,7 @@ function secretsSteps() {
     put("CHATWOOT_FAQ_BOT_TOKEN", "CHATWOOT_BOT_TOKEN"),
     put("CHATWOOT_FAQ_BOT_SECRET", "CHATWOOT_BOT_SECRET"),
     "faq-bot は起動時に Secret を読む。入れた後の最初の呼び出しから使われる（コールドスタートのたびに読む）",
-    "~/.config/comegin/setup/prod.conf に FAQ_BOT_SECRETS_STORED=yes を書き、同じコマンドを実行し直す",
+    `~/.config/comegin/setup/prod.conf に FAQ_BOT_SECRETS_STORED=${fingerprint(ctx.state.get("CHATWOOT_FAQ_BOT_TOKEN"))} を書き、同じコマンドを実行し直す（今のボットのトークンの指紋。秘密値ではない。ボットが作り直されると変わり、もう一度入れるよう案内する）`,
   ];
 }
 
@@ -102,6 +125,10 @@ export async function check(ctx) {
   try {
     const admin = await profile(c, v.adminToken);
     mark(Boolean(admin), "管理者のトークンは有効", "管理者のトークンが無効（401）");
+    // エージェント専用ユーザーは担当者の権限で、受信箱のメンバー（担当者の権限は、所属した受信箱の会話しか見えない）
+    const agent = await profile(c, v.agentToken);
+    const agentRole = (agent?.accounts ?? []).find((a) => String(a.id) === String(v.accountId))?.role;
+    mark(agentRole === "agent", "エージェント専用ユーザーは担当者（agent）の権限", `エージェント専用ユーザーのトークンが無効か、担当者の権限でない（role=${agentRole ?? "不明"}。ADR-17）`);
     const inboxId = ctx.state.get("CHATWOOT_INBOX_ID");
     mark(Boolean(inboxId && ctx.state.has("CHATWOOT_WEBSITE_TOKEN")), `受信箱「Web サイト」がある（ID ${inboxId}）`, "受信箱「Web サイト」がまだ状態に無い（apply で作る）");
     if (inboxId) {
@@ -110,6 +137,9 @@ export async function check(ctx) {
       const bot = await ctx.http("本番の Chatwoot 受信箱のボット", `${base}/inboxes/${inboxId}/agent_bot`, headers).catch(() => null);
       mark(String(bot?.agent_bot?.id ?? "") === String(ctx.state.get("CHATWOOT_FAQ_BOT_ID") ?? "-"), "FAQ ボットは受信箱に接続済み", "FAQ ボットが受信箱に接続されていない");
       mark(bot?.agent_bot?.outgoing_url === v.faqBotUrl, "FAQ ボットの送り先は本番の faq-bot", `FAQ ボットの送り先が FAQ_BOT_WEBHOOK_URL と違う（${bot?.agent_bot?.outgoing_url ?? "不明"}）`);
+      const members = await ctx.http("本番の Chatwoot 受信箱のメンバー", `${base}/inbox_members/${inboxId}`, headers).catch(() => null);
+      const memberIds = (members?.payload ?? members ?? []).map((m) => m.id);
+      mark(Boolean(agent?.id) && memberIds.includes(agent.id) && Boolean(admin?.id) && memberIds.includes(admin.id), "管理者とエージェント専用ユーザーは受信箱のメンバー", "管理者かエージェント専用ユーザーが受信箱のメンバーでない（apply で足す）");
     }
     const labels = await ctx.http("本番の Chatwoot ラベル一覧", `${base}/labels`, headers).catch(() => null);
     const titles = new Set((labels?.payload ?? []).map((l) => l.title));
@@ -122,7 +152,7 @@ export async function check(ctx) {
   } catch (e) {
     mark(false, "", e.status === 0 ? `本番の Chatwoot に届かない（${e.message}）` : e.message);
   }
-  mark(yes(ctx.value("FAQ_BOT_SECRETS_STORED")), "FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている", "FAQ ボットのトークンと secret を Secrets Manager に入れたと申告されていない（FAQ_BOT_SECRETS_STORED=yes）");
+  mark(secretsStored(ctx), "FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている（今のボットの指紋と一致）", "FAQ ボットのトークンと secret を Secrets Manager に入れたと申告されていないか、ボットが作り直されて指紋が合わない（apply の案内のとおり入れ直し、FAQ_BOT_SECRETS_STORED を書き直す）");
   return { ok, notes };
 }
 
@@ -144,6 +174,6 @@ export async function apply(ctx) {
   await ensureHandoffNotification(c);
   ctx.log("受信箱の website_token を prod の状態に置いた（CHATWOOT_WEBSITE_TOKEN。node setup/frontend.mjs --target prod の .env.production が読む）");
 
-  if (!yes(ctx.value("FAQ_BOT_SECRETS_STORED"))) ctx.manual("faq-bot-secrets", "FAQ ボットの access_token と secret を Secrets Manager に入れる", secretsSteps());
+  if (!secretsStored(ctx)) ctx.manual("faq-bot-secrets", "FAQ ボットの access_token と secret を Secrets Manager に入れる（入れていないか、ボットが作り直されてトークンが変わった）", secretsSteps(ctx));
   ctx.log("FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている。ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（cloud/README.md の 4.17 の 7）");
 }

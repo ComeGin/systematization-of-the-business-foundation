@@ -75,6 +75,10 @@ Parameters:
   RdsCpuThresholdPercent:
     Type: Number
     Default: 80
+  AcuUtilizationThresholdPercent:
+    Type: Number
+    Default: 90
+    Description: Aurora Serverless v2 の ACUUtilization（最大 ACU に対する今の ACU の %）のしきい値。張り付くなら最大 ACU を上げる（費用も上がる）。
   MysqlConnectionsThreshold:
     Type: Number
     Default: 60
@@ -82,7 +86,7 @@ Parameters:
   PostgresConnectionsThreshold:
     Type: Number
     Default: 120
-    Description: Aurora PostgreSQL（db.t4g.medium）の接続数のしきい値。4 つのデータベース（chatwoot・admin_auth・strapi・n8n）が共有する。インスタンスクラスを変えたら見直す。
+    Description: Aurora PostgreSQL（Serverless v2。最大 2 ACU）の接続数のしきい値。4 つのデータベース（chatwoot・admin_auth・strapi・n8n）が共有する。最大 ACU を変えたら見直す（max_connections は最大 ACU で決まる）。
   ValkeyMemoryThresholdPercent:
     Type: Number
     Default: 80
@@ -473,7 +477,9 @@ Resources:
       AlarmActions: [!Ref OpsAlertTopicArn]
       OKActions: [!Ref OpsAlertTopicArn]
 
-  # ALB の 5xx の比率（ターゲットの 5xx と ALB 自身の 5xx の合計 / リクエスト数）。リクエストが少ないときは比率を見ない。
+  # ALB の 5xx の比率（ターゲットの 5xx と、ALB 自身の 5xx から 503 を除いたものの合計 / リクエスト数）。リクエストが少ないときは比率を見ない。
+  # ALB 自身の 503 は「正常なターゲットが無い」で、夜間の停止（chatwoot-web は 22〜8 時に 0 台。公開サイトのウィジェットの読み込みが 503 になる）で毎晩出る。
+  # 昼に台数が足りないことは、実行中のタスク数と正常でないターゲットの数のアラームで知る。
   Alb5xxRatioAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -508,6 +514,16 @@ Resources:
                 - { Name: LoadBalancer, Value: !Ref AlbFullName }
             Period: 300
             Stat: Sum
+        - Id: elb503
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/ApplicationELB
+              MetricName: HTTPCode_ELB_503_Count
+              Dimensions:
+                - { Name: LoadBalancer, Value: !Ref AlbFullName }
+            Period: 300
+            Stat: Sum
         - Id: requests
           ReturnData: false
           MetricStat:
@@ -520,13 +536,54 @@ Resources:
             Stat: Sum
         - Id: ratio
           Label: 5xx ratio (percent)
-          Expression: !Sub 'IF(FILL(requests, 0) > ${Alb5xxMinRequestsPer5Min}, 100 * (FILL(target5xx, 0) + FILL(elb5xx, 0)) / FILL(requests, 0), 0)'
+          Expression: !Sub 'IF(FILL(requests, 0) > ${Alb5xxMinRequestsPer5Min}, 100 * (FILL(target5xx, 0) + FILL(elb5xx, 0) - FILL(elb503, 0)) / FILL(requests, 0), 0)'
           ReturnData: true
 
   # ---------------------------------------------------------------- Aurora（TA-05 の項目 13）
   # Aurora のストレージは自動で伸びる（空き容量のアラームは置かない。FreeStorageSpace のメトリクスも無い）。
   # オンプレの n8n の実行履歴は増え続けて費用（GB 月）に効くので、n8n の実行履歴の保持設定（EXECUTIONS_DATA_MAX_AGE）で抑える。
   # 障害・フェイルオーバー・メンテナンスは、下の EventSubscription（インスタンスとクラスター）で知る。
+  # どちらも Serverless v2。CPUUtilization は「最大 ACU に対する %」、ACUUtilization は「最大 ACU に対する今の ACU の %」。
+  MysqlAcuUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-mysql-acu-utilization'
+      AlarmDescription: Mysql の ACU が最大 ACU に張り付いている（遅くなる・接続が足りなくなる）。最大 ACU を上げて再起動するか、負荷を見直す。費用も見る（平均 0.75 ACU を超え続けるならクラスターのほうが安い）。
+      Namespace: AWS/RDS
+      MetricName: ACUUtilization
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref MysqlInstanceIdentifier }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref AcuUtilizationThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+  PostgresAcuUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-postgres-acu-utilization'
+      AlarmDescription: Postgres の ACU が最大 ACU に張り付いている（遅くなる・接続が足りなくなる）。最大 ACU を上げて再起動するか、負荷を見直す。費用も見る（平均 0.75 ACU を超え続けるならクラスターのほうが安い）。
+      Namespace: AWS/RDS
+      MetricName: ACUUtilization
+      Dimensions:
+        - { Name: DBInstanceIdentifier, Value: !Ref PostgresInstanceIdentifier }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref AcuUtilizationThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
   MysqlCpuAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:

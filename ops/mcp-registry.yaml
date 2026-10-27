@@ -39,8 +39,10 @@ servers:
 
   # ---------- Mautic（自作 stdio。既定の TRANSPORT は http なので、env_vars の TRANSPORT: stdio が必須）----------
   # MAUTIC_BASE_URL・MAUTIC_CLIENT_ID・MAUTIC_CLIENT_SECRET は env ファイルに書く。
-  # mautic-prod-ro は analytics-reporter 専用。参照専用ロールの API 認証情報を使う（env_vars で MAUTIC_ACCESS_LEVEL: read_only）。
-  # 認証情報を mautic-prod と共有しない。共有すると ACCESS_LEVEL を下げても上流の権限が残る。
+  # mautic-prod-ro は analytics-reporter 専用（env_vars で MAUTIC_ACCESS_LEVEL: read_only。書き込みのツールを登録しない）。
+  # Mautic の API 認証情報の上流の権限は、どれも管理者になる（client_credentials は管理者が作ったときだけ付き、ロールは作った人のもの。
+  # 2026-10-27 に上流の ApiBundle の ClientController で確認）。読み取りだけに絞るのは ACCESS_LEVEL とエージェント定義の tools の許可リストだけ。
+  # 認証情報を mautic-prod と分けるのは、片方を失効・入れ替えしても、もう片方を止めないため。
   - name: mautic
     env: dev
     transport: stdio

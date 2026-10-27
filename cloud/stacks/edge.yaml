@@ -311,8 +311,21 @@ Resources:
       Priority: 201
       Conditions:
         - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
-        # /api/v1/profile は chatwoot-mcp の chatwoot_get_account（トークンの持ち主の確認）が呼ぶ。トークンが無ければ Chatwoot が 401 を返す（accounts と同じ守り）
-        - { Field: path-pattern, PathPatternConfig: { Values: [/api/v1/accounts/*, /api/v2/accounts/*, /api/v1/profile] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/api/v1/accounts/*, /api/v2/accounts/*] } }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
+
+  # /api/v1/profile は chatwoot-mcp の chatwoot_get_account・setup の確認（トークンの持ち主の確認）が GET で呼ぶ。トークンが無ければ Chatwoot が 401 を返す。
+  # PUT・PATCH（プロフィールのメールアドレスなどの変更）は OIDC の内側に残す（トークンが漏れたときに悪用できる範囲を広げない）。
+  MachineChatwootProfileRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 203
+      Conditions:
+        - { Field: host-header, HostHeaderConfig: { Values: [!Ref ChatHost] } }
+        - { Field: path-pattern, PathPatternConfig: { Values: [/api/v1/profile] } }
+        - { Field: http-request-method, HttpRequestMethodConfig: { Values: [GET] } }
       Actions:
         - { Type: forward, TargetGroupArn: !Ref ChatwootWebTargetGroup }
 
@@ -402,6 +415,33 @@ Resources:
         MetricName: !Sub 'comegin-${EnvName}-alb'
       Rules:
         # consent-api は最も厳しい。
+        # 転送のヘッダー（X-Forwarded-Host・X-Forwarded-Prefix・Forwarded）を外から付けた要求を止める（2026-10-27）。
+        # ALB は X-Forwarded-For・Proto・Port は付け直すが、これらは訪問者の値をそのまま通す。Mautic は信頼するプロキシ（ALB の VPC）を
+        # 設定したため、X-Forwarded-Host を信じて絶対 URL（パスワード再設定のリンクなど）のホストを差し替えうる（Chatwoot の Rails も同様）。
+        # 正しい利用者（ブラウザ・オンプレの n8n・MCP）はこれらを付けない。値が 1 バイト以上あるときだけ一致する（GT 0。ヘッダーが無い要求は
+        # 一致しない。re:Post の「User-Agent の無い要求を止める」は NOT〈SingleHeader の大きさ > 0〉で、無いときは > 0 が一致しないことを使っている）。
+        - Name: block-forwarded-host-headers
+          Priority: 2
+          Action: { Block: {} }
+          VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true, MetricName: block-forwarded-host-headers }
+          Statement:
+            OrStatement:
+              Statements:
+                - SizeConstraintStatement:
+                    FieldToMatch: { SingleHeader: { Name: x-forwarded-host } }
+                    ComparisonOperator: GT
+                    Size: 0
+                    TextTransformations: [{ Priority: 0, Type: NONE }]
+                - SizeConstraintStatement:
+                    FieldToMatch: { SingleHeader: { Name: x-forwarded-prefix } }
+                    ComparisonOperator: GT
+                    Size: 0
+                    TextTransformations: [{ Priority: 0, Type: NONE }]
+                - SizeConstraintStatement:
+                    FieldToMatch: { SingleHeader: { Name: forwarded } }
+                    ComparisonOperator: GT
+                    Size: 0
+                    TextTransformations: [{ Priority: 0, Type: NONE }]
         # 個別のレート制限の Host の照合は前方一致（STARTS_WITH）。完全一致だと、ポート付き（consent.comegin.com:443）や末尾のドット付きの Host が
         # 個別の制限から外れ、全体の制限だけになるおそれがある。前方一致で余分に一致しても、制限が広く掛かるだけ（守りが弱くなる側には倒れない）。
         - Name: rate-limit-consent

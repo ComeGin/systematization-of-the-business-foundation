@@ -118,10 +118,12 @@ SITE_STRAPI_URL=
 # 本番の Strapi のメディアのバケット（必須。onprem/strapi と同じ値）とリージョン（任意。既定 ap-northeast-1）
 UPLOAD_S3_BUCKET=
 UPLOAD_S3_REGION=
-# 本番の Chatwoot の受信箱「Web サイト」の website_token と、本番の Mautic のフォーム consult の数値 ID（どちらも必須。秘密値ではない）
+# 本番の Chatwoot の受信箱「Web サイト」の website_token と、本番の Mautic のフォーム consult の数値 ID（秘密値ではない）。
+# 通常は書かない（chatwoot-prod・mautic-prod が作って prod の状態に置き、状態のほうを先に読む）。手で作った受信箱・フォームを使うときだけ書く
 CHATWOOT_WEBSITE_TOKEN=
 MAUTIC_FORM_ID_CONSULT=
-# 受け口の URL（任意。既定は https://chat.comegin.com・https://mkt.comegin.com・https://consent.comegin.com・https://app.cal.com）
+# 受け口の URL（任意。既定は CHATWOOT_BASE_URL・MAUTIC_BASE_URL〈無ければ https://chat.comegin.com・https://mkt.comegin.com〉・
+# https://consent.comegin.com・https://app.cal.com）。公開サイトだけ別の URL にするときだけ書く
 SITE_CHATWOOT_BASE=
 SITE_MAUTIC_BASE=
 SITE_CONSENT_BASE=
@@ -144,12 +146,14 @@ AUTH_HOST=
 ADMIN_AUTH_PROD_READY=
 
 # ---- 本番の Chatwoot（prod.conf にだけ書く。--target prod の chatwoot-prod モジュール。setup/manual-steps.md の 8.3） ----
-# 画面の onboarding で作った管理者のアクセストークン（受信箱・ボット・ラベル・マクロを作るのに使う）。アカウントの ID と
+# 画面の onboarding で作った管理者のアクセストークン（受信箱・ボット・ラベル・マクロを作るのに使う。状態ファイルには写さない。
+# 初期設定が終わったら消してよい）。アカウントの ID と
 # エージェント専用ユーザーのトークンは、下の「本番の MCP」の CHATWOOT_ACCOUNT_ID・CHATWOOT_AGENT_TOKEN と共用
 CHATWOOT_ADMIN_TOKEN=
 # 親スタックの出力 FaqBotFunctionUrl の末尾に webhook を付けた URL（FAQ ボットの送り先）
 FAQ_BOT_WEBHOOK_URL=
-# FAQ ボットの access_token と secret を Secrets Manager に入れたら yes（AWS への書き込みなので人が行う）
+# FAQ ボットの access_token と secret を Secrets Manager に入れたら、案内に出るトークンの指紋（SHA-256 の先頭 8 文字）を書く
+# （AWS への書き込みなので人が行う。ボットが作り直されると指紋が変わり、入れ直しを案内する）
 FAQ_BOT_SECRETS_STORED=
 
 # ---- 本番の Mautic（prod.conf にだけ書く。--target prod の mautic-prod モジュール。setup/manual-steps.md の 8.4） ----
@@ -158,15 +162,18 @@ MAUTIC_SETUP_CLIENT_ID=
 MAUTIC_SETUP_CLIENT_SECRET=
 # インストールと画面の設定（API・Webhook のキューモードと私設アドレス・CORS・メール）が済んだら yes
 MAUTIC_PROD_SETTINGS_DONE=
+# オンプレの n8n の Webhook の受け口のアドレス（任意。既定 10.99.0.2。cloud/template.yaml の OnpremPeerAddress と同じ）
+ONPREM_WEBHOOK_HOST=
 
 # ---- 本番の MCP（prod.conf にだけ書く。--target prod の mcp-prod モジュール。setup/manual-steps.md の 8.2） ----
-# どれもエージェント専用のアカウントで発行する（人間の管理者のトークンを使わない。ADR-17）。
+# Chatwoot・Strapi・n8n・PostHog はエージェント専用のアカウントで発行する（人間の管理者のトークンを使わない。ADR-17）。
+# Mautic の API 認証情報は管理者が作り、上流の権限は管理者になる（絞るのは ACCESS_LEVEL とツールの許可リスト。manual-steps.md の 8.2）。
 # CHATWOOT_BASE_URL・MAUTIC_BASE_URL は上の「接続先の上書き」と同じキー（prod.conf では既定が https://chat.comegin.com・https://mkt.comegin.com）。
 # 本番の Chatwoot のエージェント専用ユーザー（担当者の権限）のアクセストークンと、アカウントの数値 ID
 CHATWOOT_AGENT_TOKEN=
 CHATWOOT_ACCOUNT_ID=
 # 本番の Mautic の API 認証情報は上の MAUTIC_CLIENT_ID・MAUTIC_CLIENT_SECRET（prod.conf に本番の値を書く）。
-# 参照専用ロールの別の API 認証情報（mautic-prod-ro。analytics-reporter 専用。mautic-prod と共有しない）
+# analytics-reporter 用の別の API 認証情報（mautic-prod-ro。ACCESS_LEVEL は read_only。片方を失効しても、もう片方を止めないために分ける）
 MAUTIC_RO_CLIENT_ID=
 MAUTIC_RO_CLIENT_SECRET=
 # オンプレの本番の Strapi の Admin トークン（下書きまで。公開・非公開化・削除の権限を与えない）と、本番の n8n の MCP のアクセストークン
@@ -176,7 +183,7 @@ N8N_PROD_TOKEN=
 POSTHOG_PROD_API_KEY=
 POSTHOG_PROD_PROJECT_ID=
 
-# ---- 本番だけ（--target prod。AWS のデプロイの後。いまは枠だけ） ----
+# ---- 本番だけ（--target prod。AWS のデプロイの後） ----
 # IAM ユーザー comegin-prod-onprem-n8n-sns のアクセスキー（cloud/README.md の 4.5 で発行）
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=

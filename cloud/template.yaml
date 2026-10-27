@@ -20,7 +20,7 @@ Metadata:
       - Label: { default: 管理者の認証（ALB の authenticate-oidc） }
         Parameters: [AlbOidcClientId]
       - Label: { default: データストア（暫定値） }
-        Parameters: [MysqlMinCapacity, MysqlMaxCapacity, PostgresInstanceClass, ValkeyNodeType]
+        Parameters: [MysqlMinCapacity, MysqlMaxCapacity, PostgresMinCapacity, PostgresMaxCapacity, ValkeyNodeType]
       - Label: { default: オンプレとの WireGuard（ADR-21。wireguard.yaml） }
         Parameters: [OnpremWireguardCidr, WireguardServerAddress, OnpremPeerAddress, WireguardPort, WireguardIngressCidr, OnpremWebhookPort, OnpremWireguardPublicKey, WireguardInstanceType, WireguardAmiSsmId, WireguardFixedAmiId]
       - Label: { default: WAF（暫定値） }
@@ -103,8 +103,8 @@ Parameters:
       8 文字未満だと admin-auth-ops が設定の検査で止まり、migrate も ALB の登録もできない（誰も管理画面に入れない）。
 
   # 暫定値（TA-06 の 9 節の見積もり前）。
-  # MySQL（Mautic）は Aurora Serverless v2、PostgreSQL（4 アプリが共有）は Aurora のクラスター（東京で選べるいちばん安い db.t4g.medium）。
-  # 理由は stacks/data.yaml の注記と README の 6 節（サーバーレスとクラスターのどちらが安いか）
+  # MySQL（Mautic）も PostgreSQL（4 アプリが共有）も Aurora Serverless v2（ユーザーの条件: 互換があればサーバーレス。2026-10-27）。
+  # コストの比較（クラスターの db.t4g.medium との損益分岐は平均 0.75 ACU）は stacks/data.yaml の注記と README の 6 節
   MysqlMinCapacity:
     Type: Number
     Default: 0.5
@@ -113,9 +113,14 @@ Parameters:
     Type: Number
     Default: 2
     MinValue: 1
-  PostgresInstanceClass:
-    Type: String
-    Default: db.t4g.medium
+  PostgresMinCapacity:
+    Type: Number
+    Default: 0.5
+    MinValue: 0.5
+  PostgresMaxCapacity:
+    Type: Number
+    Default: 2
+    MinValue: 1
   ValkeyNodeType:
     Type: String
     Default: cache.t4g.micro
@@ -324,8 +329,8 @@ Parameters:
     Default: '2026-10-01'
     Description: 現行のプライバシーポリシー・Cookie 文面の版（consent-api が記録と Cookie に入れる）。
   # 予約同時実行数は、0 なら付けない（Lambda に 0 を渡すと全部止まるので、子が条件で外す）。
-  # アカウントの同時実行数の上限が 121 未満（新しいアカウントは 10）だと、予約を 1 つでも付けた関数の作成が失敗する。
-  # 上限の引き上げ（Service Quotas の Lambda の Concurrent executions）を先に申請する（cloud/README.md の 2 節）。
+  # アカウントの同時実行数の上限が 121 未満だと、予約を 1 つでも付けた関数の作成が失敗する。このアカウントは 10 から 1,000 に
+  # 引き上げ済み（2026-10-27 に GetAccountSettings で確認。cloud/README.md の 2 節）。0 は、上限が足りない別のアカウントに出すときの逃げ道。
   ConsentApiReservedConcurrency:
     Type: Number
     Default: 10
@@ -533,7 +538,8 @@ Resources:
         SecretNamePrefix: !GetAtt SecretsStack.Outputs.SecretNamePrefix
         MysqlMinCapacity: !Ref MysqlMinCapacity
         MysqlMaxCapacity: !Ref MysqlMaxCapacity
-        PostgresInstanceClass: !Ref PostgresInstanceClass
+        PostgresMinCapacity: !Ref PostgresMinCapacity
+        PostgresMaxCapacity: !Ref PostgresMaxCapacity
         ValkeyNodeType: !Ref ValkeyNodeType
 
   ClusterStack:

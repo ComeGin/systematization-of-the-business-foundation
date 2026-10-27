@@ -26,9 +26,12 @@ fail_on_empty_changeset = false
 # 必須の値だけを書く。DesiredCount などの既定値は template.yaml を見る。
 # RunLogAdminPrincipalArns: デプロイに使う主体（IAM ユーザー comegin-iam、または CloudFormation のサービスロール）の ARN。
 #   入れないとスタック自身の更新も拒否される（stacks/runlog-archive.yaml）。
+# CloudFrontCertificateArn・CloudFrontWebAclArn: 先にデプロイした global（us-east-1）の出力 CertificateArn・WebAclArn（README の 4.1。既定なし）。
 parameter_overrides = [
   "EnvName=prod",
   "RunLogAdminPrincipalArns=arn:aws:iam::123456789012:user/REPLACE-ME",
+  "CloudFrontCertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/REPLACE-ME",
+  "CloudFrontWebAclArn=arn:aws:wafv2:us-east-1:123456789012:global/webacl/REPLACE-ME",
 ]
 
 # ---------------------------------------------------------------- us-east-1（CloudFront 用の ACM と WAF）

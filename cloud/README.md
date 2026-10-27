@@ -27,7 +27,7 @@ cloud/
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
     secrets.yaml             Secrets Manager（20 個。faq-bot の 2 個を含む）
-    data.yaml                Aurora（MySQL 8.4 互換は Serverless v2、PostgreSQL 16 互換はクラスター db.t4g.medium × 1 を 4 アプリで共有）、Valkey、EFS、S3
+    data.yaml                Aurora Serverless v2（MySQL 8.4 互換〈Mautic〉と PostgreSQL 16 互換〈4 アプリで共有〉）、Valkey、EFS、S3
     cluster.yaml             ECS クラスター、ロググループ（Service Connect は使わない）
     edge.yaml                ACM、ALB、リスナールール、WAF、Route 53
     cdn.yaml                 Astro の配信（CloudFront、OAC、Route 53）
@@ -78,7 +78,7 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 - AWS CLI、SAM CLI（1.154 以上）、Docker（イメージのビルドとミラー用）。AWS の認証は環境（SSO・プロファイル）に任せ、`samconfig.toml` にキーを書かない。
 - **デプロイは運用者が実行する。** エージェントに ECS・RDS・CloudFormation の変更権限を渡さない（TA-06 の 8 節）。
 - AWS アカウントは単一（`798560359429`）。**AWS Free Tier の期間内のアカウントは、CloudFront のフラットレートプランを購読できない**（公式の制約。アカウントは 2026-09-16 作成。初回で確かめる）。
-- **Lambda の同時実行数の上限を先に引き上げる。** 2026-10-26 に `aws lambda get-account-settings`（ap-northeast-1）で見たところ、このアカウントの `ConcurrentExecutions` は **10**（新しいアカウントの初期値）だった。Lambda は予約していない枠を常に 100 残すことを求めるので、上限が 121 未満だと、予約同時実行数を付けた関数（consent-api 10・admin-auth 5・admin-auth-ops 1・faq-bot 5。計 21）の作成が失敗する。Service Quotas の「AWS Lambda → Concurrent executions」（`L-B99A9384`）で 1,000 を申請し、`get-account-settings` で反映を確かめてからデプロイする。待てない場合だけ、親のパラメータ `ConsentApiReservedConcurrency`・`AdminAuthReservedConcurrency`・`AdminAuthOpsReservedConcurrency`・`FaqBotReservedConcurrency` を 0（予約を付けない）にしてデプロイできる。ただしそのあいだは、関数 URL への大量の要求（faq-bot）がアカウント全体の 10 を使い切り、同意の受け口とログイン（consent-api・admin-auth）まで止まりうる。また運用の Lambda を同時に 2 回呼ばないこと。引き上げたら元の値に戻す。
+- **Lambda の同時実行数の上限**: このアカウントの `ConcurrentExecutions` は新しいアカウントの初期値の **10** だったが、2026-10-26 に Service Quotas（「AWS Lambda → Concurrent executions」`L-B99A9384`）で 1,000 を申請し、**2026-10-27 に `aws lambda get-account-settings` で 1,000 を確認した**。Lambda は予約していない枠を常に 100 残すことを求めるので、上限が 121 未満のアカウントでは、予約同時実行数を付けた関数（consent-api 10・admin-auth 5・admin-auth-ops 1・faq-bot 5。計 21）の作成が失敗する。別のアカウントに出すときは先に確かめる。待てない場合だけ、親のパラメータ `ConsentApiReservedConcurrency`・`AdminAuthReservedConcurrency`・`AdminAuthOpsReservedConcurrency`・`FaqBotReservedConcurrency` を 0（予約を付けない）にできる（そのあいだは、関数 URL への大量の要求〈faq-bot〉がアカウント全体の枠を使い切り、同意の受け口とログインまで止まりうる。運用の Lambda を同時に 2 回呼ばない）。
 - `RunLogAdminPrincipalArns` に、**デプロイに使う主体（IAM ユーザー `comegin-iam`、または CloudFormation のサービスロール）の ARN** を入れること。入れないと、E-15 の写しのバケットポリシーが自分自身の更新を拒否して詰む。
 - **`capabilities` は `CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND`**（`samconfig.toml.example` のとおり）。IAM ロールとユーザーに固定の名前（`comegin-<env>-...`）を付けているため、`CAPABILITY_IAM` だけでは拒否される。
 - `cp samconfig.toml.example samconfig.toml` して値を入れる。`samconfig.toml` は `cloud/.gitignore` で除外している。
@@ -94,7 +94,7 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 
 ### 3.1 見積もり（2026-10-26）
 
-**月 約 $392（税抜き。消費税 10% 込みで約 $431、年 約 $5,200）**（2026-10-26 に MySQL を Aurora Serverless v2 にし、Fargate の 3 サービスを夜間に止めるようにした後）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
+**月 約 $365（税抜き。消費税 10% 込みで約 $401、年 約 $4,800）**（2026-10-27 に PostgreSQL も Aurora Serverless v2 にした後。MySQL の Serverless v2 と Fargate の夜間の停止は 2026-10-26）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
 
 | 区分 | 項目 | 月額（USD） | 前提・単価 |
 |---|---|---:|---|
@@ -102,7 +102,7 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 | 計算 | ECS Fargate chatwoot-web・chatwoot-worker・mautic-cron（計 2 vCPU・4 GB、x86、毎日 22 時〜翌 8 時は 0 台） | 52.48 | 同上。1 日 14 時間（夜間の停止で月 $37 前後下がる） |
 | 計算 | EC2 t4g.nano（WireGuard）＋EBS gp3 8 GB | 4.71 | $0.0054/時・$0.096/GB 月 |
 | 計算 | Lambda（4 関数。arm64） | 0 | 常時無料枠（月 100 万リクエスト・40 万 GB 秒）に収まる想定 |
-| DB | Aurora PostgreSQL db.t4g.medium × 1（Chatwoot・admin-auth・Strapi・n8n が共有） | 82.49 | $0.113/時 |
+| DB | Aurora PostgreSQL Serverless v2（Chatwoot・admin-auth・Strapi・n8n が共有。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（上限は 2 ACU で月 $219） |
 | DB | Aurora MySQL Serverless v2（Mautic。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（山で伸びると増える。上限は 2 ACU で月 $219） |
 | DB | Aurora ストレージ（各 10 GB）と I/O（計 4,000 万回/月） | 12.00 | $0.12/GB 月・$0.24/100 万回 |
 | DB | ElastiCache Valkey cache.t4g.micro × 1 | 14.60 | $0.02/時 |
@@ -113,20 +113,20 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 | ネットワーク | CloudFront・インターネットへの転送 | 0 | フラットレートの Free プラン。転送は月 100 GB の無料枠内の想定（超過は $0.114/GB） |
 | ネットワーク | Route 53（ホストゾーン 1） | 0.50 | 作成済み |
 | セキュリティ | WAF（ALB 用。Web ACL 1・ルール 8・100 万リクエスト） | 13.60 | $5/ACL・$1/ルール・$0.60/100 万（CloudFront 用はプランに含まれる） |
-| セキュリティ | Secrets Manager（22 個） | 8.85 | $0.40/個 |
-| 運用 | CloudWatch（アラーム 28・Container Insights 標準 約 60 メトリクス・ログ 6 GB） | 17.76 | $0.10/アラーム・$0.30/メトリクス・$0.76/GB（無料枠を引いた） |
+| セキュリティ | Secrets Manager（22 個） | 8.85 | $0.40/個（$8.80）＋API の呼び出し |
+| 運用 | CloudWatch（アラーム 30〈課金はアラームの中のメトリクスの数で 37〉・Container Insights 標準 約 60 メトリクス・ログ 6 GB） | 18.66 | $0.10/アラームのメトリクス・$0.30/メトリクス・$0.76/GB（無料枠を引いた） |
 | 運用 | ECR（計 4 GB）・SES（3,000 通/月）・SNS・ACM | 0.70 | |
-| | **合計** | **391.82** | |
+| | **合計** | **364.98** | |
 
-- **固定費（時間課金）が 9 割**（Aurora 35%・Fargate 25%・NAT と IPv4 16%・ALB 5%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。
-- **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $294**（Fargate が無い）。
+- **固定費（時間課金）が 9 割**（Aurora 30%・Fargate 27%・NAT と IPv4 17%・ALB 6%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $475**（それぞれ ＋$55）。
+- **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $268**（Fargate が無い）。
 - **CloudFront のフラットレートのプランが使えない場合**（Free Tier の期間のアカウントは購読できない。4.3）、CloudFront 用の WAF の分（$5＋ルール 4＋リクエスト）で月 約 $9 増える。
 - 含めていないもの: 消費税、AWS サポートのプラン、新規アカウントの Free Tier のクレジット（あれば最初の月々から差し引かれる）、オンプレ（Strapi・n8n・監視アプリ・OpenSEO）と外部 SaaS（Anthropic・PostHog・GA4・Cal.com・DataForSEO・Google Workspace）。
-- **下げる余地**（いずれも未適用。判断は R1）: Aurora PostgreSQL の 1 年のリザーブドインスタンス、Fargate の Compute Savings Plans、Fargate の ARM（Graviton。2 つの公式イメージは arm64 に対応。月 $27 前後下がる。2026-10-26 は x86 のままと決めた）、mautic-cron を 0.25 vCPU・0.5 GB に下げる（実測の後）。インターフェースの VPC エンドポイントで NAT を置き換えるのは、エンドポイント 1 つ × 2 AZ で月 $20 前後かかり、この規模では NAT より高い。
+- **下げる余地**（いずれも未適用。判断は R1）: Fargate の Compute Savings Plans（Aurora Serverless v2 にはリザーブドインスタンスが効かない）、Fargate の ARM（Graviton。2 つの公式イメージは arm64 に対応。月 $27 前後下がる。2026-10-26 は x86 のままと決めた）、mautic-cron を 0.25 vCPU・0.5 GB に下げる（実測の後）。インターフェースの VPC エンドポイントで NAT を置き換えるのは、エンドポイント 1 つ × 2 AZ で月 $20 前後かかり、この規模では NAT より高い。
 
-固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、Aurora（MySQL は Serverless v2 で最小 0.5 ACU〈月 $55 前後〉、PostgreSQL は db.t4g.medium × 1〈月 $82 前後〉＋ストレージと I/O）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
+固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、Aurora（MySQL・PostgreSQL とも Serverless v2 で最小 0.5 ACU〈各 月 $55 前後〉＋ストレージと I/O）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
 **EC2 t4g.nano（WireGuard。1 台）と Elastic IP（public IPv4 の課金）と EBS 8 GB（gp3）**、
-Secrets Manager（20 個 + RDS が管理するマスターの 2 個 = 22 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 28 個〈`alarms.yaml` の 26 個と `observability.yaml` のハートビートの 2 個〉、ログ、メトリクス）。
+Secrets Manager（20 個 + RDS が管理するマスターの 2 個 = 22 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 30 個〈`alarms.yaml` の 28 個と `observability.yaml` のハートビートの 2 個〉、ログ、メトリクス）。
 
 **ADR-21 による増減（概算。単価は見積もりで確かめる）**: Fargate のサービスが 2 つ減る（Strapi と n8n が各 1 vCPU・2 GB。東京の公表単価からの概算で、1 つあたり月 $45 前後。n8n は runners のサイドカー分も減る）。
 EC2 t4g.nano（月 $4 前後）、Elastic IP（public IPv4 は 1 つ月 $3.65）、EBS 8 GB（月 $1 未満）が増える。Secrets Manager が 9 個減る（月 $3.6 前後）。アラームは 4 つ減って 2 つ増える（さらに n8n のハートビートのアラームが 1 つ増える）。
@@ -339,15 +339,15 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 - CA の取得はビルド時（`ADD --checksum=sha256:...`）で、**SHA-256 は `fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c`**（2026-10-04 に取得した 111 証明書の束）。
   AWS が束を更新すると、**ビルドも ops-tasks のタスクも失敗する（意図した動作。改ざんの検知と、CA の更新を人が確かめるため）。** 更新の手順:
   1. `curl -fsS https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o /tmp/b.pem` で取得し、中身（証明書の数、発行者）を確かめる。
-  2. `sha256sum /tmp/b.pem` の値を、`cloud/images/*/Dockerfile` の `RDS_CA_SHA256` と、親のパラメータ `RdsCaSha256`（ops-tasks）に反映する。
-  3. 2 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。
+  2. `sha256sum /tmp/b.pem` の値を、`cloud/images/*/Dockerfile` の `RDS_CA_SHA256`、親のパラメータ `RdsCaSha256`（ops-tasks）、**オンプレの `onprem/n8n/Dockerfile` と `backend/strapi-system/Dockerfile` の `RDS_CA_SHA256`** に反映する（どれも `ADD --checksum` で照合する。2026-10-27 に Strapi も照合する形にそろえた）。
+  3. 2 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。オンプレの Strapi・n8n もビルドし直す（`onprem/` の README）。
 - ElastiCache（`rediss://`）は、Amazon の公開 CA で署名されており、Node（consent-api）と Ruby（Chatwoot）の既定の信頼ストアで検証される。検証を無効にする設定は入れていない。
 - 自作の admin-auth（Lambda。ADR-26）は、Lambda の実行環境の `/var/runtime/ca-cert.pem`（RDS の CA を含む）を `NODE_EXTRA_CA_CERTS` で読む（2026-10-12 まではイメージに同梱していた）。
 
 | 接続元 | 検証のしかた（テンプレートの設定） | 検証の状況 |
 |---|---|---|
 | Chatwoot（Rails・libpq） | `PGSSLMODE=verify-full`、`PGSSLROOTCERT=/etc/rds/global-bundle.pem` | libpq は、自作の CA のローカルの PostgreSQL で確認済み（正しいとき接続、CA が無いときとホスト名が違うときは失敗）。Chatwoot の Rails 本体では未 |
-| Mautic（Doctrine・PDO と起動時の `mysqladmin ping`） | `config.php` に `PDO::MYSQL_ATTR_SSL_CA` と `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT` を足し（ビルド時のパッチ。2 か所に入ったことと `php -l` を確かめ、確かめられなければビルドが失敗する）、mariadb-admin の設定（`/etc/mysql/conf.d/rds-ssl.cnf`）に `ssl-ca` と `ssl-verify-server-cert`。RDS の MySQL は `require_secure_transport=1`（`data.yaml`） | **派生イメージのビルドを確認済み。PHP 8.3 の PDO と `mysqladmin` は、自作の CA のローカルの TLS つき MySQL で確認済み**（正しいとき接続、CA が違うときとホスト名が違うときは失敗）。Mautic 本体の起動は未 |
+| Mautic（Doctrine・PDO と起動時の `mysqladmin ping`、インストーラー） | `config.php` に `PDO::MYSQL_ATTR_SSL_CA` と `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT` を足し（Dockerfile の 2。2 か所に入ったことと `php -l` を確かめ、確かめられなければビルドが失敗する）、インストーラーの `SchemaHelper` にも同じ指定を足す（3）。mariadb-admin の設定（`/etc/mysql/conf.d/rds-ssl.cnf`）に `ssl-ca` と `ssl-verify-server-cert`（1）。Aurora MySQL は `require_secure_transport=ON`（`data.yaml`） | **1・2 を入れた時点の派生イメージのビルドは確認済み。PHP 8.3 の PDO と `mysqladmin` は、自作の CA のローカルの TLS つき MySQL で確認済み**（正しいとき接続、CA が違うときとホスト名が違うときは失敗）。**3〜5（2026-10-26 に追加）は、取り込み済みの 7.2.0 のソースと上流の cron の定義の写しでパッチが当たることだけを確かめ、通しのビルドは未**。Mautic 本体の起動は未 |
 | admin-auth | `DATABASE_SSL=true`（CA は `NODE_EXTRA_CA_CERTS=/var/runtime/ca-cert.pem`。Lambda の実行環境のもの） | edge が実装済み。実機では未 |
 | オンプレの Strapi・n8n（WireGuard 経由） | `onprem/` の設定（Strapi は `DATABASE_SSL=true`、n8n は `DB_POSTGRESDB_SSL_CA_FILE` と `REJECT_UNAUTHORIZED=true`）。接続先は RDS のエンドポイント名（ホスト名の検証が通る） | 未（実機で、トンネルを張ってから確かめる） |
 | ops-tasks の DB 作成タスク | 起動時に CA を取得して SHA-256 を照合し、`PGSSLMODE=verify-full`（MySQL は `--ssl-mode=VERIFY_IDENTITY`） | CA の取得と照合は、各イメージで確認済み |
@@ -356,19 +356,25 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 検証するのは `sslaccept=strict` を付けたときだけ。外すと、暗号化だけで検証しない設定に戻る。いま Prisma を使うサービスは無い（以前の Umami で確かめた。ADR-25 で外した）。Prisma の製品を足すときは URL に `sslaccept=strict` を付ける。
 なお、Node の pg は sslmode の `require` を `verify-full` の別名として扱うが、pg v9 では libpq 互換（検証しない）に変わる予定なので、`verify-full` と明示している。
 
-#### 派生イメージ（2 本。上流のタグを固定してビルドする）
+#### 派生イメージ（2 本。上流をタグとダイジェストで固定してビルドする）
 
 タグは `<上流のタグ>-<ビルドの連番>`（再ビルドするときは連番を上げる。ECR のタグは上書きできない）。
+上流は **タグとダイジェストの両方**で固定する（`UPSTREAM_TAG` と `UPSTREAM_DIGEST`。どちらも必須。上流のタグは付け替えられうるので、CA の更新などで作り直したときに別の中身を取り込まないため。ダイジェストがあれば Docker はそれを使う）。ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の `Digest`（読み取りだけ）。上流の版を上げたら両方を変える。
 
-| 製品 | Dockerfile | `UPSTREAM_TAG` | ECR のリポジトリ | パラメータの例 |
-|---|---|---|---|---|
-| Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
-| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-1` |
+| 製品 | Dockerfile | `UPSTREAM_TAG` | `UPSTREAM_DIGEST`（2026-10-27 に取得） | ECR のリポジトリ | パラメータの例 |
+|---|---|---|---|---|---|
+| Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1` | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
+| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f` | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-1` |
 
 ```bash
-docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 -t $ECR/comegin/prod/chatwoot:v4.18.0-1 cloud/images/chatwoot
+docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 \
+  --build-arg UPSTREAM_DIGEST=sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1 \
+  -t $ECR/comegin/prod/chatwoot:v4.18.0-1 cloud/images/chatwoot
 docker push $ECR/comegin/prod/chatwoot:v4.18.0-1
 ```
+
+Mautic の派生イメージが足すもの（`cloud/images/mautic/Dockerfile` の 1〜5）: 1 `mysqladmin` の TLS、2 Doctrine の PDO の TLS、3 インストーラーの PDO の TLS、4 cron に `mautic:webhooks:process`（毎分）、5 `MAUTIC_TRUSTED_PROXIES` を `config/parameters_local.php` に写す entrypoint のラッパー（`comegin-entrypoint.sh`）。
+**Mautic のタスク定義に `DEBUG=true` を入れない**（上流の起動の検査が、DB のパスワードなどの環境変数をログに出すため）。上流の cron の entrypoint は `MAUTIC_*` の環境変数をコンテナの中の `/tmp/cron.env` に書く（上流の挙動。コンテナの外には出ない）。
 
 タグを設定ファイル（`samconfig.toml`）に書いてデプロイする（`REPLACE-WITH-FIXED-TAG` のままでは起動しない）。
 
@@ -480,9 +486,11 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 **夜間の停止（2026-10-26。ユーザーの決定）**: `chatwoot-web`・`chatwoot-worker`・`mautic-cron` は、毎日 22 時に 0 台にして翌 8 時に DesiredCount に戻す（日本時間。各サービスの `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。`mautic-web` は止めない。
 - **夜間の影響**: 公開サイトのチャットのウィジェットが出ない（Chatwoot が 503。FAQ ボットも答えない）。Mautic のフォームの申し込みは受け付けるが、n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新は 8 時以降にまとめて処理される。Chatwoot の Webhook（I-12）とメールも 8 時以降。
 - 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
-- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**夜間に `sam deploy` すると、止めたタスクが起きるかは未確認**（CloudFormation が DesiredCount を送り直すかどうか）。起きても次の 22 時に止まり直す。夜間のデプロイは避ける。
+- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**切り替え（`NightlyStopEnabled`・DesiredCount・時刻の変更）は昼に行う**。夜間に行うと、①`NightlyStopEnabled=false` にしたり DesiredCount を 0 にしたりすると、スケジュールが消えてもタスクの数は 0 のまま残り、朝になっても起動しない（CloudFormation は変わっていない DesiredCount を送り直さない見込み）②DesiredCount を変えると、最小と最大がすぐ昼の台数になり、その夜は止まらない。①になったら `aws ecs update-service --cluster <ClusterName> --service comegin-prod-<svc> --desired-count 1` で戻す。夜間にほかの変更だけを `sam deploy` しても、止めたタスクが起きるかは未確認（起きても次の 22 時に止まり直す）。
 - 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（希望 0）は鳴らない。ALB の 5xx の比率は、夜間にチャットに来た訪問者の 503 を数えるが、5 分で 20 リクエスト以下は見ない。
 - Application Auto Scaling は、サービスにリンクされた IAM ロール（`AWSServiceRoleForApplicationAutoScaling_ECSService`）を使う。初回のデプロイで自動で作られる（デプロイの主体に `iam:CreateServiceLinkedRole` が要る）。
+
+**Aurora Serverless v2 の最大 ACU を変えるとき**: `max_connections` は最大 ACU から決まり（2 ACU で 100 前後〈MySQL〉）、**インスタンスを再起動するまで反映されない**（静的なパラメータ）。`MysqlMaxCapacity`・`PostgresMaxCapacity` を変えて `sam deploy` した後、`aws rds reboot-db-instance --db-instance-identifier comegin-prod-mysql-1`（PostgreSQL は `comegin-prod-postgres-1`）を人が実行する（数十秒止まる）。張り付きは `ACUUtilization` のアラーム（`alarms.yaml`）で知る。Mautic（Apache）の同時処理数の既定は 150 で、2 ACU の接続数の上限を超えうる。`/mtc/event` が多いときに接続が足りなくなったら、最大 ACU を上げる。
 
 consent-api と admin-auth は Lambda（ADR-26）で DesiredCount を持たない。`sam deploy` の時点で ALB から呼ばれる（4.18・4.19）。**admin-auth は 4.19 の migrate と登録が済むまで、管理画面に誰も入れない**（Chatwoot・Mautic を起動する前に済ませる）。
 `mautic-web` と `mautic-cron` の DesiredCount は 0 か 1 しか受け付けない（テンプレートが拒否する）。
@@ -704,14 +712,13 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - **Umami を外した**（ADR-25。ユーザーの決定による例外。TA-01 の 8 節の SaaS の基準は変えない）: アクセス解析の正本を GA4（SaaS）にした。**デプロイ前に外した**（まだ一度もデプロイしていないので、Retain の ECR と Secret は AWS に残っていない。前の版をデプロイ済みの環境では、`comegin/<env>/umami` の ECR と `comegin/<env>/umami/*` の Secret を手で消す。RDS の `umami` データベースも手で消す）。外したもの: `services/umami.yaml`（タスク定義・サービス・実行ロールとタスクロール・`umami/DATABASE_URL` の Secret）・`images/umami/`、ECR の `umami` リポジトリ、Secret 2 個（`umami/DB_PASSWORD`・`APP_SECRET`）、RDS の `umami` データベース（ops-tasks の作成も）、ALB の `stats.` のルール 3 つ（訪問者向け `/script.js`・`/api/send`、機械向け `/mcp`、OIDC）とターゲットグループ、ACM の SAN、Route 53 の `stats.`、WAF の `rate-limit-api` の `/mcp` の条件（`/mcp` を受けるサービスが無くなった）、SG（`UmamiSecurityGroup` と ALB・RDS からの許可。ALB の egress も）、ロググループ、アラーム 2 つ（実行中のタスク数・unhealthy）、`ALB_PROTECTED_HOSTS` の `stats.`、親の `UmamiService` とパラメータ（`StatsHost`・`UmamiPort`・`UmamiImageTag`・`UmamiDesiredCount`・`UmamiCpu`・`UmamiMemory`）。デプロイ用の設定ファイルのパラメータの上書きにこれらを書いていたら、デプロイ前に消す（未知のパラメータは更新を失敗させる）。**ACM の証明書は SAN が減るので置き換わる**（新しい証明書を DNS 検証してから差し替える）。**PostgreSQL の SG の `GroupDescription` を直したので、この SG も置き換わる**（未デプロイのうちに直した。デプロイ後に変えると RDS の SG の付け替えになる）。
 - **Strapi・n8n を外した**（ADR-21）: `services/strapi.yaml`・`services/n8n.yaml`・`images/n8n/`、ALB の `cms.`・`n8n.` のルールとターゲットグループ、ACM の名前、Route 53 のレコード、WAF の `cms.` の API の分、ECR の 3 本、Strapi と n8n の鍵類の Secret（9 個）、アラーム 4 つ、ログのグループを外した。**ECR のリポジトリと Secret は `DeletionPolicy: Retain` なので、テンプレートから外しても AWS に残る**（ロググループは消える）。 まだ一度もデプロイしていないので実害は無いが、前の版をデプロイ済みの環境では、不要な ECR のリポジトリと Secret を手で消す。RDS の `strapi`・`n8n` データベースと、S3 の Strapi のメディアのバケットは、データの置き場として残した（ops-tasks の DB 作成もそのまま）。
 - **Service Connect を廃止した**: n8n への Webhook と n8n からの API の呼び出しにしか使っていなかった。cluster の名前空間、4 つのサービスの設定とパラメータ、n8n 関連の SG のルールを外した。n8n（オンプレ）から Chatwoot・Mautic の API は ALB の機械向けのルール経由になる（1.1）。
-- **データベースは Aurora のクラスター**（2026-10-26。ユーザーの方針「DB は、高コストでなくアプリに互換があればサーバーレス、それ以外はクラスター」）。単価は Pricing API の東京の値（月 730 時間）:
-  - **Aurora Serverless v2**: 互換はある（Aurora MySQL 8.4 互換・Aurora PostgreSQL 16 と pgvector）。ただし自動の一時停止は接続がゼロの状態が続かないと効かず、Mautic の毎分の cron と、Chatwoot・n8n・Strapi の常時の接続で止まらない。最小 0.5 ACU（$0.15/ACU 時）で月 $55 以上がかかり続け、RDS の単一インスタンス（MySQL db.t4g.micro 月 $18・PostgreSQL db.t4g.small 月 $37）の約 3 倍になるので、高コストと判断した
-  - **比べるのは方針の 2 つ（サーバーレスとクラスター）**。最初は RDS の単一インスタンスと比べてサーバーレスを高コストとしたが、方針の選択肢に単一インスタンスは無いので、同日に比べ直した。クラスターのいちばん安い構成は db.t4g.medium（$0.113/時＝月 $82。db.t3.medium は $0.125/時）
-  - **MySQL（Mautic だけ）は Serverless v2**（最小 0.5 ACU・最大 2 ACU）。0.5 ACU（約 1 GB）で足り、月 $55 前後でクラスターより安い。東京で Aurora MySQL 8.4 互換の `db.serverless` が使えることを確かめた
-  - **PostgreSQL（4 アプリが共有）はクラスター**（db.t4g.medium × 1）。4 つのアプリには 1 ACU 程度が要り、サーバーレスは月 $110 前後でクラスターより高い。ストレージは Standard（I/O 最適化はインスタンスが約 30% 高い）
-  - **1 つにまとめられない**: Aurora はクラスターごとにエンジンが 1 つで、Mautic は MySQL 専用（インストーラーのドライバーは `pdo_mysql` だけ）、Chatwoot は PostgreSQL 専用。PostgreSQL の側は、すでに 1 つのクラスターを 4 アプリで共有している
+- **データベースは Aurora Serverless v2**（2026-10-27。ユーザーの条件「アプリケーション側に互換がある場合はサーバーレス、それ以外はクラスター。サーバーレスとクラスターでコストを比較すること」）。単価は Pricing API の東京の値（月 730 時間）:
+  - **互換**: MySQL（Mautic）も PostgreSQL（Chatwoot・admin-auth・Strapi・n8n）も、Aurora Serverless v2 に互換がある（同じ Aurora のエンジン。Chatwoot が使う pgvector も含む）。東京で Aurora MySQL 8.4 互換と Aurora PostgreSQL 16.15 の `db.serverless` が使えることを、2026-10-27 に `DescribeOrderableDBInstanceOptions` で確かめた → **どちらもサーバーレス**
+  - **コストの比較**: サーバーレスは $0.15/ACU 時（最小 0.5 ACU で月 $55、平均 1 ACU で月 $110、上限の 2 ACU で月 $219）。クラスターのいちばん安い構成は db.t4g.medium（$0.113/時＝月 $82。db.t3.medium は $0.125/時）で、T 系は CPU クレジットの超過料金（$0.09/vCPU 時）がかかりうる。**損益分岐は平均 0.75 ACU**。どちらも一時停止はできない（自動の一時停止は接続がゼロの状態が続かないと効かず、Mautic の毎分の cron と、Chatwoot・n8n・Strapi の常時の接続で止まらない）。平均が 0.75 ACU を超え続けるならクラスターのほうが安いので、`ACUUtilization` のアラームと Cost Explorer（使用タイプ `Aurora:ServerlessV2Usage`）で見直す
+  - **経緯**: 2026-10-26 は「高コストでなく互換があればサーバーレス」の方針で、MySQL はサーバーレス、PostgreSQL は「1 ACU 程度が要る」という想定でクラスターにした。その前は RDS の単一インスタンスと比べてサーバーレスを高コストとしたが、方針の選択肢に単一インスタンスは無いので撤回した。2026-10-27 に条件の文言（互換があればサーバーレス）に合わせ、PostgreSQL もサーバーレスにした
+  - **1 つにまとめられない**: Aurora はクラスターごとにエンジンが 1 つで、Mautic は MySQL 専用（インストーラーのドライバーは `pdo_mysql` だけ）、Chatwoot は PostgreSQL 専用。PostgreSQL の側は、1 つのクラスターを 4 アプリで共有している
   - **Valkey はノードを持つクラスター**（cache.t4g.micro × 1）。ElastiCache Serverless は常にクラスターモードで、対応するクライアントしか使えず（公式の troubleshooting）、Chatwoot の Sidekiq は Redis Cluster に対応しないため、互換が無い
-  - Aurora はストレージが自動で伸びるので、空き容量のアラーム 2 つを外した。RDS のイベントは、インスタンスとクラスターの 2 つの購読にした
+  - Aurora はストレージが自動で伸びるので、空き容量のアラーム 2 つを外した。RDS のイベントは、インスタンスとクラスターの 2 つの購読にした（ops トピックのポリシーも、発行元の `db:` と `cluster:` の両方を許す。`cluster:` が無いとクラスターのイベントが黙って拒否される）。最大 ACU への張り付きは `ACUUtilization` のアラームで知る
 - **WireGuard の終端だけは EC2**（計算資源は、特に理由が無ければ ECS on Fargate か Lambda にする方針の例外）: Fargate では WireGuard を動かせない（カーネルのモジュールと `NET_ADMIN` の権限が要るが、Fargate のタスクには付けられない。経路表の宛先にする固定の ENI も持てない）。Lambda は常駐できない。AWS Site-to-Site VPN は、オンプレ側に固定のグローバル IP が要り（オンプレの IP は固定でない）、IP なしで使う証明書の認証には AWS Private CA の費用がかかる。そのため、いちばん小さい EC2（t4g.nano。月 $4 前後）を 1 台置く。
 - **WireGuard の SG は `network.yaml` に置いた**: SG は子スタック間の循環参照を避けるため network.yaml にまとめる流儀に合わせた。`wireguard.yaml` には `WireguardSecurityGroupId` を渡す。経路（`AWS::EC2::Route`）は `wireguard.yaml` が持ち、`network.yaml` の `PrivateRouteTableId` を親が渡す。
 - **WireGuard の ENI を別のリソースにした**: 経路表の宛先を ENI にして、送信元／宛先チェックの無効化と Elastic IP の関連付けも ENI に付ける（固定シートの「EC2 の ENI」）。

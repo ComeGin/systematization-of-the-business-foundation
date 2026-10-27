@@ -21,6 +21,7 @@ services:
       context: .
       args:
         N8N_VERSION: ${N8N_VERSION:?.env に N8N_VERSION を設定してください（.env.example を参照）}
+        N8N_DIGEST: ${N8N_DIGEST:?.env に N8N_DIGEST を設定してください（.env.example を参照）}
     image: comegin/n8n-onprem:${N8N_VERSION}
     restart: unless-stopped
     ports:
@@ -68,8 +69,8 @@ services:
       start_period: 60s
 
   runners:
-    # n8n 本体とバージョンを必ず一致させる（N8N_VERSION）。DB には接続しない
-    image: ghcr.io/n8n-io/runners:${N8N_VERSION}
+    # n8n 本体とバージョンを必ず一致させる（N8N_VERSION）。DB には接続しない。タグとダイジェストの両方で固定する
+    image: ghcr.io/n8n-io/runners:${N8N_VERSION}@${N8N_RUNNERS_DIGEST:?.env に N8N_RUNNERS_DIGEST を設定してください（.env.example を参照）}
     restart: unless-stopped
     depends_on:
       - n8n
