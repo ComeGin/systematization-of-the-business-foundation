@@ -7,7 +7,7 @@
  * h1 に改行位置の指定があるときは title に BreakableHeading を渡す（計画書 P-3）。文言の既定値は持たない（H-16）。
  *
  * tone="dark"（A〈vivid〉のサービス一覧・詳細）: 地は navy（role/surface-hero）で、h1 は white・焦点が合う動き（motion の HeroHeading）、本文は navy.100。
- * 背景の動き（motion の HeroBackdrop）は slot="backdrop" に置く。外枠は relative isolate overflow-hidden で、slot は DOM の最後（一時停止のボタンが CTA の後になる）。
+ * 背景（2026-10-28 から diorama の DioramaIntro。以前は motion の HeroBackdrop）は slot="backdrop" に置く。外枠は relative isolate overflow-hidden で、slot は DOM の最後（一時停止のボタンが CTA の後になる）。
  * パンくずの帯（白）と地が接しないよう、上に余白を取る（breadcrumbTone="surface" と一緒に使う）。
  * 本文（slot="body"）の文字色は呼び出し側が渡す（text-on-hero-muted）。
  * titleViewTransitionName を渡すと h1 に静的に view-transition-name を付ける（サービス詳細・お問い合わせ。前のページのカード・CTA から形をつなぐ。page-transition の VT）。
@@ -48,7 +48,8 @@ const hasMedia = Astro.slots.has('media');
   data-surface={dark ? 'dark' : undefined}
   class={cn(
     'pt-6 pb-12 md:pt-8 md:pb-16',
-    dark ? 'relative isolate mt-3 overflow-hidden bg-surface-hero text-text-inverse md:mt-4' : 'bg-surface-subtle',
+    // dark（A）の背景は基盤の模型（diorama の DioramaIntro）。模型が小さくなりすぎないよう、Desktop は最低の高さを取って文字を縦の中央に置く（2026-10-28）
+    dark ? 'relative isolate mt-3 overflow-hidden bg-surface-hero text-text-inverse md:mt-4 md:flex md:min-h-[480px] md:flex-col md:justify-center' : 'bg-surface-subtle',
   )}
 >
   <div class="site-container flex flex-col items-start gap-6 md:flex-row md:items-center md:gap-12">

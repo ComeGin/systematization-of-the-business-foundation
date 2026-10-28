@@ -63,8 +63,8 @@ function awsKeySteps(main, problem) {
   const user = outputOf(main, "OnpremN8nSnsUserName");
   return [
     problem,
-    `人が自分の端末でキーを発行する（AWS への書き込み。画面に出さずファイルに直接書く）: ( umask 077; aws iam create-access-key --user-name ${user} --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ./n8n-sns.key )（cloud/README.md の 4.5）`,
-    "中身（アクセスキー ID<タブ>シークレット）を ~/.config/comegin/setup/prod.conf の AWS_ACCESS_KEY_ID=・AWS_SECRET_ACCESS_KEY= にエディタで写し、shred -u ./n8n-sns.key で消す",
+    `人が自分の端末でキーを発行する（AWS への書き込み。画面に出さずファイルに直接書く）: ( umask 077; aws iam create-access-key --user-name ${user} --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ~/n8n-sns.key )（リポジトリの外に作る。cloud/README.md の 4.5）`,
+    "中身（アクセスキー ID<タブ>シークレット）を ~/.config/comegin/setup/prod.conf の AWS_ACCESS_KEY_ID=・AWS_SECRET_ACCESS_KEY= にエディタで写し、shred -u ~/n8n-sns.key で消す",
     "同じコマンドを実行し直す（provision が n8n の資格情報「AWS SNS 発行（アクセスキー）」に入れる）",
   ];
 }

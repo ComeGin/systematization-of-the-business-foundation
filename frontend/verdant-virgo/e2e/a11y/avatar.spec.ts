@@ -148,16 +148,18 @@ const intersects = (
   a.y < b.y + b.height &&
   b.y < a.y + a.height;
 
+// 2026-10-28（H-13）: トップと会社概要は、模型（diorama）の中に代表のアバターが写るので、模型が見えている間は端のアバターを引っ込める。
+// 端のアバターそのものを確かめる検査は、模型にアバターが写らないページ（vivid は /services/development/、calm は /pricing/）で行う
 test.describe("アバター", () => {
   test.beforeEach(async ({ page }) => instrument(page));
 
   test.describe("正常系", () => {
-    test("Desktop の /: 読み込みの後に aria-hidden の canvas が出て、着いたら手を振る（greeting）", async ({
+    test("Desktop の /services/development/: 読み込みの後に aria-hidden の canvas が出て、着いたら手を振る（greeting）", async ({
       page,
     }, testInfo) => {
       desktopOnly(testInfo.project.name);
       const models = watchModel(page);
-      await open(page, "/");
+      await open(page, "/services/development/");
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       await expect(
         page.locator(`${DOCK} canvas[aria-hidden="true"]`),
@@ -173,11 +175,11 @@ test.describe("アバター", () => {
       ).toBeVisible();
     });
 
-    test("挨拶はセッションで 1 回: / で手を振った後に avatar:greeted が付き、同じセッションの /about/ では手を振らない（R17）", async ({
+    test("挨拶はセッションで 1 回: /services/development/ で手を振った後に avatar:greeted が付き、同じセッションの /pricing/ では手を振らない（R17）", async ({
       page,
     }, testInfo) => {
       desktopOnly(testInfo.project.name);
-      await open(page, "/");
+      await open(page, "/services/development/");
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       await expect.poll(() => lastEmote(page)).toBe("greeting");
       expect(
@@ -185,7 +187,7 @@ test.describe("アバター", () => {
           window.sessionStorage.getItem("avatar:greeted"),
         ),
       ).toBe("true");
-      await open(page, "/about/");
+      await open(page, "/pricing/");
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       // 描けた後に arrive が出る。受理されても手を振らないことを、少し待ってから確かめる
       await page.waitForTimeout(1_500);
@@ -227,7 +229,7 @@ test.describe("アバター", () => {
     }, testInfo) => {
       desktopOnly(testInfo.project.name);
       // 会社紹介の最初の画面には、ほかに rAF で動く部品が無い（CTA の粒は画面に入るまで水和しない）
-      await open(page, "/about/");
+      await open(page, "/pricing/");
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       expect(await rafDuring(page, 1_000), "動いている間").toBeGreaterThan(0);
       const pause = pauseButton(page, AVATAR_LABELS.pause);
@@ -248,7 +250,7 @@ test.describe("アバター", () => {
       page,
     }, testInfo) => {
       desktopOnly(testInfo.project.name);
-      await open(page, "/");
+      await open(page, "/services/development/");
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       await page
         .locator(DOCK)
@@ -299,7 +301,7 @@ test.describe("アバター", () => {
     }, testInfo) => {
       mobileOnly(testInfo.project.name);
       const models = watchModel(page);
-      await open(page, "/");
+      await open(page, "/services/development/");
       const summon = page
         .locator(DOCK)
         .getByRole("button", { name: AVATAR_LABELS.summon });
@@ -348,7 +350,7 @@ test.describe("アバター", () => {
       page,
     }, testInfo) => {
       mobileOnly(testInfo.project.name);
-      await open(page, "/");
+      await open(page, "/services/development/");
       const banner = page.locator("#cookie-banner");
       await expect(banner).toBeVisible();
       await summonAvatar(page);
@@ -426,7 +428,7 @@ test.describe("アバター", () => {
     test("Desktop ではスクロールしても逃げない", async ({ page }, testInfo) => {
       desktopOnly(testInfo.project.name);
       await markGreeted(page);
-      await open(page, "/about/");
+      await open(page, "/pricing/");
       await declineConsent(page);
       await expect(page.locator(READY)).toBeAttached({ timeout: 20_000 });
       await startScrolling(page, 1_000);
@@ -547,7 +549,7 @@ test.describe("アバター", () => {
     }) => {
       await page.emulateMedia({ reducedMotion: "reduce" });
       const models = watchModel(page);
-      await open(page, "/");
+      await open(page, "/services/development/");
       const summon = page
         .locator(DOCK)
         .getByRole("button", { name: AVATAR_LABELS.summon });
@@ -595,7 +597,7 @@ test.describe("アバター", () => {
       page,
     }, testInfo) => {
       mobileOnly(testInfo.project.name);
-      await open(page, "/");
+      await open(page, "/services/development/");
       await declineConsent(page);
       await summonAvatar(page);
       // 押した後のフォーカスはたたむボタンにある（タップの後なのでリングは出ない）。Tab で一時停止のボタンへ、Shift+Tab で戻す（キーボードのフォーカス）
@@ -626,7 +628,7 @@ test.describe("アバター", () => {
       page,
     }, testInfo) => {
       mobileOnly(testInfo.project.name);
-      await open(page, "/");
+      await open(page, "/services/development/");
       await declineConsent(page);
       await summonAvatar(page);
       const dock = page.locator(DOCK);
@@ -690,7 +692,7 @@ test.describe("アバター", () => {
     }, testInfo) => {
       mobileOnly(testInfo.project.name);
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await open(page, "/");
+      await open(page, "/services/development/");
       await declineConsent(page);
       await page
         .locator(DOCK)
@@ -764,5 +766,51 @@ test.describe("アバター", () => {
       );
       await expect(page.locator(`${DOCK} canvas`)).toBeVisible();
     });
+  });
+});
+
+// 2026-10-28（計画 2026-10-28-hero-diorama の Task 9。H-13）: 模型の中に代表のアバターが写るページでは、模型が見えている間、
+// 画面の端のアバターを左の画面の外へ引っ込める（同じ画面に 2 人いない）。ヒーローを過ぎると戻る。
+test.describe("アバター（模型と同じ画面に 2 人いない）", () => {
+  for (const route of ["/", "/about/"]) {
+    test(`${route}: 模型が見えている間は端のアバターが引っ込み（data-avatar-yield）、模型を過ぎると戻る`, async ({ page }, testInfo) => {
+      desktopOnly(testInfo.project.name);
+      await open(page, route);
+      const dock = page.locator(DOCK);
+      await expect(dock).toHaveAttribute("data-avatar-yield", "true", { timeout: 10_000 });
+      // 逃がすトランジション（--motion-duration-medium）が終わるのを待つ
+      await page.waitForTimeout(800);
+      const box = await dock.boundingBox();
+      expect(box === null || box.x + box.width <= 0, "画面の外").toBe(true);
+      await page.locator("footer").scrollIntoViewIfNeeded();
+      await expect(dock).not.toHaveAttribute("data-avatar-yield", "true", { timeout: 10_000 });
+    });
+  }
+
+  test("/: 開いた直後から端のアバターは一度も画面に出ない（読み込みのたびに一瞬出て引っ込まない。最終レビュー I-2）", async ({ page }, testInfo) => {
+    desktopOnly(testInfo.project.name);
+    // 読み込みの直後から 50ms ごとに、端のアバターの枠が画面の中に入ったかを記録する（ページの中で測る。テストの往復の遅れを入れない）
+    await page.addInitScript(() => {
+      const w = window as unknown as { __avatarSeen: number };
+      w.__avatarSeen = 0;
+      const id = window.setInterval(() => {
+        const dock = document.querySelector('[data-motion="avatar"]');
+        const frame = dock?.querySelector<HTMLElement>(".avatar-dock__frame, canvas, img");
+        if (!frame) return;
+        const r = frame.getBoundingClientRect();
+        if (r.width > 0 && r.right > 0 && r.left < window.innerWidth) w.__avatarSeen++;
+      }, 50);
+      window.setTimeout(() => window.clearInterval(id), 6_000);
+    });
+    await open(page, "/");
+    await page.waitForTimeout(6_000);
+    expect(await page.evaluate(() => (window as unknown as { __avatarSeen: number }).__avatarSeen), "端のアバターが画面に出た回数").toBe(0);
+  });
+
+  test("サービス詳細（模型にアバターが写らない構図）では引っ込めない", async ({ page }, testInfo) => {
+    desktopOnly(testInfo.project.name);
+    await open(page, "/services/development/");
+    await page.waitForTimeout(1_500);
+    await expect(page.locator(DOCK)).not.toHaveAttribute("data-avatar-yield", "true");
   });
 });

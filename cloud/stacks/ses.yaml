@@ -3,9 +3,9 @@ Description: >-
   顧客向けメール（Amazon SES）の送信ドメイン。TA-06 の 6 節。Mautic と Chatwoot が SES の SMTP から送る。
 # テンプレートの Description は 1024 バイトまで（日本語は 1 文字 3 バイト。超えるとスタックの作成が失敗する）。詳しい説明は以下のコメント。
 # 作るもの: ドメイン ID と Easy DKIM、DKIM の CNAME、MAIL FROM サブドメイン（SPF と MX）、既定の設定セット。
-# 作らないもの: apex（comegin.com）の SPF と DMARC。comegin.com は Google Workspace のメールも使っており、
-# apex には既に MX と SPF の TXT があると思われる（AWS の API を呼べず未確認）。SPF の TXT は 1 つしか持てないため、
-# Workspace の設定と統合する作業は人間が行う（cloud/README.md の TODO）。
+# 作らないもの: apex（comegin.com）の DMARC。comegin.com は Google Workspace のメールも使っており、DMARC の TXT を共有するため、
+# 人間が Route 53 で設定する（cloud/README.md の 4.9.6）。apex の SPF には何も足さない（SES のメールの SPF は、下の MAIL FROM の
+# サブドメインの TXT で評価され、DMARC は緩い照合で通る。公式: Complying with DMARC。2026-10-28 に確かめた）。
 # SES の本番アクセス（サンドボックスの解除）の申請と SMTP 認証情報の発行は CloudFormation ではできない（README の手順）。
 # バウンスと苦情を Mautic に返す経路も未決定（TA-06 の 11 節）。SES のイベントを社内の通知（ops トピック）に流すと
 # 宛先のメールアドレスが載ってしまうため、ここでは設定しない。

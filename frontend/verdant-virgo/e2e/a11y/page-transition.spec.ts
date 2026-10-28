@@ -32,6 +32,12 @@ type RevealRecord = {
   named: string[];
 };
 
+/**
+ * 2026-10-28: ヒーローの模型（diorama）は、模型のあるページどうしの移動の間だけ vt-diorama を付ける（模型に寄るカメラ。diorama.spec.ts で検査する）。
+ * カードの見出し・CTA の形のつながりの検査では、その名前を除いて比べる
+ */
+const withoutDiorama = (names: string[] | undefined) => names?.filter((name) => name !== "vt-diorama");
+
 /** 1 ページの中の view-transition-name（none・auto 以外）の一覧（computed）。DOM の順 */
 const computedNamesScript = () =>
   [...document.querySelectorAll<HTMLElement>("*")]
@@ -159,7 +165,7 @@ test.describe("ページ移動の形のつながり", () => {
       await follow(page, link, /\/services\/development\/?$/);
 
       const swap = await readSession<SwapRecord>(page, SWAP_KEY);
-      expect(swap?.named).toEqual(["vt-service-title"]);
+      expect(withoutDiorama(swap?.named)).toEqual(["vt-service-title"]);
       expect(swap?.duplicates).toEqual([]);
 
       const h1Name = await page
@@ -234,7 +240,7 @@ test.describe("ページ移動の形のつながり", () => {
         await follow(page, link, new RegExp(`${href.replace(/\/$/, "")}/?$`));
         const swap = await readSession<SwapRecord>(page, SWAP_KEY);
         // 移動元の記事の h1・アイキャッチは名前を外し、押したカードの見出しと画像にだけ付ける
-        expect(swap?.named).toEqual(["vt-article-media", "vt-article-title"]);
+        expect(withoutDiorama(swap?.named)).toEqual(["vt-article-media", "vt-article-title"]);
         expect(swap?.duplicates).toEqual([]);
       } else {
         await open(page, "/services/development/");
@@ -269,7 +275,7 @@ test.describe("ページ移動の形のつながり", () => {
       await follow(page, page.locator(HEADER_CTA), /\/contact\/?\?/);
 
       const swap = await readSession<SwapRecord>(page, SWAP_KEY);
-      expect(swap?.named).toEqual(["vt-contact-title"]);
+      expect(withoutDiorama(swap?.named)).toEqual(["vt-contact-title"]);
       expect(swap?.namedCtaIds).toEqual(["consult_global_header"]);
       expect(swap?.duplicates).toEqual([]);
       const h1Name = await page
@@ -287,7 +293,7 @@ test.describe("ページ移動の形のつながり", () => {
       await follow(page, page.locator(HEADER_CTA), /\/contact\/?\?/);
 
       const swap = await readSession<SwapRecord>(page, SWAP_KEY);
-      expect(swap?.named).toEqual(["vt-contact-title"]);
+      expect(withoutDiorama(swap?.named)).toEqual(["vt-contact-title"]);
       expect(swap?.namedCtaIds).toEqual(["consult_global_header"]);
       // 静的に vt-contact-title を持つ h1 は none にした（1 つ）
       expect(swap?.cleared).toBe(1);

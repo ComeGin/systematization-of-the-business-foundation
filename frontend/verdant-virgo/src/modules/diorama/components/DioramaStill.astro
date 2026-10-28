@@ -1,0 +1,28 @@
+---
+/**
+ * DioramaStill（B〈calm〉のページの導入ヒーローの静止画。spec §5.1・H-9）。2026-10-28。
+ *
+ * - トップ・サービスと同じ模型を、同じ光で、そのページに当たる部品へ寄ったカメラから撮った 1 枚（tools/capture-stills.mjs。4:3）。
+ *   立体は動かさず、光らせない（B は「誠実・静か」のまま）。three も JS も読まない。
+ * - 飾りなので alt は空で aria-hidden（意味は h1・本文が持つ）。
+ * - Desktop だけに出す（Mobile は文字だけ。会社概要のこれまでの写真と同じ扱い）。
+ *
+ * 置き方: PageIntro の slot="media"（480×360 の枠）。
+ */
+import { PAGE_VIEWS } from '../lib/pages';
+import { stillOf } from '../lib/stills';
+import type { PageKey } from '../lib/types';
+
+interface Props {
+  page: PageKey;
+  class?: string;
+}
+
+const { page, class: className } = Astro.props;
+if (PAGE_VIEWS[page].mode !== 'still') throw new Error(`DioramaStill: ${page} は静止画のページではありません（PAGE_VIEWS の mode が still でない）。`);
+const still = stillOf(page);
+---
+
+<div data-diorama-still={page} data-avatar-yield-source={PAGE_VIEWS[page].showsAvatar ? "" : undefined} aria-hidden="true" class:list={['hidden aspect-[4/3] w-full overflow-hidden rounded-lg bg-surface-hero md:block', className]}>
+  <img src={still.desktop} alt="" width="960" height="720" loading="eager" decoding="async" class="h-full w-full object-cover" />
+</div>

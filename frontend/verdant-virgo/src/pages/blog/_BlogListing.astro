@@ -8,6 +8,7 @@
 // ファイル名の先頭の _ でページにならない（Astro のルーティングの対象外）。
 import { ALL_CATEGORIES_LABEL, BLOG_CATEGORIES, type Article } from '@/modules/blog';
 import { BaseLayout, PageIntro, type BreadcrumbItem } from '@/modules/layout';
+import { DioramaStill } from '@/modules/diorama';
 import { Section } from '@/modules/marketing-ui';
 import { SourceDlBlock } from '@/modules/source-dl';
 import { CountUp, Reveal } from '@/modules/motion';
@@ -55,7 +56,9 @@ const pageLinkClass = (current: boolean) =>
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} headerCta="outline" sourceDlOnPage>
   {/* 7-3 導入ヒーロー。段落 1 と出典 1 を 1 つのまとまりで組む（03-handoff §0.3）。出典は Caption・role/text-muted */}
+  {/* 2026-10-28: 媒体の枠に、基盤の模型の記事の棚の静止画（B は静止。DioramaStill） */}
   <PageIntro title={hero.h1}>
+    <DioramaStill slot="media" page="blog" />
     <div slot="body" class="phrase flex max-w-[720px] flex-col gap-4">
       {
         hero.paragraphs.map((paragraph) => (

@@ -48,6 +48,7 @@ import {
   writeZoom,
 } from "../lib/prefs";
 import { watchScrollAway } from "../lib/scroll-away";
+import { watchYield } from "../lib/yield";
 import type { AvatarRuntime, ClipName } from "../lib/stage";
 import { watchTriggers } from "../lib/triggers";
 import type { AvatarLabels, AvatarTrigger, EmoteId } from "../lib/types";
@@ -172,6 +173,18 @@ export default function AvatarStage({
   const [teamVisible, setTeamVisible] = useState(false);
   // Mobile でスクロールしている間は左の画面の外へ逃がす（R19。保存しない）
   const [away, setAway] = useState(false);
+  // 模型（diorama）の中のアバターが見えている間は、端のアバターを引っ込める（2026-10-28。H-13。同じ画面に 2 人いない）。
+  // 最初の状態は描画の前に測る（IntersectionObserver の最初の通知を待つと、端のアバターが一瞬出てから引っ込む。最終レビュー I-2）。
+  // 島はサーバーでは何も描かない（env が null）ので、ここでブラウザの DOM を読んでも水和の食い違いにならない
+  const [yielded, setYielded] = useState(() => {
+    if (typeof document === "undefined") return false;
+    const source = document.querySelector("[data-avatar-yield-source]");
+    if (!source) return false;
+    const r = source.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+  });
+  // 最初から引っ込めるときは、トランジションなしで画面の外に置く（左へ滑って消える動きを見せない）
+  const yieldInstantRef = useRef(yielded);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -202,7 +215,7 @@ export default function AvatarStage({
   const live = env !== null && !reduced;
   const shown = summoned && !collapsed && focusHit === "none";
   const active =
-    live && phase === "ready" && shown && visible && !userPaused && !away;
+    live && phase === "ready" && shown && visible && !userPaused && !away && !yielded;
   // 小さくする理由は 2 つ（会社紹介のメンバーの節・Mobile）。どちらかなら小さい（R19。Mobile では節を出入りしても小さいまま）
   const small = teamVisible || env?.mobile === true;
 
@@ -430,6 +443,26 @@ export default function AvatarStage({
     };
   }, [env, summoned]);
 
+  // 模型の中のアバターが見えている間は引っ込める（[data-avatar-yield-source] は模型の中にアバターが写るページだけにある）。
+  // a11y: 引っ込めている間に Tab でアバターのボタンへ来たら、すぐ戻す（フォーカスの見えるものを画面の外に置かない。2.4.7）
+  useEffect(() => {
+    const source = document.querySelector("[data-avatar-yield-source]");
+    if (!source) return undefined;
+    const stop = watchYield(source, (next) => {
+      if (yieldInstantRef.current && !next) yieldInstantRef.current = false;
+      setYielded(next);
+    });
+    const onFocusIn = (event: FocusEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) setYielded(false);
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      stop();
+      document.removeEventListener("focusin", onFocusIn);
+      setYielded(false);
+    };
+  }, []);
+
   // a11y: フォームの入力欄・送信ボタン、またはキーボードでフォーカスした要素にアバターの矩形が重なるなら、一時的にたたむ（2.4.11）
   useEffect(() => {
     const onFocusIn = (event: FocusEvent) => {
@@ -498,9 +531,13 @@ export default function AvatarStage({
     else host.removeAttribute("data-avatar-small");
     if (away) host.setAttribute("data-avatar-away", "true");
     else host.removeAttribute("data-avatar-away");
+    if (yielded) host.setAttribute("data-avatar-yield", "true");
+    else host.removeAttribute("data-avatar-yield");
+    if (yielded && yieldInstantRef.current) host.setAttribute("data-avatar-yield-instant", "true");
+    else host.removeAttribute("data-avatar-yield-instant");
     if (env?.touch) host.setAttribute("data-avatar-touch", "true");
     else host.removeAttribute("data-avatar-touch");
-  }, [phase, small, away, env]);
+  }, [phase, small, away, yielded, env]);
 
   if (env === null) return null;
 

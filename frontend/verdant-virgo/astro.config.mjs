@@ -92,6 +92,8 @@ export default defineConfig({
         "@react-three/fiber",
         "@pixiv/three-vrm",
         "three/examples/jsm/loaders/GLTFLoader.js",
+        // ヒーローの模型（src/modules/diorama）。glb の形は meshopt で圧縮している
+        "three/examples/jsm/libs/meshopt_decoder.module.js",
       ],
     },
 

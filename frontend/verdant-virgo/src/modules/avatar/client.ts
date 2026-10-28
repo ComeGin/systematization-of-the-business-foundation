@@ -4,6 +4,7 @@ export { TAP_EMOTES, IDLE_AFTER_MS, createEmoteScheduler, type EmoteScheduler, t
 export { watchTriggers } from "./lib/triggers";
 export { ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, clampZoom, watchZoom, type ZoomOptions } from "./lib/zoom";
 export { SCROLL_SETTLE_MS, watchScrollAway, type ScrollAwayOptions } from "./lib/scroll-away";
+export { YIELD_SETTLE_MS, watchYield } from "./lib/yield";
 export { readCollapsed, writeCollapsed, readGreeted, writeGreeted, readZoom, writeZoom } from "./lib/prefs";
 export type {
   AvatarTrigger,

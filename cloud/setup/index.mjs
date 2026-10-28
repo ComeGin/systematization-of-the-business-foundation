@@ -297,20 +297,21 @@ async function appsWarnings(ctx, main) {
 
   await tryWarn(warnings, "SES", async () => {
     const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
-    if (account && account.ProductionAccessEnabled !== true) warnings.push("SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。顧客向けのメールの前に済ませる（cloud/README.md の 4.9 の 1）");
+    if (account && account.ProductionAccessEnabled !== true) warnings.push("SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。公開サイトを配信したらすぐ、Transactional で申請する（cloud/README.md の 4.9.2）");
     const id = await awsJson(ctx, ["sesv2", "get-email-identity", "--region", REGION, "--email-identity", domain]);
     if (!id) warnings.push(`SES のドメイン ID ${domain} が無い（ses.yaml。段階 deploy を確かめる）`);
     else {
-      if (id.DkimAttributes?.Status !== "SUCCESS") warnings.push(`SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9 の 2）`);
-      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") warnings.push(`SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9 の 2）`);
+      if (id.DkimAttributes?.Status !== "SUCCESS") warnings.push(`SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9.1）`);
+      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") warnings.push(`SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9.1）`);
     }
   });
 
-  await tryWarn(warnings, `${domain} の SPF・DMARC`, async () => {
+  // apex の SPF は見ない。SES のメールの SPF は MAIL FROM のサブドメイン（ses.yaml）で評価され、DMARC は緩い照合で通る（cloud/README.md の 4.9.6）
+  await tryWarn(warnings, `${domain} の DMARC`, async () => {
     const txt = async (name) => (await resolveTxt(name).catch((e) => (e.code === "ENODATA" || e.code === "ENOTFOUND" ? [] : Promise.reject(e)))).map((r) => r.join(""));
-    const spf = (await txt(domain)).find((r) => r.startsWith("v=spf1"));
-    if (!spf?.includes("include:amazonses.com")) warnings.push(`${domain} の SPF に include:amazonses.com が無い${spf ? "" : "（SPF の TXT が無い）"}。Google Workspace の SPF と 1 つの TXT にまとめて足す（cloud/README.md の 4.9 の 4）`);
-    if (!(await txt(`_dmarc.${domain}`)).some((r) => r.startsWith("v=DMARC1"))) warnings.push(`_dmarc.${domain} に DMARC の TXT が無い（cloud/README.md の 4.9 の 4）`);
+    const dmarc = (await txt(`_dmarc.${domain}`)).find((r) => r.startsWith("v=DMARC1"));
+    if (!dmarc) warnings.push(`_dmarc.${domain} に DMARC の TXT が無い（Gmail などで迷惑メールに入りやすい。p=none から始める。cloud/README.md の 4.9.6）`);
+    else if (/;\s*a(spf|dkim)\s*=\s*s\b/i.test(dmarc)) warnings.push(`_dmarc.${domain} の DMARC が厳しい照合（aspf=s か adkim=s）。MAIL FROM がサブドメインの SES のメールが照合に落ちる。外す（cloud/README.md の 4.9.6）`);
   });
 
   if (!parameterOf(main, "WireguardFixedAmiId")) warnings.push("WireGuard の AMI が固定されていない（WireguardFixedAmiId が空）。新しい AMI が出た後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる。samconfig.toml に書く（cloud/README.md の 4.2.1 の手順 3）");
@@ -325,7 +326,7 @@ async function appsWarnings(ctx, main) {
   }
 
   await tryWarn(warnings, "SMTP の Secret", async () => {
-    for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) warnings.push(`Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.6・4.11）`);
+    for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) warnings.push(`Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.9.3・4.9.4・4.11）`);
   });
   return warnings;
 }

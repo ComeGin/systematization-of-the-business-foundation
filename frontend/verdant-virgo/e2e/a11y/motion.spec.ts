@@ -60,6 +60,14 @@ const desktopOnly = (name: string) =>
 
 test.describe("モーション", () => {
   test.beforeEach(async ({ page }) => instrument(page));
+  // 2026-10-28: ヒーローの模型（diorama）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（模型は diorama.spec.ts で検査する）
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem("motion:diorama", "paused");
+      } catch {}
+    });
+  });
 
   test.describe("正常系", () => {
     test("reduced-motion では 4 種とも静止し、rAF が呼ばれない（WebGL を作らず、一時停止のボタンも出さない）", async ({
@@ -80,9 +88,8 @@ test.describe("モーション", () => {
       await expect(
         page.getByRole("button", { name: MOTION_PAUSE.pause }),
       ).toHaveCount(0);
-      await expect(
-        page.locator('[data-motion="symbol"] img[src*="comegin-symbol-"]'),
-      ).toBeVisible();
+      // 2026-10-28: ヒーローのロゴの動き（MotionSymbol）は模型に替わった。静止の代わりは模型のポスター
+      await expect(page.locator('[data-motion="diorama"] picture img')).toBeVisible();
       await open(page, GALLERY_ROUTE);
       expect(await rafDuring(page, 1_500), "MorphGallery").toBe(0);
     });

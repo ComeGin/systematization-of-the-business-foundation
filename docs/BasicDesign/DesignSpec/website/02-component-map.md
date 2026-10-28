@@ -1103,3 +1103,15 @@ const dangling = v && !v.remote && !local.has(v.id);
 - [x] 文字: 本文 14px 以上・行送り 1.75
 - [ ] 文字: 和欧間に四分アキが入っている — Figma の文字スタイルでは表現できない。実装側（`text-spacing-trim`）で担保する
 - [ ] 言葉・表記の項目 — ia-copy の担当
+
+## 8. コードだけの部品: 基盤の模型（2026-10-28 に追加）
+
+`HERO` 分類の作り直し（`docs/superpowers/specs/2026-10-28-hero-diorama-design.md`）で足した部品。Figma には無い（模型の正本は Blender のスクリプト `frontend/verdant-virgo/src/modules/diorama/tools/blender/build_diorama.py` と、書き出した `diorama.glb`）。
+
+| 部品 | 置き場所 | 役割 |
+|---|---|---|
+| `DioramaHero` | トップ 1-3 | 触れる模型（部品のボタン・パネル） |
+| `DioramaIntro` | サービス一覧・詳細の `PageIntro`（`slot="backdrop"`） | 眺める模型 |
+| `DioramaStill` | B の 5 ページの `PageIntro`（`slot="media"`） | 模型の静止画（4:3） |
+
+文言の正本は `src/modules/site-content/diorama.ts`（部品のパネル）と `cases.ts`（実績）。

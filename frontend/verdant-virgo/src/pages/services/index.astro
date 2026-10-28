@@ -4,7 +4,8 @@
 // 短い文が並ぶセクションには phrase（文節で折り返す）を付ける（H-18。トップと同じ）。
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BaseLayout, PageIntro } from '@/modules/layout';
-import { CtaGlow, GlobeOsaka, HeroBackdrop, Tilt3d } from '@/modules/motion';
+import { CtaGlow, GlobeOsaka, Tilt3d } from '@/modules/motion';
+import { DioramaIntro } from '@/modules/diorama';
 import { CTABanner, CTAButton, IconCard, Section, SectionHeading, ServiceCard, Steps } from '@/modules/marketing-ui';
 import { TAX_NOTE } from '@/modules/site-content/pricing';
 import { detailLinkTarget, MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
@@ -26,12 +27,11 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} breadcrumbTone="surface" motionZone="vivid">
-  {/* 2-3 導入ヒーロー（ボタンなし。主 CTA はページ下部に集める）。A（vivid）なので地は navy（HeroBackdrop。Desktop だけ動く）。パンくずの帯は白（surface） */}
+  {/* 2-3 導入ヒーロー（ボタンなし。主 CTA はページ下部に集める）。A（vivid）なので地は navy。背景は基盤の模型の全景（DioramaIntro。眺めるだけ）。パンくずの帯は白（surface） */}
   <PageIntro tone="dark" title={h1} body={intro.join('')}>
-    {/* 右の媒体の枠: 日本が正面の地球儀（大阪にだけ点。「大阪の現場から」を表す装飾。弧は出さない）。Mobile・reduced-motion・WebGL なしは静止画 */}
-    <GlobeOsaka slot="media" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.globe} />
-    <HeroBackdrop slot="backdrop" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.hero} />
+    <DioramaIntro slot="backdrop" page="services" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.diorama} />
   </PageIntro>
+
 
   {/* 2-4 サービスカード（Desktop 2×2、Mobile 1 列）。見出しの上に h2 が無いので、カードの見出しを h2 にする（見た目は変えない。1.3.1） */}
   <Section class="phrase">
@@ -108,13 +108,16 @@ const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], .
     <Steps items={[...flow.items]} columns={3} class="mt-8 md:mt-12" />
   </Section>
 
-  {/* 2-8 CTA バナー（主 CTA） */}
+  {/* 2-8 CTA バナー（主 CTA）。2026-10-28: 左に、ヒーローから移した地球儀（「大阪の現場から」の飾り。置き場所はユーザーが決めた。新しい文言は足していない） */}
   <Section>
+    <div class="grid gap-8 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)] md:items-center md:gap-12">
+    <GlobeOsaka pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.globe} />
     <CTABanner id="cta-banner" title={banner.title} body={banner.body}>
       <CTAButton slot="cta" ctaId={banner.cta.ctaId} href={ctaHref(banner.cta, from)} size="lg" fullWidth="mobile">
         {banner.cta.label}
       </CTAButton>
       <CtaGlow slot="decoration" pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.cta} />
     </CTABanner>
+    </div>
   </Section>
 </BaseLayout>

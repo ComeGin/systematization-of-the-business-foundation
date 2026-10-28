@@ -16,6 +16,13 @@ test.describe("キーボードの操作", () => {
       }) => {
         // 1 キーごとにページの様子を読むので、要素の多い一覧（ブログ）は 30 秒を超える
         test.setTimeout(120_000);
+        // 2026-10-28: ヒーローの模型は、端末が遅いと途中でポスターに戻り、一時停止のボタンが消える（Tab の数が途中で変わる）。
+        // 検証用の VM は GPU が無く遅いので、最初から「遅い端末」と判定済みにして開く（模型の操作は diorama.spec.ts で検査する）
+        await page.addInitScript(() => {
+          try {
+            sessionStorage.setItem("diorama:quality", JSON.stringify({ live: false, dpr: 1 }));
+          } catch {}
+        });
         await open(page, route);
         const total = await markTabbables(page);
         const positive = await page

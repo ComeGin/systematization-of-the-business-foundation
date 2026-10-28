@@ -157,12 +157,12 @@ flowchart LR
 
 | Aceternity の種類 | 公開口（`motion/index.ts`） | 置き場所 | 区分 |
 |---|---|---|---|
-| Hero Sections ＋ Backgrounds & Effects | `HeroBackdrop`（SpotlightNew・BackgroundBeams・グリッド）、`HeroHeading`（見出しのにじみ出し） | トップ 1-3、サービス一覧・詳細の導入ヒーロー（`PageIntro` の `tone="dark"`）。トップの `MotionSymbol`（ShapeBlur）は残し、白版にして重ねる | A |
+| Hero Sections ＋ Backgrounds & Effects | `HeroHeading`（見出しのにじみ出し）。**2026-10-28 から背景は「基盤の模型」（diorama。§11）**。旧版: `HeroBackdrop`（SpotlightNew・BackgroundBeams・グリッド）と `MotionSymbol`（ShapeBlur）は、どのページでも使わなくなった（部品は残してある） | トップ 1-3、サービス一覧・詳細の導入ヒーロー（`PageIntro` の `tone="dark"`） | A |
 | Stats Sections | `StatRow`（A）、`CountUp`（B） | トップ 1-8 の数値カード（値は「—」のまま数え上げない。下から現れて下線が引かれる）／ブログ一覧 7-3 の 72.2%・53.8%・50.8%（数え上げ） | A・B |
 | Feature Sections | `GlowGrid`（ポインターに沿う光の縁） | トップ 1-4a（5 つの方法）・1-4c（選ばれる理由）・1-4d（体験の約束）、サービス詳細の「こんな方に向いています」 | A |
 | 3D Card Effect | `Tilt3d` | トップ 1-7・サービス一覧 2-4 のサービスカード | A |
 | 3D Marquee | `ToolMarquee` | トップ 1-6「使うツール」（今の文字のバッジ 10 個。ロゴは使わない） | A |
-| 3D Globe | `GlobeOsaka` | サービス一覧の導入ヒーローの右（`PageIntro` の media の枠） | A |
+| 3D Globe | `GlobeOsaka` | **2026-10-28 からサービス一覧の導入ヒーローの直下**（ヒーローは模型になった。最終的な置き場所は 2026-10-28 の計画の Task 12 で決める）。旧版: 導入ヒーローの右（`PageIntro` の media の枠） | A |
 | 3D Animated Pin | `Pin3d` | トップ 1-8 のお客さまの声 3 枚、1-9 の無料 DL のブロック | A |
 | CTA Sections | `CtaGlow`（A）、`MotionBlobs`（B。既存） | 締めの CTA バナー。A の 3 ページは光の縁と粒（トップは既存の `MotionBlobs` と並べる）。B は料金・会社紹介・記事（顕在記事）の CTA に `MotionBlobs` | A・B |
 | Pricing Sections | `Reveal` | 料金ページのカード 5 枚と料金表（表ごと。行ごとにすると表の横スクロールの枠に結びついて進まないため）。金額の数字は切り替えない（誤読を避ける）。サービス詳細のプラン（A）は、節に入るとアバターがうなずく（§10.2）だけで、カードには動きを足していない | B（A はアバターだけ） |
@@ -294,3 +294,37 @@ flowchart LR
 ### 10.6 C のページ
 
 規約・ポリシーの 2 ページには、アバターの DOM も JS も `.vrm` の要求も無い（`BaseLayout` が `motionZone` が `none` のときは `AvatarDock` を置かない）。
+
+## 11. ヒーローの「基盤の模型」（2026-10-28 に追加）
+
+設計書 `docs/superpowers/specs/2026-10-28-hero-diorama-design.md`、計画 `docs/superpowers/plans/2026-10-28-hero-diorama.md`。実装は `src/modules/diorama/`。
+
+### 11.1 置き場所と見せ方
+
+| ページ | 部品 | 見せ方 |
+|---|---|---|
+| トップ 1-3 | `DioramaHero` | 区画の全面に、ランプに照らされた木と紙の模型。光の粒が基盤の実際のデータの流れどおりに部品の間を受け渡す（白＝流れ込み・青＝提案・金＝承認済み。金の粒だけがサイトに届く）。部品の上に本物の `<button>` を重ね、押すとカメラが寄ってパネルが開く。Mobile は文字 → CTA → 模型（4:3）の順で、部品は模型の上端の名前のボタンの列 |
+| サービス一覧・詳細 4 本 | `DioramaIntro`（`PageIntro` の `slot="backdrop"`） | 同じ模型の、そのサービスの部品へ寄ったカメラ。眺めるだけ（部品のボタン・パネルなし） |
+| 会社概要・料金・ブログ一覧・お問い合わせ・送信完了（B） | `DioramaStill`（`PageIntro` の `slot="media"`） | 同じ模型を同じ光で撮った静止画（4:3）。動かさない・光らせない。Desktop だけ |
+| 規約・ポリシー（C） | — | 変えない |
+
+### 11.2 動きの規則との対応
+
+- 文字（タグライン・h1・本文・CTA）は最初の HTML。模型の canvas は `aria-hidden`。
+- 最初の HTML にポスター（同じ模型・同じカメラを three で撮った静止画。`pnpm diorama:stills`）。reduced-motion・JS なし・WebGL なし・一時停止・遅い端末・読み込みの失敗は、すべてこのポスターのまま。
+- 5 秒を超えて動くので一時停止のボタン（`motion:diorama`。対象名「（模型）」）。画面外・タブ非表示では rAF を止める。
+- 遅い端末: 最初の 3 秒のフレーム時間の平均が 20ms を超えたら解像度 1、40ms を超えたらポスターに戻す。判定は `sessionStorage` の `diorama:quality` に残す。
+- 押せる部品の点は 34px 以上離し（2.5.8）、枠の外の部品も隠さず端に寄せる（2.1.1）。Desktop のトップは文字の後ろを紺で覆う（1.4.3）。
+- ページの移動: トップ・サービス一覧からサービス詳細へは、移動元の模型が行き先の部品へ寄りながら消える（`view-transition-name: vt-diorama`。拡大の中心は `sessionStorage` の `diorama:vt` で渡す）。全景へ戻るときは広がって現れる。B へは寄らない。
+
+### 11.3 性能
+
+| 項目 | 予算 |
+|---|---|
+| 最初の描画 | 文字とポスター（WebP。トップ約 29KB）だけ。three は読まない |
+| three と模型 | `loadThree()`（three の実装のチャンクは 1 本のまま）。手が空いてから。glb は 1.5MB 以内（いまは約 858KB。meshopt で圧縮） |
+| 描画 | 影・陰影は焼き込み（実行時のシャドウマップなし）。解像度の上限は Desktop 2・Mobile 1.5 |
+
+### 11.4 アバター（§10 との関係）
+
+トップ・サービス一覧・会社概要の模型には、代表のアバターが承認台の横に立つ（承認の粒が着くとうなずく）。同じ画面に 2 人いないよう、模型が見えている間は画面の端のアバターを左の画面の外へ引っ込める（`data-avatar-yield`。`avatar/lib/yield.ts`）。Tab でアバターのボタンへ来たら、すぐ戻す。

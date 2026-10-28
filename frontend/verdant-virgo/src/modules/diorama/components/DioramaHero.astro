@@ -1,0 +1,252 @@
+---
+/**
+ * DioramaHero（トップの 1-3 ヒーロー。触れる「基盤の模型」。spec §6）。2026-10-28。
+ *
+ * - Desktop: 区画の全面に模型（ランプに照らされた木と紙）。文字（slot="copy"：タグライン・h1・本文）と CTA（slot="actions"）は左に重ねる。
+ *   Mobile: 文字 → CTA → 模型（4:3）の順に縦に積む（DOM の順と見た目の順が同じ）。
+ * - 最初の HTML にポスター（同じ模型・同じカメラを three で撮った静止画）を出し、動かせるときは island が canvas に替える（DioramaIntro と同じ）。
+ * - 押せる部品は本物の <button>（canvas の上に重ねる）。押すとパネルが開く（DioramaTouch・DioramaPanel）。文言は site-content/diorama.ts。
+ * - 地は navy（tone は brand-strong と同じ data-surface="dark"。フォーカスリングが白）。
+ * 文言（MOTION_PAUSE・DIORAMA）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import { AVATAR_FIGURE_ASSETS } from '@/modules/avatar';
+import DioramaIsland from '../islands/DioramaIsland';
+import type { DioramaTouchCopy } from '../islands/DioramaTouch';
+import glbUrl from '../assets/diorama.glb?url';
+import { stillOf } from '../lib/stills';
+import './diorama.css';
+
+interface Props {
+  pauseLabel: string;
+  resumeLabel: string;
+  pauseTarget: string;
+  touch: DioramaTouchCopy;
+}
+
+const { pauseLabel, resumeLabel, pauseTarget, touch } = Astro.props;
+const still = stillOf('top');
+---
+
+<section data-surface="dark" data-diorama-hero class="diorama-hero relative isolate bg-surface-hero text-text-inverse">
+  <div class="site-container diorama-hero__inner">
+    <div class="diorama-hero__copy flex flex-col items-start gap-4">
+      <slot name="copy" />
+      <div class="mt-4 flex w-full flex-col items-start gap-4">
+        <slot name="actions" />
+      </div>
+    </div>
+  </div>
+  <div data-motion="diorama" data-diorama-page="top" data-diorama-align="end" data-avatar-yield-source class="diorama diorama--hero">
+    <picture class="diorama__poster" aria-hidden="true">
+      {still.mobile && <source media="(max-width: 767px)" srcset={still.mobile} />}
+      <img src={still.desktop} alt="" width="1600" height="900" decoding="async" fetchpriority="high" />
+    </picture>
+    <DioramaIsland
+      client:visible
+      page="top"
+      glbUrl={glbUrl}
+      pauseLabel={pauseLabel}
+      resumeLabel={resumeLabel}
+      pauseTarget={pauseTarget}
+      touch={touch}
+      align="end"
+      avatar={AVATAR_FIGURE_ASSETS}
+      stillAnchors={still.anchors}
+    />
+  </div>
+</section>
+
+{/* 前のページで止めていたら、水和を待たず属性を先に付ける（ポスターのまま、three を読まない）。キーは island の storageKey と同じ */}
+<script is:inline>
+  // ページの移動を「模型に寄るカメラ」に見せる（spec §9 の 3）。移動元の島が残した拡大の中心を、遷移の絵（::view-transition-old）の CSS の変数に写す
+  try {
+    const raw = sessionStorage.getItem('diorama:vt');
+    sessionStorage.removeItem('diorama:vt');
+    const vt = raw ? JSON.parse(raw) : null;
+    if (vt && (vt.mode === 'zoom-in' || vt.mode === 'zoom-out')) {
+      const root = document.documentElement;
+      root.setAttribute('data-vt-diorama', vt.mode);
+      root.style.setProperty('--vt-diorama-x', String(vt.x));
+      root.style.setProperty('--vt-diorama-y', String(vt.y));
+      // view-transition-name は遷移の間だけ付ける（常に付けると根が独立した重なりの層になり、模型と押せる部品が文字の層の下に回る）
+      // 模型の根は 1 ページに 1 つ（この script は根の直後にあるので、もう解析されている）
+      const model = document.querySelector('[data-motion="diorama"]');
+      if (model) {
+        model.style.viewTransitionName = 'vt-diorama';
+        const clear = () => { model.style.viewTransitionName = ''; };
+        window.addEventListener('pagereveal', (e) => { if (e.viewTransition) e.viewTransition.finished.finally(clear); else clear(); }, { once: true });
+        setTimeout(clear, 2000);
+      }
+    }
+  } catch (e) {}
+  try {
+    if (sessionStorage.getItem('motion:diorama') === 'paused') {
+      document.querySelectorAll('[data-motion="diorama"]').forEach((el) => el.setAttribute('data-motion-paused', 'true'));
+    }
+  } catch (e) {}
+</script>
+
+<style is:global>
+  .diorama-hero__inner {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+  }
+  .diorama--hero {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+  }
+  @media (min-width: 768px) {
+    .diorama-hero {
+      min-height: clamp(600px, 82vh, 820px);
+      display: flex;
+      align-items: center;
+    }
+    .diorama-hero__inner {
+      padding-top: 6rem;
+      padding-bottom: 6rem;
+    }
+    .diorama-hero__copy {
+      max-width: 34rem;
+    }
+    /* 区画の全面。根はポインターを通し（文字を選べる）、絵の層は -1 で文字の後ろ。押せる部品とボタンだけが文字の上 */
+    .diorama--hero {
+      position: absolute;
+      inset: 0;
+      aspect-ratio: auto;
+      background-color: transparent;
+      pointer-events: none;
+    }
+    /* a11y: 文字の後ろを紺で覆い、模型の明るい板に白い文字が重なっても 4.5:1 を保つ（1.4.3。文字の列〈約 34rem〉の右端まではほぼ不透明） */
+    .diorama-hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        90deg,
+        var(--color-role-surface-hero) 0%,
+        color-mix(in srgb, var(--color-role-surface-hero) 94%, transparent) 46%,
+        transparent 68%
+      );
+    }
+    .diorama-hero__inner {
+      position: relative;
+      z-index: 1;
+    }
+  }
+
+  /* 押せる部品（canvas の上に重ねる本物の button）。位置は island が transform で置く（左上が部品の点） */
+  .diorama-part {
+    position: absolute;
+    left: -16px;
+    top: -16px;
+    width: 32px;
+    height: 32px;
+    border-radius: 9999px;
+    display: grid;
+    place-items: center;
+    z-index: 2;
+    cursor: pointer;
+  }
+  .diorama-part[hidden] {
+    display: none;
+  }
+  .diorama-part__dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    background: var(--color-text-inverse, #fff);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand-sky) 70%, transparent);
+    transition: transform var(--motion-duration-small) var(--motion-ease-standard);
+  }
+  .diorama-part__label {
+    position: absolute;
+    left: 30px;
+    top: 50%;
+    translate: 0 -50%;
+    white-space: nowrap;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: #fff;
+    background: color-mix(in srgb, var(--color-brand-navy-900) 85%, transparent);
+    opacity: 0;
+    transition: opacity var(--motion-duration-small) var(--motion-ease-standard);
+    pointer-events: none;
+  }
+  .diorama-part:hover .diorama-part__dot,
+  .diorama-part:focus-visible .diorama-part__dot,
+  .diorama-part[aria-expanded='true'] .diorama-part__dot {
+    transform: scale(1.35);
+  }
+  .diorama-part:hover .diorama-part__label,
+  .diorama-part:focus-visible .diorama-part__label,
+  .diorama-part[aria-expanded='true'] .diorama-part__label {
+    opacity: 1;
+  }
+  .diorama-part:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+  .diorama-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 1rem;
+    translate: -50% 0;
+    margin: 0;
+    color: var(--color-role-text-on-hero-muted);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  /* Mobile: 点を重ねず、模型の上端に部品の名前のボタンを横に並べる（横にスクロール。DioramaTouch が diorama-parts--list を付ける） */
+  .diorama-parts--list {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px;
+    pointer-events: auto;
+    scrollbar-width: none;
+  }
+  .diorama-parts--list .diorama-part {
+    position: static;
+    flex: none;
+    width: auto;
+    height: 36px;
+    padding: 0 12px 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--color-brand-navy-900) 85%, transparent);
+    border: 1px solid color-mix(in srgb, #fff 25%, transparent);
+  }
+  .diorama-parts--list .diorama-part__dot {
+    width: 8px;
+    height: 8px;
+  }
+  .diorama-parts--list .diorama-part__label {
+    position: static;
+    translate: none;
+    opacity: 1;
+    padding: 0;
+    background: none;
+  }
+  @media (max-width: 767px) {
+    .diorama-hint {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .diorama-part__dot,
+    .diorama-part__label {
+      transition: none;
+    }
+  }
+</style>

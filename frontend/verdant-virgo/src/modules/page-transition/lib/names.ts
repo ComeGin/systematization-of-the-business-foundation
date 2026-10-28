@@ -6,6 +6,8 @@ export const VT = {
   articleTitle: "vt-article-title",
   articleMedia: "vt-article-media",
   contactTitle: "vt-contact-title",
+  /** ヒーローの基盤の模型（トップ・サービス一覧・詳細。diorama。2026-10-28） */
+  diorama: "vt-diorama",
 } as const;
 
 export type VtMap = typeof VT;

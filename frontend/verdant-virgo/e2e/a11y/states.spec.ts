@@ -8,6 +8,15 @@ import { audit, brief, open } from "./axe";
 import { BOOKING_TEXT } from "../../src/modules/booking/lib/messages";
 
 test.describe("状態ごとの axe 検査", () => {
+  // 2026-10-28: ヒーローの模型は最初の 3 秒で端末の速さを測る。GPU の無い検証用の VM ではその間ページが重く、axe が時間切れになる。
+  // 最初から「遅い端末」と判定済み（ポスター）で開く（keyboard.spec.ts と同じ。模型は diorama.spec.ts で検査する）
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem("diorama:quality", JSON.stringify({ live: false, dpr: 1 }));
+      } catch {}
+    });
+  });
   test.describe("正常系", () => {
     test("Mobile メニューを開いたときに違反が無い", async ({
       page,

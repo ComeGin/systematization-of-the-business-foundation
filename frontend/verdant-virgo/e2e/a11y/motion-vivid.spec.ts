@@ -27,7 +27,8 @@ import { open } from "./axe";
 import { AXE_TAGS } from "./routes";
 
 const PAUSE_KEY = "motion:hero";
-const HERO_ROUTES = ["/", "/services/", "/services/development/"];
+// 2026-10-28: トップ（/）のヒーローは「基盤の模型」に替わった（背景の光の検査は diorama.spec.ts に移した）
+const HERO_ROUTES = ["/services/", "/services/development/"];
 
 /** ヒーローの中で動いている（running）無限の CSS animation の数 */
 const runningAmbient = (page: Page) =>
@@ -179,8 +180,19 @@ const desktopOnly = (name: string) =>
 
 test.describe("A（vivid）の動き", () => {
   test.beforeEach(async ({ page }) => instrument(page));
+  // 2026-10-28: ヒーローの模型（diorama）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（模型は diorama.spec.ts で検査する）
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem("motion:diorama", "paused");
+      } catch {}
+    });
+  });
 
-  test.describe("ヒーロー", () => {
+  // 2026-10-28: トップ・サービス一覧・詳細のヒーローは「基盤の模型」（diorama）に替わり、背景の光（HeroBackdrop）はどのページでも使わなくなった。
+  // 模型にも当てはまる約束（一時停止のボタンの名前・文字のコントラスト・JS なしで死んだボタンを出さない）は diorama.spec.ts に移した。
+  // HeroBackdrop の部品を消すかは、計画の最終確認で決める（それまでこの検査は止めておく）
+  test.describe.skip("ヒーロー", () => {
     test.describe("正常系", () => {
       for (const route of HERO_ROUTES) {
         test(`${route} の根に data-motion="hero" があり、中の装飾は aria-hidden（一時停止のボタンだけが外）`, async ({
@@ -1631,6 +1643,7 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await expect(page.locator('[data-motion="globe"]')).toHaveCount(1);
         // 最初の描画の時点では静止画だけ（three を読むのは手が空いてから）
         const before = await stillState(page);
@@ -1669,16 +1682,20 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await globeLive(page);
         expect(await rafDuring(page, 1_000), "描画している間の rAF").toBeGreaterThan(5);
         await expect(page.locator(`${GLOBE} canvas`)).toHaveCount(1);
       });
 
-      test("一時停止のボタン: 名前に対象名が付き（ヒーロー・CTA のボタンと違う）、押すと rAF が止まり、属性・sessionStorage に残る。再開で動く", async ({
+      test("一時停止のボタン: 名前に対象名が付き（隣の相談の案内のボタンと違う）、押すと rAF が止まり、属性・sessionStorage に残る。再開で動く", async ({
         page,
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
+        // 2026-10-28: 地球儀はヒーローから、ページ末尾の相談の案内（CTA）の左へ移った（ユーザーの決定）。画面に入れてから水和する
+        await page.locator(GLOBE).scrollIntoViewIfNeeded();
         const pause = globeButton(
           page,
           pauseName(MOTION_PAUSE.pause, MOTION_PAUSE_TARGETS.globe),
@@ -1704,9 +1721,9 @@ function describe_globe() {
           pauseName(MOTION_PAUSE.resume, MOTION_PAUSE_TARGETS.globe),
         );
         await expect(resume).toBeVisible();
-        // 同じページの別の一時停止（ヒーローの背景）とは名前が違う
+        // 同じページの別の一時停止（隣の相談の案内）とは名前が違う
         await expect(
-          heroButton(page, pauseName(MOTION_PAUSE.pause, MOTION_PAUSE_TARGETS.hero)),
+          page.getByRole("button", { name: pauseName(MOTION_PAUSE.pause, MOTION_PAUSE_TARGETS.cta) }),
         ).toBeVisible();
         await resume.click();
         await expect(page.locator(GLOBE)).toHaveAttribute("data-motion-paused", "false");
@@ -1721,10 +1738,12 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await expect(globeButton(page, MOTION_PAUSE.pause)).toBeVisible({ timeout: 10_000 });
         await globeButton(page, MOTION_PAUSE.pause).click();
         await open(page, "/services/development/");
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await expect(page.locator(GLOBE)).toHaveAttribute("data-motion-paused", "true");
         await expect(globeButton(page, MOTION_PAUSE.resume)).toBeVisible({ timeout: 10_000 });
         // 手が空くのを十分に待っても、canvas は作られず静止画のまま
@@ -1743,6 +1762,7 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await globeLive(page);
         expect(await rafDuring(page, 1_000)).toBeGreaterThan(5);
         await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1756,12 +1776,16 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        // 2026-10-28: 地球儀はヒーローから、ページ末尾の相談の案内（CTA）の左へ移った（ユーザーの決定）。画面に入れてから水和する
+        await page.locator(GLOBE).scrollIntoViewIfNeeded();
         await globeLive(page);
         expect(await rafDuring(page, 1_000)).toBeGreaterThan(5);
-        await page.evaluate(() => window.scrollTo(0, 2_500));
+        // 画面の外: ページの中ほど（「どれを選べばよいか」の節）。上端はヘッダーなどほかの部品の rAF があるので使わない
+        await page.locator("#services-chooser").scrollIntoViewIfNeeded();
+        await expect(page.locator(GLOBE)).not.toBeInViewport();
         await page.waitForTimeout(600);
         expect(await rafDuring(page, 1_500), "画面の外にある間の rAF").toBe(0);
-        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.locator(GLOBE).scrollIntoViewIfNeeded();
         await page.waitForTimeout(300);
         expect(await rafDuring(page, 1_000), "戻した後の rAF").toBeGreaterThan(5);
       });
@@ -1790,6 +1814,7 @@ function describe_globe() {
           if (body.includes("isWebGLRenderer")) withRenderer.push(url);
         });
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await globeLive(page);
         expect(withRenderer, "three の実装を含む JS").toHaveLength(1);
       });
@@ -1799,6 +1824,7 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await globeLive(page);
         const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
         expect(
@@ -1814,6 +1840,7 @@ function describe_globe() {
       }, testInfo) => {
         desktopOnly(testInfo.project.name);
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         const pause = globeButton(page, MOTION_PAUSE.pause);
         await expect(pause).toBeVisible({ timeout: 10_000 });
         await tabInto(page, `${GLOBE} button`);
@@ -1839,6 +1866,7 @@ function describe_globe() {
           if (body.includes("WebGLRenderer")) rendererScripts++;
         });
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await page.waitForTimeout(4_000);
         await expect(page.locator(`${GLOBE} canvas`)).toHaveCount(0);
         await expect(page.locator(GLOBE)).not.toHaveAttribute("data-globe-live", "true");
@@ -1864,6 +1892,7 @@ function describe_globe() {
           route.abort(),
         );
         await open(page, GLOBE_ROUTE);
+        await page.locator(GLOBE).scrollIntoViewIfNeeded(); // 2026-10-28: 地球儀はページ末尾（相談の案内の左）。画面に入れてから水和する
         await expect
           .poll(
             () =>
@@ -1896,9 +1925,9 @@ function describe_globe() {
         const globePause = globeButton(page, /動きを止める/);
         await expect(globePause).toBeVisible();
         expect(await rafDuring(page, 1_000), "rAF").toBeGreaterThan(0);
-        // 地球儀とヒーローの一時停止のボタンが重ならない
+        // 地球儀と、隣の相談の案内（CTA）の一時停止のボタンが重ならない（2026-10-28 に地球儀がヒーローから CTA の左へ移った）
         const a = (await globePause.boundingBox())!;
-        const b = (await heroButton(page, MOTION_PAUSE.pause).boundingBox())!;
+        const b = (await page.getByRole("button", { name: pauseName(MOTION_PAUSE.pause, MOTION_PAUSE_TARGETS.cta) }).boundingBox())!;
         const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
         expect(overlap, "ボタンの重なり").toBe(false);
         // 根は画面の幅に収まる（横にあふれない）
@@ -1930,3 +1959,48 @@ function describe_globe() {
     });
   });
 }
+
+// 2026-10-28（計画 2026-10-28-hero-diorama の Task 11）: 告知バナー（1-1）の磨き込み。文言・配置・閉じるボタンなしは変えない
+test.describe("告知バナー", () => {
+  const ARROW = '[data-announcement] a[data-cta-id="dl_top_banner"] [data-icon="inline-end"]';
+  const translateX = (page: Page) =>
+    page.locator(ARROW).first().evaluate((el) => {
+      const m = getComputedStyle(el).transform;
+      return m === "none" ? 0 : new DOMMatrixReadOnly(m).m41;
+    });
+
+  test.describe("正常系", () => {
+    test("「受け取る」に hover・キーボードのフォーカスで矢印が右へ 4px 動き、文言はいまのまま", async ({ page }, testInfo) => {
+      desktopOnly(testInfo.project.name);
+      await open(page, "/");
+      await expect(page.locator("[data-announcement]")).toContainText(TOP.announcement.desktopBody);
+      expect(await translateX(page)).toBe(0);
+      await page.locator('[data-announcement] a[data-cta-id="dl_top_banner"]').hover();
+      await page.waitForTimeout(400);
+      expect(await translateX(page)).toBe(4);
+      await page.mouse.move(0, 400);
+      await page.waitForTimeout(400);
+      expect(await translateX(page)).toBe(0);
+      await page.locator('[data-announcement] a[data-cta-id="dl_top_banner"]').focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      await page.waitForTimeout(400);
+      expect(await translateX(page)).toBe(4);
+    });
+  });
+
+  test.describe("異常系", () => {
+    test("入力: reduced-motion では矢印が動かず、バッジの光も流れない", async ({ page }, testInfo) => {
+      desktopOnly(testInfo.project.name);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await open(page, "/");
+      await page.locator('[data-announcement] a[data-cta-id="dl_top_banner"]').hover();
+      await page.waitForTimeout(400);
+      expect(await translateX(page)).toBe(0);
+      const running = await page.evaluate(
+        () => document.getAnimations().filter((a) => (a.effect as KeyframeEffect | null)?.target instanceof Element && ((a.effect as KeyframeEffect).target as Element).closest("[data-announcement]")).length,
+      );
+      expect(running).toBe(0);
+    });
+  });
+});

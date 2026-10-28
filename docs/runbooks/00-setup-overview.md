@@ -103,9 +103,8 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕�
 - [ ] **人・端末** Secret `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（`read -rs` で履歴に残さない）— cloud 4.6
 - [ ] 〔警告〕**人・端末** global の 2 回目: 出力の `DistributionArn` を global の設定に足して `sam deploy --config-env global`（フラットレートプランの購読。Free Tier の期間のアカウントは購読できない）— cloud 4.3
 - [ ] 〔警告〕**人・端末** SNS の 2 トピック（`comegin-ops-alert`・`comegin-lead-alert`）をメールで購読し、`--authenticate-on-unsubscribe true` を付けて確認する（メールのリンクは踏まない。付けずに確認した購読も警告に出る）— cloud 4.4
-- [ ] 〔警告〕**人・画面** SES の**本番アクセスを申請する**（審査に時間がかかるので、ここで出しておく。サンドボックスのままだと検証済みの宛先にしか送れない）— cloud 4.9
 
-〔警告〕の 3 つは、段階 `apps` の最初（`cloud`）が読み取りで確かめる。
+〔警告〕の 2 つは、段階 `apps` の最初（`cloud`）が読み取りで確かめる。SES の本番アクセスの申請は、公開サイトを配信した後に行う（P12）。
 
 ### P3. 段階 `images`: 派生イメージ
 
@@ -119,8 +118,8 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕�
 段階 `apps` のすべての前提。止まる id は `cloud:db-init`。ここで P2・P4・P6 の〔警告〕もまとめて出る。
 
 - [ ] **人・端末** DB とアプリ用ユーザーを作る: ECS の RunTask で `comegin-prod-db-init-postgres`（chatwoot・admin_auth・strapi・n8n）と `comegin-prod-db-init-mysql`（mautic）。ログの最後が `... done`（スクリプトは、今のスタックの作成の後の成功のログを読む）— cloud 4.8
-- [ ] 〔警告〕**人・画面** SES の SMTP 認証情報を **Mautic 用と Chatwoot 用で別々に**発行し、Secret 4 つ（`mautic/SMTP_*`・`chatwoot/SMTP_*`）に入れる — cloud 4.9・4.6
-- [ ] 〔警告〕**人・画面** DKIM と MAIL FROM が `SUCCESS` になるのを待つ。apex（`comegin.com`）の SPF に `include:amazonses.com` を足し、DMARC を設定する（Google Workspace の SPF と 1 つにまとめる）— cloud 4.9
+- [ ] 〔警告〕**人・画面** SES の SMTP 認証情報を **Mautic 用と Chatwoot 用で別々に**発行し、Secret 4 つ（`mautic/SMTP_*`・`chatwoot/SMTP_*`）に入れる — cloud 4.9.3・4.9.4
+- [ ] 〔警告〕**人・画面** DKIM と MAIL FROM が `SUCCESS` になるのを待ち、apex（`comegin.com`）に DMARC の TXT を足す（`p=none` から。`aspf=s` は入れない。apex の SPF は Google Workspace のまま触らない）— cloud 4.9.1・4.9.6
 
 ### P5. admin-auth（管理画面の関門）
 
@@ -198,6 +197,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕�
 - [ ] **人・端末** `DeployPolicyArn` を付けた主体で、S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**）— cloud 4.14
 - [ ] **人・端末** デプロイ後の確認（訪問者向けは 200、管理画面は 302 で `auth.`、許可リストの外は 404、`cms.`・`n8n.`・`stats.` は引けない）— cloud 4.13
 - [ ] **人・画面** FAQ ボットの確認（`/faq.json` が返る・「料金は税込ですか？」で回答・担当者への引き継ぎのメール）— cloud 4.17 の 8
+- [ ] 〔警告〕**人・画面** 配信したらすぐ、SES の**本番アクセスを申請する**（メールの種類は **Transactional**、言語は日本語。2026-10-28 のユーザーの決定。最初の応答まで最大 96 時間で、承認までは検証済みの宛先にしか送れない）— cloud 4.9.2
 
 ### P13. 段階 `google`（公開サイトが Route 53 から配信された後）
 
@@ -232,7 +232,8 @@ node setup/frontend.mjs --target prod --phase google
 | SNS 用の IAM のキーがそのユーザーのものか | **止める**（`n8n-prod:aws-key`） | 通知とハートビートが失敗する／強い権限のキーが n8n に入る | cloud 4.5 |
 | global の 2 回目（フラットレートプラン） | 警告（`cloud`） | 何も起きない（CloudFront が従量課金のまま。月 約 $9 増える） | cloud 4.3 |
 | SNS の購読（`--authenticate-on-unsubscribe` 付きか） | 警告（`cloud`） | アラームが誰にも届かない／誰でも購読を解除できる | cloud 4.4 |
-| SES の本番アクセス・DKIM・MAIL FROM・SPF・DMARC | 警告（`cloud`） | 顧客にメールが届かない | cloud 4.9 |
+| SES の本番アクセス・DKIM・MAIL FROM・DMARC | 警告（`cloud`） | 顧客にメールが届かない | cloud 4.9 |
+| バウンス・苦情の Mautic への反映（ADR-30） | 未実装（実装まで SES の抑制リストが送信を止める） | Mautic のコンタクトの状態が実際と食い違う | cloud 4.9.2 |
 | SMTP の Secret | 警告（`cloud`） | Chatwoot・Mautic のタスクが起動しない | cloud 4.6 |
 | WireGuard の AMI の固定 | 警告（`cloud`） | 後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる | cloud 4.2.1 |
 | オンプレの IAM ユーザーのアクセスキー | 警告（`cloud`） | Strapi のメディアのアップロードと n8n の通知が失敗する | cloud 4.5 |
@@ -264,6 +265,8 @@ node setup/frontend.mjs --target prod --phase google
 | WAF の Common ルールを Count から Block に | Count | WAF のログで管理画面の保存・アップロードが Count に入っていないか | cloud 4.16 |
 | n8n の親（I-11・I-12）の公開 | 未公開 | 受け口の疎通と署名の検証を確かめたか | provision README |
 | SES の TLS を必須のままにするか | `REQUIRE` | TLS で受けられない宛先が業務に要るか | cloud 4.9 |
+| バウンス・苦情を Mautic に返す Lambda（ADR-30）をいつ作るか | 設計だけ決定済み・未実装 | 顧客へのキャンペーンの送信を始める時期（その前が望ましい） | AA-05 の ADR-30 |
+| SES の Mail type を Marketing に改めるか | Transactional（2026-10-28 のユーザーの決定） | Mautic のキャンペーンの一斉送信が大半になったか | cloud 4.9.2 |
 | 費用を下げる手段（Savings Plans・Fargate の ARM・mautic-cron の縮小・夜間の停止の時刻） | どれも未適用（夜間の停止だけ有効） | 1〜2 か月の実績 | cloud 3.1 |
 | 公開サイトの CSP をどこで付けるか | 付けていない | CloudFront の応答ヘッダーか Astro か | cloud 5 |
 

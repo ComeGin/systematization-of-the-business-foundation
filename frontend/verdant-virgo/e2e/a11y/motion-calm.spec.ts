@@ -74,6 +74,14 @@ const translateY = (page: Page, selector: string, index = 0) =>
 
 test.describe("B（calm）の動き", () => {
   test.beforeEach(async ({ page }) => instrument(page));
+  // 2026-10-28: ヒーローの模型（diorama）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（模型は diorama.spec.ts で検査する）
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem("motion:diorama", "paused");
+      } catch {}
+    });
+  });
 
   test.describe("全ルート", () => {
     test.describe("正常系", () => {
@@ -244,9 +252,10 @@ test.describe("B（calm）の動き", () => {
       test("画面の外にある間は 0 から待ち（armed）、画面に入ると 1 回だけ上がって最終値に着く。行の高さは動かない", async ({
         page,
       }, testInfo) => {
-        // 数字が最初の画面の外に出るよう、画面を低くする（Desktop は導入の数字が 229〜342px にある）。水和は画面の 200px 手前で済む
+        // 数字が最初の画面の外に出るよう、画面を低くする（Desktop は導入の数字が 261〜423px にある。2026-10-28 に導入の右へ模型の静止画が入り、
+        // 本文の列が狭くなって下がった。以前は 229〜342px）。水和は画面の 200px 手前で済むので、高さ 230px なら 430px まで水和する
         test.skip(testInfo.project.name !== "desktop", "Desktop だけ");
-        await page.setViewportSize({ width: 1440, height: 200 });
+        await page.setViewportSize({ width: 1440, height: 230 });
         await page.addInitScript(() => {
           const w = window as unknown as { __ticks: string[] };
           w.__ticks = [];
@@ -706,6 +715,13 @@ test.describe("B（calm）の動き", () => {
 // A（vivid）の CTA の光の縁と粒（CtaGlow）。判断 R1: 一時停止のボタンは CtaGlow の 1 つだけ。
 test.describe("A の CTA（CtaGlow）", () => {
   test.beforeEach(async ({ page }) => instrument(page));
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem("motion:diorama", "paused");
+      } catch {}
+    });
+  });
 
   const A_CTA_ROUTES = ["/", "/services/", "/services/development/"];
 

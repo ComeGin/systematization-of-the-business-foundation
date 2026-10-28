@@ -8,6 +8,7 @@ import { FileCheck, Footprints, LockOpen, MessagesSquare, type LucideIcon } from
 import { Badge } from '@/components/ui/badge';
 import { isLink, RichTextView, toInlines, type RichText } from '@/modules/legal';
 import { BaseLayout, PageIntro } from '@/modules/layout';
+import { DioramaStill } from '@/modules/diorama';
 import { CTABanner, CTAButton, IconCard, KeepTogether, Section, SectionHeading } from '@/modules/marketing-ui';
 import { Photo } from '@/modules/media';
 import { MotionBlobs, Reveal } from '@/modules/motion';
@@ -44,7 +45,8 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
   {/* 5-3 導入ヒーロー。h1 はビジョン（Desktop 2 行・Mobile 4 行。H-19）。画像枠は Desktop だけ */}
   <PageIntro title={hero.h1} badge={hero.badge}>
     <p slot="body" class="type-body-lg phrase max-w-[720px] text-text-muted">{hero.body.join('')}</p>
-    <Photo slot="media" photo={hero.photo} sizes="480px" widths={[480, 960]} loading="eager" class="hidden h-[360px] w-full md:block" />
+    {/* 2026-10-28: 媒体の枠は、基盤の模型の承認台と代表のアバターの静止画（B は静止。DioramaStill）。写真は運営方針の節の見出しの右へ移した（H-12） */}
+    <DioramaStill slot="media" page="about" />
   </PageIntro>
 
   {/* 5-3 の続き: ミッション（引用の体裁）と、ビジョンへつなぐ補足 2 文。地はヒーローと同じ */}
@@ -58,9 +60,14 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
     </Reveal>
   </Section>
 
+
   {/* 5-4 運営方針（2 列 ×2 段。Mobile 1 列） */}
   <Section labelledby="about-values" class="phrase">
-    <SectionHeading id="about-values" title={values.heading} />
+    {/* 2026-10-28: 見出しの右に、ヒーローから移した写真（4:3。H-12。置き場所はユーザーが決めた。Desktop だけ〈これまでどおり〉） */}
+    <div class="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,320px)] md:items-center md:gap-12">
+      <SectionHeading id="about-values" title={values.heading} />
+      <Photo photo={hero.photo} sizes="320px" class="hidden aspect-[4/3] w-full rounded-lg md:block" />
+    </div>
     <div class="mt-8 grid gap-4 md:grid-cols-2 md:gap-8">
       {
         values.cards.map((card, i) => (

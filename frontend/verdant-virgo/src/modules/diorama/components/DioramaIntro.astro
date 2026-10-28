@@ -1,0 +1,90 @@
+---
+/**
+ * DioramaIntro（A〈vivid〉のサービス一覧・詳細の導入ヒーローの模型。眺めるだけ。spec §6.7）。2026-10-28。
+ *
+ * - 最初の HTML にポスター（同じ模型・同じカメラを three で撮った静止画。tools/capture-stills.mjs）を出す。
+ *   静止画のままになるのは reduced-motion・JS なし・WebGL なし・一時停止で開いたページ・遅い端末・読み込みの失敗（spec §9 の 4）。
+ * - 動かせるときは island（DioramaIsland）が three で描いた canvas に替える（ポスターは薄れて消える）。
+ * - ポスターも canvas も、設計の画角（16:9）を枠に「収める」（object-fit: contain と、scene.ts の縦の画角の広げ方が同じ）。
+ * - 根は data-motion="diorama"。island が data-diorama-live・data-motion-paused・data-diorama-anchors を付け外しする。
+ *
+ * 置き方: PageIntro の slot="backdrop"。Desktop はヒーローの区画の全面（文字の後ろ）、Mobile は文字の下の 4:3 の枠（流れに入る）。
+ * 文言（MOTION_PAUSE）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import { AVATAR_FIGURE_ASSETS } from '@/modules/avatar';
+import DioramaIsland from '../islands/DioramaIsland';
+import glbUrl from '../assets/diorama.glb?url';
+import { PAGE_VIEWS } from '../lib/pages';
+import { stillOf } from '../lib/stills';
+import './diorama.css';
+import type { PageKey } from '../lib/types';
+
+interface Props {
+  page: PageKey;
+  pauseLabel: string;
+  resumeLabel: string;
+  pauseTarget: string;
+}
+
+const { page, pauseLabel, resumeLabel, pauseTarget } = Astro.props;
+const still = stillOf(page);
+// 模型の中に代表のアバターが写る構図なら、見えている間は画面の端のアバターを引っ込める（H-13。avatar/lib/yield.ts）
+const yieldAvatar = PAGE_VIEWS[page].showsAvatar;
+---
+
+<div data-motion="diorama" data-diorama-page={page} data-diorama-align="end" data-avatar-yield-source={yieldAvatar ? "" : undefined} class="diorama diorama--intro">
+  <picture class="diorama__poster" aria-hidden="true">
+    {still.mobile && <source media="(max-width: 767px)" srcset={still.mobile} />}
+    <img src={still.desktop} alt="" width="1600" height="900" decoding="async" fetchpriority="high" />
+  </picture>
+  <DioramaIsland client:visible page={page} glbUrl={glbUrl} pauseLabel={pauseLabel} resumeLabel={resumeLabel} pauseTarget={pauseTarget} stillAnchors={still.anchors} align="end" avatar={yieldAvatar ? AVATAR_FIGURE_ASSETS : undefined} />
+</div>
+
+{/* 前のページで止めていたら、水和を待たず属性を先に付ける（ポスターのまま、three を読まない）。キーは island の storageKey と同じ */}
+<script is:inline>
+  // ページの移動を「模型に寄るカメラ」に見せる（spec §9 の 3）。移動元の島が残した拡大の中心を、遷移の絵（::view-transition-old）の CSS の変数に写す
+  try {
+    const raw = sessionStorage.getItem('diorama:vt');
+    sessionStorage.removeItem('diorama:vt');
+    const vt = raw ? JSON.parse(raw) : null;
+    if (vt && (vt.mode === 'zoom-in' || vt.mode === 'zoom-out')) {
+      const root = document.documentElement;
+      root.setAttribute('data-vt-diorama', vt.mode);
+      root.style.setProperty('--vt-diorama-x', String(vt.x));
+      root.style.setProperty('--vt-diorama-y', String(vt.y));
+      // view-transition-name は遷移の間だけ付ける（常に付けると根が独立した重なりの層になり、模型と押せる部品が文字の層の下に回る）
+      // 模型の根は 1 ページに 1 つ（この script は根の直後にあるので、もう解析されている）
+      const model = document.querySelector('[data-motion="diorama"]');
+      if (model) {
+        model.style.viewTransitionName = 'vt-diorama';
+        const clear = () => { model.style.viewTransitionName = ''; };
+        window.addEventListener('pagereveal', (e) => { if (e.viewTransition) e.viewTransition.finished.finally(clear); else clear(); }, { once: true });
+        setTimeout(clear, 2000);
+      }
+    }
+  } catch (e) {}
+  try {
+    if (sessionStorage.getItem('motion:diorama') === 'paused') {
+      document.querySelectorAll('[data-motion="diorama"]').forEach((el) => el.setAttribute('data-motion-paused', 'true'));
+    }
+  } catch (e) {}
+</script>
+
+<style is:global>
+  .diorama--intro {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+  }
+  /* Desktop は区画の全面。根はポインターを通し（文字を選べる）、絵の層（ポスター・canvas）は -1 で文字の後ろに回る。
+     一時停止のボタンだけが文字の上（island の z-[2]） */
+  @media (min-width: 768px) {
+    .diorama--intro {
+      position: absolute;
+      inset: 0;
+      aspect-ratio: auto;
+      background-color: transparent;
+      pointer-events: none;
+    }
+  }
+</style>

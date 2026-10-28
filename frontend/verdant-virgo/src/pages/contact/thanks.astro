@@ -10,6 +10,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BookingEmbed } from '@/modules/booking';
 import { BaseLayout, PageIntro } from '@/modules/layout';
+import { DioramaStill } from '@/modules/diorama';
 import { Section, SectionHeading } from '@/modules/marketing-ui';
 import { Reveal } from '@/modules/motion';
 import { contactThanks } from '@/modules/site-content/contact';
@@ -26,7 +27,10 @@ const cardCta = (href: string) => (href === '/#source-dl' ? ctaDataAttributes('d
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
   {/* 6'-1 完了画面（h1 の上の Badge は Figma から採った。語はパンくずの「受付完了」） */}
-  <PageIntro title={hero.h1} badge={hero.badge} badgeIcon={CircleCheck} body={hero.body} />
+  {/* 2026-10-28: 媒体の枠に、基盤の模型の問い合わせ窓口に光の粒が届いた場面の静止画（B は静止。DioramaStill） */}
+  <PageIntro title={hero.h1} badge={hero.badge} badgeIcon={CircleCheck} body={hero.body}>
+    <DioramaStill slot="media" page="contactThanks" />
+  </PageIntro>
 
   {/* 6'-1 本文 2（自動返信メールを設定する場合のみ。【要確認】）。Figma どおり予約の上の白い面に置く */}
   <Section class="pb-0 md:pb-0" width="article">

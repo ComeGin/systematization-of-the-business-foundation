@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ContactFormBlock } from '@/modules/forms';
 import { BaseLayout, PageIntro } from '@/modules/layout';
+import { DioramaStill } from '@/modules/diorama';
 import { CTAButton, Section } from '@/modules/marketing-ui';
 import { Reveal } from '@/modules/motion';
 import { VT } from '@/modules/page-transition';
@@ -26,7 +27,9 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
   {/* 6-3 導入ヒーロー（本文は 2 段落） */}
   {/* h1 の id は相談フォームの名前（ContactFormBlock の labelledBy）が指す */}
   {/* h1 は vt-contact-title を静的に持つ（前のページで押した CTA ボタンから形がつながる。page-transition） */}
+  {/* 2026-10-28: 媒体の枠に、基盤の模型の問い合わせ窓口の静止画（B は静止。DioramaStill） */}
   <PageIntro title={hero.h1} titleId="contact-heading" titleViewTransitionName={VT.contactTitle}>
+    <DioramaStill slot="media" page="contact" />
     <div slot="body" class="type-body-lg phrase flex max-w-[720px] flex-col text-text-muted">
       {hero.body.map((paragraph) => <p>{paragraph.join('')}</p>)}
     </div>

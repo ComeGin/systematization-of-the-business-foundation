@@ -88,8 +88,13 @@ const motionUrls = {
    * Mobile でスクロールしている間（R19）。枠の幅＋左の余白（1rem）＋影とフォーカスリングの分（1rem）だけ左へ出し、画面の外に置く。
    * transform なのでレイアウトのずれ（CLS）にならない。reduced-motion では global.css がトランジションの時間を 0 にする（瞬時に出し入れ）
    */
-  .avatar-dock[data-avatar-away='true'] {
+  .avatar-dock[data-avatar-away='true'],
+  .avatar-dock[data-avatar-yield='true'] {
     transform: translateX(calc(-100% - 2rem));
+  }
+  /* 模型が最初から見えているページ（トップ・サービス一覧・会社概要）は、トランジションなしで最初から画面の外に置く（2026-10-28。最終レビュー I-2） */
+  .avatar-dock[data-avatar-yield-instant='true'] {
+    transition: none;
   }
 
   @media (min-width: 768px) {

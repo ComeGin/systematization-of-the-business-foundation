@@ -365,17 +365,45 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 | IAM ユーザー | 許すこと | 使う場所 |
 |---|---|---|
 | `comegin-<env>-onprem-strapi-media` | Strapi のメディアのバケット（`comegin-<env>-strapi-media-<アカウント ID>`）への `s3:GetObject`・`PutObject`・`DeleteObject` と、`s3:ListBucket` だけ | オンプレの Strapi（`onprem/strapi` の秘匿ファイルの `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY`。Strapi の S3 プロバイダーは SDK の既定の探索でこれを読む） |
-| `comegin-<env>-onprem-n8n-sns` | `comegin-ops-alert`・`comegin-lead-alert` への `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` だけへの `cloudwatch:PutMetricData`（n8n のスケジュール実行のハートビート）。購読の変更・トピックの設定変更・アラームの操作・監視アプリの名前空間（`ComeGin/Onprem`）への送信は不可 | オンプレの n8n の AWS の資格情報（エディターで、アクセスキーを入れる。SNS のノードとハートビートの HTTP Request ノードで同じ資格情報を使う。前回の Assume Role と Use System Credentials は使わない） |
+| `comegin-<env>-onprem-n8n-sns` | `comegin-ops-alert`・`comegin-lead-alert` への `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` だけへの `cloudwatch:PutMetricData`（n8n のスケジュール実行のハートビート）。購読の変更・トピックの設定変更・アラームの操作・監視アプリの名前空間（`ComeGin/Onprem`）への送信は不可 | オンプレの n8n の AWS の資格情報「AWS SNS 発行（アクセスキー）」（SNS のノードとハートビートの HTTP Request ノードで同じ資格情報を使う。前回の Assume Role と Use System Credentials は使わない）。**人はキーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書くだけ**で、設定スクリプトの `n8n-prod` が、このユーザーの有効なキーかを確かめてから n8n に入れる（`setup/manual-steps.md` の 8.6。エディターでは入れない） |
 
-アクセスキーの発行（**人が自分の端末で実行する。Claude Code の実行環境では実行しない。キーを画面に出さず、ファイルに直接書く**）:
+アクセスキーの発行（**人が自分の端末で実行する。Claude Code の実行環境では実行しない。キーを画面に出さず、ファイルに直接書く**）。
+キーのファイルは**リポジトリの外（ホームディレクトリ）に作る**。リポジトリの中に作ると、`.gitignore` に無い `*.key` を誤ってコミットしたり、Claude Code が読んだりしうる。
 
 ```bash
+# Strapi 用
 ( umask 077
   aws iam create-access-key --user-name comegin-prod-onprem-strapi-media \
-    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ./strapi-media.key )
-# 中身は「アクセスキー ID<タブ>シークレット」。オンプレの秘匿ファイルの値に写したら、このファイルを消す（shred -u ./strapi-media.key）。
-# n8n 用も同じ（--user-name comegin-prod-onprem-n8n-sns）。n8n のエディターの資格情報に入れたら、ファイルを消す。
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ~/strapi-media.key )
+
+# n8n 用
+( umask 077
+  aws iam create-access-key --user-name comegin-prod-onprem-n8n-sns \
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ~/n8n-sns.key )
 ```
+
+- `umask 077` でファイルは 600（自分だけが読み書きできる）になる。サブシェル `( ... )` の中なので、端末の umask は変わらない。
+- 中身は 1 行で「アクセスキー ID〈タブ〉シークレット」。**シークレットが返るのは作成のこの 1 回だけ**（後から AWS に聞いても取り出せない）。
+- 写し先:
+
+  | ファイル | 写し先 | 写した後 |
+  |---|---|---|
+  | `~/strapi-media.key` | `onprem/strapi/.env` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` | `docker compose up -d` で読み込ませ、管理画面から画像を 1 枚アップロードできることを確かめる（4.13） |
+  | `~/n8n-sns.key` | `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` | `node setup/setup.mjs --target prod --only n8n-prod` で n8n の資格情報に入る |
+
+- 写すときはエディタで行う（vim なら写し先を開いて `:r ~/strapi-media.key` で取り込み、2 行に分ける）。`echo KEY=... >> .env` はシェルの履歴に値が残るので使わない。画面に一度も出さずに写すなら、値を引数ではなく環境変数で渡す（`ps` に出ない）:
+
+  ```bash
+  ( umask 077
+    IFS=$'\t' read -r AWS_ID AWS_SECRET < ~/strapi-media.key
+    export AWS_ID AWS_SECRET
+    awk '/^AWS_ACCESS_KEY_ID=/     {print "AWS_ACCESS_KEY_ID=" ENVIRON["AWS_ID"]; next}
+         /^AWS_SECRET_ACCESS_KEY=/ {print "AWS_SECRET_ACCESS_KEY=" ENVIRON["AWS_SECRET"]; next}
+         {print}' onprem/strapi/.env > onprem/strapi/.env.tmp && mv onprem/strapi/.env.tmp onprem/strapi/.env )
+  ```
+
+- **写したら、キーのファイルを消す**: `shred -u ~/strapi-media.key ~/n8n-sns.key`（中身を上書きしてから消す。`rm` は名前を消すだけで中身がディスクに残る）。SSD やジャーナル・スナップショットのあるファイルシステムでは上書きが効かないことがある（`man shred`）ので、漏れた疑いがあれば下のとおりキーを止める。
+- 写す前にファイルをなくしたら、シークレットは取り出せないので、`aws iam delete-access-key --user-name <ユーザー> --access-key-id <アクセスキー ID>` で消してから作り直す。
 
 - キーは 1 ユーザーあたり 2 つまで。ローテーションは、新しいキーを作って切り替え、古いキーを `aws iam update-access-key --status Inactive` で止めて動作を確かめてから、`aws iam delete-access-key` で消す。
 - **キーを Claude Code の環境変数に引き継がない**（監視アプリの許可リスト方式の `env` のとおり）。キーが漏れた疑いがあれば、すぐに `delete-access-key` する（権限は上の 1 バケットか 2 トピックだけ）。
@@ -487,6 +515,24 @@ docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 \
 docker push $ECR/comegin/prod/chatwoot:v4.18.0-1
 ```
 
+**push で `file integrity checksum failed for "<パス>"` が出たとき**: 手元の Docker（overlay2）に置かれた層のファイルが、pull したときの中身から変わっている（壊れている）。
+Docker は push のときに層を組み立て直し、pull のときに記録した各ファイルのチェックサムと照合するので、壊れた中身が ECR に送られることはない（それまでに送れた層も正しい）。
+直し方は、壊れた層を手元から消して上流から取り直すこと。`--no-cache` だけでは上流の層を取り直さない（ビルドのキャッシュが層を持ち続ける）。
+マニフェストまで届いていなければ ECR にタグはできていないので、同じタグで push し直せる（`aws ecr describe-images --repository-name comegin/prod/mautic --image-ids imageTag=<タグ>` が `ImageNotFoundException` なら未作成）。
+
+```bash
+IMG=$ECR/comegin/prod/mautic:7.2.0-1
+docker image rm "$IMG"
+docker builder prune -a -f        # 上流の層を持つビルドのキャッシュを消す（ほかのビルドのキャッシュも消える）
+docker build --pull --no-cache --platform linux/amd64 --build-arg UPSTREAM_TAG=7.2.0-apache \
+  --build-arg UPSTREAM_DIGEST=sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f \
+  -t "$IMG" cloud/images/mautic
+docker save "$IMG" > /dev/null && echo 層はすべて読み直せる   # push と同じ照合をする。エラーなら push も失敗する
+docker push "$IMG"
+```
+
+取り直してもまた壊れるときは、VM（VirtualBox）のメモリかディスクを疑う（2026-10-28 に、Mautic のイメージで少なくとも 2 つのファイルが壊れていた。そのうち 1 つは Docker Hub の層と比べて 1 ビットだけ違っていた）。
+
 Mautic の派生イメージが足すもの（`cloud/images/mautic/Dockerfile` の 1〜5）: 1 `mysqladmin` の TLS、2 Doctrine の PDO の TLS、3 インストーラーの PDO の TLS、4 cron に `mautic:webhooks:process`（毎分）、5 `MAUTIC_TRUSTED_PROXIES` を `config/parameters_local.php` に写す entrypoint のラッパー（`comegin-entrypoint.sh`）。
 **Mautic のタスク定義に `DEBUG=true` を入れない**（上流の起動の検査が、DB のパスワードなどの環境変数をログに出すため）。上流の cron の entrypoint は `MAUTIC_*` の環境変数をコンテナの中の `/tmp/cron.env` に書く（上流の挙動。コンテナの外には出ない）。
 
@@ -567,14 +613,22 @@ aws logs tail /comegin/prod/tasks --region "$REGION" --since 15m
 - **RDS のマスターの資格情報を読めるのは、このタスクの実行ロール（`comegin-<env>-ops-tasks-execution`）だけ。どのサービスのタスク定義からも参照しない。** 運用者が RunTask で起動したときだけ読まれる。
 - TODO(未検証): `MYSQL_PWD` は非推奨だが 8.4 でも使える想定。使えなければ `--defaults-extra-file` に替える。
 
-**`strapi` と `n8n` のパスワードをオンプレに渡す**（人が実行する。画面に出さず、ファイルに直接書く）。DB 作成のあと（パスワードが Secret の値に揃ったあと）に、オンプレの秘匿ファイルの `DATABASE_PASSWORD`（Strapi）と `DB_POSTGRESDB_PASSWORD`（n8n）に写す:
+**`strapi` と `n8n` のパスワードをオンプレに渡す**（人が実行する。画面に出さず、ファイルに直接書く）。DB 作成のあと（パスワードが Secret の値に揃ったあと）に、オンプレの秘匿ファイルの `DATABASE_PASSWORD`（Strapi）と `DB_POSTGRESDB_PASSWORD`（n8n）に写す。
+ファイルは**リポジトリの外（ホームディレクトリ）に作る**（4.5 のキーと同じ理由。リポジトリの中だと、`.gitignore` に無い `*.pw` を誤ってコミットしたり、Claude Code が読んだりしうる）:
 
 ```bash
 ( umask 077
-  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/strapi/DB_PASSWORD --query SecretString --output text > ./strapi-db.pw
-  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/n8n/DB_PASSWORD --query SecretString --output text > ./n8n-db.pw )
-# 値をオンプレの秘匿ファイルに写したら、./strapi-db.pw と ./n8n-db.pw を消す（shred -u）。
+  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/strapi/DB_PASSWORD --query SecretString --output text > ~/strapi-db.pw
+  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/n8n/DB_PASSWORD --query SecretString --output text > ~/n8n-db.pw )
 ```
+
+| ファイル | 写し先 |
+|---|---|
+| `~/strapi-db.pw` | `onprem/strapi/.env` の `DATABASE_PASSWORD` |
+| `~/n8n-db.pw` | `onprem/n8n/.env` の `DB_POSTGRESDB_PASSWORD` |
+
+- 中身はパスワードだけの 1 行（`--output text` が末尾に改行を付ける）。写し方は 4.5 と同じで、エディタで行う（vim なら写し先を開いて `:r ~/strapi-db.pw` で取り込み、`DATABASE_PASSWORD=` の後ろにつなげる）。`echo ... >> .env` はシェルの履歴に値が残るので使わない。
+- 写したら消す: `shred -u ~/strapi-db.pw ~/n8n-db.pw`（4.5 の `shred` の限界の注意も同じ）。パスワードは Secrets Manager に残っているので、なくしても取り出し直せる。
 
 あわせて、オンプレの秘匿ファイルの `DATABASE_HOST`（Strapi）と `DB_POSTGRESDB_HOST`（n8n）には、PostgreSQL のクラスターのエンドポイントを入れる（親スタックの出力には無い。IP アドレスで書かない。TLS の検証はこのホスト名で行う）:
 
@@ -594,12 +648,178 @@ aws ecs execute-command --cluster "$CLUSTER" --task <タスク ARN> --container 
 
 ### 4.9 SES: 本番アクセスの申請と SMTP 認証情報
 
-1. **本番アクセスの申請**（AWS コンソールの SES）。**現在はサンドボックス**（24 時間で 200 通、毎秒 1 通。検証済みの宛先にしか送れない）。顧客向けメールを送る前（BA-04 のトスアップを始める前）に済ませる。申請には配信停止と苦情の扱いの説明が要る。
-2. ドメイン ID（`ses.yaml`）の DKIM と MAIL FROM が `Verified` になるのを待つ（Route 53 のレコードは自動）。
-3. **SMTP 認証情報を Mautic 用と Chatwoot 用で別々に発行する**（コンソール: SES → SMTP settings → Create SMTP credentials）。ユーザー名と SMTP パスワードを 4.6 の Secret に入れる。SMTP のエンドポイントは `email-smtp.ap-northeast-1.amazonaws.com`、ポート 587（STARTTLS）。
-4. **apex（`comegin.com`）の SPF と DMARC は作っていない。** `comegin.com` は Google Workspace のメールも使っており、apex には既に MX と SPF の TXT があると思われる（未確認）。SPF の TXT は 1 つしか持てないため、`include:amazonses.com` を既存の SPF に足す作業と、DMARC の設定は人間が行う。MAIL FROM のサブドメイン（`bounce.`）の MX と SPF は `ses.yaml` が作るので、衝突しない。
-5. **受信サーバーへの TLS は必須（`SesTlsPolicy=REQUIRE`）**。TLS で繋がらない受信先には送らない（問い合わせの内容や氏名を平文で流さない）。届かない宛先が業務に要ると分かったら、`R1` の判断でデプロイの設定ファイルに `SesTlsPolicy=OPTIONAL` を書いてデプロイする。
-6. バウンスと苦情を Mautic に返す経路は未決定（TA-06 の 11 節）。SES のイベントを社内の通知（ops）に流すと、宛先のメールアドレスが載ってしまうため、ここでは設定していない。
+SES の送信元は `comegin.com`（ドメイン ID。`ses.yaml`）。CloudFormation で作れるのはドメイン ID・DKIM・MAIL FROM・設定セットまでで、**本番アクセスの申請・SMTP 認証情報の発行・DMARC は人が行う**（API・コンソールでしかできない、または Google Workspace と共有する DNS のため）。
+手順は 2026-10-28 に AWS の公式文書（Request production access・Obtaining Amazon SES SMTP credentials・Complying with DMARC）と、上流の Mautic 7.2 のソース（メールの設定の画面）で確かめた。
+
+| 順 | すること | だれが | いつまでに |
+|---|---|---|---|
+| 1 | ドメインの検証（DKIM・MAIL FROM）が通ったかを確かめる | 人・端末（読み取り） | デプロイの直後 |
+| 2 | 本番アクセス（サンドボックスの解除）を申請する | 人・画面 | **公開サイトを配信した後**（4.14。2026-10-28 のユーザーの決定）。審査は最初の応答まで最大 96 時間かかるので、配信したらすぐ |
+| 3 | SMTP 認証情報を Mautic 用と Chatwoot 用で別々に発行する | 人・画面 | Chatwoot・Mautic の DesiredCount を上げる前（4.11） |
+| 4 | SMTP 認証情報を Secrets Manager に入れる | 人・端末 | 同上 |
+| 5 | Chatwoot（環境変数。自動）と Mautic（管理画面）に設定する | 人・画面 | 各製品の起動の後 |
+| 6 | apex の DMARC を設定する | 人・画面（Route 53） | 顧客へ送り始める前 |
+| 7 | 送信を確かめる | 人・画面 | 5 の後 |
+
+設定スクリプトの段階 `apps`（`cloud`）は、本番アクセス・DKIM・MAIL FROM・DMARC・SMTP の Secret の値の有無を読み取りで確かめ、済んでいなければ警告する（止めない）。
+
+#### 4.9.1 ドメインの検証を確かめる
+
+`ses.yaml` が DKIM の CNAME 3 つと、MAIL FROM（`bounce.comegin.com`）の MX・SPF を Route 53 に作る。DNS が行き渡ると、SES が自動で検証する（数分〜72 時間）。
+
+```bash
+aws sesv2 get-email-identity --region ap-northeast-1 --email-identity comegin.com \
+  --query '{Sendable:VerifiedForSendingStatus, Dkim:DkimAttributes.Status, MailFrom:MailFromAttributes.MailFromDomainStatus}'
+#  → Sendable true・Dkim "SUCCESS"・MailFrom "SUCCESS" なら済み
+#    （--query の {名前:式} の名前は英数字だけ。日本語にすると「Bad jmespath expression: Unknown token」で失敗する）
+```
+
+- `PENDING` のまま 72 時間を過ぎたら、Route 53 のホストゾーン `comegin.com` に `ses.yaml` のレコードがあるか（`dig CNAME <トークン>._domainkey.comegin.com`、`dig MX bounce.comegin.com`）を見る。
+- **検証が通っていても、サンドボックスのあいだは検証済みの宛先にしか送れない**（次の 4.9.2）。
+
+#### 4.9.2 本番アクセスを申請する（サンドボックスの解除）
+
+新しいアカウントは、リージョンごとにサンドボックスに置かれる。サンドボックスの制限: **検証済みのアドレス・ドメイン（とメールボックスシミュレーター）にしか送れない、24 時間で 200 通、毎秒 1 通**。顧客向けのメール（フォームの自動返信・Chatwoot の返信・BA-04 のトスアップのキャンペーン）を送る前に解除する。**申請は東京（`ap-northeast-1`）で行う**（us-east-1 などほかのリージョンの状態は関係ない）。
+
+**申請するのは、公開サイト（`https://comegin.com`）を配信した後**（4.14。2026-10-28 のユーザーの決定）。審査は Web サイトの URL から送るメールの種類を見るため。ドメインの検証（4.9.1）も先に済ませる（承認が早い。公式）。審査のあいだ（最大 96 時間）は、顧客向けのメールが送れないので、フォームの自動返信やチャットのメール通知を使う運用は、承認を待ってから始める。
+
+コンソールでの手順:
+
+1. SES のコンソール（リージョンは **アジアパシフィック（東京）**）→ 左の **Account dashboard**
+2. 上の「Your Amazon SES account is in the sandbox」の右の **View Get set up page** → **Request production access**
+3. 入力する:
+
+   | 項目 | 入れる値 |
+   |---|---|
+   | **Mail type** | **Transactional**（2026-10-28 のユーザーの決定。立ち上げ期は、フォームの自動返信・問い合わせの返信・担当者への通知が大半。1 対 1 で、相手の操作がきっかけ）。Mautic のキャンペーンでの一斉送信が大半になったら、SES のコンソールのアカウントの詳細で Marketing に改める |
+   | **Website URL** | `https://comegin.com` |
+   | **Additional contacts** | SES からの連絡を受けるアドレス（カンマ区切りで 4 つまで。運用の共有アドレスなど） |
+   | **Preferred contact language** | **Japanese** |
+   | **Acknowledgement** | 「明示的に求めた人にだけ送る」「バウンスと苦情を処理する仕組みがある」に同意する（下の「バウンスと苦情の扱い」を満たしてから） |
+
+4. **Submit request**。AWS サポートのケースが作られ、**最初の応答まで最大 96 時間**（公式）。追加の情報を求められたら、サポートのケースに返信する。審査中は内容を直せない。
+
+審査で使い方の説明を求められたときの文案（そのまま、または事情に合わせて直して返信する）:
+
+```
+comegin.com は当社（SaaS の販売）の Web サイトです。SES からは次のメールを送ります。
+1. 問い合わせフォーム（Mautic）の送信者への自動返信（1 通／送信）
+2. Web サイトのチャット（Chatwoot）で、担当者が訪問者に返す返信と、会話の記録
+3. 問い合わせを受けた社内の担当者への通知
+4. 問い合わせ・資料請求をした見込み客への、事業に関するお知らせ（Mautic のキャンペーン。各メールに配信停止のリンクを付ける）
+宛先は、当社のフォームやチャットに自分でアドレスを入力した人と、社内の担当者だけです。名簿の購入・収集はしません。
+バウンスと苦情は、SES のアカウント単位の抑制リストで以後の送信を止め、バウンス率と苦情率は CloudWatch のアラームで監視しています（SES の審査の基準より手前で通知）。
+配信停止の申し出は Mautic の配信停止のリンクで受け付け、以後のキャンペーンから外します。
+想定の送信数は、立ち上げ期で 1 日あたり数十〜数百通です。
+```
+
+CLI で申請する場合（コンソールと同じ。`--production-access-enabled` を付けると申請になる）:
+
+```bash
+aws sesv2 put-account-details --region ap-northeast-1 \
+  --production-access-enabled --mail-type TRANSACTIONAL \
+  --website-url https://comegin.com --contact-language JA \
+  --additional-contact-email-addresses <連絡先のアドレス> \
+  --use-case-description "<上の文案>"
+```
+
+状態の確かめ方（読み取りだけ）:
+
+```bash
+aws sesv2 get-account --region ap-northeast-1 \
+  --query '{Production:ProductionAccessEnabled, Review:Details.ReviewDetails.Status, Quota:SendQuota, Suppression:SuppressionAttributes.SuppressedReasons}'
+#  → Production true になれば解除済み。Review は審査の状態。Quota（Max24HourSend・MaxSendRate）は承認のときに決まる
+```
+
+**バウンスと苦情の扱い**（申請の Acknowledgement の前提。今あるものと無いもの）:
+
+- **アカウント単位の抑制リスト**: 2019-11-25 より後に SES を使い始めたアカウントは、バウンスと苦情の両方で既定で有効（公式）。ハードバウンスと苦情のアドレスには、以後 SES が送らない。上の `get-account` の `Suppression` が `["BOUNCE","COMPLAINT"]` であることを確かめる。無効なら `aws sesv2 put-account-suppression-attributes --region ap-northeast-1 --suppressed-reasons BOUNCE COMPLAINT`。
+- **率の監視**: `alarms.yaml` の `ses-bounce-rate`（4%）と `ses-complaint-rate`（0.08%）が ops に通知する（SES の審査の基準 5%・0.1% より手前）。
+- **Mautic のコンタクトへの反映**（バウンス・苦情のアドレスを Mautic で「連絡しない（DNC）」にする）は **ADR-30 で決めた**（2026-10-28）: SES の設定セット → EventBridge → Lambda `ses-feedback` → Mautic の REST API。恒久的なバウンスは理由「バウンス」、苦情は理由「配信停止」。**実装は未着手**で、それまでは抑制リストが送信を止める（申請の条件は満たす）。SES のイベントを社内の通知（ops）に流さない方針は変えない（宛先のメールアドレスが載るため）。
+
+#### 4.9.3 SMTP 認証情報を発行する（Mautic 用と Chatwoot 用で別々に）
+
+SMTP 認証情報は IAM ユーザーのアクセスキーから作られる（**AWS のシークレットアクセスキーそのものではない。リージョンごとに別**）。2 つに分けるのは、片方が漏れたときに、もう片方を止めずに作り直せるようにするため。発行する人の主体には、IAM のユーザー・グループの作成とアクセスキーの作成の権限が要る（`iam:CreateUser`・`iam:CreateGroup`・`iam:PutGroupPolicy`・`iam:AddUserToGroup`・`iam:CreateAccessKey`）。
+
+1. SES のコンソール（**東京**）→ 左の **SMTP settings**。SMTP endpoint が `email-smtp.ap-northeast-1.amazonaws.com` であることを確かめる
+2. 右上の **Create SMTP credentials**（IAM のコンソールが開く）
+3. **User Name** に `comegin-prod-ses-smtp-mautic` を入れて **Create user**
+4. 画面の **Download .csv file** で保存する（**この画面を閉じると二度と見られない**）。**Show** で画面に出さない
+5. Chatwoot 用も同じ手順で、名前は `comegin-prod-ses-smtp-chatwoot`
+
+- コンソールが作るユーザーは、グループ `AWSSESSendingGroupDoNotRename`（ポリシーは `ses:SendRawEmail` だけ）に入る（2024-09-06 以降の公式の動き）。グループの名前を変えない。
+- 保存した CSV は、ブラウザのダウンロードの場所（`~/Downloads` など。**リポジトリの外**）に置く。1 行目が見出し、2 行目が「IAM のユーザー名, SMTP のユーザー名, SMTP のパスワード」（列の順は `head -1 <CSV>` で見出しだけを見て確かめる。見出しに値は無い）。
+- SMTP のユーザー名は `AKIA` で始まる文字列、パスワードは 44 文字前後。**どちらも秘密値として扱う**（ユーザー名はアクセスキー ID）。
+
+#### 4.9.4 Secrets Manager に入れる
+
+CSV から読み、値を画面にもコマンドラインの引数にも出さずに入れる（`printf` はシェルの組み込みなので `ps` に出ない。`file:///dev/stdin` で標準入力から渡す）。人が自分の端末で実行する:
+
+```bash
+put_smtp() {  # 使い方: put_smtp <CSV のパス> <mautic|chatwoot>
+  ( IFS=, read -r _ SMTP_USER SMTP_PASS < <(sed -n 2p "$1" | tr -d '\r"')
+    printf %s "$SMTP_USER" | aws secretsmanager put-secret-value --region ap-northeast-1 \
+      --secret-id "comegin/prod/$2/SMTP_USERNAME" --secret-string file:///dev/stdin --query Name --output text
+    printf %s "$SMTP_PASS" | aws secretsmanager put-secret-value --region ap-northeast-1 \
+      --secret-id "comegin/prod/$2/SMTP_PASSWORD" --secret-string file:///dev/stdin --query Name --output text )
+}
+put_smtp ~/Downloads/<Mautic 用の CSV>.csv mautic
+put_smtp ~/Downloads/<Chatwoot 用の CSV>.csv chatwoot
+shred -u ~/Downloads/<Mautic 用の CSV>.csv ~/Downloads/<Chatwoot 用の CSV>.csv
+```
+
+- 表示されるのは Secret の名前だけ（`--query Name`）。CSV の列の順が違ったら（4.9.3 の見出しで確かめる）、`read` の変数の並びを合わせる。
+- `shred` の限界は 4.5 と同じ。漏れた疑いがあれば、IAM のコンソールでその SMTP ユーザーを消し、4.9.3 からやり直す（**SMTP のパスワードを変える方法は、ユーザーを消して作り直すことだけ**。公式）。
+
+#### 4.9.5 アプリに設定する
+
+| 製品 | 設定のしかた | 送信元 |
+|---|---|---|
+| **Chatwoot** | **人の作業は無い。** タスク定義が `SMTP_ADDRESS`（`email-smtp.ap-northeast-1.amazonaws.com`）・`SMTP_PORT`（587）・STARTTLS・証明書の検証（`SMTP_OPENSSL_VERIFY_MODE=peer`）を環境変数で持ち、`SMTP_USERNAME`・`SMTP_PASSWORD` を Secret から読む（`services/chatwoot-*.yaml`）。**Secret はタスクの起動時に読まれる**ので、4.9.4 の後に DesiredCount を上げる（4.11）。既に動いているなら、`aws ecs update-service --region ap-northeast-1 --cluster comegin-prod --service comegin-prod-chatwoot-web --force-new-deployment`（worker も同じ。台数は変わらない） | 親のパラメータ `ChatwootMailerSenderEmail`（既定 `Chatwoot <no-reply@comegin.com>`） |
+| **Mautic** | **管理画面で設定する**（環境変数では渡していない。`services/mautic-web.yaml` の冒頭）。右上の歯車 → **Configuration**（設定）→ **Email Settings**（メール設定）→ **Mail Send Settings** の **Email DSN** に、**Scheme** `smtp`・**Host** `email-smtp.ap-northeast-1.amazonaws.com`・**Port** `587`・**User** と **Password** に 4.9.4 の Mautic 用の値（Secrets Manager から人が写す。下）。Path・Options は空。**Save** の後に **Send test email**。`smtp` の Scheme は 587 で STARTTLS を使う（Mautic 7 は Symfony Mailer。`smtps` は 465 の暗黙の TLS で、ここでは使わない） | 同じ画面の **E-mail address to send mail from**・**Name to send mail as**（`@comegin.com` のアドレス。例 `info@comegin.com`） |
+
+Mautic の画面に入れる値の取り出し方（画面に出るのは、そのときだけ。人のいない場所で行い、入れたら端末を閉じる）:
+
+```bash
+aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/mautic/SMTP_USERNAME --query SecretString --output text
+aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/mautic/SMTP_PASSWORD --query SecretString --output text
+```
+
+- 送信元は **`comegin.com` のアドレスならどれでもよい**（ドメインごと検証済み）。返信を受けるなら、そのアドレスが Google Workspace に実在すること（`no-reply@` への返信は届かない）。
+- 送信のすべてに、ドメインの既定の設定セット `comegin-prod`（TLS は必須・評判のメトリクス）が効く。
+
+#### 4.9.6 apex の DMARC を設定する（SPF は足さなくてよい）
+
+- **apex（`comegin.com`）の SPF に `include:amazonses.com` を足す必要は無い。** SES のメールは、エンベロープの送信元が MAIL FROM のサブドメイン `bounce.comegin.com` になり、SPF はそちらの TXT（`ses.yaml` が作る）で評価される。DMARC の SPF の照合は、サブドメインでも「緩い照合」で通る（公式: Complying with DMARC）。DKIM も `comegin.com` の Easy DKIM で通る。apex の SPF は Google Workspace のもののまま触らない（10 回の DNS 参照の上限を使わないため）。
+- **DMARC の TXT は apex に 1 つ必要**（Gmail・Yahoo は一斉送信の送り手に DMARC を求め、無いと迷惑メールに入りやすい）。`comegin.com` は Google Workspace と共有なので、既にあるかを先に見る:
+
+  ```bash
+  dig +short TXT _dmarc.comegin.com
+  ```
+
+  無ければ、Route 53 のホストゾーン `comegin.com` に TXT を足す（まず監視だけの `p=none` から始め、集計レポートで SES と Workspace の両方が通ることを確かめてから `quarantine` に上げる）:
+
+  ```
+  名前: _dmarc.comegin.com   種類: TXT
+  値:   "v=DMARC1; p=none; rua=mailto:<集計レポートを受けるアドレス>"
+  ```
+
+- **`aspf=s`（SPF の厳しい照合）を入れない。** 入れると、MAIL FROM がサブドメインの SES のメールが SPF の照合に落ちる（公式）。`adkim=s` も入れない。既にあるレコードにこれらがあれば外す。
+- このレコードは CloudFormation の外（Workspace と共有するため）。設定スクリプトの段階 `apps` は、DMARC の TXT が無い・`aspf=s` があるときに警告する。
+
+#### 4.9.7 送信を確かめる
+
+- **サンドボックスのあいだ**: 宛先も検証済みでなければ届かない。確かめたいアドレスを一時的に検証する（SES のコンソール → **Verified identities** → **Create identity** → **Email address**。届いたメールのリンクを開く）。終わったら、その ID を消す。メールボックスシミュレーター（`success@simulator.amazonses.com`）への送信は、サンドボックスでも数に入らずに試せる。
+- **Mautic**: 4.9.5 の **Send test email**（ログインしている管理者のアドレスに届く）。
+- **Chatwoot**: 管理画面のパスワードの再設定のメールや、担当者への「新しい会話」の通知（4.17 の 7）が届くこと。届かないときは、Sidekiq（`chatwoot-worker`）のログで SMTP の応答（`535 Authentication Credentials Invalid` はユーザー名・パスワードの誤り、`554 Message rejected: Email address is not verified` はサンドボックスか送信元のドメインの誤り）を見る。
+- 届いたメールのヘッダー（Gmail なら「メッセージのソースを表示」）で、`SPF: PASS`（`bounce.comegin.com`）・`DKIM: PASS`（`comegin.com`）・`DMARC: PASS` を確かめる。
+
+#### 4.9.8 運用
+
+- **受信サーバーへの TLS は必須（`SesTlsPolicy=REQUIRE`）**。TLS で繋がらない受信先には送らない（問い合わせの内容や氏名を平文で流さない）。届かない宛先が業務に要ると分かったら、`R1` の判断でデプロイの設定ファイルに `SesTlsPolicy=OPTIONAL` を書いてデプロイする。
+- **送信の上限**（`SendQuota`）を超えると送信が拒否される。Mautic のキャンペーンで一斉に送るときは、上の `get-account` の上限を先に見る。上限の引き上げは SES のコンソールの **Account dashboard** から申請する。
+- **SMTP 認証情報の入れ替え**: 新しい SMTP ユーザーを作る（4.9.3）→ Secret に入れる（4.9.4）→ Chatwoot は新しいデプロイ、Mautic は画面で入れ直す → 送信を確かめる → 古い SMTP ユーザーを IAM のコンソールで消す。
+- バウンスと苦情を Mautic のコンタクトに返す経路は ADR-30（実装は未着手。4.9.2 の「バウンスと苦情の扱い」）。実装したら、Mautic で専用の API 認証情報を作り、Secret `comegin/prod/ses-feedback/MAUTIC_CLIENT_ID`・`MAUTIC_CLIENT_SECRET` に入れる手順をここに足す。
 
 ### 4.10 マイグレーションとアプリの初期設定
 
@@ -627,7 +847,7 @@ aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].co
 
 #### n8n の AWS の資格情報（SNS への発行）
 
-オンプレの n8n の AWS ノードには、IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーを入れる（4.5 で発行）。n8n のエディターで、AWS の資格情報を作る: 認証は**アクセスキー**、リージョンは `ap-northeast-1`。ワークフローの SNS ノードにこの資格情報を使う。ハートビートの HTTP Request ノード（`PutMetricData`）も同じ資格情報で署名する（次の節）。
+オンプレの n8n の AWS ノードには、IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーを入れる（4.5 で発行）。キーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書いて `node setup/setup.mjs --target prod --only n8n-prod` を実行すると、provision が AWS の資格情報「AWS SNS 発行（アクセスキー）」（認証は**アクセスキー**、リージョンは `ap-northeast-1`）を作り、ワークフローの SNS ノードに割り当てる（エディターで手で作らない。`setup/manual-steps.md` の 8.6）。ハートビートの HTTP Request ノード（`PutMetricData`）も同じ資格情報で署名する（次の節）。
 前回の Assume Role・Use System Credentials・`N8N_AWS_SYSTEM_CREDENTIALS_ACCESS_ENABLED` は使わない（ロール `sns-publisher` は無い）。引き受けや購読の変更の権限は、このユーザーに無い（2 トピックへの `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` への `PutMetricData` だけ。TA-04 の 1 節）。
 
 #### n8n のスケジュール実行のハートビート（TA-05 の 4 節の項目 3）
@@ -834,6 +1054,12 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
    ```
 
    結果の JSON が `{"ok":true,…}` であること。`{"ok":false,…}` は入力の誤り、`FunctionError` は実行の失敗（ロググループ `/aws/lambda/comegin-<env>-admin-auth-ops`）。
+
+   **Google の画面で `エラー 400: redirect_uri_mismatch` が出たとき**: admin-auth（Better Auth）が Google に送る戻り先は **`https://<AuthHost>/api/auth/callback/google`**（既定 `https://auth.comegin.com/api/auth/callback/google`。`BETTER_AUTH_URL` ＋ basePath `/api/auth` ＋ `/callback/google`。`backend/admin-auth/src/auth.ts`・`constants.ts`）。これを、親のパラメータ `GoogleClientId` の OAuth クライアントの **「承認済みのリダイレクト URI」** に登録する（Google Cloud Console → Google Auth Platform → Clients → そのクライアント）。
+   - エラーの画面の「このエラーの詳細」に、Google が受け取った `redirect_uri` と `client_id` が出る。`client_id` が `GoogleClientId` と同じクライアントか、`redirect_uri` が登録した値と**完全に**同じか（`https`・大文字小文字・末尾の `/`）を見る。
+   - よくある取り違え: 開発のクライアント（`comegin-admin-auth-dev`。ngrok の URI だけ）の ID を `GoogleClientId` に書いた／URI を「承認済みの JavaScript 生成元」の欄に入れた／ALB の `https://<ChatHost>/oauth2/idpresponse` を Google に登録した（これは ALB と admin-auth のあいだの戻り先で、`register-alb-client` が admin-auth に登録するもの。Google には登録しない）。
+   - 登録してから効くまで、**5 分〜数時間**かかることがある（Google の公式）。AWS 側の変更（デプロイ）は要らない。
+   - クライアントを作り直したり別のクライアントに替えたりしたら、`GoogleClientId`（samconfig.toml → `sam deploy`）と Secret `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）を**同じクライアントの値**にそろえる（片方だけだと、次は `invalid_client` になる）。
 4. 確かめる: 管理画面（`chat.`・`mkt.`）を開き、`auth.` に飛んで Google でログインし、戻ってこられること。**ALB の認証のメトリクス（`AWS/ApplicationELB` の `ELBAuthError`・`ELBAuthFailure` が 0 であること）と、IdP の呼び出しの所要時間（`ELBAuthLatency`）**を見る（ALB のアクセスログは未設定〈5 章〉。原因を詳しく見るときは一時的に有効にして `error_reason` を見る）。アラーム `admin-auth-errors`・`admin-auth-throttles`・`admin-auth-target-5xx` が鳴っていないこと。
 
 - **ALB の IdP の呼び出し（トークン・UserInfo）が待つ時間は公式文書で確かめられていない。** 呼び出しの数秒前にブラウザが同じ関数を呼ぶため、起動済みである見込み（仕様の D1）。遅い・失敗するときは `AdminAuthProvisionedConcurrency=1` にしてデプロイする（常時 1 つ起動。月 4〜5 USD 前後）。
@@ -847,7 +1073,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | 領域 | TODO | どこに書いたか |
 |---|---|---|
 | **訪問者向けパス** | TA-06 の 5.3 の想定値で入れてある。各製品のバージョンで DevTools により実測して確定する（Chatwoot は `/packs/*` 以外のアセットのパスがあるか、Mautic は `/form/generate.js` などの埋め込み用のパス）。ヘルスチェックのパスも実測 | `edge.yaml` |
-| **SES** | 本番アクセスの申請、apex の SPF と DMARC を Google Workspace と統合、バウンスと苦情を Mautic に返す経路 | 4.9、`ses.yaml` |
+| **SES** | 本番アクセスの申請（4.9.2。Transactional・公開サイトの配信の後）、apex の DMARC（4.9.6。Google Workspace と共有）、バウンスと苦情を Mautic に返す Lambda `ses-feedback` の実装（ADR-30。設計は決定済み）。SMTP 認証情報の IAM ユーザーは CloudFormation の外（コンソールが作る。4.9.3） | 4.9、`ses.yaml` |
 | **E-15 の写し** | 頻度と形式、保持期間とライフサイクル（決まるまで設定しない）、Object Lock（保持期間が決まってから）。`If-None-Match` を必須にするバケットポリシーの Deny は実機未検証（書き込みは単発の `PutObject` で、マルチパートを使わないこと） | `runlog-archive.yaml` |
 | **SNS の購読** | `AuthenticateOnUnsubscribe` を付けた確認（4.4）。購読状態（`Confirmed` の数）の監視は未作成（SNS 以外の手段が要る。TA-05 の項目 8） | 4.4 |
 | **外形監視** | 訪問者向けパスが認証なしで 200 を返すこと、管理画面が 302 を返すこと（200 は認証が外れた異常）、`cms.`・`n8n.`・`stats.` の名前が引けないことの定期確認は未作成（TA-05 の項目 6・7。CloudWatch Synthetics か Route 53 のヘルスチェックの案）。4.13 を手で行う | — |
