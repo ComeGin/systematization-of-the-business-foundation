@@ -30,11 +30,11 @@ import { SourceDlBlock } from '@/modules/source-dl';
 import { AnnouncementBanner, BaseLayout } from '@/modules/layout';
 import { Photo } from '@/modules/media';
 import { CtaGlow, GlowGrid, HeroHeading, MotionBlobs, Pin3d, StatRow, Tilt3d, ToolMarquee } from '@/modules/motion';
-import { DioramaHero } from '@/modules/diorama';
-import { DIORAMA } from '@/modules/site-content/diorama';
+import { AtelierHero } from '@/modules/atelier';
+import { ATELIER } from '@/modules/site-content/atelier';
 import { detailLinkTarget, MOTION_PAUSE, MOTION_PAUSE_TARGETS, NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 import { NewTabNotice } from '@/modules/a11y';
-import { publishedCases } from '@/modules/site-content/cases';
+import { CASES, publishedCases } from '@/modules/site-content/cases';
 import {
   CTABanner,
   CTAButton,
@@ -87,16 +87,6 @@ const iconOf = (name: string) => {
 // 1-7 のサービスカード。金額・期間・備考は §2（pricing.ts）から引く
 const caseStudies = publishedCases();
 
-// 模型の押せる部品とパネルの文言（窓口のパネルは掲載許可の実績だけを並べる）
-const dioramaTouch = {
-  parts: DIORAMA.parts,
-  cases: { copy: DIORAMA.cases, items: caseStudies },
-  close: DIORAMA.close,
-  hint: DIORAMA.hint,
-  partsLabel: DIORAMA.partsLabel,
-  newTabNotice: NEW_TAB_NOTICE,
-};
-
 const serviceCards = SERVICE_ORDER.map((slug) => ({ card: SERVICE_CARDS[slug], ...serviceCardPrices(SERVICE_CARDS[slug]) }));
 
 const { announcement, hero, philosophy, problems, promises, experience, loop, tools, services, cases, sourceDl, faq, banner } = TOP;
@@ -118,10 +108,16 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
     </CTAButton>
   </AnnouncementBanner>
 
-  {/* 1-3 ヒーロー。2026-10-28 に「基盤の模型」に作り直した（spec 2026-10-28-hero-diorama-design.md）。
-      Desktop は区画の全面に模型、文字と CTA は左に重ねる。Mobile は 文字 → CTA → 模型 の順に縦積み。
-      模型の部品を押すと中の仕事が開く（DioramaHero。文言は site-content/diorama.ts）。tone は data-surface="dark"（フォーカスリングが白） */}
-  <DioramaHero pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.diorama} touch={dioramaTouch}>
+  {/* 1-3 ヒーロー。2026-10-29 に「デザイナーのアトリエ」（一人称で歩く 3D）に作り直した（spec 2026-10-28-hero-atelier-design.md）。
+      画面いっぱいのアトリエの上に、文字と CTA を左下の板に重ねる（AtelierHero）。tone は data-surface="dark"（フォーカスリングが白） */}
+  <AtelierHero
+    pauseLabel={MOTION_PAUSE.pause}
+    resumeLabel={MOTION_PAUSE.resume}
+    pauseTarget={MOTION_PAUSE_TARGETS.atelier}
+        walk={{ forward: ATELIER.forward, back: ATELIER.back, hint: ATELIER.hint }}
+        avatarName={ATELIER.avatarName}
+    tips={{ props: ATELIER.props, frames: ATELIER.frames, caseCta: ATELIER.caseCta, close: ATELIER.close, listHeading: ATELIER.listHeading, cases: CASES }}
+  >
     <Fragment slot="copy">
       <p class="type-small text-text-on-hero-accent">{hero.tagline}</p>
       <HeroHeading level="h1" heading={hero.h1} class="type-h1 text-text-inverse" />
@@ -140,7 +136,7 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
       </div>
       <p class="type-small text-text-on-hero-muted">{hero.note}</p>
     </Fragment>
-  </DioramaHero>
+  </AtelierHero>
 
   {/* 1-4a 業務理念と、それを実現する 5つの方法 */}
   {/* 2026-10-28: 見出しの右に、ヒーローから移した写真（4:3。H-12。置き場所はユーザーが決めた） */}
@@ -268,7 +264,7 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
   {/* 1-8 導入事例（ダミー）。A なので、お客さまの声の 3 枚を Pin3d（hover とフォーカスでピンが立つ）、数値カードを StatRow（画面に入ると順に現れる）で包む */}
   <Section labelledby="top-cases" class="phrase">
     <SectionHeading id="top-cases" title={cases.heading} lead={cases.lead} badge={cases.headingBadge} />
-    {/* 掲載許可が取れた実績（site-content/cases.ts。ヒーローの模型の窓口と同じデータ）。0 件のあいだは何も出さない */}
+    {/* 掲載許可が取れた実績（site-content/cases.ts。ヒーローのアトリエの展示の壁と同じデータ）。0 件のあいだは何も出さない */}
     {
       caseStudies.length > 0 && (
         <ul class="mt-8 grid gap-4 md:mt-12 md:grid-cols-3 md:gap-6">

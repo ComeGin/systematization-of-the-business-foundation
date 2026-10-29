@@ -46,7 +46,7 @@ const desktopOnly = (name: string) =>
 
 /** 光り物（B に置かない部品の印） */
 const SHINY =
-  '[data-motion="hero"], [data-motion="globe"], [data-motion="cta-glow"], [data-motion="marquee"]';
+  '[data-motion="atelier"], [data-motion="globe"], [data-motion="cta-glow"], [data-motion="marquee"]';
 
 /** island（client:visible）の水和を待つ。済んだ後の最初の commit が rAF を使うことがあるので少し置く */
 async function settle(page: Page, selector: string) {
@@ -74,11 +74,11 @@ const translateY = (page: Page, selector: string, index = 0) =>
 
 test.describe("B（calm）の動き", () => {
   test.beforeEach(async ({ page }) => instrument(page));
-  // 2026-10-28: ヒーローの模型（diorama）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（模型は diorama.spec.ts で検査する）
+  // 2026-10-29: ヒーローのアトリエ（3D）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（アトリエは atelier.spec.ts で検査する）
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       try {
-        sessionStorage.setItem("motion:diorama", "paused");
+        sessionStorage.setItem("motion:atelier", "paused");
       } catch {}
     });
   });
@@ -718,7 +718,7 @@ test.describe("A の CTA（CtaGlow）", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       try {
-        sessionStorage.setItem("motion:diorama", "paused");
+        sessionStorage.setItem("motion:atelier", "paused");
       } catch {}
     });
   });

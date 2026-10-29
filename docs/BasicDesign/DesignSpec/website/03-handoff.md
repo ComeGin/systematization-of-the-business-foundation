@@ -765,7 +765,7 @@ Agent team（spec-writer・foundation・integrations・pages・motion・verifier
 
 | 対象 | 内容 |
 |---|---|
-| ブランドガイドライン（`~/ComeGin/comegin`） | §5 に 3 つの役割トークンを足す改訂（薄い地のリンク blue.600、入力欄の枠 neutral.500、暗い地のフォーカスリング 白）。G-1 でユーザーが承認済み。あわせて、ShapeBlur がロゴのシンボルにぼかしを掛ける表現（§4.6-4 の例外）と、ぼけたときの見え方（§5.5-6 との関係）を例外として書くかを決める（`05-motion-spec.md` の MO-5） |
+| ブランドガイドライン（`~/ComeGin/comegin`） | §5 に 3 つの役割トークンを足す改訂（薄い地のリンク blue.600、入力欄の枠 neutral.500、暗い地のフォーカスリング 白）。G-1 でユーザーが承認済み。あわせて、ShapeBlur がロゴのシンボルにぼかしを掛ける表現（§4.6-4 の例外）と、ぼけたときの見え方（§5.5-6 との関係）を例外として書くかを決める（`05-motion-spec.md` の MO-5）。**（2026-10-29 に、`MotionSymbol`〈ShapeBlur〉をコードから消したので、この「あわせて」の項目は対象が無くなった。3 トークンの改訂は残る）** |
 | 本番のオンプレ（`main` のチェックアウト）の有効化と止め線 | この改修を `main` に入れた後、監視アプリが読む `main` のチェックアウトの `frontend/verdant-virgo` で `pnpm install` と `pnpm exec playwright install chromium` を行い、builtin `a11y` を手動で 1 回実行して `.a11y/` が作業ツリーに写ることを確かめる。そのうえで `weekly-a11y`・`weekly-observe-a11y` を有効にする。**有効にして `ok` の `E-12` ができるまで、UI を変える提案（`technical_seo`・`cta_swap`・`experiment_start`）は起票されない**（DD-06 の 1.2 の 15。DD-09 の 7 節） |
 | 再試験 | UI を変えたときは変えたページを、年に 1 回は全ページを試験し直し、`/accessibility/` の試験日を更新する。公開の前に人がスクリーンリーダーで確かめる（BA-04 の 3b。`04-accessibility-spec.md` の §6）。**VoiceOver（iOS Safari）での確認は次の再試験で行う**（2026-10-19 の G-2 は NVDA と Chrome〈Windows〉だけで確かめた。確かめたら `/accessibility/` の「試験の方法」に VoiceOver を足す） |
 | ブログの要約（Strapi の excerpt） | 一覧のカードの要約を切り詰めなくなった（1.4.4・1.4.12）ので、excerpt の長さを運用でそろえる（目安は 2〜3 行） |

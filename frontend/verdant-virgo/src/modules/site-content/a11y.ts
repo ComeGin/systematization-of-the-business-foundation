@@ -21,32 +21,13 @@ export const MOTION_PAUSE = {
 
 /**
  * MotionPause の対象名。1 つのページに一時停止のボタンが複数並ぶとき、見える文字（MOTION_PAUSE）の後ろに sr-only で足して名前を分ける
- * （読み上げ例「動きを止める（ヒーロー）」。見える文字で始まるので WCAG 2.5.3 を満たす）。「再開」の名前にも付ける。
- * hero＝A のヒーローの背景、cta＝トップの CTA バナーの粒、marquee＝使うツールの一覧、globe＝サービス一覧の地球儀、avatar＝アバター、
- * diorama＝ヒーローの基盤の模型（2026-10-28）。
+ * （読み上げ例「動きを止める（アトリエ）」。見える文字で始まるので WCAG 2.5.3 を満たす）。「再開」の名前にも付ける。
+ * cta＝トップの CTA バナーの粒、marquee＝使うツールの一覧、globe＝サービス一覧の地球儀、atelier＝トップのヒーローのアトリエ（2026-10-29）。
  */
 export const MOTION_PAUSE_TARGETS = {
-  hero: "（ヒーロー）",
   cta: "（相談の案内）",
   marquee: "（使うツールの一覧）",
   globe: "（地球儀）",
-  avatar: "（アバター）",
-  diorama: "（模型）",
+  atelier: "（アトリエ）",
 } as const;
 
-/**
- * S-24 アバター（avatar の AvatarDock・AvatarStage）の操作ボタンの名前。
- * 一時停止は S-11 の文言をそのまま使い、対象名 MOTION_PAUSE_TARGETS.avatar を sr-only で足す。
- * collapse＝出ているアバターをしまう、expand＝しまったアバターを出す、summon＝Mobile の最初のアイコン（押すと 3D を読み込んで出す）。
- * interact＝アバター本体（押すと身ぶり。R20）、interactHint＝その title（押す・拡大縮小の操作の案内）。
- */
-export const AVATAR_LABELS = {
-  pause: MOTION_PAUSE.pause,
-  resume: MOTION_PAUSE.resume,
-  collapse: "アバターをしまう",
-  expand: "アバターを出す",
-  summon: "アバターを表示する",
-  interact: "アバターに身ぶりをさせる",
-  interactHint:
-    "押すと身ぶりをします。ホイール・ピンチ、または ＋・− キーで拡大・縮小、0 キーで元の大きさに戻ります",
-} as const;

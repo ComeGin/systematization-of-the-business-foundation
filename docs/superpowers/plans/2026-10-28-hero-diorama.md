@@ -1,5 +1,7 @@
 # ヒーローの作り直し（基盤の模型）実装計画
 
+> 2026-10-29: 第 2 版（`../specs/2026-10-28-hero-atelier-design.md`・`2026-10-28-hero-atelier.md`。「デザイナーのアトリエ」）で置き換えた。この計画は第 1 版の記録として残す。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `HERO` 分類（トップの 1-3・サービス 5 ページ・B の 5 ページの導入ヒーロー・告知バナー）を、ランプに照らされた「木と紙の基盤の模型」（Three.js）で作り直す。

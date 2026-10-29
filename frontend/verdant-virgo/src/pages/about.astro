@@ -8,7 +8,7 @@ import { FileCheck, Footprints, LockOpen, MessagesSquare, type LucideIcon } from
 import { Badge } from '@/components/ui/badge';
 import { isLink, RichTextView, toInlines, type RichText } from '@/modules/legal';
 import { BaseLayout, PageIntro } from '@/modules/layout';
-import { DioramaStill } from '@/modules/diorama';
+import { AtelierStill } from '@/modules/atelier';
 import { CTABanner, CTAButton, IconCard, KeepTogether, Section, SectionHeading } from '@/modules/marketing-ui';
 import { Photo } from '@/modules/media';
 import { MotionBlobs, Reveal } from '@/modules/motion';
@@ -42,11 +42,11 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
-  {/* 5-3 導入ヒーロー。h1 はビジョン（Desktop 2 行・Mobile 4 行。H-19）。画像枠は Desktop だけ */}
+  {/* 5-3 導入ヒーロー。h1 はビジョン（Desktop 2 行・Mobile 4 行。H-19）。画像枠（アトリエの静止画）は Mobile でも出す（atelier spec §7） */}
   <PageIntro title={hero.h1} badge={hero.badge}>
     <p slot="body" class="type-body-lg phrase max-w-[720px] text-text-muted">{hero.body.join('')}</p>
-    {/* 2026-10-28: 媒体の枠は、基盤の模型の承認台と代表のアバターの静止画（B は静止。DioramaStill）。写真は運営方針の節の見出しの右へ移した（H-12） */}
-    <DioramaStill slot="media" page="about" />
+    {/* 2026-10-29: 媒体の枠は、アトリエの会社の表札と、その奥に立つ代表のアバターの静止画（AtelierStill。spec §7）。写真は運営方針の節の見出しの右（H-12） */}
+    <AtelierStill slot="media" page="about" variant="media" />
   </PageIntro>
 
   {/* 5-3 の続き: ミッション（引用の体裁）と、ビジョンへつなぐ補足 2 文。地はヒーローと同じ */}
@@ -134,7 +134,7 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
   {/* 5-7 メンバー（代表 1名。Desktop は写真左・紹介文右、Mobile は縦積み） */}
   <Section labelledby="about-members" class="phrase">
     <SectionHeading id="about-members" title={members.heading} lead={members.body} />
-    <div class="mt-8 grid gap-4 md:gap-8" data-avatar-cue="team">
+    <div class="mt-8 grid gap-4 md:gap-8">
       {
         members.cards.map((card) => (
           <Reveal as="article" class="not-typeset grid gap-6 rounded-md border border-border bg-surface p-6 md:grid-cols-[240px_minmax(0,1fr)] md:items-center md:gap-8 md:p-8">

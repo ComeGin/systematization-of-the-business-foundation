@@ -19,8 +19,7 @@
     "e2e:report": "playwright show-report playwright-report/e2e",
     "avatar:slim": "node src/modules/avatar/tools/slim-vrm.mjs",
     "avatar:motions": "node src/modules/avatar/tools/convert-mixamo.mjs",
-    "avatar:stills": "node src/modules/avatar/tools/capture-stills.mjs",
-    "diorama:stills": "node src/modules/diorama/tools/capture-stills.mjs"
+    "atelier:stills": "node src/modules/atelier/tools/capture-stills.mjs"
   },
   "dependencies": {
     "@astrojs/markdoc": "^2.0.9",

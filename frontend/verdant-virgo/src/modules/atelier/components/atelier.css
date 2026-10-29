@@ -1,0 +1,541 @@
+/* アトリエの根（[data-motion="atelier"]）・ポスター・canvas・文字の覆いの見た目。AtelierHero（と Task 7 の AtelierStill）が読む。
+   ポスターも canvas も、設計の画角（16:9。Mobile は縦長の構図）を枠に「敷き詰める」（object-fit: cover と、lib/scene.ts の画角の決め方が同じ。spec §9 の 1）。
+   色は時間帯のトークン（theme.css の --atelier-*）に従う */
+.atelier {
+  background-color: var(--atelier-veil);
+}
+.atelier__poster img,
+.atelier__poster-fallback,
+.atelier__box,
+.atelier__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.atelier__poster img,
+.atelier__poster-fallback {
+  object-fit: cover;
+  object-position: center;
+  transition: opacity var(--motion-duration-medium) var(--motion-ease-standard);
+}
+.atelier[data-atelier-live="true"] .atelier__poster img {
+  opacity: 0;
+}
+
+/* トップのヒーロー（spec §6.1）。
+   1280px 以上: 画面いっぱい（100svh から上の告知帯〈約 44px〉とヘッダー〈56px〉を引いた高さ。最小 560px）、canvas は背面、文字は左下の板に重ねる。
+   1279px 以下: 3D を上（768px 以上は 16:9、それ未満は 3:4。それぞれのポスターと同じ構図）、文字をその下に積む。
+   1280px 未満で重ねると、文字の板（36rem）が画面の中央の前方に立つ代表のアバターと押せるボタンを覆う（h1・本文が長いため） */
+.atelier-hero {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--atelier-veil);
+  /* 3D の上のボタン（アバターの名札・置き物の点の名前）が画面の端に来ても、ページを横にスクロールさせない（左の道ではアバターが右の端に来る。2026-10-30） */
+  overflow-x: clip;
+}
+.atelier--hero {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: calc(100svh - 6.25rem);
+}
+@media (min-width: 768px) {
+  .atelier--hero {
+    aspect-ratio: 16 / 9;
+  }
+}
+.atelier-hero__inner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding-top: 1.5rem;
+  padding-bottom: 2.5rem;
+}
+@media (min-width: 1280px) {
+  .atelier-hero {
+    min-height: max(560px, calc(100svh - 6.25rem));
+    display: flex;
+    align-items: flex-end;
+  }
+  .atelier--hero {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    aspect-ratio: auto;
+    max-height: none;
+  }
+  /* 下からの暗がり（文字の板の外でも、画面の下端が絵と地続きに見えるように） */
+  .atelier-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--atelier-veil) 72%, transparent) 0%,
+      transparent 42%
+    );
+  }
+  .atelier-hero__inner {
+    padding-top: 6rem;
+    padding-bottom: 5rem;
+    pointer-events: none;
+  }
+  /* a11y: 文字の後ろの覆い。--atelier-veil を 84% で重ね、白い絵の上でも白い文字が 4.5:1 を保つ（1.4.3。e2e の atelier.spec.ts が 4 つの時間帯で確かめる） */
+  .atelier-hero__copy {
+    pointer-events: auto;
+    max-width: 36rem;
+    padding: 2rem 2.25rem 2.25rem;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--atelier-veil) 84%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    transition: opacity var(--motion-duration-medium)
+      var(--motion-ease-standard);
+  }
+  /* カメラが動いている間（歩く・惰性・Tips から移る前の移動）は、文字の板を隠して景色を見せる（2026-10-29 ユーザーの指示）。止まると戻る。
+     a11y: 板の中にキーボードのフォーカスがあるときは隠さない（フォーカスした物を消さない。2.4.7）。隠れている間は中のリンクを押せない
+     （見えない物を押させない）が、板そのものはカーソルを受けるので、板の上で止めれば歩くのが止まり、板が戻る */
+  .atelier-hero:has(
+      > .atelier[data-atelier-walking],
+      > .atelier[data-atelier-flying]
+    )
+    .atelier-hero__copy:not(:focus-within) {
+    opacity: 0;
+  }
+  .atelier-hero:has(
+      > .atelier[data-atelier-walking],
+      > .atelier[data-atelier-flying]
+    )
+    .atelier-hero__copy:not(:focus-within)
+    * {
+    pointer-events: none;
+  }
+  /* 一度でもカメラが動いたら、そのセッションの間は板を隠したまま（data-atelier-moved。2026-10-30 ユーザーの指示）。
+     板そのものもカーソルを受けない（見えない板の下の 3D を歩ける・押せる）。キーボードのフォーカスが板の中に入れば出す（2.4.7） */
+  .atelier-hero:has(> .atelier[data-atelier-moved])
+    .atelier-hero__copy:not(:focus-within),
+  .atelier-hero:has(> .atelier[data-atelier-moved])
+    .atelier-hero__copy:not(:focus-within)
+    * {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+@media (min-width: 1280px) and (prefers-reduced-motion: reduce) {
+  .atelier-hero__copy {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atelier__poster img {
+    transition: none;
+  }
+}
+
+/* 歩く（spec §6.2）: 根は縦のスワイプだけをブラウザーに任せる（長押しで進む・横の動きはこちら）。長押しで文字の選択・メニューを出さない
+   （文字の層〈.atelier-hero__inner〉は根の外にあるので、選んでコピーできる） */
+.atelier {
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 「前へ進む」「入口に戻る」と操作の案内。右上（Desktop で文字が長くヒーローが縦に伸びても、最初の画面に入る） */
+.atelier__controls {
+  position: absolute;
+  z-index: 3;
+  right: 1rem;
+  top: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: calc(100% - 2rem);
+  pointer-events: none;
+}
+@media (min-width: 768px) {
+  .atelier__controls {
+    top: 1.5rem;
+    right: 1.5rem;
+  }
+}
+.atelier__hint {
+  margin: 0;
+  max-width: 34rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  color: #fff;
+  background: color-mix(in srgb, var(--atelier-veil) 84%, transparent);
+  text-align: right;
+}
+.atelier__buttons {
+  display: flex;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+.atelier__button {
+  min-height: 40px;
+  padding: 0 1rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, #fff 40%, transparent);
+  color: #fff;
+  background: color-mix(in srgb, var(--atelier-veil) 84%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: background-color var(--motion-duration-small)
+    var(--motion-ease-standard);
+}
+.atelier__button:hover,
+.atelier__button:focus-visible {
+  background: var(--atelier-veil);
+}
+.atelier__button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  /* a11y: 白い輪の外に暗い輪（時間帯の覆いの色）。明るい壁・空の上でも見える（2.4.7・1.4.11。最終レビュー I-3） */
+  box-shadow: 0 0 0 5px var(--atelier-veil);
+}
+
+/* 代表のアバターの名札のボタン（spec §6.4）。位置は島が transform で置く（左上がアバターの頭の上の点）。
+   名札は、ボタンにカーソルを乗せる・フォーカスする・canvas のアバターに乗せる（data-hover）と出る。押すとページは移らず、身ぶり */
+.atelier__avatar {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.atelier__avatar-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #fff;
+  /* a11y: 光の縁の外に暗い縁。明るい地でも点が見える（1.4.11。最終レビュー I-3） */
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--atelier-glow) 80%, transparent),
+    0 0 0 5px color-mix(in srgb, var(--atelier-veil) 70%, transparent);
+  transition: transform var(--motion-duration-small) var(--motion-ease-standard);
+}
+.atelier__avatar-label {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  translate: -50% -4px;
+  white-space: nowrap;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  color: #fff;
+  background: color-mix(in srgb, var(--atelier-veil) 88%, transparent);
+  opacity: 0;
+  transition: opacity var(--motion-duration-small) var(--motion-ease-standard);
+  pointer-events: none;
+}
+.atelier__avatar:hover .atelier__avatar-label,
+.atelier__avatar:focus-visible .atelier__avatar-label,
+.atelier__avatar[data-hover] .atelier__avatar-label {
+  opacity: 1;
+}
+.atelier__avatar:hover .atelier__avatar-dot,
+.atelier__avatar:focus-visible .atelier__avatar-dot,
+.atelier__avatar[data-hover] .atelier__avatar-dot {
+  transform: scale(1.35);
+}
+.atelier__avatar:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  /* a11y: 白い輪の外に暗い輪（時間帯の覆いの色）。明るい壁・空の上でも見える（2.4.7・1.4.11。最終レビュー I-3） */
+  box-shadow: 0 0 0 5px var(--atelier-veil);
+}
+@media (prefers-reduced-motion: reduce) {
+  .atelier__avatar-dot,
+  .atelier__avatar-label {
+    transition: none;
+  }
+}
+
+/* 押せる置き物・額（canvas の上に重ねる本物の button。spec §6.3）。位置は AtelierTouch が transform で置く（左上が置き物の点） */
+.atelier-points {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.atelier-point {
+  position: absolute;
+  left: -16px;
+  top: -16px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.atelier-point__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #fff;
+  /* a11y: 光の縁の外に暗い縁。明るい地でも点が見える（1.4.11。最終レビュー I-3） */
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--atelier-glow) 75%, transparent),
+    0 0 0 5px color-mix(in srgb, var(--atelier-veil) 70%, transparent);
+  transition: transform var(--motion-duration-small) var(--motion-ease-standard);
+}
+.atelier-point__label {
+  position: absolute;
+  left: 30px;
+  top: 50%;
+  translate: 0 -50%;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: #fff;
+  background: color-mix(in srgb, var(--atelier-veil) 88%, transparent);
+  opacity: 0;
+  transition: opacity var(--motion-duration-small) var(--motion-ease-standard);
+  pointer-events: none;
+}
+.atelier-point:hover .atelier-point__dot,
+.atelier-point:focus-visible .atelier-point__dot,
+.atelier-point[aria-expanded="true"] .atelier-point__dot {
+  transform: scale(1.35);
+}
+.atelier-point:focus-visible .atelier-point__label {
+  opacity: 1;
+}
+.atelier-point:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  /* a11y: 白い輪の外に暗い輪（時間帯の覆いの色）。明るい壁・空の上でも見える（2.4.7・1.4.11。最終レビュー I-3） */
+  box-shadow: 0 0 0 5px var(--atelier-veil);
+}
+
+/* Tips の札（spec §6.3）。色は時間帯のトークン。Desktop は置き物の横、Mobile は 3D の枠の下端に沿わせる */
+.atelier-tips {
+  position: absolute;
+  z-index: 4;
+  width: 320px;
+  overflow: hidden;
+  border-radius: 14px;
+  color: var(--atelier-tip-text);
+  background: var(--atelier-tip-bg);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.28);
+  pointer-events: auto;
+  animation: atelier-tips-in var(--motion-duration-small)
+    var(--motion-ease-standard);
+}
+.atelier-tips--sheet {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: auto;
+  display: grid;
+  grid-template-columns: 38% 1fr;
+}
+.atelier-tips__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.atelier-tips--sheet .atelier-tips__image {
+  height: 100%;
+}
+.atelier-tips__body {
+  padding: 0.875rem 1rem 1rem;
+}
+.atelier-tips__heading {
+  margin: 0;
+  padding-right: 2rem;
+  /* a11y: 全体の見出しの色（h1〜h4 の --color-role-text-heading。紺）を受けず、札の時間帯の色にする（夜の札は暗いので紺では 1.47:1。1.4.3） */
+  color: var(--atelier-tip-text);
+}
+.atelier-tips__text {
+  margin: 0.375rem 0 0;
+  color: var(--atelier-tip-muted);
+}
+.atelier-tips__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin-top: 0.5rem;
+  color: var(--atelier-tip-text);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.atelier-tips__link:focus-visible,
+.atelier-tips__close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.atelier-tips__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--atelier-tip-text);
+  background: color-mix(in srgb, var(--atelier-tip-bg) 85%, transparent);
+  cursor: pointer;
+}
+.atelier-tips--sheet .atelier-tips__close {
+  top: 4px;
+  right: 4px;
+}
+@keyframes atelier-tips-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* 動かないときの一覧（spec §6.5）。立体が動いている間は隠す */
+.atelier-hero:has(.atelier[data-atelier-live="true"]) + .atelier-list {
+  display: none;
+}
+.atelier-list__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atelier-point__dot,
+  .atelier-point__label {
+    transition: none;
+  }
+  .atelier-tips {
+    animation: none;
+  }
+}
+.atelier-point[hidden] {
+  display: none;
+}
+
+/* 下層ページの冒頭の静止画（AtelierStill。spec §7） */
+.atelier-still img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.atelier-still--media {
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background-color: var(--atelier-veil);
+}
+.atelier-still--banner {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-width: 720px;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background-color: var(--atelier-veil);
+}
+/* サービス一覧・詳細（A）の背景。Mobile は文字の下の 3:4 の塊（流れに入る）、Desktop は区画の全面で文字の後ろ */
+.atelier-still--backdrop {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  margin-top: 1.5rem;
+  background-color: var(--atelier-veil);
+}
+/* 768〜1279px は、文字の下に 16:9 で積む（文字の列が横幅の 7 割を超え、重ねると覆いの薄い所に文字がかかる。トップの 1280px の裁定と同じ。最終レビュー I-5） */
+@media (min-width: 768px) {
+  .atelier-still--backdrop {
+    aspect-ratio: 16 / 9;
+  }
+}
+@media (min-width: 1280px) {
+  .atelier-still--backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    margin-top: 0;
+    aspect-ratio: auto;
+  }
+  /* a11y: 文字の列（左端 + 720px。PageIntro の dark は 1280px 以上で列を 720px までにする）の右端より外まで覆いを濃く保ち、そこから消す。
+     静止画が真っ白でも白い文字が 4.5:1 を保つ（覆い 90% ＋ 白 10%。1.4.3。e2e で 4 つの時間帯を測る） */
+  .atelier-still--backdrop::after {
+    --atelier-text-edge: calc(max(32px, (100% - 1152px) / 2) + 760px);
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      var(--atelier-veil) 0,
+      color-mix(in srgb, var(--atelier-veil) 90%, transparent)
+        var(--atelier-text-edge),
+      transparent calc(var(--atelier-text-edge) + 200px)
+    );
+  }
+}
+
+/* Tips から下層ページへ（spec §9 の 3）。トップのアトリエの枠が、移り先の冒頭の静止画の枠へ大きさを変えてつながる。
+   名前（vt-atelier）は遷移の間だけ、移る側（AtelierIsland の pageswap）と移り先（AtelierStill の inline script）が付ける。
+   reduced-motion では global.css の規則で動かない */
+::view-transition-old(vt-atelier),
+::view-transition-new(vt-atelier) {
+  animation-duration: var(--motion-duration-large);
+  animation-timing-function: var(--motion-ease-emphasized);
+  height: 100%;
+  overflow: clip;
+  object-fit: cover;
+}
+/* Mobile: 置き物の名前のボタンを、3D の枠の下端に横に並べる（横にスクロール。一時停止のボタンの左まで） */
+.atelier-points--list {
+  inset: auto 0 0 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 9.5rem 12px 12px;
+  pointer-events: auto;
+  scrollbar-width: none;
+}
+.atelier-points--list .atelier-point {
+  position: static;
+  flex: none;
+  width: auto;
+  height: 36px;
+  padding: 0 12px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, #fff 30%, transparent);
+  background: color-mix(in srgb, var(--atelier-veil) 86%, transparent);
+}
+.atelier-points--list .atelier-point__dot {
+  width: 8px;
+  height: 8px;
+}
+.atelier-points--list .atelier-point__label {
+  position: static;
+  translate: none;
+  opacity: 1;
+  padding: 0;
+  background: none;
+}

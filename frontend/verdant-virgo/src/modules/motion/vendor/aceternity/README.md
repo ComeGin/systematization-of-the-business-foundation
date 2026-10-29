@@ -11,8 +11,8 @@
 
 | ディレクトリ | registry の名前 | 依存 | 備考 |
 |---|---|---|---|
-| `SpotlightNew` | `spotlight-new` | motion | |
-| `BackgroundBeams` | `background-beams` | motion | |
+| ~~`SpotlightNew`~~ | `spotlight-new` | motion | 2026-10-29 に削除（使っていた HeroBackdrop をヒーロー第 2 版で消した） |
+| ~~`BackgroundBeams`~~ | `background-beams` | motion | 2026-10-29 に削除（同上） |
 | `TextGenerateEffect` | `text-generate-effect` | motion | |
 | `GlowingEffect` | `glowing-effect` | motion | |
 | `ThreeDCard` | `3d-card` | （なし） | 公式の名前は 3D Card Effect |
@@ -37,7 +37,7 @@
 
 ## こちらで手を入れた原本
 
-`SpotlightNew`・`BackgroundBeams` はページには置かず、`motion/sections/hero/HeroBackdrop.astro`（A のヒーローの地）の中でだけ使う。変更の理由と内容は各ファイルの冒頭（`// perf:`・`// a11y:`・`// token:` の印）にある。
+`SpotlightNew`・`BackgroundBeams` は `motion/sections/hero/HeroBackdrop.astro`（A のヒーローの地）の中でだけ使っていた。2026-10-29 にヒーロー第 2 版（アトリエ）で HeroBackdrop を消し、2 つの原本も消した（下の表は当時の変更の記録）。変更の理由と内容は各ファイルの冒頭（`// perf:`・`// a11y:`・`// token:` の印）にある。
 
 | ディレクトリ | 変えたこと |
 |---|---|

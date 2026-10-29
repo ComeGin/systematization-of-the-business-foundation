@@ -1,8 +1,8 @@
 // モーションの検査（計画書の検証 9。動きの規則 1〜8、WCAG 2.2.2・2.3.1・2.1.1・2.4.7・2.5.8・4.1.3・1.4.3）。
 // 部品の約束（motion から 2026-10-18 に受けた内容）:
-//   - 各ラッパーの根に data-motion="symbol|nav|gallery|blobs|send-status"。canvas は aria-hidden で、静止の代わりは常に DOM にある
-//   - symbol・nav・blobs は md 以上かつ hover のある端末だけで読む（Mobile では読まない）
-//   - reduced-motion では symbol と blobs は WebGL を作らず、blobs の一時停止ボタンも出さない。nav と gallery は操作しない限り rAF 0
+//   - 各ラッパーの根に data-motion="nav|gallery|blobs|send-status"（symbol〈MotionSymbol〉は 2026-10-29 に部品ごと消した）。canvas は aria-hidden で、静止の代わりは常に DOM にある
+//   - nav・blobs は md 以上かつ hover のある端末だけで読む（Mobile では読まない）
+//   - reduced-motion では blobs は WebGL を作らず、blobs の一時停止ボタンも出さない。nav と gallery は操作しない限り rAF 0
 //   - blobs は画面外・タブ非表示・一時停止で rAF を止める。一時停止は sessionStorage の motion:cta-blobs に 'paused'
 //   - MorphGallery はネイティブのラジオ 3 つ（矢印キーで選ぶ）で、aria-live を持たない
 // requestAnimationFrame は init script で包んで、実際に呼ばれたコールバックの数を数える。
@@ -17,8 +17,8 @@ import { cls, instrument, rafDuring } from "../support/motion";
 const PAUSE_KEY = "motion:cta-blobs";
 
 /**
- * CTA バナーの一時停止のボタン。トップには A のヒーロー（HeroBackdrop。2026-10-19）の一時停止のボタンもあり、
- * 名前（MOTION_PAUSE）が同じなので、blobs を持つバナー（aside）の中に絞る。ヒーローの側は motion-vivid.spec.ts が見る。
+ * CTA バナーの一時停止のボタン。トップにはヒーローのアトリエの一時停止のボタンもあり（2026-10-29。以前は HeroBackdrop）、
+ * 名前（MOTION_PAUSE）が同じなので、blobs を持つバナー（aside）の中に絞る。アトリエの側は atelier.spec.ts が見る。
  * ボタンの持ち主は、A（トップ）では CtaGlow（Task 7。判断 R1。MotionBlobs は externalPause で自前のボタンを出さない）、B では MotionBlobs の island。
  * どちらでも 1 つのバナーに 1 つだけ
  */
@@ -55,16 +55,16 @@ async function showBlobs(page: Page) {
 const desktopOnly = (name: string) =>
   test.skip(
     name !== "desktop",
-    "symbol・nav・blobs は md 以上かつ hover のある端末だけ",
+    "nav・blobs は md 以上かつ hover のある端末だけ",
   );
 
 test.describe("モーション", () => {
   test.beforeEach(async ({ page }) => instrument(page));
-  // 2026-10-28: ヒーローの模型（diorama）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（模型は diorama.spec.ts で検査する）
+  // 2026-10-29: ヒーローのアトリエ（3D）の描画が、ページ全体の rAF の数に混ざらないよう、最初から止めて開く（アトリエは atelier.spec.ts で検査する）
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       try {
-        sessionStorage.setItem("motion:diorama", "paused");
+        sessionStorage.setItem("motion:atelier", "paused");
       } catch {}
     });
   });
@@ -76,20 +76,20 @@ test.describe("モーション", () => {
       desktopOnly(testInfo.project.name);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await open(page, "/");
-      // ShapeBlur は window の pointermove で起きるので、数える間はマウスを動かさない
+      // 数える間はマウスを動かさない（pointermove で起きる部品がある）
       await showBlobs(page);
       expect(await rafDuring(page, 1_500), "トップ").toBe(0);
       await expect(
         page.locator(
-          '[data-motion="symbol"] canvas, [data-motion="blobs"] canvas',
+          '[data-motion="blobs"] canvas',
         ),
       ).toHaveCount(0);
       // ヒーローの一時停止のボタンも含め、ページに 1 つも無い
       await expect(
         page.getByRole("button", { name: MOTION_PAUSE.pause }),
       ).toHaveCount(0);
-      // 2026-10-28: ヒーローのロゴの動き（MotionSymbol）は模型に替わった。静止の代わりは模型のポスター
-      await expect(page.locator('[data-motion="diorama"] picture img')).toBeVisible();
+      // 2026-10-29: ヒーローはアトリエ（第 2 版）。静止の代わりはアトリエのポスター
+      await expect(page.locator('[data-motion="atelier"] picture img')).toBeVisible();
       await open(page, GALLERY_ROUTE);
       expect(await rafDuring(page, 1_500), "MorphGallery").toBe(0);
     });
@@ -363,14 +363,14 @@ test.describe("モーション", () => {
   });
 
   test.describe("異常系", () => {
-    test("入力: Mobile では ShapeBlur と GooeyNav の島を読み込まない", async ({
+    test("入力: Mobile では GooeyNav の島を読み込まない（2026-10-29 に ShapeBlur〈MotionSymbol〉は部品ごと消した）", async ({
       page,
     }, testInfo) => {
       test.skip(testInfo.project.name !== "mobile", "Mobile の project だけ");
       const loaded: string[] = [];
       page.on("request", (request) => {
         const path = new URL(request.url()).pathname;
-        if (/SymbolBlur|GooeyNav|ShapeBlur/.test(path)) loaded.push(path);
+        if (/GooeyNav/.test(path)) loaded.push(path);
       });
       await open(page, "/");
       await page.waitForTimeout(1_000);

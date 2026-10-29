@@ -1,5 +1,7 @@
 # ヒーローの作り直し（「基盤の模型」を Three.js で見せる）設計
 
+> 2026-10-29: 第 2 版（`2026-10-28-hero-atelier-design.md`。「デザイナーのアトリエ」）で置き換えた。この設計書は第 1 版の記録として残す。
+
 - 日付: 2026-10-28
 - 対象: `frontend/verdant-virgo`（公開サイト。本番は S3 ＋ CloudFront）の `HERO` 分類（`01-content-spec.md` §3 の「Hero, Banners & Landing Intros」）
 - 前提の作業: 動きの作り込み（`2026-10-19-aceternity-motion-design.md`。A／B／C の区分・アバター・ページの形のつながり）、JIS X 8341-3 の AA 改修（`docs/superpowers/plans/2026-10-18-jis-x-8341-3-accessibility.md`）

@@ -1104,14 +1104,23 @@ const dangling = v && !v.remote && !local.has(v.id);
 - [ ] 文字: 和欧間に四分アキが入っている — Figma の文字スタイルでは表現できない。実装側（`text-spacing-trim`）で担保する
 - [ ] 言葉・表記の項目 — ia-copy の担当
 
-## 8. コードだけの部品: 基盤の模型（2026-10-28 に追加）
+## 8. コードだけの部品: デザイナーのアトリエ（2026-10-28 に追加。2026-10-29 に第 2 版に改訂）
 
-`HERO` 分類の作り直し（`docs/superpowers/specs/2026-10-28-hero-diorama-design.md`）で足した部品。Figma には無い（模型の正本は Blender のスクリプト `frontend/verdant-virgo/src/modules/diorama/tools/blender/build_diorama.py` と、書き出した `diorama.glb`）。
+**2026-10-29 に改訂した（第 2 版）**: `HERO` 分類の作り直しの第 2 版（`docs/superpowers/specs/2026-10-28-hero-atelier-design.md`）で、第 1 版「基盤の模型」（`2026-10-28-hero-diorama-design.md`。`DioramaHero`・`DioramaIntro`・`DioramaStill`）を置き換えた。第 1 版の部品と `src/modules/diorama/` は消した（コミット `e2293fbc` から戻せる）。
+
+Figma には無い。アトリエの正本は Blender のスクリプト `frontend/verdant-virgo/src/modules/atelier/tools/blender/build_atelier.py` と、書き出した `atelier.glb`（Desktop）・`atelier-mobile.glb`（Mobile）。部品は `src/modules/atelier/`（公開口は `index.ts` の `AtelierHero`・`AtelierStill`）。振る舞いの正本は `05-motion-spec.md` §11。
 
 | 部品 | 置き場所 | 役割 |
 |---|---|---|
-| `DioramaHero` | トップ 1-3 | 触れる模型（部品のボタン・パネル） |
-| `DioramaIntro` | サービス一覧・詳細の `PageIntro`（`slot="backdrop"`） | 眺める模型 |
-| `DioramaStill` | B の 5 ページの `PageIntro`（`slot="media"`） | 模型の静止画（4:3） |
+| `AtelierHero` | トップ 1-3 | 一人称で歩くアトリエ。ポスター（その時間帯の静止画）を先に出し、`AtelierIsland` の 3D に替える。文字（slot `copy`）と CTA（slot `actions`）を重ねる／積む |
+| `AtelierIsland`（島） | `AtelierHero` の中だけ | three の描画・歩く操作・代表のアバター・一時停止（`MotionPause`） |
+| `AtelierTouch`（島） | `AtelierIsland` の中だけ | 置き物・額の上に重ねる本物の `<button>`（Mobile は 3D の枠の下端の名前のボタンの列） |
+| `AtelierTips` | `AtelierTouch` の中だけ | Tips の札（移り先の静止画・見出し・説明・リンク・閉じるボタン）。非モーダル |
+| `AtelierList` | `AtelierHero` の直後 | 動かないとき（reduced-motion・JS なし・WebGL なし・遅い端末・読み込みの失敗）の一覧。Tips と同じ内容 |
+| `AtelierStill`（`variant="backdrop"`） | サービス一覧・詳細 4 本の `PageIntro`（`slot="backdrop"`） | 同じアトリエの静止画（768px 以上は区画の全面、767px 以下は文字の下の 3:4） |
+| `AtelierStill`（`variant="media"`） | B の 5 ページ（会社概要・料金・ブログ一覧・お問い合わせ・送信完了）の `PageIntro`（`slot="media"`） | 同じアトリエの静止画（4:3。Mobile にも出す） |
+| `AtelierStill`（`variant="banner"`） | `/accessibility/` の h1 の上 | 実績の展示の壁の静止画（本文と同じ 720px 幅・16:9。`01-content-spec.md` §4.11） |
 
-文言の正本は `src/modules/site-content/diorama.ts`（部品のパネル）と `cases.ts`（実績）。
+文言の正本は `src/modules/site-content/atelier.ts`（Tips・展示の壁の額・歩く操作・名札。2026-10-29 にユーザーが承認）と `cases.ts`（実績。展示の壁の他社の額）。一時停止の対象名は `site-content/a11y.ts` の `MOTION_PAUSE_TARGETS.atelier`。部品は文言の既定値を持たない。
+
+第 1 版より前のヒーローの部品 `HeroBackdrop`・`MotionSymbol`（`src/modules/motion/`）は、第 1 版からどのページでも使われていなかったため、**2026-10-29 に消した**（ユーザーの決定。あわせて island の `SymbolBlur.tsx`、原本の ShapeBlur・SpotlightNew・BackgroundBeams、一時停止の対象名 `MOTION_PAUSE_TARGETS.hero` も。経緯は `05-motion-spec.md` の §8.2・§8.3）。

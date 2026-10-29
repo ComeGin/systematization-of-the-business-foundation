@@ -1350,12 +1350,14 @@ ADR-25 で受け入れる点（1〜7）と、それ以外の影響を分けて�
 
 **（2026-10-19 に ADR-29 で一部を置き換え: 規則 1「1 つの画面で目を引く動きは 1 つまで」は A〈vivid〉のページでは適用しない。Lighthouse の performance 0.9 は合否の条件から外し `warn` にした）**
 
-**状態: `決定済み`**（ユーザーの 2026-10-18 の決定 U-5。計画の P-6・P-10 と「インタラクションデザイン」。仕様は `docs/BasicDesign/DesignSpec/website/05-motion-spec.md`。**置き場所・強さ・速さは、2026-10-18 に G-1 でユーザーが試作を見て承認した**（ShapeBlur はネイビーの単色で、ポインターが動くまでは全体にピントが合ったまま〈勝手には動かない〉、動いた後は近づけた所だけにピントが合い、離れるとぼける〈止まっているときのぼけは 8px〉、キーボードのフォーカスの間は全体にピントが合う、Mobile では ShapeBlur と MetaBalls を出さない。`05-motion-spec.md` の MO-5・MO-6））
+**（2026-10-29 に改訂: ShapeBlur〈ラッパー `MotionSymbol`〉を消した。ユーザーの決定。ヒーロー第 2 版〈アトリエ。`05-motion-spec.md` の §11〉に置き換わり、第 1 版〈2026-10-28〉以降どのページでも使われていなかったため。原本 `vendor/react-bits/ShapeBlur/` と island の `SymbolBlur.tsx` も消した。以下の決定・理由・帰結のうち ShapeBlur に触れる所は、当時の決定として残し、「2026-10-29 に消した」の印を付けた。ShapeBlur の性能の予算〈決定 5〉・Mobile で読まない扱い・reduced-motion の静的な SVG〈決定 4〉・ラッパー 5 つのうちの 1 つ〈決定 1〉は、いまは当てはまらない。React Bits で使っているのは MetaBalls・MorphSlider・GooeyNav・StatusMark）**
+
+**状態: `決定済み`**（ユーザーの 2026-10-18 の決定 U-5。計画の P-6・P-10 と「インタラクションデザイン」。仕様は `docs/BasicDesign/DesignSpec/website/05-motion-spec.md`。**置き場所・強さ・速さは、2026-10-18 に G-1 でユーザーが試作を見て承認した**（ShapeBlur はネイビーの単色で、ポインターが動くまでは全体にピントが合ったまま〈勝手には動かない〉、動いた後は近づけた所だけにピントが合い、離れるとぼける〈止まっているときのぼけは 8px〉、キーボードのフォーカスの間は全体にピントが合う、Mobile では ShapeBlur と MetaBalls を出さない。`05-motion-spec.md` の MO-5・MO-6。**ShapeBlur は 2026-10-29 に消した**））
 
 ### 文脈
 
 - 公開サイトは「Astro, React Bits」で構築している（ユーザー）。React Bits のコンポーネントは 2026-10-18 の時点で 0 個（`SplitText` は削除済み。`@react-bits` のレジストリと gsap は残っている）で、**足すときの規則が無かった**。
-- ユーザーは「訪れてワクワクする UX」を目標に、**React Bits のモーフィング 4 種**（ShapeBlur／MetaBalls、StatusMark、MorphSlider、GooeyNav）をすべて入れると決めた（U-5）。
+- ユーザーは「訪れてワクワクする UX」を目標に、**React Bits のモーフィング 4 種**（ShapeBlur／MetaBalls、StatusMark、MorphSlider、GooeyNav）をすべて入れると決めた（U-5。**2026-10-29 に ShapeBlur は消した**）。
 - 同時に、ADR-27 で AA を目標に試験し、対応度と試験結果を公開する（対応度は 2026-10-19 に「一部準拠」）。動きは 2.2.2（一時停止）・2.3.1（閃光）・1.3.1（分割した文字）を壊しやすい。さらに Lighthouse の performance は Mobile で 0.9、SEO は 1.0 を守る（`03-handoff.md` の 11.7 では、Mobile で React 一式を読んだことが performance の最後の原因だった）。
 
 ### 選択肢
@@ -1368,11 +1370,11 @@ ADR-25 で受け入れる点（1〜7）と、それ以外の影響を分けて�
 
 ### 決定
 
-1. **取り込み（P-10）**: 原本は shadcn CLI（`@react-bits/<Name>-TS-TW`）で取り込み、`src/modules/motion/vendor/react-bits/<Name>/` に置く。冒頭に出典の URL と取り込み日。a11y と性能の変更には `// a11y:`／`// perf:` の印。ページとレイアウトは `motion/index.ts` が公開するラッパー（`MotionSymbol`・`MotionNav`・`MorphGallery`・`MotionBlobs`・`SendStatus`）だけを使う。
+1. **取り込み（P-10）**: 原本は shadcn CLI（`@react-bits/<Name>-TS-TW`）で取り込み、`src/modules/motion/vendor/react-bits/<Name>/` に置く。冒頭に出典の URL と取り込み日。a11y と性能の変更には `// a11y:`／`// perf:` の印。ページとレイアウトは `motion/index.ts` が公開するラッパー（`MotionSymbol`〈**2026-10-29 に消した**〉・`MotionNav`・`MorphGallery`・`MotionBlobs`・`SendStatus`）だけを使う。
 2. **段階的な強化**: 静的な HTML（SVG・`<img>`・`<a>`）で内容が完結し、その上に WebGL と React を載せる。WebGL が無い・JS が失敗したときも欠けない。
 3. **動きの規則 1〜8**（`05-motion-spec.md` の 2 節）を全員が守る。要点は、1 画面に目を引く動きは 1 つまで、意味は動きに持たせない、止められる、reduced-motion で止める、入力の手段で体験を分けない。
-4. **reduced-motion の規則**: `prefers-reduced-motion: reduce` のときは、CSS の transition と animation を `global.css` で 0.01ms にし（モーションの時間のトークン 4 つも 0.01ms に上書きする）、React Bits の部品は `a11y` モジュールの `useReducedMotion()` で静止させる（ShapeBlur は静的な SVG、GooeyNav は形を流さない、MorphSlider はフェードだけ、MetaBalls は静止の SVG〈一時停止のボタンも出さない〉、StatusMark は止まった形）。5 秒を超えて自動で動くもの（MetaBalls）には `MotionPause` を付け、押した結果をページを移っても保つ。点滅は 1 秒に 3 回まで。
-5. **性能の予算**: ShapeBlur と GooeyNav は `client:media="(min-width: 768px) and (hover: hover)"` で水和する（ShapeBlur は `requestIdleCallback` の後に WebGL を作る）。MetaBalls は `client:visible` で md 以上だけ。MorphSlider は island にせず、素の `<script>` で画面の手前に来たら `ogl` を動的に読む（React を読まない）。画面外・タブが非表示で `requestAnimationFrame` を止める。大きさは CSS で先に確保（CLS 0）。**Mobile では ShapeBlur・GooeyNav・MetaBalls を読まない**。Lighthouse の performance は Mobile で 0.9 以上（2026-10-18 の実装に合わせて書き直した。当初の案は WebGL の島を `client:visible`、ヒーローを `client:idle`）。
+4. **reduced-motion の規則**: `prefers-reduced-motion: reduce` のときは、CSS の transition と animation を `global.css` で 0.01ms にし（モーションの時間のトークン 4 つも 0.01ms に上書きする）、React Bits の部品は `a11y` モジュールの `useReducedMotion()` で静止させる（ShapeBlur〈2026-10-29 に消した〉は静的な SVG、GooeyNav は形を流さない、MorphSlider はフェードだけ、MetaBalls は静止の SVG〈一時停止のボタンも出さない〉、StatusMark は止まった形）。5 秒を超えて自動で動くもの（MetaBalls）には `MotionPause` を付け、押した結果をページを移っても保つ。点滅は 1 秒に 3 回まで。
+5. **性能の予算**（**2026-10-29 に ShapeBlur を消したので、ShapeBlur の部分は当てはまらない。GooeyNav の部分は今も有効**）: ShapeBlur と GooeyNav は `client:media="(min-width: 768px) and (hover: hover)"` で水和する（ShapeBlur は `requestIdleCallback` の後に WebGL を作る）。MetaBalls は `client:visible` で md 以上だけ。MorphSlider は island にせず、素の `<script>` で画面の手前に来たら `ogl` を動的に読む（React を読まない）。画面外・タブが非表示で `requestAnimationFrame` を止める。大きさは CSS で先に確保（CLS 0）。**Mobile では ShapeBlur・GooeyNav・MetaBalls を読まない**。Lighthouse の performance は Mobile で 0.9 以上（2026-10-18 の実装に合わせて書き直した。当初の案は WebGL の島を `client:visible`、ヒーローを `client:idle`）。
 6. **React Bits を今後足すときの規則（P-6）**を `frontend/verdant-virgo/AGENTS.md` と `.claude/agents/design-implementer.md` に書く: `useReducedMotion()` で静止、5 秒を超えて自動で動くものに `MotionPause`、1 秒に 3 回を超える点滅をしない、装飾の canvas に `aria-hidden`、文字を分割する部品は元の文を 1 回だけ読ませる。`gsap` は MorphSlider が使うので残す。
 
 ### 理由
@@ -1384,7 +1386,7 @@ ADR-25 で受け入れる点（1〜7）と、それ以外の影響を分けて�
 ### 帰結
 
 1. **依存が増える**（`motion`・`ogl`。`gsap` は既存）。`minimumReleaseAge` に従う。island で使う依存は `astro.config.mjs` の `optimizeDeps.include` にも足す（`frontend/verdant-virgo/README.md` の dev サーバーの注意）。
-2. **Lighthouse の計測を増やす。** モーションを入れた後のトップは Desktop の preset でも測る（Mobile の preset では GooeyNav・ShapeBlur を読まないため、Mobile だけでは見えない負荷がある）。
+2. **Lighthouse の計測を増やす。** モーションを入れた後のトップは Desktop の preset でも測る（Mobile の preset では GooeyNav・ShapeBlur を読まないため、Mobile だけでは見えない負荷がある。2026-10-29 に ShapeBlur を消したので、いまは GooeyNav だけ）。
 3. **e2e でモーションを検査する**（reduced-motion で `requestAnimationFrame` が止まる、一時停止、WebGL なし、省電力、フォーカス、CLS）。
 4. **上流の React Bits を取り込み直すと、`// a11y:`／`// perf:` の差分が消える。** 取り込み直しの手順に「印の差分を当て直す」を含める。
 5. **WebGL が使えない端末・設定の訪問者には動きが見えない。** 内容は欠けない（決定 2）ので、受け入れる。
@@ -1397,7 +1399,7 @@ ADR-25 で受け入れる点（1〜7）と、それ以外の影響を分けて�
 
 ## ADR-29 公開サイトのトップ・サービスに限り、動き・光・立体の表現でブランドガイドラインの例外を認め、Lighthouse の performance を warn にする
 
-**状態: `決定済み`**（2026-10-19。ユーザーの決定 U-3・U-5・U-6・U-8・U-10・U-14 と、設計者の判断〈★〉。**この ADR の U-n は設計書 `docs/superpowers/specs/2026-10-19-aceternity-motion-design.md` の §3 の番号で、ADR-27・ADR-28 の U-n〈2026-10-18 の計画の番号〉とは別**。仕様は `docs/BasicDesign/DesignSpec/website/05-motion-spec.md` の §8〜§10。ADR-28 の規則 1 と performance 0.9 の部分を置き換える）
+**状態: `決定済み`**（2026-10-19。ユーザーの決定 U-3・U-5・U-6・U-8・U-10・U-14 と、設計者の判断〈★〉。**この ADR の U-n は設計書 `docs/superpowers/specs/2026-10-19-aceternity-motion-design.md` の §3 の番号で、ADR-27・ADR-28 の U-n〈2026-10-18 の計画の番号〉とは別**。仕様は `docs/BasicDesign/DesignSpec/website/05-motion-spec.md` の §8〜§10。ADR-28 の規則 1 と performance 0.9 の部分を置き換える）。**2026-10-29 に決定 3 と帰結 2・3 を改訂した**（ヒーローを第 2 版「デザイナーのアトリエ」に作り直し、画面の端のアバターをやめた。設計は `docs/superpowers/specs/2026-10-28-hero-atelier-design.md` の A-13・§11、仕様は `05-motion-spec.md` の §10・§11）
 
 ### 文脈
 
@@ -1430,6 +1432,7 @@ performance の判定:
 1. **区分**: A（vivid）＝ `/`、`/services/`、`/services/{environment-setup,development,consulting,partnership}/` の **6 ルート**。C（none）＝ `/legal/privacy/`・`/legal/tokushoho/`（動き・アバター・ページの形のつながりを一切出さず、そのための JS も読まない。U-2）。**それ以外はすべて B（calm）**。区分はページが `BaseLayout` の `motionZone` で渡す（部品はページを判定しない）。
 2. **A のページに限り、動き・光・立体の表現でガイドライン §2.7・§5.4・§7.3 の例外を認める**（U-5）。A では、目を引く動きを 1 つの画面に複数置いてよい（ADR-28 の規則 1 の例外。R4）。A のファーストビューは navy.900 の地に白い見出し（U-6 で承認された試作のとおり）で、§9.5 のファーストビューの規定（背景 `neutral.50`、`navy.700` の H1）とも違うため、例外に含めることを**提案する**（ユーザーがガイドラインの文案で確かめる。未決定事項）。**B のページはガイドラインと規則 1 のまま**。
 3. **アバター（代表の分身）は A・B の全ページで例外**にする（C を除く。★）。B のページでの例外はアバターだけ。
+   - **（2026-10-29 に改訂）** 画面の端のアバター（`AvatarDock`）はサイト全体からやめた（第 2 版の設計書の A-13）。代表のアバターは、トップ（A）のヒーローの「デザイナーのアトリエ」の中にだけ立つ。そのため、アバターの例外はトップだけになり、**B のページに例外は無くなった**。B のページの冒頭に置くアトリエの静止画は、動かず、three も JS の島も読まない（第 2 版の設計書 §4「静止画なので B のページにも置ける」）。
 4. **どのページでも守るもの**（例外にしない）:
    - **色はパレットだけ**（`theme.css`・`tokens.css` の変数。値の直書き禁止）。光も `brand.sky`・`brand.blue`・`brand.gradient` から取る。
    - **本文の文字のコントラスト 4.5:1**（ガイドライン §1.3 の優先順位 1「読めること」）。動きの上に文字を重ねるときは、動きを含めて測る。
@@ -1450,7 +1453,9 @@ performance の判定:
 
 1. performance のしきい値の記述を変えた: `frontend/verdant-virgo/lighthouserc.cjs`、TA-05 の 7 節、TA-02 の NFR-A11Y-5、TA-03 の 3.2、AA-04 の 3.2、BA-02、`.claude/agents/quality-checker.md`・`seo-auditor.md`、`frontend/verdant-virgo/README.md`。
 2. **A のページで performance が 0.9 を割ることがある**（three.js の地球儀とアバター、Aceternity の背景）。次の予算は守る（`05-motion-spec.md` の §4）: h1・本文・LCP の写真は最初の HTML で読める。重い部品は最初の描画の後に読む。three.js は地球儀とアバターで 1 つのチャンクを共有する。CLS を出さない。
+   - **（2026-10-29 に改訂）** three.js を読むのは、トップのアトリエ（中に立つアバターを含む）とサービス一覧の地球儀になった（チャンクは 1 つのまま）。アトリエの予算（ポスター・glb・空・アバター）は `05-motion-spec.md` の §11.7。
 3. **B のページでも three.js が読まれる**（アバター。Desktop で reduced-motion でないとき。Mobile は訪問者が押してから）。
+   - **（2026-10-29 に改訂）** 端のアバターをやめたので、**B のページでは three.js を読まない**。
 4. **AGENTS.md の動きの規則に A の例外を書く**（`frontend/verdant-virgo/AGENTS.md` の「1 つの画面で目を引く動きは 1 つまで」。R4）。`05-motion-spec.md` の §2 の規則 1 には書いた。AGENTS.md（`CLAUDE.md` の実体）にも、ユーザーの許可を得て 2026-10-19 に反映した（エージェントの指示のファイルなので、ユーザーの判断で変える）。あわせて `.claude/CLAUDE.md` の Lighthouse のしきい値の記述も、performance を warn に改めた。
 5. **ガイドラインの正本と Web サイトが、正本の更新までの間ずれる**（例外は ADR と文案にしか無い）。
 
@@ -1467,7 +1472,7 @@ performance の判定:
 - **光の表現と §5.5-6（透明度でブランドカラーを薄める）の関係**。A の光（スポットライト・光の縁など）はパレットの色を `color-mix` で薄めて描いている。例外（光の表現）に含めるかを、ガイドラインの文案で決める。判断者 ユーザー。
 - **§9.5 のファーストビューを例外に含めたこと**（決定 2）。計画の段階の案は §2.7・§5.4・§7.3 だけだった。A のヒーローを navy.900 の地にした試作（U-6）に合わせて足した。ガイドラインの文案で確かめる。判断者 ユーザー。
 - **見直しの条件の直帰率**の基準（どこまで上がったら見直すか）は決めていない。判断者 ユーザー。
-- **アバターの手触りの直し**。2026-10-19 のゲート（動画の確認）で、ユーザーは「直しがあるが、このセッションでは行わなくて良い」と答えた。中身は次のセッションで聞く。判断者 ユーザー。
+- **アバターの手触りの直し**。2026-10-19 のゲート（動画の確認）で、ユーザーは「直しがあるが、このセッションでは行わなくて良い」と答えた。中身は次のセッションで聞く。判断者 ユーザー。**（2026-10-29 に追記）** 端のアバターはやめた。直しの中にアトリエの中のアバターに当てはまるものがあるかは、まだ聞いていない。
 
 ## ADR-30 SES のバウンスと苦情を、EventBridge と Lambda で Mautic の「連絡しない（DNC）」に返す
 
@@ -1552,8 +1557,8 @@ performance の判定:
 | **ADR-25** | **アクセス解析の正本を GA4 にし、Umami をやめる（本番・開発・上流の取り込み・MCP の登録をすべて外す）。PostHog は AB テスト・例外の監視・記事のイベント・実測の Core Web Vitals に残し、ページビュー・セッションは報告に使わない。タグは gtag.js を直接置き（GTM は使わない）、Consent Mode v2 の basic で同意の後だけ読み込む。エージェントは OpenSEO の GA4 のツール 5 本（`analytics-reporter` だけ）で読む。ADR-01 の Umami の部分・ADR-09 の GA4 連携の部分・DA-02 の 2 節・ADR-12 以降の Umami の配置を置き換える。TA-01 の 8 節の基準は変えず、ユーザーの決定による例外として列挙する。閲覧の記録が Google LLC（米国）に渡る** | **`決定済み`（2026-10-06）** | 同意率が低く GA4 の数字が KPI の判断に使えないこと、越境（米国）が許容できないこと、または OpenSEO の GA4 のツールで必要な指標が取れないこと |
 | **ADR-26** | **常時稼働が不要な自作の部品（要求・イベントのときだけ動き、短時間で終わり、接続を持ち続けないもの）は Lambda で動かす。製品本体と常駐が要るものは ECS。faq-bot（新規）に適用し、consent-api・admin-auth も移す（別の仕様）。TA-06 の 3.1 と DD-02 の 8.1 の「ECS にそろえる」を置き換える** | **`決定済み`（2026-10-11）** | コールドスタートで要件（Chatwoot の 5 秒、ALB の OIDC の IdP 呼び出し）を満たせないこと、または Lambda の運用が ECS より重いこと |
 | **ADR-27** | **公開サイトは JIS X 8341-3:2016 の適合レベル AA を目標に試験し、対応度（一部準拠。2026-10-19 に「準拠」から改めた。第三者の埋め込みに部分適合に関する記述を付けたため）と、方針と達成基準ごとの試験結果を `/accessibility/` に公開する。自社で作る部分は AA の全基準を満たすことを目標にする。表明は 38 基準、改修は WCAG 2.1・2.2 の AA の追加の基準も満たす。試験は全ページ（自動〈axe〉・手動・スクリーンリーダー）。第三者の埋め込みも対象に含め、直せない不足は部分適合に関する記述に書く。AWS に新しいリソースを足さない。自己改善ループに週次の自動試験と a11y の止め線を組み込む** | **`決定済み`（2026-10-18）** | JIS X 8341-3 の改正、第三者の埋め込みの不足が受け入れられないこと、または再試験の負担が表明の価値を上回ること |
-| **ADR-28** | **公開サイトのモーションは React Bits を島で段階的な強化として載せる（原本は `motion/vendor/react-bits/`、変更に `// a11y:`／`// perf:` の印、ページはラッパー 5 つだけを使う）。動きの規則 1〜8・reduced-motion で静止・5 秒を超える自動の動きに一時停止・性能の予算（`client:visible`、画面外で停止、Mobile で ShapeBlur・GooeyNav を読まない、Mobile の performance 0.9）** | **`決定済み`（2026-10-18。G-1 で試作を承認。規則 1 の A のページの部分と performance 0.9 は 2026-10-19 に ADR-29 で置き換え）** | Mobile の performance が 0.9 を保てないこと、上流のライセンス・保守の変更、または動きへの苦情 |
-| **ADR-29** | **公開サイトのトップ・サービス（A〈vivid〉の 6 ルート）に限り、動き・光・立体の表現でブランドガイドライン §2.7・§5.4・§7.3 の例外を認める（1 画面に目を引く動きを複数置いてよい）。アバターは C を除く全ページで例外。色はパレットだけ・本文のコントラスト 4.5:1・ロゴの禁止例・組版はどのページでも守る。規約・ポリシー（C）には動きを出さない。Lighthouse の performance は `warn`（計測は続ける）。アバターの `.vrm` は誰でもダウンロードできてよい。ガイドラインの文案は `docs/proposals/brand-guideline-web-motion-exception.md`** | **`決定済み`（2026-10-19。U-3・U-5）** | 公開後 4 週の CWV の LCP（p75）が A のページで 2.5 秒を超えること、動き・アバターへの苦情、またはガイドラインの改訂で例外の範囲が変わること |
+| **ADR-28** | **公開サイトのモーションは React Bits を島で段階的な強化として載せる（原本は `motion/vendor/react-bits/`、変更に `// a11y:`／`// perf:` の印、ページはラッパー 5 つだけを使う）。動きの規則 1〜8・reduced-motion で静止・5 秒を超える自動の動きに一時停止・性能の予算（`client:visible`、画面外で停止、Mobile で ShapeBlur・GooeyNav を読まない、Mobile の performance 0.9）** | **`決定済み`（2026-10-18。G-1 で試作を承認。規則 1 の A のページの部分と performance 0.9 は 2026-10-19 に ADR-29 で置き換え。ShapeBlur〈MotionSymbol〉は 2026-10-29 に消した）** | Mobile の performance が 0.9 を保てないこと、上流のライセンス・保守の変更、または動きへの苦情 |
+| **ADR-29** | **公開サイトのトップ・サービス（A〈vivid〉の 6 ルート）に限り、動き・光・立体の表現でブランドガイドライン §2.7・§5.4・§7.3 の例外を認める（1 画面に目を引く動きを複数置いてよい）。アバターは C を除く全ページで例外（2026-10-29 に改訂: 端のアバターをやめ、アバターはトップのアトリエの中だけ。B に例外は無い）。色はパレットだけ・本文のコントラスト 4.5:1・ロゴの禁止例・組版はどのページでも守る。規約・ポリシー（C）には動きを出さない。Lighthouse の performance は `warn`（計測は続ける）。アバターの `.vrm` は誰でもダウンロードできてよい。ガイドラインの文案は `docs/proposals/brand-guideline-web-motion-exception.md`** | **`決定済み`（2026-10-19。U-3・U-5）** | 公開後 4 週の CWV の LCP（p75）が A のページで 2.5 秒を超えること、動き・アバターへの苦情、またはガイドラインの改訂で例外の範囲が変わること |
 
 | **ADR-30** | **SES のバウンス（恒久的なものだけ）と苦情を、SES の設定セット → EventBridge（既定のバス）→ Lambda `ses-feedback`（VPC の外。ADR-26）→ Mautic の REST API で「連絡しない（DNC）」に返す（バウンスは理由 2、苦情は理由 1）。Mautic のプラグイン・オンプレの n8n は使わない。専用の Mautic の API 認証情報。宛先のアドレスをログ・通知に出さない。実装は未着手（それまでは SES の抑制リストが送信を止める）** | **`決定済み`（2026-10-28。ユーザーが判断を委任）** | Mautic の上流が SES の通知を本体で受けるようになること、またはイベントの量が Lambda の費用・同時実行数で扱えなくなること |
 

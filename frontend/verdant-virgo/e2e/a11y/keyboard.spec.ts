@@ -16,11 +16,11 @@ test.describe("キーボードの操作", () => {
       }) => {
         // 1 キーごとにページの様子を読むので、要素の多い一覧（ブログ）は 30 秒を超える
         test.setTimeout(120_000);
-        // 2026-10-28: ヒーローの模型は、端末が遅いと途中でポスターに戻り、一時停止のボタンが消える（Tab の数が途中で変わる）。
-        // 検証用の VM は GPU が無く遅いので、最初から「遅い端末」と判定済みにして開く（模型の操作は diorama.spec.ts で検査する）
+        // 2026-10-28: ヒーローのアトリエは、端末が遅いと途中でポスターに戻り、一時停止のボタンが消える（Tab の数が途中で変わる）。
+        // 検証用の VM は GPU が無く遅いので、最初から「遅い端末」と判定済みにして開く（アトリエの操作は atelier.spec.ts で検査する）
         await page.addInitScript(() => {
           try {
-            sessionStorage.setItem("diorama:quality", JSON.stringify({ live: false, dpr: 1 }));
+            sessionStorage.setItem("atelier:quality", JSON.stringify({ live: false, dpr: 1 }));
           } catch {}
         });
         await open(page, route);
@@ -102,6 +102,13 @@ test.describe("キーボードの操作", () => {
     }) => {
       // 正常系の一周と同じく、1 キーごとにページの様子を読むので 30 秒を超える
       test.setTimeout(120_000);
+      // 正常系の一周と同じく「遅い端末」と判定済みで開く（たどる途中で 3D が動き出すと、押せる要素が増えて数が合わなくなる。
+      // 動いている間の Shift+Tab の順はアトリエの検査の範囲。2026-10-29 に手で確かめ、罠は無かった）
+      await page.addInitScript(() => {
+        try {
+          sessionStorage.setItem("atelier:quality", JSON.stringify({ live: false, dpr: 1 }));
+        } catch {}
+      });
       await open(page, "/");
       const total = await markTabbables(page);
       // 最後の要素から逆にたどる

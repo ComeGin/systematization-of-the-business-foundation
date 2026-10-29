@@ -1,4 +1,4 @@
-// three.js を読む唯一の入口（地球儀 GlobeOsaka とアバター AvatarStage が使う）。
+// three.js を読む唯一の入口（地球儀 GlobeOsaka とアトリエ〈atelier の scene.ts〉が使う）。
 // perf: three は約 700KB と重いので、最初の描画に載せない。動的 import の Promise を 1 つだけ作って使い回し、
 //       2 つの部品が同じチャンクを共有する（`rg -l "WebGLRenderer" dist/_astro` が 1 になること）。
 //       three を静的に import する部品（R3F を使う地球儀の原本など）も、この入口と同じ three のチャンクを指す。

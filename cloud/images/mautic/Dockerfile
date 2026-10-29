@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # check=skip=InvalidDefaultArgInFrom
 # Mautic の公式イメージ（mautic/mautic）の派生イメージ。RDS の CA を足して MySQL（RDS）への接続でサーバー証明書を検証させ、
-# インストーラーの TLS・cron の Webhook の送信・信頼するプロキシの設定を足す（下の 1〜5）。
+# インストーラーの TLS・cron の Webhook の送信・信頼するプロキシの設定を足し、Symfony のキャッシュを作り直す（下の 1〜6）。
 # TA-06 の 3.2（イメージは ECR に置く）。上流のイメージのかわりに、これをビルドして ECR の mautic リポジトリに置く（cloud/README.md の 4.7）。
 #
 # ビルド:
@@ -69,3 +69,14 @@ RUN set -eux; \
 #    （comegin-entrypoint.sh。最後に公式の /entrypoint.sh を exec する）。上流には CMD が無いので、ENTRYPOINT を替えても CMD は失われない。
 COPY --chmod=0755 comegin-entrypoint.sh /comegin-entrypoint.sh
 ENTRYPOINT ["/comegin-entrypoint.sh"]
+
+# 6) 2) の変更を効かせるため、Symfony のキャッシュ（コンパイル済みのサービスコンテナ）を作り直す。
+#    上流のイメージは var/cache/prod を焼き込んであり、本番（debug=false）の Symfony は config.php が変わってもキャッシュを作り直さない。
+#    作り直さないと、DB の接続は上流の driverOptions（[17 => true]）のまま TLS を使わず、RDS に 3159 で拒否される
+#    （2026-10-29 に本番の /installer が 500 になった原因）。DB に接続せずに作れる。www-data で作り、所有者をそろえる。
+#    作り直したキャッシュの 2 つの接続（default と unbuffered）に CA の指定（PDO::MYSQL_ATTR_SSL_CA。値は 1009）が入ったことを確かめる。
+RUN set -eux; \
+    cd /var/www/html; \
+    rm -rf var/cache/prod; \
+    su -s /bin/bash www-data -c 'php bin/console cache:warmup --env=prod --no-interaction'; \
+    test "$(grep -rhoE "'driverOptions' => \[[^]]*1009 => '/etc/rds/global-bundle\.pem'" var/cache/prod --include='*.php' | sort -u | wc -l)" -ge 2

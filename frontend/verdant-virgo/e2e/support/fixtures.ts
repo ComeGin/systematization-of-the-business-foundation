@@ -6,9 +6,6 @@
 //   - consent-api: POST https://comegin-consent-api-dev.ngrok.app/v1/consent（consent/lib/consent.ts）
 // どちらもホストは環境で変わるので、パス（/form/submit・/v1/consent）だけで捕まえる。
 // 同意の後に読み込まれる解析（GA4・PostHog）とチャット（Chatwoot の SDK）は、開発のプロジェクトを汚さないよう止める。
-// アバター（avatar。A・B のページの左下）は、既定で「一時停止で開いた」状態にする（sessionStorage motion:avatar=paused。
-// 訪問者が止めたときと同じ振る舞いで、静止画のまま three とモデルを読まない）。ほかの部品の rAF の数え上げにアバターの描画が混ざらないようにし、
-// 4MB のモデルと WebGL の描画で機械の負荷を上げない。アバターの e2e（avatar.spec.ts）だけ test.use({ avatarLive: true }) で動かす。
 import { test as base, type Request, type Route } from "@playwright/test";
 
 /** Mautic の応答の差し替え方 */
@@ -108,30 +105,9 @@ const isAnalytics = (url: URL) =>
 export const test = base.extend<{
   net: Network;
   allowChat: boolean;
-  avatarLive: boolean;
-  avatarPaused: void;
 }>({
   /** true のとき Chatwoot の SDK を止めない（chat.spec.ts だけ。test.use({ allowChat: true })） */
   allowChat: [false, { option: true }],
-  /** true のときアバターを止めずに開く（avatar.spec.ts だけ。test.use({ avatarLive: true })） */
-  avatarLive: [false, { option: true }],
-  avatarPaused: [
-    async ({ context, avatarLive }, use) => {
-      if (!avatarLive) {
-        // テストの中でボタンを押して再開したときは上書きしない（まだ何も入っていないときだけ止める）
-        await context.addInitScript(() => {
-          try {
-            if (window.sessionStorage.getItem("motion:avatar") === null)
-              window.sessionStorage.setItem("motion:avatar", "paused");
-          } catch {
-            // sessionStorage が使えないフレーム（第三者の iframe など）は何もしない
-          }
-        });
-      }
-      await use();
-    },
-    { auto: true },
-  ],
   net: [
     async ({ context, allowChat }, use) => {
       const net = new Network();

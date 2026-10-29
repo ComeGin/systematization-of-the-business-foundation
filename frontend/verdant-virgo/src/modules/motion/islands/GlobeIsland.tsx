@@ -180,7 +180,7 @@ export default function GlobeIsland({
         </div>
       )}
       {live && stateKnown && (
-        // Mobile は左下（ヒーローの背景〈HeroBackdrop〉の一時停止のボタンがヒーローの右下にあり、地球儀がその真上に来るため。2026-10-20）
+        // Mobile は左下（2026-10-20 に、当時のヒーローの背景〈HeroBackdrop。2026-10-29 に消した〉の一時停止のボタンと重ならないよう決めた位置）
         <div className="pointer-events-auto absolute -bottom-2 left-0 z-[2] md:right-0 md:left-auto">
           <MotionPause
             pauseLabel={pauseLabel}

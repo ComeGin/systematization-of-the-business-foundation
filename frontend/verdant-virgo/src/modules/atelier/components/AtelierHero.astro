@@ -1,0 +1,147 @@
+---
+/**
+ * AtelierHero（トップの 1-3 ヒーロー。一人称で歩く「デザイナーのアトリエ」。spec §6）。2026-10-29。
+ *
+ * - 画面いっぱい（100svh。最小 560px）。canvas は背面、文字（slot="copy"：タグライン・h1・本文）と CTA（slot="actions"）は左下の板に重ねる。
+ * - 最初の HTML にポスター（スタート地点を three で撮った静止画）を出し、動かせるときは island が canvas に替える。
+ *   ポスターは訪問の時間帯（<html data-atelier-phase>。BaseLayout の head の inline script が付ける）の 1 枚だけを読む:
+ *   <img> には src を書かず、4 つの時間帯の URL を data-src-<phase> に持たせ、直後の inline script がその時間帯の分だけ src に入れる。
+ *   JS が無いときは <noscript> の昼のポスター。
+ * - 地は時間帯の覆いの色（data-surface="dark"。フォーカスリングが白）。
+  * - 押せる置き物・額と Tips（AtelierTouch）、展示の壁の額の文字、動かないときの一覧（AtelierList。ヒーローの直後）を、ここで組み立てる。
+ *   Tips の画像＝移り先の冒頭の静止画（stillSet）。他社の額は掲載許可の出た件だけ（wallFrames・publishedCases。spec §8）。
+ * 文言（MOTION_PAUSE・MOTION_PAUSE_TARGETS・ATELIER）は site-content から渡す（既定値を持たない。H-16）。
+ */
+import { AVATAR_FIGURE_ASSETS } from '@/modules/avatar';
+import type { AtelierTipCopy, AtelierFrameCopy } from '@/modules/site-content/atelier';
+import type { CaseStudy } from '@/modules/site-content/cases';
+import AtelierIsland, { type AtelierWalkCopy } from '../islands/AtelierIsland';
+import type { AtelierTouchItem } from '../islands/AtelierTouch';
+import AtelierList from './AtelierList.astro';
+import { wallFrames } from '../lib/frames';
+import { PROPS } from '../lib/props';
+import type { FrameArt } from '../lib/frame-art';
+import glbUrl from '../assets/atelier.glb?url';
+import mobileGlbUrl from '../assets/atelier-mobile.glb?url';
+import morningSky from '../assets/sky/morning.webp?url';
+import daySky from '../assets/sky/day.webp?url';
+import duskSky from '../assets/sky/dusk.webp?url';
+import { stillSet } from '../lib/stills';
+import type { Phase } from '../lib/types';
+import './atelier.css';
+
+interface Props {
+  pauseLabel: string;
+  resumeLabel: string;
+  pauseTarget: string;
+  /** 「前へ進む」「入口に戻る」・操作の案内（site-content/atelier.ts） */
+    walk: AtelierWalkCopy;
+  /** 代表のアバターの名札（site-content/atelier.ts の avatarName） */
+    avatarName: string;
+  /** 置き物・額の Tips と一覧の文言（site-content/atelier.ts）と、実績（cases.ts の CASES。許可の無い件はここで落とす） */
+  tips: {
+    props: Record<string, AtelierTipCopy>;
+    frames: Record<'experience' | 'jis' | 'lighthouse' | 'agents', AtelierFrameCopy>;
+    caseCta: string;
+    close: string;
+    listHeading: string;
+    cases: readonly CaseStudy[];
+  };
+}
+
+const { pauseLabel, resumeLabel, pauseTarget, walk, avatarName, tips } = Astro.props;
+const stills = stillSet('top');
+const phases = Object.keys(stills) as Phase[];
+const skyUrls = { morning: morningSky, day: daySky, dusk: duskSky };
+const imgData = Object.fromEntries(phases.map((p) => [`data-src-${p}`, stills[p].desktop]));
+const sourceData = Object.fromEntries(phases.map((p) => [`data-srcset-${p}`, stills[p].mobile ?? stills[p].desktop]));
+const desktopOf = (page: Parameters<typeof stillSet>[0]) =>
+  Object.fromEntries(Object.entries(stillSet(page)).map(([p, still]) => [p, still.desktop])) as Record<Phase, string>;
+
+// 置き物 8 つ（spec §5.2 の順）
+const propItems: AtelierTouchItem[] = Object.values(PROPS)
+  .filter((p) => p.href && p.still)
+  .map((p) => {
+    const copy = tips.props[p.id];
+    return { id: p.id, heading: copy.heading, body: copy.body, cta: copy.cta, href: p.href!, images: desktopOf(p.still!) };
+  });
+// 展示の壁の 7 枠。額の文字（自社＝ATELIER.frames、他社＝会社名と内容）と、移り先のある額の Tips
+const slots = wallFrames(tips.cases);
+const frameArts: (FrameArt | null)[] = slots.map((f) => {
+  if (!f) return null;
+  if (f.kind === 'case') {
+    const c = tips.cases.find((x) => `case:${x.id}` === f.id);
+    return c ? { title: c.company, body: c.summary } : null;
+  }
+  const copy = tips.frames[f.id as keyof typeof tips.frames];
+  return { title: copy.title, body: copy.body };
+});
+const frameItems: AtelierTouchItem[] = slots.flatMap((f, i) => {
+  if (!f?.href) return [];
+  const art = frameArts[i]!;
+  const cta = f.kind === 'case' ? tips.caseCta : (tips.frames[f.id as keyof typeof tips.frames].cta ?? tips.caseCta);
+  // 他社の額の移り先はトップの 1-8（静止画は無いので、壁の静止画を Tips の画像にする）
+  return [{ id: `frame:${i}` as const, heading: art.title, body: art.body, cta, href: f.href, images: desktopOf(f.still ?? 'accessibility') }];
+});
+const touch = { close: tips.close, groupLabel: tips.listHeading, items: [...propItems, ...frameItems] };
+---
+
+<section data-surface="dark" data-atelier-hero class="atelier-hero text-text-inverse">
+  <div data-motion="atelier" data-atelier-page="top" class="atelier atelier--hero">
+    <picture class="atelier__poster" aria-hidden="true">
+      <source media="(max-width: 767px)" {...sourceData} />
+      <img alt="" width="1600" height="900" decoding="async" fetchpriority="high" {...imgData} />
+    </picture>
+    <noscript><img class="atelier__poster-fallback" src={stills.day.desktop} alt="" width="1600" height="900" /></noscript>
+    <script is:inline>
+      // ポスターに、訪問の時間帯の 1 枚だけを入れる（ほかの時間帯の画像を読ませない。spec §5.3・§10）
+      (function () {
+        var phase = document.documentElement.getAttribute('data-atelier-phase') || 'day';
+        var root = document.currentScript.parentElement;
+        var source = root.querySelector('.atelier__poster source');
+        var img = root.querySelector('.atelier__poster img');
+        if (source) source.setAttribute('srcset', source.getAttribute('data-srcset-' + phase) || source.getAttribute('data-srcset-day'));
+        if (img) img.setAttribute('src', img.getAttribute('data-src-' + phase) || img.getAttribute('data-src-day'));
+        // 前のページで止めていたら、水和を待たず属性を先に付ける（ポスターのまま、three を読まない）。キーは island の storageKey と同じ
+        try {
+          if (sessionStorage.getItem('motion:atelier') === 'paused') root.setAttribute('data-motion-paused', 'true');
+          // このセッションで一度でもカメラが動いていたら、文字の板を最初の描画から隠す（読み込み直しで一瞬出ない。2026-10-30）。
+          // 3D を出さない端末（reduced-motion・遅い端末と判定済み）では隠さない（ポスターの上に文字が要る。WebGL なし・失敗は島が外す）
+          var quality = sessionStorage.getItem('atelier:quality');
+          var slow = quality && quality.indexOf('"live":false') >= 0;
+          if (sessionStorage.getItem('atelier:moved') === '1' && !slow && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+            root.setAttribute('data-atelier-moved', '');
+        } catch (e) {}
+      })();
+    </script>
+    <AtelierIsland
+      client:visible
+      page="top"
+      glbUrl={glbUrl}
+      mobileGlbUrl={mobileGlbUrl}
+      skyUrls={skyUrls}
+      pauseLabel={pauseLabel}
+      resumeLabel={resumeLabel}
+      pauseTarget={pauseTarget}
+            walk={walk}
+            avatar={AVATAR_FIGURE_ASSETS}
+      avatarName={avatarName}
+      touch={touch}
+      frames={frameArts}
+    />
+  </div>
+  <div class="site-container atelier-hero__inner">
+    <div class="atelier-hero__copy flex flex-col items-start gap-4">
+      <slot name="copy" />
+      <div class="mt-2 flex w-full flex-col items-start gap-4">
+        <slot name="actions" />
+      </div>
+    </div>
+    {/* a11y: 展示の壁の額の文字は canvas（とポスター）の画素にしか無いので、同じ題と説明を文字でも持つ（読み上げ・WebGL なし・JS なし。1.1.1。最終レビュー I-4）。
+        見た目は額の絵が担うので画面には出さない。文言は承認済みの額の題と説明（新しい文言を足さない） */}
+    <ul class="sr-only">
+      {frameArts.filter((art): art is FrameArt => !!art).map((art) => <li>{art.title}：{art.body}</li>)}
+    </ul>
+  </div>
+</section>
+<AtelierList heading={tips.listHeading} items={propItems} />

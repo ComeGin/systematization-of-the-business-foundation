@@ -8,7 +8,7 @@ import { BLOG_CATEGORIES } from '@/modules/blog';
 import { BaseLayout, PageIntro } from '@/modules/layout';
 import { Photo } from '@/modules/media';
 import { CtaGlow, GlowGrid, MorphGallery } from '@/modules/motion';
-import { DioramaIntro } from '@/modules/diorama';
+import { AtelierStill } from '@/modules/atelier';
 import {
   BlogCard,
   CTABanner,
@@ -61,7 +61,7 @@ const splitByService = plans.cards.length > 1;
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb.slice(1)} breadcrumbTone="surface" motionZone="vivid">
-  {/* 導入ヒーロー（Badge・h1・本文・主 CTA）。A（vivid）なので地は navy。背景は基盤の模型（DioramaIntro）。パンくずの帯は白（surface） */}
+  {/* 導入ヒーロー（Badge・h1・本文・主 CTA）。A（vivid）なので地は navy。背景はアトリエのそのサービスの置き物の静止画（AtelierStill。spec §7）。パンくずの帯は白（surface） */}
   {/* h1 は vt-service-title を静的に持つ（トップ・サービス一覧のカードの見出しから形がつながる。page-transition） */}
   <PageIntro tone="dark" title={h1} badge={hero.badge} titleViewTransitionName={VT.serviceTitle}>
     <div slot="body" class="type-body-lg phrase max-w-[720px] text-text-on-hero-muted">
@@ -70,8 +70,8 @@ const splitByService = plans.cards.length > 1;
     <CTAButton slot="actions" ctaId={hero.cta.ctaId} href={ctaHref(hero.cta, from)} size="lg" fullWidth="mobile">
       {hero.cta.label}
     </CTAButton>
-    {/* 2026-10-28: 背景はこのサービスを担う模型の部品に寄った「基盤の模型」（眺めるだけ。spec §6.7）。写真はヒーローの直下へ移した（H-12） */}
-    <DioramaIntro slot="backdrop" page={`service:${slug}`} pauseLabel={MOTION_PAUSE.pause} resumeLabel={MOTION_PAUSE.resume} pauseTarget={MOTION_PAUSE_TARGETS.diorama} />
+    {/* 2026-10-29: 背景はアトリエのこのサービスの置き物の正面の静止画（AtelierStill の backdrop。atelier spec §7）。写真はヒーローの直下（2026-10-28。H-12） */}
+    <AtelierStill slot="backdrop" page={`service:${slug}`} variant="backdrop" />
   </PageIntro>
 
 

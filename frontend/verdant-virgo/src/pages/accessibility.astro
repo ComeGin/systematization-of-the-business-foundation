@@ -14,6 +14,7 @@ import {
   type Criterion,
 } from '@/modules/site-content/accessibility';
 import { SEO } from '@/modules/site-content/seo';
+import { AtelierStill } from '@/modules/atelier';
 
 const seo = SEO.accessibility;
 const { h1, policy, status, external, results, contact } = accessibilityPage;
@@ -41,6 +42,8 @@ const linkClass = 'text-text-link underline underline-offset-4 hover:text-text-l
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb} breadcrumbTone="surface">
   <div class="site-container flex flex-col gap-12 pt-12 pb-16 md:pb-24">
+    {/* 2026-10-29: h1 の上に、アトリエの実績の展示の壁の静止画（本文と同じ 720px 幅・16:9。壁の JIS の額から移る先。spec §7・01-content-spec.md §4.11） */}
+    <AtelierStill page="accessibility" variant="banner" />
     <h1 class="type-h1 text-text-heading">{h1}</h1>
 
     <div class="flex max-w-[720px] flex-col gap-12">

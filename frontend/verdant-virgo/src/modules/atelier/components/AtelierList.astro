@@ -1,0 +1,67 @@
+---
+/**
+ * AtelierList（動かないときの一覧。spec §6.5・A-18）。2026-10-29。
+ * reduced-motion・JS なし・WebGL なし・遅い端末・読み込みの失敗のとき、アトリエのポスターの下に、置き物の Tips と同じ内容
+ * （移り先の静止画・見出し・説明・リンク）を並べる。内容は欠けない。立体が動いている間（根に data-atelier-live）は隠す（atelier.css）。
+ * 画像は訪問の時間帯の 1 枚だけを読む（ポスターと同じ inline script の作り。JS なしは <noscript> の昼の絵）。
+ * 文言は site-content から渡す（既定値を持たない。H-16）。
+ */
+import type { Phase } from '../lib/types';
+
+export interface AtelierListItem {
+  id: string;
+  heading: string;
+  body: string;
+  cta: string;
+  href: string;
+  images: Record<Phase, string>;
+}
+
+interface Props {
+  heading: string;
+  items: readonly AtelierListItem[];
+}
+
+const { heading, items } = Astro.props;
+---
+
+<section data-atelier-list aria-labelledby="atelier-list-heading" class="atelier-list">
+  <div class="site-container py-12 md:py-16">
+    <h2 id="atelier-list-heading" class="type-h3 text-text-heading">{heading}</h2>
+    <ul class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        items.map((item) => (
+          <li class="atelier-list__item">
+            <img
+              class="atelier-list__image"
+              alt=""
+              width="960"
+              height="720"
+              loading="lazy"
+              decoding="async"
+              {...Object.fromEntries(Object.entries(item.images).map(([p, url]) => [`data-src-${p}`, url]))}
+            />
+            <noscript>
+              <img class="atelier-list__image" src={item.images.day} alt="" width="960" height="720" loading="lazy" />
+            </noscript>
+            <h3 class="type-label mt-3 text-text-heading">{item.heading}</h3>
+            <p class="type-small mt-1 text-text-body">{item.body}</p>
+            <a href={item.href} class="type-label mt-2 inline-block text-text-link underline underline-offset-4">
+              {item.cta}
+              <span class="sr-only">（{item.heading}）</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+  <script is:inline>
+    // 一覧の画像に、訪問の時間帯の 1 枚だけを入れる（ポスターと同じ作り）
+    (function () {
+      var phase = document.documentElement.getAttribute('data-atelier-phase') || 'day';
+      document.currentScript.parentElement.querySelectorAll('img[data-src-day]').forEach(function (img) {
+        img.setAttribute('src', img.getAttribute('data-src-' + phase) || img.getAttribute('data-src-day'));
+      });
+    })();
+  </script>
+</section>
