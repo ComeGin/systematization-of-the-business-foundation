@@ -112,6 +112,8 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕�
 
 - [ ] **人・端末** Chatwoot・Mautic の派生イメージを `--platform linux/amd64` でビルドして ECR にプッシュする（表示されたコマンド）— cloud 4.7
 - [ ] **人・端末** タグ（`ChatwootImageTag`・`MauticImageTag`）を `samconfig.toml` に書いて `sam deploy`（`REPLACE-WITH-FIXED-TAG` のままでは起動しない）— cloud 4.7
+  - Mautic は **`7.2.0-3` 以降**（Dockerfile の 1〜7 を含む版）。`7.2.0-1` は DB に TLS で接続できず全画面が 500、`7.2.0-2` はメールの保存が 500（どちらも 2026-10-29〜30 に本番で起きた。cloud 4.7）。ECR のタグは上書きできないので、Dockerfile を直したら末尾の連番を上げる
+  - プッシュの前に `docker save "$IMG" > /dev/null` で層を読み直せることを確かめる（checksum の失敗の対策。cloud 4.7）
 
 ### P4. データ層の仕上げ（`cloud` の段階 `apps`）
 
@@ -125,8 +127,9 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕�
 
 止まる id は `admin-auth:prod-migrate`。**これが済むまで、Chatwoot・Mautic の管理画面に誰も入れない**（P7・P8 の画面の操作の前提）。
 
-- [ ] **人・端末** 運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` → `{"action":"register-alb-client"}`（どちらも `{"ok":true}`）— cloud 4.19・manual 8.1
+- [ ] **人・端末** 運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` → `{"action":"register-alb-client","authMethod":"client_secret_post"}`（どちらも `{"ok":true}`。**ALB は post を使う**。既定の basic のままだと管理画面が `561 Authentication Error`）— cloud 4.19・manual 8.1
 - [ ] **人・画面** 管理画面（`https://chat.comegin.com/app/` など）を開き、Google でログインして戻ってこられることを確かめる（Chatwoot が 0 台のあいだは戻った先が 503 でよい）
+  - ログインの後に `https://auth.comegin.com/` の `not found` に落ちたら、2026-10-29 の admin-auth の修正（`src/pages.ts`）が入っていない版。管理画面を開き直せば通る（セッションはできている）。`sam build` → `sam deploy` で直る — cloud 4.19
 - [ ] **〔申告〕** `prod.conf` に `ADMIN_AUTH_PROD_READY=yes`
 
 ### P6. オンプレの本番（WireGuard → Strapi → n8n）
@@ -158,11 +161,50 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕�
 
 止まる id は `mautic-prod:ecs-web`・`mautic-prod:settings`・`mautic-prod:ecs-cron`。
 
-- [ ] **人・端末** `MauticWebDesiredCount=1` を書いて `sam deploy`（cron はまだ 0 のまま。0 なら `ecs-web` で止まる）— cloud 4.11
-- [ ] **人・画面** `https://mkt.comegin.com/installer` でインストールする（管理者のパスワードは自分で決めて控える）— cloud 4.10
-- [ ] **人・画面** 画面で設定する: API の有効化・Webhook のキューモード `command_process`・私設アドレスの許可は **`10.99.0.2` だけ**・自動停止は無効にしない・CORS は本番の公開サイトのオリジンだけ・メール（SES の SMTP）・Site URL が `https://` か — cloud 4.10・manual 8.4
-- [ ] **人・画面** 初期設定用の API 認証情報を作り `MAUTIC_SETUP_CLIENT_*` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` → 再実行で **自動**（項目・フォーム consult・自動返信・セグメント mql）— manual 8.4
+2026-10-30 に本番で、cron の起動の直前まで通した手順。つまずいたときは、この節の最後の表を先に見る。
+
+- [ ] **人・端末** `MauticWebDesiredCount=1` を書いて `sam deploy`（cron はまだ 0 のまま。0 なら `ecs-web` で止まる）。イメージは P3 の `7.2.0-3` 以降 — cloud 4.11
+- [ ] **人・画面** `https://mkt.comegin.com/installer` でインストールする（`/installer` は OIDC の内側。先に P5 のログインが通ること）— cloud 4.10
+  1. 環境の確認: 赤（必須）が無ければ次へ。黄（推奨）は進んでよい
+  2. データベース: Driver `MySQL PDO`・Host は Aurora MySQL のエンドポイント・Port `3306`・Name `mautic`・User `mautic`・Prefix は空（どれも環境変数から入っている）。**パスワード欄の扱いに注意**（上流 7.2 の不具合。下の 3）
+  3. パスワード欄を空のまま送ると、接続の確認は通るが `config/local.php` に空のパスワードが保存され、次のテーブルの作成で `[1045] Access denied … (using password: NO)` になる。そうなったら、**DB の画面をもう送らずに**（送るたびに空で上書きされる）、ECS Exec で `local.php` の `db_password` を環境変数の値に直し、`https://mkt.comegin.com/installer/step/1.1` を新しいタブで直接開く（下のコマンド）。テーブルの作成 → データの投入と進み、管理者の画面になる
+  4. 管理者: ユーザー名・パスワード・氏名・メール（`@comegin.com`）。**パスワードは Secrets Manager に置かない**ので、自分で決めてパスワード管理ソフトに控える
+- [ ] **人・画面** 管理者でログインし、右上の歯車 → Configuration で設定する — cloud 4.10・4.9.5・manual 8.4
+  - System Settings: **Site URL** が `https://mkt.comegin.com`（`http://` なら信頼するプロキシが効いていない）。CORS は「ドメインを制限する」を Yes のまま、許可は本番の公開サイトのオリジンだけ（`SiteHost` の既定は `https://comegin.com`）
+  - API Settings: **API enabled?** を Yes
+  - Webhook Settings: キューモード `command_process`・私設アドレスの許可は **`10.99.0.2` だけ**（範囲では書かない）・失敗での自動停止は無効にしない
+  - Email Settings: Email DSN を Scheme `smtp`・Host `email-smtp.ap-northeast-1.amazonaws.com`・Port `587`・User と Password は Secret `comegin/prod/mautic/SMTP_*` の値（cloud 4.9.5 のコマンドで取り出し、入れたら端末を閉じる）。送信元は `@comegin.com` のアドレスと名前 → Save → Send test email
+  - **SES が本番アクセスの前（サンドボックス）のあいだは、宛先も検証済みの ID だけ**。ドメイン `comegin.com` を検証済みなので `@comegin.com` 宛てなら届き、外部の宛先は SES が拒否する（上限は 24 時間で 200 通・毎秒 1 通）。本番アクセスの申請は P12
+- [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — manual 8.4
+  - `prod.conf` は `chmod 600`（ほかのユーザーが読めるとスクリプトが警告する）
+- [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・セグメント mql。作り済みのものは名前で見つけて飛ばす）
 - [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `sam deploy`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
+
+インストーラーで 1045 になったときのコマンド（秘密値は画面にもシェルの履歴にも出ない。コンテナの中の環境変数で書き直す）:
+
+```bash
+# 手元。Session Manager のプラグインが要る（mautic-web は enableExecuteCommand が有効。コンテナ名は mautic）
+TASK=$(aws ecs list-tasks --region ap-northeast-1 --cluster comegin-prod \
+  --service-name comegin-prod-mautic-web --query 'taskArns[0]' --output text)
+aws ecs execute-command --region ap-northeast-1 --cluster comegin-prod --task "$TASK" \
+  --container mautic --interactive --command "bash"
+
+# コンテナの中。2 行目が ok なら exit
+cd /var/www/html && php -r '$f="config/local.php"; include $f; $parameters["db_password"]=getenv("MAUTIC_DB_PASSWORD"); file_put_contents($f, "<?php\n\$parameters = ".var_export($parameters, true).";\n");'
+php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $parameters["db_password"] === getenv("MAUTIC_DB_PASSWORD")) ? "ok\n" : "ng\n";'
+```
+
+インストールの後は、DB のパスワードを EFS の `config/local.php` が値として持つ（インストーラーが `getenv()` の形から書き換える）。Secret `mautic/DB_PASSWORD` を入れ替えるときは、`local.php` も直す。
+
+**P8 でつまずいたとき**（Mautic の PHP の例外は CloudWatch に出ない。コンテナの中の `var/logs/prod-<UTC の日付>.php` を ECS Exec で読む。`--command "bash -c 'grep -h CRITICAL /var/www/html/var/logs/*<日付>.php | tail -n 3 | cut -c1-4000'"`。cloud 4.7）:
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| `/installer` などが 500（「The site is currently offline…」）。ログの内側の例外が `[3159] Connections using insecure transport are prohibited` | イメージに Dockerfile の 7（キャッシュの作り直し）が無く、DB に TLS で接続していない（`7.2.0-1`） | `7.2.0-3` 以降にする — cloud 4.7 |
+| インストーラーのデータの段階で `[1045] … (using password: NO)` | パスワード欄を空で送った（上流の不具合） | 上のコマンド → `/installer/step/1.1` |
+| メールの保存（API の `POST /api/emails/new` も画面も）が 500。ログに `Class "Symfony\Component\DomCrawler\Crawler" not found` | 公式イメージに `symfony/dom-crawler` が無い（`7.2.0-2` まで） | `7.2.0-3` 以降にする — cloud 4.7 |
+| `mautic-prod` が `/api/...` で 401 のまま | API が無効、または `MAUTIC_SETUP_CLIENT_*` が別のクライアント | API Settings と、一覧の Public Key・Secret Key を見直す |
+| テストメールが届かない | SES のサンドボックスで、宛先が `@comegin.com` 以外 | `@comegin.com` 宛てで試す。外部に送るのは本番アクセスの後（P12） |
 
 ### P9. 本番の n8n（`n8n-prod`）
 

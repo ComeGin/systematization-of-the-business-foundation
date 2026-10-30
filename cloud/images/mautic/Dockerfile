@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # check=skip=InvalidDefaultArgInFrom
 # Mautic の公式イメージ（mautic/mautic）の派生イメージ。RDS の CA を足して MySQL（RDS）への接続でサーバー証明書を検証させ、
-# インストーラーの TLS・cron の Webhook の送信・信頼するプロキシの設定を足し、Symfony のキャッシュを作り直す（下の 1〜6）。
+# インストーラーの TLS・cron の Webhook の送信・信頼するプロキシの設定・上流が入れ忘れた依存を足し、Symfony のキャッシュを作り直す（下の 1〜7）。
 # TA-06 の 3.2（イメージは ECR に置く）。上流のイメージのかわりに、これをビルドして ECR の mautic リポジトリに置く（cloud/README.md の 4.7）。
 #
 # ビルド:
@@ -70,7 +70,18 @@ RUN set -eux; \
 COPY --chmod=0755 comegin-entrypoint.sh /comegin-entrypoint.sh
 ENTRYPOINT ["/comegin-entrypoint.sh"]
 
-# 6) 2) の変更を効かせるため、Symfony のキャッシュ（コンパイル済みのサービスコンテナ）を作り直す。
+# 6) 上流の 7.2.0 が入れ忘れた依存（symfony/dom-crawler と css-selector）を足す。メールの保存の検査（EmailBundle の
+#    ValidEmailLinksValidator）がこのクラスを使うが、公式イメージの composer.json にも mautic/core-lib の依存にも無く、
+#    メールを作ると 500 になる（2026-10-30 に本番の API の POST /api/emails/new で起きた。取り込み済みのソースのルートの composer.json には入っている）。
+#    版は固定する（masterminds/html5 は dom-crawler の依存）。既存のパッケージは更新しない（--update-no-dev・--no-scripts）。
+#    vendor の所有者に合わせて www-data で入れ、2 つのクラスを読み込めることを確かめる。上流が依存に入れたら、この手順は消す。
+RUN set -eux; \
+    cd /var/www/html; \
+    su -s /bin/bash www-data -c 'COMPOSER_HOME=/tmp/composer composer require --no-interaction --no-progress --update-no-dev --no-scripts symfony/dom-crawler:7.4.22 symfony/css-selector:7.4.22 masterminds/html5:2.12.0'; \
+    rm -rf /tmp/composer; \
+    php -r 'require "vendor/autoload.php"; exit(class_exists("Symfony\\Component\\DomCrawler\\Crawler") && class_exists("Symfony\\Component\\CssSelector\\CssSelectorConverter") ? 0 : 1);'
+
+# 7) 2) の変更を効かせるため、Symfony のキャッシュ（コンパイル済みのサービスコンテナ）を作り直す。
 #    上流のイメージは var/cache/prod を焼き込んであり、本番（debug=false）の Symfony は config.php が変わってもキャッシュを作り直さない。
 #    作り直さないと、DB の接続は上流の driverOptions（[17 => true]）のまま TLS を使わず、RDS に 3159 で拒否される
 #    （2026-10-29 に本番の /installer が 500 になった原因）。DB に接続せずに作れる。www-data で作り、所有者をそろえる。

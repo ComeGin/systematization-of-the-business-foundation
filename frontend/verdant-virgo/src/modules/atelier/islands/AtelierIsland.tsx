@@ -754,6 +754,38 @@ export default function AtelierIsland({
     };
   }, [ready, failed, reduced, startLoop]);
 
+  // 「前へ進む」の長押し（2026-10-30 ユーザーの指示）: LONG_PRESS_MS 以上押している間だけ進み、離すと止まる（次の止まる所へは行かない）。
+  // 短く押す・Enter（click）は今までどおり次の止まる所まで。長押しの後に来る click は、行き先へ進ませない
+  const holdRef = useRef<{ timer: number; held: boolean } | null>(null);
+  const startHold = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    endHold();
+    // 押している間はこのボタンが指・カーソルを持つ（歩き出すと左に「入口に戻る」が出てボタンがずれ、カーソルが外れたことになって止まった）
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const hold = {
+      held: false,
+      timer: window.setTimeout(() => {
+        hold.held = true;
+        intentRef.current.goal = null;
+        intentRef.current.key = 1;
+        startLoop();
+      }, LONG_PRESS_MS),
+    };
+    holdRef.current = hold;
+  };
+  /** 指・ボタンを離した（または外れた）。押している間だけの合図を止める。長押しだったかは click のために残す */
+  const endHold = () => {
+    const hold = holdRef.current;
+    if (!hold) return;
+    window.clearTimeout(hold.timer);
+    if (hold.held && intentRef.current.key === 1) intentRef.current.key = 0;
+  };
+  const onForwardClick = () => {
+    const held = holdRef.current?.held;
+    holdRef.current = null;
+    if (!held) goTo("next");
+  };
+
   const goTo = (target: "next" | "start") => {
     const walker = walkerRef.current;
     const scene = sceneRef.current;
@@ -857,7 +889,15 @@ export default function AtelierIsland({
             <button
               type="button"
               className="atelier__button"
-              onClick={() => goTo("next")}
+              onClick={onForwardClick}
+              onPointerDown={startHold}
+              onPointerUp={endHold}
+              onPointerCancel={() => {
+                endHold();
+                holdRef.current = null;
+              }}
+              onLostPointerCapture={endHold}
+              onContextMenu={(event) => event.preventDefault()}
             >
               {walk.forward}
             </button>

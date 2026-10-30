@@ -90,9 +90,9 @@ const touch = { close: tips.close, groupLabel: tips.listHeading, items: [...prop
   <div data-motion="atelier" data-atelier-page="top" class="atelier atelier--hero">
     <picture class="atelier__poster" aria-hidden="true">
       <source media="(max-width: 767px)" {...sourceData} />
-      <img alt="" width="1600" height="900" decoding="async" fetchpriority="high" {...imgData} />
+      <img alt="" width="1600" height="900" decoding="async" fetchpriority="high" draggable="false" {...imgData} />
     </picture>
-    <noscript><img class="atelier__poster-fallback" src={stills.day.desktop} alt="" width="1600" height="900" /></noscript>
+    <noscript><img class="atelier__poster-fallback" src={stills.day.desktop} alt="" width="1600" height="900" draggable="false" /></noscript>
     <script is:inline>
       // ポスターに、訪問の時間帯の 1 枚だけを入れる（ほかの時間帯の画像を読ませない。spec §5.3・§10）
       (function () {

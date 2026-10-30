@@ -533,6 +533,44 @@ test.describe("アトリエ（歩く）", () => {
       expect(await page.evaluate(() => window.scrollX)).toBe(scrolled);
     });
 
+    // 2026-10-30（ユーザーの指示）: 「前へ進む」は長押しで進む（押している間だけ。離すと止まり、次の止まる所へは行かない）。
+    // 短く押す・Enter は今までどおり次の止まる所まで。歩き始めた時刻と離した時刻をページの中に残して比べる
+    test("「前へ進む」を長押しすると、押している間だけ進み、離すと止まる（短く押すと次の止まる所まで）", async ({ page }, testInfo) => {
+      const root = await openLive(page, testInfo.project.name);
+      const forward = root.getByRole("button", { name: ATELIER.forward });
+      await forward.scrollIntoViewIfNeeded();
+      await page.evaluate(() => {
+        const r = document.querySelector('[data-motion="atelier"]')!;
+        const w = window as unknown as { __walkAt: number | null; __upAt: number | null };
+        w.__walkAt = null;
+        w.__upAt = null;
+        new MutationObserver(() => {
+          if (w.__walkAt === null && r.getAttribute("data-atelier-walking") === "forward") w.__walkAt = performance.now();
+        }).observe(r, { attributes: true, attributeFilter: ["data-atelier-walking"] });
+        window.addEventListener("pointerup", () => (w.__upAt ??= performance.now()), { capture: true });
+      });
+      const box = (await forward.boundingBox())!;
+      const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+      if (testInfo.project.name === "mobile") await longPress(page, x, y, 4_000);
+      else {
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.waitForTimeout(4_000);
+        await page.mouse.up();
+      }
+      const times = await page.evaluate(() => {
+        const w = window as unknown as { __walkAt: number | null; __upAt: number | null };
+        return { walkAt: w.__walkAt, upAt: w.__upAt };
+      });
+      expect(times.walkAt, "押している間に歩き始める").not.toBeNull();
+      expect(times.walkAt!).toBeLessThan(times.upAt!);
+      // 離すと止まり、その後は動かない（次の止まる所へは行かない）
+      await expect(root).not.toHaveAttribute("data-atelier-walking", /.*/, { timeout: 120_000 });
+      const stopped = await tOf(page);
+      await page.waitForTimeout(2_000);
+      expect(await tOf(page)).toBe(stopped);
+    });
+
     test("相談の席の前（t=1）で止まり、それ以上進まない", async ({
       page,
     }, testInfo) => {
@@ -1181,6 +1219,40 @@ test.describe("アトリエ（置き物と Tips）", () => {
   });
 
   test.describe("異常系", () => {
+    // 2026-10-30（ユーザーの報告。iOS Safari の録画）: 長押しすると iOS が透明のポスターの <img> を画像として扱い（持ち上げてメニューを出す）、
+    // pointercancel で歩けなかった。立体が出ている間、指はポスターではなく 3D の根に当たる
+    test("入力: 立体が出ている間、3D の空いた所に当たるのはポスターの画像ではない（iOS の画像の長押しを出さない）", async ({ page }, testInfo) => {
+      const root = await openLive(page, testInfo.project.name);
+      const hit = await root.evaluate((el) => {
+        const b = el.getBoundingClientRect();
+        const h = document.elementFromPoint(b.left + b.width * 0.5, b.top + b.height * 0.3)!;
+        const img = el.querySelector<HTMLImageElement>(".atelier__poster img")!;
+        return { tag: h.tagName, inRoot: el.contains(h), poster: getComputedStyle(img).pointerEvents, drag: img.draggable };
+      });
+      expect(hit).toEqual({ tag: expect.not.stringMatching(/^IMG$/), inRoot: true, poster: "none", drag: false });
+    });
+
+    test("Mobile: 置き物の名前の帯は「動きを止める」の手前で終わり、重ならない", async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "mobile", "名前の帯は Mobile");
+      const root = await openLive(page, testInfo.project.name);
+      const pause = root.locator(".atelier__pause");
+      await expect(pause).toBeVisible();
+      const r = await root.evaluate((el) => {
+        const box = (x: Element) => x.getBoundingClientRect();
+        const p = box(el.querySelector(".atelier__pause")!);
+        const strip = box(el.querySelector(".atelier-points--list")!);
+        // 帯の中で見えている部分（帯の外へスクロールではみ出した分は描かれない）
+        const shown = [...el.querySelectorAll<HTMLElement>(".atelier-points--list button")].map((b) => {
+          const r = box(b);
+          return { left: Math.max(r.left, strip.left), right: Math.min(r.right, strip.right), top: r.top, bottom: r.bottom };
+        }).filter((v) => v.right > v.left);
+        const overlap = shown.some((v) => v.left < p.right && v.right > p.left && v.top < p.bottom && v.bottom > p.top);
+        return { stripRight: strip.right, pauseLeft: p.left, overlap };
+      });
+      expect(r.overlap).toBe(false);
+      expect(r.stripRight).toBeLessThanOrEqual(r.pauseLeft);
+    });
+
     test("入力: Mobile で置き物を長押ししても歩かず、Tips が出る", async ({
       page,
     }, testInfo) => {

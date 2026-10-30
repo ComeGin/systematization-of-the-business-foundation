@@ -22,6 +22,13 @@
 .atelier[data-atelier-live="true"] .atelier__poster img {
   opacity: 0;
 }
+/* ポスターは飾り。指・カーソルを受けない（立体が出ている間も透明のまま下に残るので、iOS Safari は長押しを「画像の長押し」〈持ち上げて
+   メニューを出す〉として扱い、pointercancel で歩けなかった。2026-10-30 ユーザーの報告）。押す・長押しは 3D の根が受ける */
+.atelier__poster img,
+.atelier__poster-fallback {
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
 
 /* トップのヒーロー（spec §6.1）。
    1280px 以上: 画面いっぱい（100svh から上の告知帯〈約 44px〉とヘッダー〈56px〉を引いた高さ。最小 560px）、canvas は背面、文字は左下の板に重ねる。
@@ -188,6 +195,13 @@
   cursor: pointer;
   transition: background-color var(--motion-duration-small)
     var(--motion-ease-standard);
+}
+/* 「前へ進む」は長押しで進む（2026-10-30）。押している間に文字の選択・iOS の長押しのメニューを出さず、ダブルタップの拡大も待たない */
+.atelier__button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 .atelier__button:hover,
 .atelier__button:focus-visible {
@@ -508,11 +522,16 @@
 }
 /* Mobile: 置き物の名前のボタンを、3D の枠の下端に横に並べる（横にスクロール。一時停止のボタンの左まで） */
 .atelier-points--list {
-  inset: auto 0 0 0;
+  /* 右端は「動きを止める」（右下の一時停止のボタン。「再開する」に替わると幅が少し伸びる）の手前で終える。帯の中の余白で避けると、
+     スクロールの端でしか効かず、最初の表示で名前が一時停止のボタンの下に潜った（2026-10-30 ユーザーの報告） */
+  inset: auto 10.5rem 0 0;
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 8px 9.5rem 12px 12px;
+  padding: 8px 12px 12px;
+  /* 右へ続きがあることを、右端をふわっと消して示す */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   pointer-events: auto;
   scrollbar-width: none;
 }

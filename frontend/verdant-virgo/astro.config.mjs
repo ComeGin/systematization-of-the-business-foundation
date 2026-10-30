@@ -54,6 +54,11 @@ export default defineConfig({
   ],
 
   vite: {
+    // ビルドの依存の事前最適化は、dev サーバーと別の場所に置く。同じ node_modules/.vite に置くと、dev サーバーを動かしたまま
+    // astro build すると、dev の依存が本番用の React に上書きされ、dev の島が `_jsxDEV is not a function`・
+    // `dispatcher.getOwner is not a function`（地球儀の React Three Fiber）で落ちた（2026-10-30 に再現して確かめた）
+    cacheDir: isBuild ? "node_modules/.vite-build" : "node_modules/.vite",
+
     // three-globe が使わない three/webgpu・three/tsl をビルドから外す（地球儀のチャンクを小さく保つ。中身は src/modules/motion/vite-plugin.ts）
     plugins: [tailwindcss(), comeginThreeGlobeWebgpuStub()],
 

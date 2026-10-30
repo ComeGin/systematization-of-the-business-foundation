@@ -506,7 +506,7 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 | 製品 | Dockerfile | `UPSTREAM_TAG` | `UPSTREAM_DIGEST`（2026-10-27 に取得） | ECR のリポジトリ | パラメータの例 |
 |---|---|---|---|---|---|
 | Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1` | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
-| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f` | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-2`（`-1` は 6 が無く、DB に TLS で接続しない。使わない） |
+| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f` | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-3`（`-1` は 7 が無く DB に TLS で接続しない。`-2` は 6 が無くメールを作ると 500。どちらも使わない） |
 
 ```bash
 docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 \
@@ -533,8 +533,8 @@ docker push "$IMG"
 
 取り直してもまた壊れるときは、VM（VirtualBox）のメモリかディスクを疑う（2026-10-28 に、Mautic のイメージで少なくとも 2 つのファイルが壊れていた。そのうち 1 つは Docker Hub の層と比べて 1 ビットだけ違っていた）。
 
-Mautic の派生イメージが足すもの（`cloud/images/mautic/Dockerfile` の 1〜6）: 1 `mysqladmin` の TLS、2 Doctrine の PDO の TLS、3 インストーラーの PDO の TLS、4 cron に `mautic:webhooks:process`（毎分）、5 `MAUTIC_TRUSTED_PROXIES` を `config/parameters_local.php` に写す entrypoint のラッパー（`comegin-entrypoint.sh`）、6 Symfony のキャッシュの作り直し（`cache:warmup`。手元の VM で 1 分半ほどかかる）。
-**6 が無いと 2 は効かない。** 上流のイメージは `var/cache/prod` を焼き込んであり、本番の Symfony は `config.php` が変わってもキャッシュを作り直さない。その場合、Mautic は TLS を使わずに接続し、どの画面も 500（「The site is currently offline…」）になる。`var/logs/prod-*.php` の内側の例外は `[3159] Connections using insecure transport are prohibited while --require_secure_transport=ON` になる（2026-10-29。`7.2.0-1` で起きた）。起動のログの `MySQL is alive and well.` は、`mysqladmin`（1 の経路）が応答を受けたというだけで、PHP から接続できる証拠にはならない。
+Mautic の派生イメージが足すもの（`cloud/images/mautic/Dockerfile` の 1〜7）: 1 `mysqladmin` の TLS、2 Doctrine の PDO の TLS、3 インストーラーの PDO の TLS、4 cron に `mautic:webhooks:process`（毎分）、5 `MAUTIC_TRUSTED_PROXIES` を `config/parameters_local.php` に写す entrypoint のラッパー（`comegin-entrypoint.sh`）、6 上流の 7.2.0 が入れ忘れた依存 `symfony/dom-crawler`・`css-selector`（`composer require`。版を固定）、7 Symfony のキャッシュの作り直し（`cache:warmup`。手元の VM で 1 分半ほどかかる）。
+**7 が無いと 2 は効かない。** 上流のイメージは `var/cache/prod` を焼き込んであり、本番の Symfony は `config.php` が変わってもキャッシュを作り直さない。その場合、Mautic は TLS を使わずに接続し、どの画面も 500（「The site is currently offline…」）になる。`var/logs/prod-*.php` の内側の例外は `[3159] Connections using insecure transport are prohibited while --require_secure_transport=ON` になる（2026-10-29。`7.2.0-1` で起きた）。**6 が無いと、メールの保存が 500 になる**（API の `POST /api/emails/new` も画面も。`var/logs/prod-*.php` に `Class "Symfony\Component\DomCrawler\Crawler" not found`。2026-10-30。`7.2.0-2` で起きた。メールの中のリンクを検査する `ValidEmailLinksValidator` が使うのに、公式イメージの `composer.json` に無い）。起動のログの `MySQL is alive and well.` は、`mysqladmin`（1 の経路）が応答を受けたというだけで、PHP から接続できる証拠にはならない。
 Mautic の PHP のエラーは CloudWatch に出ず、コンテナの中の `var/logs/` にだけ書かれる。読むときは ECS Exec を使う（手元に Session Manager のプラグインが要る）。
 `aws ecs execute-command --region ap-northeast-1 --cluster comegin-prod --task <タスク> --container mautic --interactive --command "bash -c 'tail -c 3000 /var/www/html/var/logs/prod-<日付>.php'"`。原因は、いちばん内側の `PDOException` に書かれている。
 **Mautic のタスク定義に `DEBUG=true` を入れない**（上流の起動の検査が、DB のパスワードなどの環境変数をログに出すため）。上流の cron の entrypoint は `MAUTIC_*` の環境変数をコンテナの中の `/tmp/cron.env` に書く（上流の挙動。コンテナの外には出ない）。
@@ -1052,11 +1052,15 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
    ```bash
    OPS=$(OUT AdminAuthOpsFunctionName)
    aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"migrate"}' /dev/stdout
-   aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"register-alb-client"}' /dev/stdout
-   # ALB がトークンの要求で invalid_client になるときは '{"action":"register-alb-client","authMethod":"client_secret_post"}'
+   aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"register-alb-client","authMethod":"client_secret_post"}' /dev/stdout
    ```
 
    結果の JSON が `{"ok":true,…}` であること。`{"ok":false,…}` は入力の誤り、`FunctionError` は実行の失敗（ロググループ `/aws/lambda/comegin-<env>-admin-auth-ops`）。
+   `OUT` は CloudFormation の出力を名前で 1 つ取り出すシェル関数（`OUT() { aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }`。貼り付けで途中が改行されると壊れる）。
+
+   **ALB のクライアント認証は `client_secret_post`**（2026-10-29 に本番で確定）。既定の `client_secret_basic` で登録すると、管理画面が **`561 Authentication Error`** になる（ALB の `ELBAuthError` が増え、admin-auth のログは `GET /api/auth/oauth2/authorize` が 302、`POST /api/auth/oauth2/token` が **400**。Better Auth は登録と違う方式のクライアントを拒否し、Basic なら 401、それ以外は 400 を返す）。basic で登録してしまったら、上の post の行を送り直せばよい（デプロイは要らない）。
+
+   **Google でログインした後に `https://auth.comegin.com/` の `not found` に落ちるとき**: ログインの後に保留中の認可を続ける oauth-provider の after フックが、本番で効かなかった（2026-10-29。原因は未特定。`backend/admin-auth/README.md` の「実地で未確認」）。セッションは作られているので、管理画面を開き直せば通る。2026-10-29 の修正（`/sign-in` の戻り先を、元の認可リクエストで認可エンドポイントを開き直す URL にした。`src/pages.ts`）を含む版をデプロイすれば起きない。
 
    **Google の画面で `エラー 400: redirect_uri_mismatch` が出たとき**: admin-auth（Better Auth）が Google に送る戻り先は **`https://<AuthHost>/api/auth/callback/google`**（既定 `https://auth.comegin.com/api/auth/callback/google`。`BETTER_AUTH_URL` ＋ basePath `/api/auth` ＋ `/callback/google`。`backend/admin-auth/src/auth.ts`・`constants.ts`）。これを、親のパラメータ `GoogleClientId` の OAuth クライアントの **「承認済みのリダイレクト URI」** に登録する（Google Cloud Console → Google Auth Platform → Clients → そのクライアント）。
    - エラーの画面の「このエラーの詳細」に、Google が受け取った `redirect_uri` と `client_id` が出る。`client_id` が `GoogleClientId` と同じクライアントか、`redirect_uri` が登録した値と**完全に**同じか（`https`・大文字小文字・末尾の `/`）を見る。
@@ -1087,7 +1091,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | **Chatwoot** | `SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true` で、管理画面から Webhook を試し送信して `10.99.0.2:5680` に届くこと（SG の出口を絞ったので、届かないときは SG の出口と WireGuard の SG を見る）。S3 をタスクロールで使えるか（`AWS_ACCESS_KEY_ID` を空のまま SDK の既定の探索に倒れるか。倒れなければ専用の IAM ユーザーのキーを Secret に）。有効にする拡張を採用バージョンの `db/schema.rb` で確かめる。Rails 本体で `PGSSLMODE=verify-full` が効くか | `services/chatwoot-*.yaml`、`ops-tasks.yaml` |
 | **RDS への TLS** | すべてのサービスが検証つきで接続する形にした（4.7 の表）。**実機の RDS で、各製品が検証つきで繋がること**（とくにオンプレの Strapi と n8n・Chatwoot の Rails・Mautic 本体）。繋がらない製品があっても、`PostgresForceSsl` を 0 にしたり検証を外したりする前に、製品側の設定を探す | `data.yaml`、4.7 |
 | **エンジンのバージョン** | Aurora は `8.4.mysql_aurora.8.4.8` と `16.15`（2026-10-26 時点の東京の最新。マイナーは自動で上がる）。Valkey は `8.0`（CloudFormation と ElastiCache が受け付けるかを実機で確かめる。無ければ 7.2。開発は `valkey/valkey:8-alpine`）。Chatwoot の Sidekiq に問題が出たら、同じノードタイプのまま Redis OSS 7.1 に切り替える | `data.yaml` |
-| **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は既定の `client_secret_basic`（ALB が post を使う場合は、運用の Lambda に `{"action":"register-alb-client","authMethod":"client_secret_post"}` を送って登録し直す。4.19）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
+| **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は `client_secret_post`（2026-10-29 に本番で確定。basic では 561。4.19）。ログインの後に認可が続かない件（after フック）の本番だけの原因は未特定（戻り先を変えて回避済み）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
 | **フラットレートプラン** | 購読の実機での確認（Free Tier のアカウントは不可）。apex か `www` か（プランは 1 apex まで）。allowance を超えた後の挙動。標準アクセスログは Pro 以上（Free は無し）。`/404.html` を `frontend/verdant-virgo` に作る | `global/template.yaml`、`cdn.yaml` |
 | **WAF** | Common ルールの Count から Block への切り替え（判断は R1。4.16）、しきい値の実測、WAF のログの配信権限（デプロイ主体に `logs:CreateLogDelivery` と `logs:PutResourcePolicy` などが要る見込み）。ALB のアクセスログは未設定 | `edge.yaml`、4.16 |
 | **ネットワーク** | タスクのセキュリティグループの外向きは tcp の全ポートを `0.0.0.0/0` に開けている（ECR・Secrets Manager・SES が呼ぶ外部 API）。**Chatwoot の 2 つだけは 2026-10-26 に宛先で絞った**（443・587・RDS・Valkey・`10.99.0.2:5680`。`SAFE_FETCH_ALLOW_PRIVATE_NETWORK` で製品側の SSRF 対策が外れるため）。ほかのタスクは未着手 | `network.yaml` |
