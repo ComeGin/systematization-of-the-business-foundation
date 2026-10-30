@@ -553,9 +553,11 @@ test.describe("アトリエ（歩く）", () => {
       const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
       if (testInfo.project.name === "mobile") await longPress(page, x, y, 4_000);
       else {
+        // 押したまま歩き出すのを待ってから離す（GPU の無い VM が重いと、押す・離すがまとめて処理され、離す前に歩き出す時間が無い）
         await page.mouse.move(x, y);
         await page.mouse.down();
-        await page.waitForTimeout(4_000);
+        await expect(root).toHaveAttribute("data-atelier-walking", "forward", { timeout: 60_000 });
+        await page.waitForTimeout(1_000);
         await page.mouse.up();
       }
       const times = await page.evaluate(() => {
@@ -654,6 +656,12 @@ test.describe("アトリエ（歩く）", () => {
       browser,
     }, testInfo) => {
       test.skip(testInfo.project.name !== "desktop", "重ねる配置は Desktop");
+      // 確かめるのは「隠す・出す」の状態（描画の止まった headless では transition の時計が進まないことがある）
+      await page.addInitScript(() => {
+        const style = document.createElement("style");
+        style.textContent = ".atelier-hero__copy{transition:none!important}";
+        document.addEventListener("DOMContentLoaded", () => document.head.append(style));
+      });
       const root = await openLive(page, testInfo.project.name);
       await root.getByRole("button", { name: ATELIER.forward }).click();
       await expect(root).toHaveAttribute("data-atelier-walking", "forward", { timeout: 60_000 });
@@ -1413,6 +1421,8 @@ test.describe("アトリエ（下層ページの冒頭の静止画）", () => {
             document.head.append(style);
             return out.filter((t) => !t.sr && t.w > 1 && t.h > 1 && t.y < innerHeight);
           });
+          // 隠したのが描かれてから撮る（重いと、撮るのが先になり、文字そのものを地として測った）
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
           const shot = await page.screenshot();
           const { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
           const scale = info.width / width;
