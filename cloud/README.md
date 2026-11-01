@@ -814,7 +814,7 @@ aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/
 
 - **サンドボックスのあいだ**: 宛先も検証済みでなければ届かない。確かめたいアドレスを一時的に検証する（SES のコンソール → **Verified identities** → **Create identity** → **Email address**。届いたメールのリンクを開く）。終わったら、その ID を消す。メールボックスシミュレーター（`success@simulator.amazonses.com`）への送信は、サンドボックスでも数に入らずに試せる。
 - **Mautic**: 4.9.5 の **Send test email**（ログインしている管理者のアドレスに届く）。
-- **Chatwoot**: 管理画面のパスワードの再設定のメールや、担当者への「新しい会話」の通知（4.17 の 7）が届くこと。届かないときは、Sidekiq（`chatwoot-worker`）のログで SMTP の応答（`535 Authentication Credentials Invalid` はユーザー名・パスワードの誤り、`554 Message rejected: Email address is not verified` はサンドボックスか送信元のドメインの誤り）を見る。
+- **Chatwoot**: 管理画面のパスワードの再設定のメールや、担当者への「新しい会話」の通知（4.17 の 5）が届くこと。届かないときは、Sidekiq（`chatwoot-worker`）のログで SMTP の応答（`535 Authentication Credentials Invalid` はユーザー名・パスワードの誤り、`554 Message rejected: Email address is not verified` はサンドボックスか送信元のドメインの誤り）を見る。
 - 届いたメールのヘッダー（Gmail なら「メッセージのソースを表示」）で、`SPF: PASS`（`bounce.comegin.com`）・`DKIM: PASS`（`comegin.com`）・`DMARC: PASS` を確かめる。
 
 #### 4.9.8 運用
@@ -873,7 +873,7 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 
 | 順 | サービス | 条件・注意 |
 |---|---|---|
-| 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
+| 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。コマンドは 4.17 の「前提」。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
 | 2 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
 
 **夜間の停止（2026-10-26。ユーザーの決定）**: `chatwoot-web`・`chatwoot-worker`・`mautic-cron` は、毎日 22 時に 0 台にして翌 8 時に DesiredCount に戻す（日本時間。各サービスの `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。`mautic-web` は止めない。
@@ -1004,27 +1004,205 @@ ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・
 
 Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-11-faq-bot-design.md`。**`sam build` は `backend/faq-bot/Makefile` を使い、pnpm と esbuild でまとめる**（開発機に pnpm 11 が要る。npm は使わない）。
 
-1. 本番の Chatwoot（管理画面の「設定 → ラベル」）でラベル `faq-answered`・`faq-unmatched`・`faq-handoff` を作る。
-2. 「設定 → ボット」でエージェントボット「FAQ ボット」を作る（Webhook の URL は後で入れるので、仮に `https://example.invalid/webhook`）。作成後の画面か `GET /api/v1/accounts/<id>/agent_bots/<bot_id>`（管理者のトークン）で access_token と secret を控える。
-3. Secrets Manager に入れる（4.6 と同じく、シェルの履歴に残らない方法で）:
+#### 前提: 本番の Chatwoot を起動する（移行 → `chatwoot-web` → `chatwoot-worker`）
+
+下の 1〜8 は本番の Chatwoot の管理画面で行うので、先に Chatwoot を動かす（2026-11-01 に追加）。2 つのサービスは 0 台で作られる（`template.yaml` の `ChatwootWebDesiredCount`・`ChatwootWorkerDesiredCount` は既定 0）。順番は 4.11 の表の 1 と同じで、ここでは手順を書き下す。
+
+- **台数は `cloud/samconfig.toml` の `parameter_overrides` で上げる。** `aws ecs update-service --desired-count` で直接変えない（次の `sam deploy` で 0 に戻る。2 節の「重要」）。
+- **昼（8〜22 時）に行う。** 夜間の停止の最中に DesiredCount を変えると、その夜は止まらない（4.11 の「夜間の停止」）。
+- **web を先、worker を後にする。** web（Rails。画面・API・ウィジェット・ALB のヘルスチェック）が動かないと、onboarding も 4.13 の確認もできない。worker（Sidekiq）は、メールの送信・Webhook・エージェントボットへのイベントの送信を処理する。worker が 0 台のあいだは、会話は作られても FAQ ボットにイベントが届かずに答えず、メールも出ない（ジョブは Valkey に溜まり、worker が起動すると処理される）。
+- **1 つ上げるたびにデプロイし、確かめてから次に進む**（4.11）。
+
+① 前提を確かめる。
+
+- Chatwoot のイメージが ECR にあり、パラメータ `ChatwootImageTag` のタグと一致している（4.7。`node setup/setup.mjs --target prod --phase images --check`）
+- データベース `chatwoot` とユーザーがある（4.8。段階 `apps` の `cloud` が `cloud:db-init` で止める）
+- SMTP の Secret（`comegin/prod/chatwoot/SMTP_USERNAME`・`SMTP_PASSWORD`）に値を入れてある（4.9.4）。**Secret はタスクの起動時に読まれる**ので、台数を上げる前に入れる（後から入れたら、4.9.5 の `--force-new-deployment`）
+- admin-auth の migrate と `register-alb-client` が済んでいる（4.19。済んでいないと `chat.` の管理画面に入れない）
+
+② 移行（`db:chatwoot_prepare`）を RunTask で実行する。**初回とイメージを更新するたびに、台数を上げる前に行う**（4.10。entrypoint はそのまま、`command` だけ上書きする）。
+
+```bash
+# 変数を用意する（4.8 と同じ。端末を開き直したら、ここからやり直す）
+REGION=ap-northeast-1
+OUT() {
+  aws cloudformation describe-stacks \
+    --region "$REGION" \
+    --stack-name comegin-prod \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
+}
+CLUSTER=$(OUT ClusterName)
+SUBNETS=$(OUT PrivateSubnetIds)
+CHATWOOT_SG=$(OUT ChatwootWebSecurityGroupId)
+
+# 移行を実行して、終わるまで待つ
+TASK=$(aws ecs run-task \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --launch-type FARGATE \
+  --task-definition comegin-prod-chatwoot-web \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$CHATWOOT_SG],assignPublicIp=DISABLED}" \
+  --overrides '{"containerOverrides":[{"name":"chatwoot","command":["bundle","exec","rails","db:chatwoot_prepare"]}]}' \
+  --query 'tasks[0].taskArn' \
+  --output text)
+aws ecs wait tasks-stopped --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK"
+aws ecs describe-tasks \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --tasks "$TASK" \
+  --query 'tasks[0].containers[0].exitCode'   # 0 であること
+```
+
+0 でなければ、台数を上げない（CloudWatch Logs の chatwoot-web のロググループで、そのタスクのログを見る）。
+
+③ `chatwoot-web` を起動する。`cloud/samconfig.toml` の `parameter_overrides` に `"ChatwootWebDesiredCount=1",` を足して、デプロイする。
+
+```bash
+cd cloud && sam build && sam deploy
+aws ecs wait services-stable \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --services comegin-prod-chatwoot-web
+```
+
+確かめる: 4.13 の Chatwoot の行（`/widget` が 200、`/app/` が 302 で `auth.` に飛ぶ）と、アラーム `comegin-prod-chatwoot-web-unhealthy-hosts` が鳴っていないこと。Rails の初回の起動は遅いので、`services-stable` が終わるまで数分かかる。
+
+④ `chatwoot-worker` を起動する。同じく `"ChatwootWorkerDesiredCount=1",` を足して、デプロイする。
+
+```bash
+cd cloud && sam build && sam deploy
+aws ecs wait services-stable \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --services comegin-prod-chatwoot-worker
+aws ecs describe-services \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --services comegin-prod-chatwoot-web comegin-prod-chatwoot-worker \
+  --query 'services[].[serviceName,desiredCount,runningCount]' \
+  --output table   # どちらも 1・1
+```
+
+⑤ ブラウザで `https://<ChatHost>/` を開き、admin-auth（Google）でログインした後に Chatwoot の onboarding の画面が出ることを確かめる（onboarding は下の 1 で行う）。
+
+設定スクリプト（`node setup/setup.mjs --target prod --only chatwoot-prod`）は、2 つの DesiredCount が 0 なら ②〜④ を案内して止まる（`chatwoot-prod:ecs`）。移行の終了コードと ③④ の確認は、スクリプトでは確かめない。
+
+#### FAQ ボットの設定
+
+受信箱・ラベル・ボット・マクロは**設定スクリプト（`chatwoot-prod`。段階 `apps`）が Chatwoot の API で作る**（2026-11-01 に、手作業の手順からスクリプトの手順に書き直した。開発の `chatwoot` と同じ関数〈`backend/chatwoot-system/setup/index.mjs` の `ensure*`〉を本番に向けて呼ぶ）。人が行うのは、画面でしかできない最初の 2 人と、AWS への書き込み（Secrets Manager・公開サイトの配信）だけ。止まる id と案内の正本は `setup/manual-steps.md` の 8.3。
+
+1. **人・画面** 最初の 2 人（管理者と AI エージェント）を作り、値を `~/.config/comegin/setup/prod.conf` に書く（`chatwoot-prod:onboarding`）。画面は日本語で出る（英語の名前を括弧に添える）。
+
+   **(a) 管理者とアカウント**（onboarding）
+
+   - `https://<ChatHost>/` を開き、admin-auth（Google）でログインした後、onboarding の画面で氏名・メール・パスワード・アカウント名を入れる。ここで作った管理者は、インスタンス全体の SuperAdmin にもなる
+   - 作り終わると、アカウントの管理画面（`/app/accounts/<数字>/dashboard`）が開く。**この `<数字>` が `CHATWOOT_ACCOUNT_ID`**
+   - 左下のアバター → プロフィール設定 の下の「アクセストークン」の「コピー」で、**`CHATWOOT_ADMIN_TOKEN`** を控える
+   - `/super_admin`（Super Admin Console。左上に「Super Admin Console」と出る画面）は、インスタンス全体の管理画面で、ここでは使わない。担当者の招待・受信トレイ・ラベルは、アカウントの管理画面（`https://<ChatHost>/app/`）で行う
+
+   **(b) エージェント専用ユーザー「AI エージェント」**（ADR-17。本番の MCP〈`mcp-prod`〉と共用）
+
+   - アカウントの管理画面の左のメニュー **設定 → 担当者**（Settings → Agents）→ 右上の **担当者を追加**（Add Agent）で、次のとおり入れて追加する:
+
+     | 項目 | 値 |
+     |---|---|
+     | 名前 | `AI エージェント` |
+     | 役割 | **担当者**（Agent）。「管理者」にしない（ほかの権限だと 2 で止まる） |
+     | メールアドレス | 管理者のメールに `+` を付けたもの（例: `kamegin4+ai-agent@comegin.com`。同じ受信箱に届き、SES のサンドボックスでも `@comegin.com` 宛てなので届く） |
+
+   - 届いた招待メールのリンクを開き、パスワードを決める（このユーザー専用。パスワードマネージャーに保存する）
+   - **シークレットウィンドウ**で `https://<ChatHost>/app/login` を開き、admin-auth の Google ログイン（許可リストの自分のアカウント）を通った後、Chatwoot のログイン画面で **AI エージェントのメールとパスワード**でログインする（今のウィンドウには管理者のセッションが残っているため）
+   - 左下のアバター → プロフィール設定 の「アクセストークン」をコピーし、**`CHATWOOT_AGENT_TOKEN`** として控える
+   - 招待メールが届かないとき: 招待メールは worker（Sidekiq）が SMTP（SES）で送る。前提の ④ の `describe-services` で `chatwoot-worker` の `runningCount` が 1 か、SMTP の Secret が入っているか（前提の ①）を見る。送信のエラーは `chatwoot-worker` のログに出る（4.9.7）
+
+   **(c) `prod.conf` に書く**
 
    ```bash
-   read -rs SECRET_VALUE   # access_token を貼る（画面に出ない）
-   aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN --secret-string "$SECRET_VALUE"
-   read -rs SECRET_VALUE   # secret を貼る
-   aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_SECRET --secret-string "$SECRET_VALUE"
-   unset SECRET_VALUE
+   cd ~/ComeGin/systematization-of-the-business-foundation   # リポジトリのルート
+   aws sso login                  # 2 で ECS の台数を読むのに AWS の認証が要る（読み取りだけ）
+   aws sts get-caller-identity    # Account が 798560359429 であること
+
+   # faq-bot の関数 URL（1 回目の sam deploy でできている。末尾は / で終わる）
+   aws cloudformation describe-stacks \
+     --region ap-northeast-1 \
+     --stack-name comegin-prod \
+     --query "Stacks[0].Outputs[?OutputKey=='FaqBotFunctionUrl'].OutputValue" \
+     --output text
+   # 例: https://abcd1234.lambda-url.ap-northeast-1.on.aws/ → 書く値は末尾に webhook を足したもの
+
+   chmod 600 ~/.config/comegin/setup/prod.conf
    ```
 
-4. 公開サイトを `faq.json` 入りでビルドして配信する（`https://<SiteHost>/faq.json` が JSON を返すこと）。
-5. `sam build` → `sam deploy`。出力の `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を、2 のボットの Webhook の URL に入れる。
-6. 「設定 → 受信箱 → Web サイト → ボットの設定」で「FAQ ボット」を選ぶ（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。
-7. 受信箱「Web サイト」の設定を合わせる（2026-10-12 に追加。開発は `backend/chatwoot-system/setup/index.mjs` が同じことをする）:
-   - **解決した会話への書き込みを許さない**（受信箱の設定の「解決後のメッセージを許可」を切る。API では `allow_messages_after_resolved: false`）。解決後はウィジェットに「新しいチャットを開始する」が出て、新しい会話になる（既定のままだと、解決した会話が開き直される）。
-   - **担当者（人）を受信箱のメンバーにする**（「設定 → 受信箱 → Web サイト → 共同作業者」）。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）。
-   - **各担当者が、プロフィールの通知設定で「新しい会話が作成されたとき」のメールを有効にする**（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。本人のトークンでしか変えられない）。受信箱の自動割り当てが有効なら、続けて「割り当てられたとき」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる。
-   - **ラベル `faq-ask-resolved` と、マクロ「解決の確認を送る」を作る**（「設定 → ラベル」と「設定 → マクロ」。マクロは全員で共有し、動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）。
-8. 確かめる: ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま。
+   トークンをシェルの履歴に残さないよう、`echo` ではなくエディタで書く:
+
+   ```ini
+   CHATWOOT_ADMIN_TOKEN=<(a) の管理者のアクセストークン>
+   CHATWOOT_ACCOUNT_ID=<(a) の URL の数字>
+   CHATWOOT_AGENT_TOKEN=<(b) の AI エージェントのアクセストークン>
+   PUBLIC_SITE_URL=https://comegin.com
+   FAQ_BOT_WEBHOOK_URL=https://<id>.lambda-url.ap-northeast-1.on.aws/webhook
+   # CHATWOOT_BASE_URL は書かなくてよい（既定 https://chat.comegin.com）
+   ```
+
+   スクリプトは実行の前に形式を確かめる（URL は `https://`、アカウント ID は数字だけ、`FAQ_BOT_WEBHOOK_URL` は `https://<id>.lambda-url.<リージョン>.on.aws/webhook`）。
+
+2. **自動** 設定スクリプトを実行する。**Chatwoot が動いている昼（8〜22 時）に行う**（夜間の停止の最中は Chatwoot に届かない。4.11）。
+
+   ```bash
+   node setup/setup.mjs --target prod --check --only chatwoot-prod   # まず何も変えずに見る
+   node setup/setup.mjs --target prod --only chatwoot-prod           # 実行する
+   ```
+
+   `--check` の 1 回目は「受信箱がまだ状態に無い」「FAQ のラベルが無い」などの「まだ」が並ぶ（作る前なので正しい）。`DesiredCount が 0`（前提の ③④ が未了）か `prod.conf に無いキー`（1 の (c) の書き漏れ）が出たら、先に直す。
+
+   実行すると、管理者のトークンが管理者の、AI エージェントのトークンが担当者（`agent`）のものかを確かめてから、次を行う（どれも作り済みなら名前で見つけて飛ばすので、何度実行してもよい）:
+   - 受信箱「Web サイト」（Web ウィジェット。`website_url` は `PUBLIC_SITE_URL`）を作り、`website_token` を prod の状態（`CHATWOOT_WEBSITE_TOKEN`）に置く。公開サイトの本番のビルドがそれを読む（4）
+   - **解決した会話への書き込みを許さない**（`allow_messages_after_resolved: false`）。解決後はウィジェットに「新しいチャットを開始する」が出て、新しい会話になる（既定のままだと、解決した会話が開き直される）
+   - **管理者と AI エージェントを受信箱のメンバーにする**。担当者の権限のユーザーは、所属した受信箱の会話しか見えない。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）
+   - ラベル 4 つ: `faq-answered`・`faq-unmatched`・`faq-handoff`・`faq-ask-resolved`
+   - エージェントボット「FAQ ボット」（送り先は `FAQ_BOT_WEBHOOK_URL`。違っていれば直す）を作り、受信箱に接続する（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。ボットの access_token と secret は prod の状態（`CHATWOOT_FAQ_BOT_TOKEN`・`CHATWOOT_FAQ_BOT_SECRET`。600）にだけ置き、画面に出さない
+   - マクロ「解決の確認を送る」（全員で共有。動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）
+   - **管理者**の「新しい会話が作成された時」のメール通知を有効にする（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。画面で手で入れなくてよい）
+
+   1 回目は Secrets Manager の手前で「画面での操作が必要: FAQ ボットの access_token と secret を Secrets Manager に入れる」と出て、終了コード `3` で止まる（3 に進む）。
+
+   | 止まったときの表示 | 原因と直し方 |
+   |---|---|
+   | `CHATWOOT_ADMIN_TOKEN で…認証できない（401）` | トークンの写し間違い。プロフィール設定から写し直す |
+   | `…アカウント N の管理者ではない`／`…担当者（agent）ではない` | 2 つのトークンを逆に書いた、または AI エージェントの役割が「管理者」。設定 → 担当者 で役割を直す |
+   | `本番の Chatwoot に届かない` | Chatwoot が止まっている（夜間の停止の最中を含む） |
+   | `ECS の台数を確かめられない` | AWS の認証が切れている（`aws sso login`） |
+
+3. **人・端末** FAQ ボットの access_token と secret を Secrets Manager の `comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN`・`CHATWOOT_BOT_SECRET` に入れる（`chatwoot-prod:faq-bot-secrets`）。
+
+   **これは AI エージェント（人のユーザー）の値ではなく、2 でスクリプトが作ったエージェントボット「FAQ ボット」の値**で、画面から写すものは無い。Chatwoot の中の 3 つの「誰」:
+
+   | | 何か | 値 | 置き場所 | 使うもの |
+   |---|---|---|---|---|
+   | 管理者 | 人のユーザー | アクセストークン | `prod.conf` の `CHATWOOT_ADMIN_TOKEN` | 設定スクリプト（初期設定のあいだだけ） |
+   | AI エージェント | 人と同じ種類のユーザー（担当者の権限） | アクセストークン | `prod.conf` の `CHATWOOT_AGENT_TOKEN` | 本番の MCP（`conversation-triage` など） |
+   | FAQ ボット | エージェントボット（ユーザーではない。設定 → ボット） | access_token と secret | 状態ファイル → Secrets Manager | faq-bot（Lambda） |
+
+   access_token は、faq-bot が返信・ラベル・担当者への引き継ぎで Chatwoot の API を呼ぶ認証に使う（返信は「FAQ ボット」の名前で送られる）。secret は、Chatwoot が faq-bot への Webhook に付ける署名（`X-Chatwoot-Signature`。4.13 以降）の鍵で、faq-bot は署名が合わないリクエストを拒む。
+
+   案内に出る 2 行を、そのまま貼り付けて実行する（値は画面にもシェルの履歴にもコマンドラインにも出ず、状態ファイルからパイプで渡る。`--show` は末尾に改行を付けるので `tr` で落とす）。成功するとそれぞれ `ARN`・`VersionId` が返る:
+
+   ```bash
+   node setup/setup.mjs --target prod --show CHATWOOT_FAQ_BOT_TOKEN | tr -d '\n' \
+     | aws secretsmanager put-secret-value --region ap-northeast-1 \
+         --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN --secret-string file:///dev/stdin
+   node setup/setup.mjs --target prod --show CHATWOOT_FAQ_BOT_SECRET | tr -d '\n' \
+     | aws secretsmanager put-secret-value --region ap-northeast-1 \
+         --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_SECRET --secret-string file:///dev/stdin
+   ```
+
+   続けて、案内に出るトークンの指紋（SHA-256 の先頭 8 文字。秘密値ではない）を `prod.conf` に `FAQ_BOT_SECRETS_STORED=<指紋>` と書き、2 の実行のコマンドをもう一度実行する（作り済みのものは飛ばし、`✓ 終わった`〈終了コード `0`〉）。ボットが作り直されてトークンが変わると指紋が合わなくなり、もう一度入れるよう案内される。faq-bot はコールドスタートのたびに Secret を読むので、入れ直しても `sam deploy` は要らない
+4. **人・端末** `node setup/frontend.mjs --target prod`（`.env.production` に `website_token` が入る）→ 公開サイトを `faq.json` 入りでビルドして配信する（4.14。`https://<SiteHost>/faq.json` が JSON を返すこと）
+5. **人・画面** ほかの担当者（人）を受信箱「Web サイト」のメンバーにし（「設定 → 受信トレイ → Web サイト」の共同作業者〈Collaborators〉のタブ）、**各担当者が自分のプロフィールの通知設定で「新しい会話が作成された時」のメールを有効にする**（本人のトークンでしか変えられないので、スクリプトは管理者の分だけ行う）。受信箱の自動割り当てが有効なら、続けて「会話が自分に割り当てられた時」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる
+6. 確かめる: `node setup/setup.mjs --target prod --check --only chatwoot-prod` が通る（台数・2 つのトークンの権限・受信箱の設定とメンバー・ボットの接続と送り先・ラベル・マクロ・管理者の通知・Secrets Manager の申告）。ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま
+
+初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` を消してよい（その後の `chatwoot-prod` は止まって案内する。`setup/manual-steps.md` の 8.3）。
 
 - **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
 - しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。

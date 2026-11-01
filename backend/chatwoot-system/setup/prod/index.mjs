@@ -73,7 +73,7 @@ function onboardingSteps(v) {
   return [
     `https://<ChatHost>（既定 ${v.base}）を開く。admin-auth（Google）でログインした後、Chatwoot の onboarding で最初の管理者とアカウントを作る（cloud/README.md の 4.10 で db:chatwoot_prepare を済ませ、chatwoot-web を起動してから）`,
     "管理者のプロフィール設定（左下のアバター → プロフィール設定）のアクセストークンを、~/.config/comegin/setup/prod.conf の CHATWOOT_ADMIN_TOKEN= に書く（chmod 600）。アカウントの数値 ID（URL の /app/accounts/<数字>/）を CHATWOOT_ACCOUNT_ID= に書く",
-    "設定 → エージェント で、エージェント専用ユーザー（名前 AI エージェント、担当者の権限。メールは管理者の + 付きなど）を招待し、招待メールからパスワードを決めてログインする。そのユーザーのアクセストークンを CHATWOOT_AGENT_TOKEN= に書く（mcp-prod と同じ値。ADR-17）",
+    "設定 → 担当者（英語の画面では Settings → Agents）の「担当者を追加」で、エージェント専用ユーザー（名前 AI エージェント、担当者の権限。メールは管理者の + 付きなど）を招待し、招待メールからパスワードを決めてログインする。そのユーザーのアクセストークンを CHATWOOT_AGENT_TOKEN= に書く（mcp-prod と同じ値。ADR-17）",
     "親スタックの出力 FaqBotFunctionUrl の末尾に webhook を付けた URL を FAQ_BOT_WEBHOOK_URL= に、本番の公開サイトの URL を PUBLIC_SITE_URL= に書く",
     "同じコマンドを実行し直す",
   ];
@@ -202,5 +202,5 @@ export async function apply(ctx) {
   ctx.log("受信箱の website_token を prod の状態に置いた（CHATWOOT_WEBSITE_TOKEN。node setup/frontend.mjs --target prod の .env.production が読む）");
 
   if (!secretsStored(ctx)) ctx.manual("faq-bot-secrets", "FAQ ボットの access_token と secret を Secrets Manager に入れる（入れていないか、ボットが作り直されてトークンが変わった）", secretsSteps(ctx));
-  ctx.log("FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている。ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（cloud/README.md の 4.17 の 7）");
+  ctx.log("FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている。ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（cloud/README.md の 4.17 の 5）");
 }

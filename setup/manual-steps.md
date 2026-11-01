@@ -293,17 +293,17 @@ OAuth の同意画面が「テスト中」のままだと、更新トークン�
 
 ### 8.3 本番の Chatwoot（`chatwoot-prod`）
 
-開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`）に向けて行う。本番は `rails runner` を使わないので、最初の 2 人は画面で作る。
+開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`）に向けて行う。本番は `rails runner` を使わないので、最初の 2 人は画面で作る。画面の操作・コマンド・止まったときの見方の詳細は `cloud/README.md` の 4.17 の 1〜3。
 
-1. `cloud/README.md` の 4.10 で `db:chatwoot_prepare` を済ませ、chatwoot-web・worker を起動しておく（4.11）
+1. `cloud/README.md` の 4.17 の「前提」のとおり、`db:chatwoot_prepare` を済ませ、chatwoot-web → chatwoot-worker の順に起動しておく（4.10・4.11）
 2. `https://chat.comegin.com` を開き（admin-auth の Google ログインの内側）、onboarding で最初の管理者とアカウントを作る。管理者のプロフィール設定のアクセストークンを `CHATWOOT_ADMIN_TOKEN=`、URL の `/app/accounts/<数字>/` を `CHATWOOT_ACCOUNT_ID=` に書く
-3. 設定 → エージェント で、エージェント専用ユーザー（担当者の権限）を招待し、招待メールからパスワードを決めてログインする。そのユーザーのトークンを `CHATWOOT_AGENT_TOKEN=` に書く（`mcp-prod` と共用。ADR-17）
+3. 設定 → 担当者（英語の画面では Settings → Agents）の「担当者を追加」で、エージェント専用ユーザー（担当者の権限）を招待し、招待メールからパスワードを決めてログインする。そのユーザーのトークンを `CHATWOOT_AGENT_TOKEN=` に書く（`mcp-prod` と共用。ADR-17）
 4. 親スタックの出力 `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を `FAQ_BOT_WEBHOOK_URL=`、本番の公開サイトの URL を `PUBLIC_SITE_URL=` に書いて、`node setup/setup.mjs --target prod --only chatwoot-prod` を実行する
 5. 止まったら、表示されたコマンドで FAQ ボットの access_token と secret を Secrets Manager に入れ（値は画面に出さず、パイプで渡す）、案内に出るトークンの指紋（SHA-256 の先頭 8 文字。秘密値ではない）を `FAQ_BOT_SECRETS_STORED=<指紋>` に書いて実行し直す。ボットが作り直されてトークンが変わると指紋が合わなくなり、もう一度入れるよう案内される
 
 管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）は `prod.conf` だけに置き、状態ファイルには写さない。初期設定が終わったら `prod.conf` から消してよい（その後の `chatwoot-prod` は止まって案内する）。
 
-ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（本人のトークンでしか変えられない。`cloud/README.md` の 4.17 の 7）。
+ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（本人のトークンでしか変えられない。`cloud/README.md` の 4.17 の 5）。
 
 ### 8.4 本番の Mautic（`mautic-prod`）
 
