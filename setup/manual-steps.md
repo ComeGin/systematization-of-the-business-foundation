@@ -49,7 +49,7 @@
 | `admin-auth:prod-deploy`／`admin-auth:prod-migrate`（`--target prod`） | 本番の admin-auth の discovery が応答しない／運用の Lambda での移行と ALB の登録を申告していない | 段階 `deploy`（`--phase deploy`）を済ませる／`admin-auth-ops` に `migrate`・`register-alb-client` を送り、`ADMIN_AUTH_PROD_READY=yes` を書く | [8.1](#81-本番の-admin-auth) |
 | `chatwoot-prod:onboarding`／`chatwoot-prod:faq-bot-secrets`（`--target prod`） | 本番の Chatwoot の管理者・エージェント専用ユーザーのトークンが無い／FAQ ボットのトークンを Secrets Manager に入れたと申告していない | 画面の onboarding とエージェントの招待をしてトークンを書く／表示されたコマンドで Secrets Manager に入れて `FAQ_BOT_SECRETS_STORED=yes` | [8.3](#83-本番の-chatwootchatwoot-prod) |
 | `mautic-prod:settings`（`--target prod`） | 本番の Mautic が未インストール・API が無効・画面の設定を申告していない・初期設定用の API 認証情報が無い | インストールして画面で設定し、`MAUTIC_SETUP_CLIENT_*` と `MAUTIC_PROD_SETTINGS_DONE=yes` を書く | [8.4](#84-本番の-mauticmautic-prod) |
-| `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く | [8.2](#82-本番の-mcpmcp-prod) |
+| `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く／dist は main のチェックアウトでパッケージごとにビルドする | [8.2](#82-本番の-mcpmcp-prod)・[6.1](#61-mcp-サーバの-dist-をビルドするmcp-prodfinish) |
 
 ## 1. 設定ファイルの書き方（全節で共通）
 
@@ -188,6 +188,31 @@ git -C ~/ComeGin/main-checkout checkout --detach origin/main
 `dev.conf` に `CONTROL_MAIN_CHECKOUT=/home/<ユーザー>/ComeGin/main-checkout`（絶対パス）を書いて再実行する。
 作業ツリーと同じ場所を指すと、スクリプトが警告を出す（分離が働かない）。**コミットしていない変更はこのチェックアウトに入らない**。
 
+### 6.1 MCP サーバの dist をビルドする（`mcp-prod:finish`）
+
+登録表（`ops/mcp-registry.yaml`）の `chatwoot-prod`・`mautic-prod`・`mautic-prod-ro` は、このチェックアウトの `dist/index.js` を起動する。作業ツリーでビルドしても効かない。
+`backend/chatwoot-mcp` と `backend/mautic-mcp` はそれぞれ自分の `pnpm-workspace.yaml`（`packages: ['.']`）を持つ別のプロジェクトなので、**片方で `pnpm install` しても、もう片方の `node_modules` はできない。パッケージごとに行う**。
+
+```bash
+git -C ~/ComeGin/systematization-of-the-business-foundation fetch origin
+git -C ~/ComeGin/main-checkout checkout --detach origin/main
+(cd ~/ComeGin/main-checkout/backend/chatwoot-mcp && pnpm install && pnpm build)
+(cd ~/ComeGin/main-checkout/backend/mautic-mcp && pnpm install && pnpm build)
+node setup/setup.mjs --target prod   # 作業ツリーで。終わった手順は飛ばす
+```
+
+PR が main にマージされてこのチェックアウトを更新したときは、**変更のあったパッケージのビルドもし直す**（`checkout` は `dist` を作り直さない）。
+
+`mcp-prod:finish` の「アンダースコアのヘッダー（`api_access_token`）で送る古い版」は、直し方が 3 通りに分かれる。スクリプト（`ops/setup/index.mjs` の `distProblems`）がどれかを見分けて案内する。
+
+| 案内 | 状態 | 直し方 |
+|---|---|---|
+| ソースは直っていて dist だけが古い | チェックアウトは新しいが、ビルドしていない | `backend/chatwoot-mcp` で `pnpm install && pnpm build` |
+| チェックアウトが origin/main より古い | `origin/main` には修正があるが、チェックアウトが前のコミットを指している | 上の `checkout --detach origin/main` で合わせてからビルド |
+| 修正がまだ origin/main に入っていない | 修正が作業ブランチにしか無い（**ビルドし直しても直らない**） | 修正を含むブランチを PR で main にマージしてから、上の手順でビルド |
+
+**2026-11-02 の例**: ヘッダーの修正（ハイフンの `api-access-token`。本番の ALB の `drop_invalid_header_fields` がアンダースコアのヘッダーを捨てるため。コミット `96ea0170`）がブランチ `45-feature-dockerfile-samテンプレート` にしか無く、当時の案内（「main を最新にしてビルドし直す」）に従っても 401 のままだった。PR #48 のマージ → `checkout --detach origin/main` → `chatwoot-mcp` のビルドで解消した。続けて、`mautic-mcp` は `node_modules`・`dist` とも無く（一度も install していなかった）、同じチェックアウトで `pnpm install && pnpm build` して解消した。
+
 ## 7. 外部サービスの資格情報
 
 7.2（監視アプリの Google ログイン）は必須。7.1・7.3 は無くても開発環境は動くので、試すときだけ作る。どれも `dev.conf` に書いて再実行する。
@@ -289,7 +314,7 @@ OAuth の同意画面が「テスト中」のままだと、更新トークン�
 | `N8N_PROD_TOKEN` | オンプレの本番の n8n（`127.0.0.1:5679`）の 設定 > MCP のアクセストークン | n8n のトークンでは `publish_workflow`・`execute_workflow` を絞れない。これらを tools に含むエージェント定義は control-plane が起動しない（警告も出る） |
 | `POSTHOG_PROD_API_KEY`・`POSTHOG_PROD_PROJECT_ID` | PostHog の個人 API キー（「MCP Server」のプリセットで、本番のプロジェクトの読み取りだけ）とプロジェクトの数値 ID | `phx_` で始まる個人 API キー（プロジェクトのトークン `phc_` ではない） |
 
-確かめるのはデータの読み取りだけ（Chatwoot の `/api/v1/profile`、Mautic の client_credentials と連絡先 1 件、Strapi と n8n の MCP の `tools/list`）。`--check` でも、認証のための Mautic のトークンの発行と MCP のセッションの作成・終了は行う。env ファイルの中身が `prod.conf` と違えば `--check` が知らせる（apply で書き直す）。n8n の MCP のトークンでは公開・実行のツールを絞れないので、それらを tools に含むエージェント定義は control-plane が起動しない（`backend/control-plane/src/runner/agent.ts`）。`chatwoot-prod`・`mautic-prod*` は承認済みの main のチェックアウト（`CONTROL_MAIN_CHECKOUT`）の `dist` で動くので、そこで `pnpm install && pnpm build` が済んでいないか、chatwoot-mcp がアンダースコアのヘッダーで送る古い版（2026-10-26 より前）だと案内が出る（main を最新にしてビルドし直す。6 節）。
+確かめるのはデータの読み取りだけ（Chatwoot の `/api/v1/profile`、Mautic の client_credentials と連絡先 1 件、Strapi と n8n の MCP の `tools/list`）。`--check` でも、認証のための Mautic のトークンの発行と MCP のセッションの作成・終了は行う。env ファイルの中身が `prod.conf` と違えば `--check` が知らせる（apply で書き直す）。n8n の MCP のトークンでは公開・実行のツールを絞れないので、それらを tools に含むエージェント定義は control-plane が起動しない（`backend/control-plane/src/runner/agent.ts`）。`chatwoot-prod`・`mautic-prod*` は承認済みの main のチェックアウト（`CONTROL_MAIN_CHECKOUT`）の `dist` で動くので、そこで `pnpm install && pnpm build` が済んでいないか、chatwoot-mcp がアンダースコアのヘッダーで送る古い版（2026-10-26 より前）だと案内が出る（パッケージごとのビルドと、古い版の 3 通りの直し方は 6.1 節。修正がまだ main に入っていなければ、PR のマージが先）。
 
 ### 8.3 本番の Chatwoot（`chatwoot-prod`）
 

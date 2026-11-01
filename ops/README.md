@@ -90,7 +90,7 @@ TA-03 の 3.3 の「週次 AB テスト」と「週次 問い合わせの棚卸�
 
 - **stdio の登録には `env_vars`（秘密でない定数。`TRANSPORT` と `*_ACCESS_LEVEL`）を書く。** node の `--env-file-if-exists` は既にある環境変数を上書きしないので、env ファイルに別の値が書かれていても登録表の値が勝つ（`ACCESS_LEVEL` を env ファイルで広げられない）。キー名に secret・token・password・api_key などを含む値は登録表に書けない（control-plane が拒否する）
 - **MCP の名前に `__` を含めない**（ツールの完全名 `mcp__<name>__<tool>` の区切りと衝突する）
-- stdio の `args` の相対パスは `CONTROL_MAIN_CHECKOUT` から解決される。**使う前に `backend/chatwoot-mcp` と `backend/mautic-mcp` を `pnpm build` しておく**（`dist/index.js` を起動する）
+- stdio の `args` の相対パスは `CONTROL_MAIN_CHECKOUT` から解決される。**使う前に `backend/chatwoot-mcp` と `backend/mautic-mcp` で、それぞれ `pnpm install && pnpm build` しておく**（`dist/index.js` を起動する。2 つは別のプロジェクト。main が更新されたらビルドし直す。手順は `setup/manual-steps.md` の 6.1）
 - **ツールの許可リストはエージェント定義の `tools`**（完全名）。監視アプリは、そのエージェントの `tools` に出てくる `mcp__<name>__` の登録だけを組み立てて渡す
 
 ### env ファイル（リポジトリには置かない）

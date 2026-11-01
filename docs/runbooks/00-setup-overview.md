@@ -223,7 +223,8 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 止まる id は `mcp-prod:prod-values`・`mcp-prod:finish`。
 
 - [ ] **人・画面** エージェント専用のアカウントでトークンを発行して `prod.conf` に書く: `CHATWOOT_AGENT_TOKEN`（P7）・`MAUTIC_CLIENT_*` と `MAUTIC_RO_CLIENT_*`（別々に 2 つ）・`STRAPI_PROD_TOKEN`・`POSTHOG_PROD_API_KEY`（`phx_`）と `POSTHOG_PROD_PROJECT_ID`（`N8N_PROD_TOKEN` は P9 が状態に置くので書かなくてよい）— manual 8.2
-- [ ] **人・端末** 承認済みの `main` のチェックアウトで `pnpm install && pnpm build`（本番の MCP はそこの `dist` で動く）— manual 8.2
+- [ ] **人・端末** 承認済みの `main` のチェックアウトを `checkout --detach origin/main` で合わせ、`backend/chatwoot-mcp` と `backend/mautic-mcp` で**それぞれ** `pnpm install && pnpm build`（本番の MCP はそこの `dist` で動く。2 つは別のプロジェクトで、片方の install ではもう片方が入らない）— manual 6.1
+- [ ] **人・GitHub** 「修正がまだ origin/main に入っていない」と出たら、ビルドより先に修正を含むブランチを PR で main にマージする（ADR-18。作業ブランチの修正は本番の MCP に効かない）— manual 6.1
 - 再実行で **自動**（env ファイル 6 つ・読み取りだけの確認）
 
 ### P11. 公開サイトの値（`node setup/frontend.mjs --target prod`）
