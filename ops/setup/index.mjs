@@ -22,6 +22,7 @@
 //   PostHog は外部の SaaS なので形式だけを見る。
 // MCP サーバのプログラム（dist）は、承認済みの main のチェックアウト（CONTROL_MAIN_CHECKOUT）のものが使われる（登録表の args の相対パス）。
 // そのため、main の chatwoot-mcp がハイフンのヘッダー（api-access-token）で送る版かも確かめる（古い版はアンダースコアで送り、ALB に捨てられて 401 になる）。
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -41,6 +42,7 @@ const STRAPI_FORBIDDEN = /^(publish|unpublish|delete)_/;
 const N8N_HUMAN_ONLY = /^(publish_workflow|unpublish_workflow|execute_workflow|archive_workflow)$/;
 // main の chatwoot-mcp の dist が、ヘッダーをハイフンの綴りで送る版か（backend/chatwoot-mcp/src/services/chatwoot-client.ts）
 const CHATWOOT_MCP_CLIENT = "backend/chatwoot-mcp/dist/services/chatwoot-client.js";
+const CHATWOOT_MCP_SRC = "backend/chatwoot-mcp/src/services/chatwoot-client.ts";
 
 // n8n-prod（middleware/n8n/setup/prod）が本番の n8n で作る MCP のトークン
 const FROM_STATE = new Set(["N8N_PROD_TOKEN"]);
@@ -237,14 +239,40 @@ function staleKeys(ctx, files) {
   return stale;
 }
 
-/** 登録表の stdio の args は CONTROL_MAIN_CHECKOUT から解決される。そこの dist が無い・古いと chatwoot-prod・mautic-prod* は動かない */
+/** origin/main のファイルの中身（読めなければ null。git fetch していなければ手元の origin/main のまま） */
+function originMainFile(main, rel) {
+  try {
+    return execFileSync("git", ["-C", main, "show", `origin/main:${rel}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 登録表の stdio の args は CONTROL_MAIN_CHECKOUT から解決される。そこの dist が無い・古いと chatwoot-prod・mautic-prod* は動かない。
+ * 古い版のときは、直し方が 3 通りに分かれるので見分ける: dist だけが古い（ビルドし直す）／チェックアウトが origin/main より古い（合わせてからビルド）／
+ * 修正がまだ main に入っていない（PR のマージが先。ビルドし直しても直らない）。
+ */
 function distProblems(ctx) {
   const main = ctx.value("CONTROL_MAIN_CHECKOUT");
   if (!main) return ["CONTROL_MAIN_CHECKOUT が prod.conf に無い（登録表の stdio の args は承認済みの main のチェックアウトから解決される。dev.conf と同じ値を書く）"];
-  const p = ["backend/chatwoot-mcp/dist/index.js", "backend/mautic-mcp/dist/index.js"].filter((rel) => !existsSync(join(main, rel))).map((rel) => `${join(main, rel)} が無い`);
+  const p = [];
+  for (const pkg of ["backend/chatwoot-mcp", "backend/mautic-mcp"]) {
+    const entry = join(main, pkg, "dist/index.js");
+    if (!existsSync(entry)) p.push(`${entry} が無い。承認済みの main のチェックアウトの ${pkg} で、人が pnpm install && pnpm build する`);
+  }
   const client = join(main, CHATWOOT_MCP_CLIENT);
-  if (existsSync(client) && !readFileSync(client, "utf8").includes("api-access-token"))
-    p.push(`${client} がアンダースコアのヘッダー（api_access_token）で送る古い版。本番の ALB に捨てられて 401 になる。main を最新にして、そこで pnpm install && pnpm build し直す`);
+  if (existsSync(client) && !readFileSync(client, "utf8").includes("api-access-token")) {
+    const head = `${client} がアンダースコアのヘッダー（api_access_token）で送る古い版（本番の ALB に捨てられて 401 になる）`;
+    const srcPath = join(main, CHATWOOT_MCP_SRC);
+    const fixed = (text) => text !== null && text.includes('"api-access-token"');
+    if (existsSync(srcPath) && fixed(readFileSync(srcPath, "utf8")))
+      p.push(`${head}。ソースは直っていて dist だけが古い。${join(main, "backend/chatwoot-mcp")} で、人が pnpm install && pnpm build し直す`);
+    else if (fixed(originMainFile(main, CHATWOOT_MCP_SRC)))
+      p.push(`${head}。チェックアウトが origin/main より古い。git -C ${main} checkout --detach origin/main で合わせてから、backend/chatwoot-mcp で pnpm install && pnpm build する`);
+    else
+      p.push(`${head}。修正（ハイフンの api-access-token で送る版）がまだ origin/main に入っていない（git fetch origin 済みでもそうなら）。ビルドし直しても直らない。修正を含む作業ブランチを PR で main にマージしてから、git -C ${main} checkout --detach origin/main → backend/chatwoot-mcp で pnpm install && pnpm build する`);
+  }
   return p;
 }
 
@@ -305,7 +333,7 @@ export async function apply(ctx) {
   if (unreachable.length || dist.length) {
     ctx.manual("finish", "本番の MCP の準備の残り", [
       ...unreachable.map((u) => `届かなかったので未確認: ${u}。オンプレの本番（onprem モジュール）を起動してから、同じコマンドを実行し直す`),
-      ...dist.map((d) => `${d}。承認済みの main のチェックアウトで、人が pnpm install && pnpm build する（backend/chatwoot-mcp・backend/mautic-mcp。setup/manual-steps.md の 6 節）`),
+      ...dist.map((d) => `${d}（setup/manual-steps.md の 6 節）`),
     ]);
   }
   ctx.log("登録名 chatwoot-prod・mautic-prod・mautic-prod-ro・strapi-prod・n8n-prod・posthog-prod（ops/mcp-registry.yaml）で使える。PostHog は外部の SaaS なので、キーの形式だけを確かめた");
