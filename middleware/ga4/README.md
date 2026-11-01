@@ -103,7 +103,9 @@ OpenSEO に接続するのは本番のプロパティだけ。
 | 有効にする API | **Google Analytics Admin API**（接続時のプロパティの一覧）と **Google Analytics Data API**（レポート） |
 | リダイレクト URI | `http://localhost:3001/api/ga4/oauth/callback`（GSC の `/api/gsc/oauth/callback` は残す） |
 | スコープ | `https://www.googleapis.com/auth/analytics.readonly`（と `openid`・`email`・`profile`）。書き込みのスコープは無い |
-| 接続 | OpenSEO の画面のプロジェクトのダッシュボードか Project settings → Analytics の **Connect with Google** → プロパティを選ぶ |
+| 接続 | OpenSEO の画面のプロジェクトのダッシュボードか Project settings → Analytics の **Connect with Google** → プロパティを選ぶ（**2026-11-02 に本番のプロパティ `561857847` に接続した**。Search Console も同じ日に接続） |
+| API を有効にするプロジェクト | OAuth クライアントの Google Cloud プロジェクト（クライアント ID の先頭の数字がプロジェクト番号。2026-11-02 時点は `961159289082`） |
+| 「Couldn't load properties」 | Admin API が無効だと、接続（同意）は通るのにプロパティの一覧で 403 になる（2026-11-02 に起きた。見分け方は `setup/manual-steps.md` の 7.5）。有効にして数分待ち、読み直せば出る |
 | setup の設定キー | 済んだら `OPENSEO_GA4_CONNECTED=yes`、接続しないと決めたら `OPENSEO_SKIP_GA4=yes`（`middleware/open-seo-main/dev/setup/index.mjs`。接続の有無は OpenSEO の DB の中で `/api/health` には出ないので申告制） |
 
 `analytics-reporter` に持たせる GA4 のツールは `get_google_analytics_traffic_acquisition`・`get_google_analytics_page_performance`・
@@ -127,10 +129,12 @@ setup は GA4 の API を呼ばない。**`--target dev` では 1〜6 を飛ば�
 ### 5.1 測定 ID を入れて配信した後に確かめること（setup は確かめない）
 
 1. `node setup/frontend.mjs --target prod --phase google` で `.env.production` を書き直し、承認済みの main のチェックアウトでビルドし直して配信する（`cloud/README.md` の 4.14。`docs/runbooks/00-setup-overview.md` の P13）
-2. 同期の前に、`dist/_astro/` の JS に測定 ID と `googletagmanager.com/gtag/js` があることを確かめる（`rg -l G-4ZXN1J3013 "$SITE_DIST/_astro"`。1 件も無ければ測定 ID が空のまま）
+2. 同期の前に、`dist/_astro/` の JS に測定 ID と `googletagmanager.com/gtag/js` があることを確かめる（`cloud/README.md` の 4.14 の手順 2-5。`rg -l G-4ZXN1J3013 "$SITE_DIST/_astro"`。1 件も無ければ測定 ID が空のまま）
 3. 配信の後、Cookie を消したブラウザで https://comegin.com/ を開き、**同意する前に** `googletagmanager.com` へのリクエストが無いこと（開発者ツールの Network）、**同意した後に** `gtag/js` と `google-analytics.com/g/collect` へのリクエストが出ることを確かめる
 4. GA4 の レポート → **リアルタイム** に自分の閲覧が出ることを確かめる（反映は数十秒〜数分。通常のレポートは 24〜48 時間）
 5. **同意しない**を選んだ場合に `g/collect` が出ないことを確かめる。フッターの「Cookie 設定」から撤回した後のページでも出ないこと
+
+**GA4 の設定画面の「ウェブサイトをテスト」は失敗するが、正しい動き。** 「Google タグは「comegin.com」から検出されませんでした」と出る（2026-11-02 に確認）。この検出は同意していない状態でページを読むが、こちらのタグは HTML には無く、同意の後に JS が読み込む（Consent Mode v2 の basic）。画面は「後で設定」などで閉じてよく、データの収集には影響しない。確かめるのは上の 3・4（リアルタイム）か、Tag Assistant（https://tagassistant.google.com/ で `https://comegin.com` に接続し、開いたページのバナーで「同意する」を押す）で行う。データストリームの「データ収集が無効」の表示は、`g/collect` が届けば 48 時間以内に消える。
 
 ### 5.2 任意で行う設定（決めていない。行うならこの表に記録する）
 

@@ -994,6 +994,11 @@ rg -o --no-filename -e 'https://(chat|mkt|consent)\.comegin\.com' "$SITE_DIST/_a
 #      https://app.cal.com だけでは判定できない（既定値なので、CALCOM_LINK が空でも焼き込まれる。空だと予約枠は毎回「予約枠を表示できませんでした」になる。2026-11-02 に起きた）
 CALCOM_LINK=<ユーザー名>/<イベントの slug>                                  # prod.conf の CALCOM_LINK と同じ値
 rg -l -F "$CALCOM_LINK" "$SITE_DIST/_astro"
+# 2-5. GA4 の測定 ID が焼き込まれていること（段階 google の後だけ。prod.conf の GA4_MEASUREMENT_ID。ファイル名が 1 行以上出れば通過）
+#      空のままビルドすると ga4.ts の早期 return でタグのコードごと消え、ビルドもほかの検査も通ってしまう（2026-11-02 に起きた）。
+#      段階 google の前（apps）の配信では、出力が空なのが正しい（タグを出さない）
+GA4_MEASUREMENT_ID=G-4ZXN1J3013                                             # prod.conf の GA4_MEASUREMENT_ID と同じ値
+rg -l -F "$GA4_MEASUREMENT_ID" "$SITE_DIST/_astro"
 # どれかが通らなければ、ここで止める（ビルドのチェックアウトと .env.production を確かめてビルドし直す）
 
 # 3. 配信用の主体（DeployPolicyArn を付けた主体）に切り替える。BUCKET・DIST・SITE_DIST はシェル変数なので切り替えても残る
@@ -1009,6 +1014,7 @@ aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*'
 
 # 5. 配信後、本番で同じことを確かめる（無効化の完了を待ってから。数分かかる）
 curl -s "$SITE_URL/sitemap-0.xml" | rg -o '<loc>https?://[^/<]+' | sort -u   # SITE_URL の 1 行だけ
+curl -s "$SITE_URL/robots.txt" | rg '^Sitemap:'                             # Sitemap: $SITE_URL/sitemap-index.xml の 1 行（2026-11-02 に追加。それまでは 404）
 ```
 
 - **`SITE_URL` 未設定のビルドは意図的に停止する**（canonical と sitemap に localhost が焼き込まれるのを防ぐため）。
