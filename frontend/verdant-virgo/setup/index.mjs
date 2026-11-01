@@ -39,7 +39,15 @@ export const meta = {
   targets: ["dev", "prod"],
   phases: ["apps", "google"],
   // dev は開発のモジュール、prod は chatwoot-prod・mautic-prod（website_token とフォームの ID を状態に置く）の後
-  after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api", "chatwoot-prod", "mautic-prod"],
+  after: [
+    "ga4",
+    "strapi",
+    "chatwoot",
+    "mautic",
+    "consent-api",
+    "chatwoot-prod",
+    "mautic-prod",
+  ],
 };
 
 const DIR = "frontend/verdant-virgo";
@@ -302,7 +310,7 @@ function prodValues(ctx) {
     ),
     UPLOAD_S3_BUCKET: req(
       "UPLOAD_S3_BUCKET",
-      "本番の Strapi のメディアのバケット。onprem/strapi と同じ値",
+      "本番の Strapi のメディアのバケット comegin-prod-strapi-media-<アカウント ID>。onprem/strapi と同じ値。配信用の comegin-prod-astro-… ではない",
     ),
     UPLOAD_S3_REGION: ctx.value("UPLOAD_S3_REGION") || "ap-northeast-1",
     // 公開サイトが Route 53 から配信される前（段階 apps）は空にする（未設定ならタグを出さない。ga4 モジュールもプロパティの手順を飛ばす）
@@ -379,6 +387,16 @@ function problemsOf(ctx, env) {
     ])
       if (isLocal(env[k]) || !/^https:\/\//.test(env[k] ?? ""))
         p.push(`${k}（${env[k]}）が本番の https の URL ではない`);
+    // 画像の取り込みの許可（image.remotePatterns）と dist の検査は、このバケットから作る（src/modules/blog/integration.ts）。
+    // 配信用のバケット（親スタックの出力 AstroBucketName）と取り違えると、記事の画像が取り込まれずに署名付き URL のまま出て、
+    // ビルドの最後の検査（DD-05 の 1.5.4）で止まる（2026-11-02 に起きた）
+    if (
+      env.UPLOAD_S3_BUCKET &&
+      !/^comegin-[a-z0-9]+-strapi-media-\d{12}$/.test(env.UPLOAD_S3_BUCKET)
+    )
+      p.push(
+        `UPLOAD_S3_BUCKET（${env.UPLOAD_S3_BUCKET}）が Strapi のメディアのバケット（comegin-prod-strapi-media-<アカウント ID>）の形ではない。配信用の comegin-prod-astro-… と取り違えていないか（cloud/README.md の 4.14「ビルドの前提」）`,
+      );
     if (!env.PUBLIC_CONSENT_COOKIE_DOMAIN)
       p.push(
         "CONSENT_COOKIE_DOMAIN が空（本番は .comegin.com。consent-api の COOKIE_DOMAIN と同じ値）",

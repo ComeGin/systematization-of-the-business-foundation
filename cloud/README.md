@@ -947,6 +947,13 @@ dig +short stats.comegin.com
 
 ビルドはオンプレで行い、配信（同期と無効化）は人間が承認して実行する（ADR-15。`DeployPolicyArn` を付けた主体で）。**同期 → 無効化の順を入れ替えない**（逆にすると更新が一巡遅れる）。
 
+**ビルドの前提（どれかが欠けると、壊れたサイトか開発のサイトが公開される）**
+
+- **ビルドは承認済みの `main` のチェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）で行う。作業ツリーでビルドしない。** 本番の値の `.env.production` は `node setup/frontend.mjs --target prod` がそのチェックアウトにだけ書く。作業ツリーでビルドすると、開発の `.env` の値（`SITE_URL`・Mautic・Chatwoot が開発の ngrok、記事が開発の Strapi の試験記事）がそのまま焼き込まれる。開発の `.env` には `BUILD_TARGET=production` が無いため、「本番のビルドが開発の Strapi を読んだら止める」検査（`src/modules/blog/integration.ts`）も働かず、ビルドは成功してしまう（2026-11-02 に、この経路で開発の値のサイトが本番に配信された。フォームの送信とチャットが失敗し、sitemap と canonical が開発の ngrok を指していた）。
+- **本番の Strapi に、公開済みの記事が 1 本以上ある。** 0 件ならビルドは意図して止まる（DD-05 の 1.2。「公開済みの記事が 0 件です」）。記事の公開は `R2` が本番の管理画面（`http://127.0.0.1:1338/admin`）で行う（エージェントは下書きまで。ADR-17）。カテゴリは `know-the-issues`・`compare-methods`・`consider-adoption` の 3 つの slug で作る（`frontend/verdant-virgo/src/modules/blog/lib/categories.ts`。ほかの slug の記事は警告を出して「課題を知る」として扱われる）。
+- **`prod.conf` の `UPLOAD_S3_BUCKET` は Strapi のメディアのバケット（`comegin-prod-strapi-media-<アカウント ID>`）にする。** 下の手順 1 の `AstroBucketName`（`comegin-prod-astro-…`。同期先）と取り違えない。親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 `StrapiMediaBucketName`）。ビルドは記事の画像を、Strapi が返す署名付き URL で取り込む。取り込みの許可（`image.remotePatterns`）と `dist` の検査は、このバケット名から作る（`src/modules/blog/integration.ts`）。取り違えると、画像が取り込まれずに署名付き URL のまま HTML に出る。そのためビルドは最後に「dist/ に Strapi・S3 の URL が残っています（… `X-Amz-Signature` …）」で止まる（2026-11-02 に起きた。止まらなければ 1 時間で切れる URL が公開されていた）。直したら `node setup/frontend.mjs --target prod --only verdant-virgo` で `.env.production` を書き直してから、ビルドし直す。形が違えば設定スクリプトが止める。
+- 同期元は、下の手順で **`dist` の絶対パス（`SITE_DIST`）** を使う。`frontend/verdant-virgo/dist/` のような相対パスにしない（作業ツリーのルートで実行すると、作業ツリーにある開発用の `dist` が上がる）。
+
 使う AWS CLI のプロファイルは 2 つ（名前はこの手順での呼び方。`~/.aws/config` に作る。SSO でもアクセスキーでもよい）。
 
 | プロファイル | 主体 | ここで使う操作 |
@@ -972,16 +979,32 @@ DIST=$(OUT DistributionId)
 echo "BUCKET=$BUCKET DIST=$DIST"
 [ -n "$BUCKET" ] && [ -n "$DIST" ] || echo '出力が取れない。プロファイル・リージョン・スタック名を確かめる'
 
-# 2. 配信用の主体（DeployPolicyArn を付けた主体）に切り替える。BUCKET・DIST はシェル変数なので切り替えても残る
+# 2. 同期元を決め、開発の値が焼き込まれていないことを確かめる（承認済みの main のチェックアウトの dist。絶対パス）
+SITE_DIST=/home/kamegin/ComeGin/main-checkout/frontend/verdant-virgo/dist   # SITE_BUILD_CHECKOUT（空なら CONTROL_MAIN_CHECKOUT）の下
+SITE_URL=https://comegin.com                                               # prod.conf の PUBLIC_SITE_URL と同じ値
+# 2-1. 開発の接続先（ngrok・ポート付きの localhost／127.0.0.1）が 1 つも無いこと。出力が空なら通過
+#      （ポートを付けずに localhost だけで探すと、ライブラリの中の判定の文字列に当たるので、ポート付きで探す）
+rg -l -e 'ngrok' -e 'localhost:[0-9]' -e '127\.0\.0\.1:[0-9]' "$SITE_DIST"
+# 2-2. sitemap と canonical のホストが本番の URL だけであること。出力が SITE_URL の 1 行だけなら通過
+rg -o --no-filename '<loc>https?://[^/<]+' "$SITE_DIST"/sitemap-*.xml | sed 's/<loc>//' | sort -u
+rg -o --no-filename '<link rel="canonical" href="https?://[^/"]+' "$SITE_DIST" -g '*.html' | sed 's/.*href="//' | sort -u
+# 2-3. 本番の受け口が焼き込まれていること（chat.・mkt.・consent. の 3 行が出れば通過）
+rg -o --no-filename -e 'https://(chat|mkt|consent)\.comegin\.com' "$SITE_DIST/_astro" | sort -u
+# どれかが通らなければ、ここで止める（ビルドのチェックアウトと .env.production を確かめてビルドし直す）
+
+# 3. 配信用の主体（DeployPolicyArn を付けた主体）に切り替える。BUCKET・DIST・SITE_DIST はシェル変数なので切り替えても残る
 export AWS_PROFILE=comegin-prod-deploy
 aws sts get-caller-identity --query Arn --output text   # 配信用の主体の ARN であること
 
-# 3. 同期 → 無効化
+# 4. 同期 → 無効化
 # ハッシュ付きの資産は長期キャッシュ（immutable）
-aws s3 sync frontend/verdant-virgo/dist/ s3://$BUCKET --exclude '*' --include '_astro/*' --cache-control 'public,max-age=31536000,immutable'
+aws s3 sync "$SITE_DIST/" s3://$BUCKET --exclude '*' --include '_astro/*' --cache-control 'public,max-age=31536000,immutable'
 # それ以外（HTML など）は都度検証。--delete で古いページを消す（孤児ページが公開され続けないように）
-aws s3 sync frontend/verdant-virgo/dist/ s3://$BUCKET --exclude '_astro/*' --delete --cache-control 'public,max-age=0,must-revalidate'
+aws s3 sync "$SITE_DIST/" s3://$BUCKET --exclude '_astro/*' --delete --cache-control 'public,max-age=0,must-revalidate'
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*'
+
+# 5. 配信後、本番で同じことを確かめる（無効化の完了を待ってから。数分かかる）
+curl -s "$SITE_URL/sitemap-0.xml" | rg -o '<loc>https?://[^/<]+' | sort -u   # SITE_URL の 1 行だけ
 ```
 
 - **`SITE_URL` 未設定のビルドは意図的に停止する**（canonical と sitemap に localhost が焼き込まれるのを防ぐため）。

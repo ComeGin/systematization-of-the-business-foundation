@@ -115,7 +115,11 @@ SITE_BUILD_CHECKOUT=
 # 配信用のビルドは開発の Strapi（localhost の 1338 以外・comegin-strapi-dev.ngrok.app）を止める（src/modules/blog/integration.ts）
 SITE_STRAPI_API_TOKEN=
 SITE_STRAPI_URL=
-# 本番の Strapi のメディアのバケット（必須。onprem/strapi と同じ値）とリージョン（任意。既定 ap-northeast-1）
+# 本番の Strapi のメディアのバケット（必須。onprem/strapi と同じ値）とリージョン（任意。既定 ap-northeast-1）。
+# 名前は comegin-prod-strapi-media-<アカウント ID>。**配信用の comegin-prod-astro-<アカウント ID>（親スタックの出力 AstroBucketName）ではない。**
+# 親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 StrapiMediaBucketName）ので、取り違えやすい。
+# 取り違えると記事の画像が取り込まれず、ビルドの最後の検査（DD-05 の 1.5.4）で「dist/ に Strapi・S3 の URL が残っています」で止まる。
+# 形が違えば setup/frontend.mjs が止める
 UPLOAD_S3_BUCKET=
 UPLOAD_S3_REGION=
 # 本番の Chatwoot の受信箱「Web サイト」の website_token と、本番の Mautic のフォーム consult の数値 ID（秘密値ではない）。
