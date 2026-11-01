@@ -26,23 +26,27 @@ export const meta = { id: "chatwoot", title: "Chatwoot（問い合わせ窓口�
 const DIR = "backend/chatwoot-system";
 const BASE_URL = "http://127.0.0.1:3100"; // docker-compose.yaml の CHATWOOT_PORT 既定値（CLAUDE.md のポート表）
 const DEFAULT_SITE_URL = "http://localhost:4321"; // 開発の公開サイト（Astro dev）
-const INBOX_NAME = "Web サイト";
+export const INBOX_NAME = "Web サイト";
 const AGENT_NAME = "AI エージェント";
 const RESULT_MARK = "@@RESULT@@";
-const FAQ_BOT_NAME = "FAQ ボット";
+export const FAQ_BOT_NAME = "FAQ ボット";
 // faq-bot の開発サーバー（127.0.0.1:3107。backend/faq-bot の pnpm dev）に、host-relay 経由で届く
 const FAQ_BOT_URL = "http://host.docker.internal:3107/webhook";
 // FAQ ボットが会話に付けるラベル（docs/superpowers/specs/2026-10-11-faq-bot-design.md の 7.2）。conversation-triage の集計に使う
-const FAQ_LABELS = [
+export const FAQ_LABELS = [
   { title: "faq-answered", description: "FAQ ボットが FAQ で答えた会話", color: "#2E7D32" },
   { title: "faq-unmatched", description: "FAQ ボットが答えられず、担当者に引き継いだ会話", color: "#C62828" },
   { title: "faq-handoff", description: "訪問者が担当者への相談を選んだ会話", color: "#EF6C00" },
   { title: "faq-ask-resolved", description: "担当者が解決の確認を送るときに付ける（マクロ「解決の確認を送る」用。ボットがすぐ外して［解決しました］ボタンを送る）", color: "#1565C0" },
 ];
 // 担当者が管理画面から［解決しました］ボタンを出すためのマクロ（docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md）。中身はラベルを付けるだけ
-const ASK_RESOLVED_MACRO = { name: "解決の確認を送る", visibility: "global", actions: [{ action_name: "add_label", action_params: ["faq-ask-resolved"] }] };
+export const ASK_RESOLVED_MACRO = { name: "解決の確認を送る", visibility: "global", actions: [{ action_name: "add_label", action_params: ["faq-ask-resolved"] }] };
 // ボットからの引き継ぎで Chatwoot が担当者に作る通知の種類（notification.rb の conversation_creation）のメールのフラグ
-const HANDOFF_EMAIL_FLAG = "email_conversation_creation";
+export const HANDOFF_EMAIL_FLAG = "email_conversation_creation";
+
+// API の接続先と FAQ ボットの送り先。本番のモジュール（prod/index.mjs）は ctx.chatwootBase・ctx.faqBotUrl を与えて、下の ensure* をそのまま使う
+const apiBase = (ctx) => ctx.chatwootBase ?? BASE_URL;
+const faqBotUrl = (ctx) => ctx.faqBotUrl ?? FAQ_BOT_URL;
 
 const cwd = (ctx) => join(ctx.W, DIR);
 const compose = (ctx, args, opts = {}) => ctx.run("docker", ["compose", ...args], { cwd: cwd(ctx), ...opts });
@@ -60,7 +64,8 @@ const agentEmail = (ctx) => {
 // Chatwoot の API
 // ---------------------------------------------------------------------------
 
-const withToken = (token) => ({ headers: { api_access_token: token } });
+// ヘッダーはハイフンの綴り（本番の ALB の drop_invalid_header_fields はアンダースコアのヘッダーを捨てる。Chatwoot はどちらでも読む）
+const withToken = (token) => ({ headers: { "api-access-token": token } });
 
 async function apiOk() {
   const res = await fetch(`${BASE_URL}/api`, { signal: AbortSignal.timeout(5_000) }).catch(() => null);
@@ -69,9 +74,9 @@ async function apiOk() {
 }
 
 /** トークンが有効ならプロフィールを返す。無効（401）なら null */
-async function profile(ctx, token) {
+export async function profile(ctx, token) {
   try {
-    return await ctx.http("Chatwoot プロフィール", `${BASE_URL}/api/v1/profile`, withToken(token));
+    return await ctx.http("Chatwoot プロフィール", `${apiBase(ctx)}/api/v1/profile`, withToken(token));
   } catch (e) {
     if (e.status === 401) return null;
     throw e;
@@ -237,7 +242,7 @@ async function ensureAgent(ctx) {
   const accountId = ctx.state.get("CHATWOOT_ACCOUNT_ID");
   const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
   const email = agentEmail(ctx);
-  const base = `${BASE_URL}/api/v1/accounts/${accountId}`;
+  const base = `${apiBase(ctx)}/api/v1/accounts/${accountId}`;
 
   // 既にトークンが有効で、ユーザーが一致していれば終わり
   if (ctx.state.has("CHATWOOT_AGENT_TOKEN") && ctx.state.has("CHATWOOT_AGENT_USER_ID")) {
@@ -268,11 +273,11 @@ async function ensureAgent(ctx) {
   ctx.log(`エージェント専用ユーザーのトークンを取った（ユーザー ID ${agent.id}）`);
 }
 
-async function ensureInbox(ctx) {
+export async function ensureInbox(ctx) {
   const accountId = ctx.state.get("CHATWOOT_ACCOUNT_ID");
   const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
   const agentId = Number(ctx.state.get("CHATWOOT_AGENT_USER_ID"));
-  const base = `${BASE_URL}/api/v1/accounts/${accountId}`;
+  const base = `${apiBase(ctx)}/api/v1/accounts/${accountId}`;
   const url = siteUrl(ctx);
 
   const list = await ctx.http("Chatwoot 受信箱一覧", `${base}/inboxes`, withToken(adminToken));
@@ -315,8 +320,8 @@ async function ensureInbox(ctx) {
  * 引き継ぎ（pending → open）で Chatwoot が作る通知は「新しい会話」（conversation_creation）なので、管理者のその通知のメールを有効にする。
  * 開発では Chatwoot の SMTP（MailHog）に届く。本番は各担当者がプロフィールの通知設定で有効にする（docs の手順）
  */
-async function ensureHandoffNotification(ctx) {
-  const url = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}/notification_settings`;
+export async function ensureHandoffNotification(ctx) {
+  const url = `${apiBase(ctx)}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}/notification_settings`;
   const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
   const current = await ctx.http("Chatwoot 通知設定", url, withToken(adminToken));
   const email = current.selected_email_flags ?? [];
@@ -333,8 +338,8 @@ async function ensureHandoffNotification(ctx) {
   ctx.log("担当者への引き継ぎ（新しい会話）のメール通知を有効にした（開発は MailHog に届く）");
 }
 
-async function ensureLabels(ctx) {
-  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+export async function ensureLabels(ctx) {
+  const base = `${apiBase(ctx)}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
   const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
   const list = await ctx.http("Chatwoot ラベル一覧", `${base}/labels`, withToken(adminToken));
   const existing = new Set((list?.payload ?? []).map((label) => label.title));
@@ -346,8 +351,8 @@ async function ensureLabels(ctx) {
 }
 
 /** エージェントボット「FAQ ボット」を作り（送り先は faq-bot の開発サーバー）、Web サイトの受信箱に接続する。トークンと secret は状態ファイルにだけ置く */
-async function ensureFaqBot(ctx) {
-  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+export async function ensureFaqBot(ctx) {
+  const base = `${apiBase(ctx)}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
   const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
 
   const list = await ctx.http("Chatwoot エージェントボット一覧", `${base}/agent_bots`, withToken(adminToken));
@@ -357,12 +362,12 @@ async function ensureFaqBot(ctx) {
     bot = await ctx.http("Chatwoot エージェントボット作成", `${base}/agent_bots`, {
       method: "POST",
       ...withToken(adminToken),
-      json: { name: FAQ_BOT_NAME, description: "Web サイトの FAQ に答えるボット（backend/faq-bot）", outgoing_url: FAQ_BOT_URL },
+      json: { name: FAQ_BOT_NAME, description: "Web サイトの FAQ に答えるボット（backend/faq-bot）", outgoing_url: faqBotUrl(ctx) },
     });
     ctx.log(`エージェントボット「${FAQ_BOT_NAME}」を作った`);
-  } else if (bot.outgoing_url !== FAQ_BOT_URL) {
-    bot = await ctx.http("Chatwoot エージェントボット更新", `${base}/agent_bots/${bot.id}`, { method: "PATCH", ...withToken(adminToken), json: { outgoing_url: FAQ_BOT_URL } });
-    ctx.log(`エージェントボットの送り先を ${FAQ_BOT_URL} にした`);
+  } else if (bot.outgoing_url !== faqBotUrl(ctx)) {
+    bot = await ctx.http("Chatwoot エージェントボット更新", `${base}/agent_bots/${bot.id}`, { method: "PATCH", ...withToken(adminToken), json: { outgoing_url: faqBotUrl(ctx) } });
+    ctx.log(`エージェントボットの送り先を ${faqBotUrl(ctx)} にした`);
   }
   // access_token と secret は管理者にだけ返る（_agent_bot.json.jbuilder）。表示しない
   if (!bot.access_token || !bot.secret) throw new Error("エージェントボットの access_token・secret が応答に無い（管理者のトークンで呼んでいるか確かめる）");
@@ -382,8 +387,8 @@ async function ensureFaqBot(ctx) {
 }
 
 /** マクロ「解決の確認を送る」を作る（名前で探し、あれば作らない）。管理者が作るので全員で使える（visibility: global） */
-async function ensureAskResolvedMacro(ctx) {
-  const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+export async function ensureAskResolvedMacro(ctx) {
+  const base = `${apiBase(ctx)}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
   const adminToken = ctx.state.get("CHATWOOT_ADMIN_TOKEN");
   const list = await ctx.http("Chatwoot マクロ一覧", `${base}/macros`, withToken(adminToken));
   if ((list?.payload ?? []).some((macro) => macro.name === ASK_RESOLVED_MACRO.name)) {
@@ -430,7 +435,7 @@ export async function check(ctx) {
     }
   }
   if (info && ctx.state.has("CHATWOOT_FAQ_BOT_ID") && ctx.state.has("CHATWOOT_INBOX_ID") && ctx.state.has("CHATWOOT_ADMIN_TOKEN")) {
-    const base = `${BASE_URL}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
+    const base = `${apiBase(ctx)}/api/v1/accounts/${ctx.state.get("CHATWOOT_ACCOUNT_ID")}`;
     const current = await ctx
       .http("Chatwoot 受信箱のボット", `${base}/inboxes/${ctx.state.get("CHATWOOT_INBOX_ID")}/agent_bot`, withToken(ctx.state.get("CHATWOOT_ADMIN_TOKEN")))
       .catch(() => null);

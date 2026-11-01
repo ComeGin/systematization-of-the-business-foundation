@@ -63,7 +63,9 @@ export class ChatwootClient {
     const url = new URL(`${this.#options.baseUrl}${prefix(options.scope ?? "v1", this.#options.accountId)}${path}`);
     for (const [key, value] of Object.entries(options.query ?? {})) appendQuery(url.searchParams, key, value);
 
-    const headers: Record<string, string> = { api_access_token: this.#options.accessToken, Accept: "application/json" };
+    // ハイフンの綴りにする。本番の ALB（drop_invalid_header_fields）はアンダースコアを含むヘッダーを捨てる。
+    // Chatwoot は HTTP_API_ACCESS_TOKEN として読むので、どちらの綴りでも同じトークンとして通る
+    const headers: Record<string, string> = { "api-access-token": this.#options.accessToken, Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
 
     const response = await network(

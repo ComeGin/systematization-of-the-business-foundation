@@ -13,6 +13,11 @@
 #   docker compose build
 #   docker compose up -d
 
+# プロジェクト名を明示する（2026-10-28）。省略するとディレクトリ名（strapi）になり、同じ名前のほかのスタックとボリューム・ネットワーク・
+# コンテナ名を共有してしまう（onprem/n8n では、本番が開発の middleware/n8n のボリュームを読んで起動しなかった。開発の Strapi は compose を
+# 使わないので今はぶつからないが、onprem/n8n と揃えておく）
+name: comegin-prod-strapi
+
 services:
   strapi:
     build:

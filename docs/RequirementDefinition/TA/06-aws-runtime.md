@@ -125,8 +125,8 @@ flowchart LR
 
 | ストア | 使うシステム | 構成（4.6 で単一構成に決定） | 開発環境での対応 |
 |---|---|---|---|
-| **RDS for MySQL 8.4** | Mautic | Single-AZ、自動バックアップ 7 日（ポイントインタイムリカバリ） | `mysql:8.4`（Docker） |
-| **RDS for PostgreSQL 16** | Chatwoot・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加）（**2026-10-06 ADR-25: Umami を外した**） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）（**ADR-24 で `calcom`、ADR-25 で `umami` を作らないことにし、5 つになった**）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
+| **RDS for MySQL 8.4**（**2026-10-26: Aurora MySQL 8.4 互換の Serverless v2〈最小 0.5・最大 2 ACU〉に変えた。ユーザーの方針「DB は、高コストでなくアプリに互換があればサーバーレス、それ以外はクラスター」で、Mautic だけの MySQL はサーバーレス〈月 $55 前後〉がクラスター〈月 $82〉より安いため。判断と単価は `cloud/README.md` の 6 節**） | Mautic | Single-AZ、自動バックアップ 7 日（ポイントインタイムリカバリ） | `mysql:8.4`（Docker） |
+| **RDS for PostgreSQL 16**（**2026-10-27: Aurora PostgreSQL 16 互換の Serverless v2〈最小 0.5・最大 2 ACU〉に変えた。ユーザーの条件「互換があればサーバーレス」のとおり。クラスター〈db.t4g.medium。月 $82〉との損益分岐は平均 0.75 ACU。2026-10-26 は一時クラスターにしていた。判断と単価は `cloud/README.md` の 6 節**） | Chatwoot・`admin-auth`・**Strapi・n8n**・**Cal.com**（2026-10-01 に追加）・**points-api**（2026-10-03 に追加）（**2026-10-06 ADR-25: Umami を外した**） | **1 インスタンスに 7 つのデータベース**（`chatwoot` / `umami` / `admin_auth` / `strapi` / `n8n` / **`calcom`** / **`points`**。`points` は 2026-10-03 に追加）（**ADR-24 で `calcom`、ADR-25 で `umami` を作らないことにし、5 つになった**）。ユーザーもデータベースごとに分ける。Single-AZ、自動バックアップ 7 日 | Chatwoot は `pgvector/pgvector:pg16`、**Strapi は SQLite**（本番の前に PostgreSQL に揃える。11 節）、n8n は `postgres:18`、**Cal.com は compose の PostgreSQL** |
 | **ElastiCache（Valkey）** | Chatwoot（必須）・Mautic（キャッシュ。任意）・**Cookie 同意の状態の記録**（4.8。受け口は未決） | **ノードベース・クラスターモード無効**・1 ノード。転送中の暗号化（TLS）と AUTH を有効にする | `redis:alpine` |
 | **S3** | Chatwoot（添付ファイル。Active Storage）・**Strapi（メディア。`@strapi/provider-upload-aws-s3`）** | バケットはシステムごとに分ける。パブリックアクセスを全ブロック。バージョニング有効 | Chatwoot はローカルのディスク（`ACTIVE_STORAGE_SERVICE=local`）、Strapi は `public/uploads` |
 | **EFS** | Mautic（`media/` と設定ファイル） | `mautic-web` と `mautic-cron` の両方にマウントする | ホストのディレクトリ |
@@ -359,7 +359,7 @@ sequenceDiagram
 
 | システム | パス（想定） | 製品側の認証 | 開けるか |
 |---|---|---|---|
-| Chatwoot | `/api/v1/accounts/*`、`/api/v2/accounts/*` | `api_access_token`（ユーザーに紐づく。**エージェント専用のユーザーで発行**） | **開ける**（`chatwoot-prod`〈`read_write` まで〉） |
+| Chatwoot | `/api/v1/accounts/*`、`/api/v2/accounts/*`、`/api/v1/profile`（2026-10-26 追加。chatwoot-mcp の `chatwoot_get_account`） | `api-access-token` ヘッダー（2026-10-26: ALB の `drop_invalid_header_fields` がアンダースコアの `api_access_token` を捨てるためハイフンで送る。ユーザーに紐づく。**エージェント専用のユーザーで発行**） | **開ける**（`chatwoot-prod`〈`read_write` まで〉） |
 | Mautic | `/api/*`、`/oauth/v2/token` | OAuth2 client_credentials（**エージェント専用の API クライアント**） | **開ける**（`mautic-prod`〈`read_write` まで〉） |
 | Strapi | `/mcp` | **Admin トークン**（Strapi の管理画面で発行。**MCP のツールはトークンに与えた権限の範囲に絞られる**。本番のトークンは**下書きまで**に絞り、公開・非公開化・削除の権限を与えない。ADR-17） | **開ける**（`strapi-prod`。ADR-16） |
 | Strapi | `/api/*`（Content API） | **API トークン（読み取り専用）** | **開ける**（ローカルのビルド。DD-05 の `I-09`。**監視アプリの定期実行の公開の確認も読む**。ADR-17。案。使うトークンは TA-04 の 9 節） |
@@ -414,7 +414,7 @@ sequenceDiagram
 
 - **社内向けの通知は SES に載せない。** 通知は SNS に集約する決定（ADR-08）を変えない。SES は顧客向けで、SNS は社内向けである。
 - **Mautic のメール送信は BA-05 で `承認`（`R3`）に分類されている。** SES に移ってもこの分類は変わらない。SES はメールを運ぶ手段であり、送るかどうかの判断はこれまでどおり承認ゲートを通る。
-- **バウンスと苦情を Mautic に返す経路が要る。** 返さないと、届かない宛先に送り続けて SES の送信停止の基準に近づく。SES のイベント（SNS 経由）を Mautic の配信停止に反映する方法は 11 節に上げる。
+- **バウンスと苦情を Mautic に返す経路が要る。** 返さないと、届かない宛先に送り続けて SES の送信停止の基準に近づく。SES のイベント（SNS 経由）を Mautic の配信停止に反映する方法は 11 節に上げる。**（2026-10-28）ADR-30 で決めた: SES の設定セット → EventBridge → Lambda `ses-feedback` → Mautic の REST API で DNC にする（SNS は使わない。実装は未着手。それまではアカウント単位の抑制リストが送信を止める）。**
 
 ## 7. 秘密値
 
@@ -528,7 +528,7 @@ sequenceDiagram
 - **Mautic の公式イメージが 7.x を提供しているか。** 3.2。無ければ取り込み済みのソースからイメージを作る作業が増える。
 - **（2026-10-06 に ADR-25 で消滅）Umami のイメージが起動時に DB を自動で移行するか。** 3.3。
 - **Chatwoot の S3 をタスクロールで使えるか。** 7 節。
-- **SES の本番アクセスの申請と、バウンス・苦情を Mautic に返す経路。** 6 節。申請は顧客にメールを送る前に済ませる必要があり、BA-04 のトスアップ（フォームの自動返信）を始める前提になる。
+- **SES の本番アクセスの申請と、バウンス・苦情を Mautic に返す経路。** 6 節。申請は顧客にメールを送る前に済ませる必要があり、BA-04 のトスアップ（フォームの自動返信）を始める前提になる。**（2026-10-28）申請はメールの種類を Transactional にして、公開サイトを配信した後に行う（ユーザーの決定。手順は `cloud/README.md` の 4.9.2）。バウンス・苦情の経路は ADR-30 で決めた（実装は未着手）。**
 - **費用の見積もり。** 9 節。
 - **IaC の選定。** TA-02 の 9 節と一体で決める。
 - **実行記録の写しの頻度と形式**（4.7。ADR-18 の追加の決定で残った論点。TA-07 の 9 節）。頻度は開発機を失ったときに失われる範囲を決める。判断者 `R1`。

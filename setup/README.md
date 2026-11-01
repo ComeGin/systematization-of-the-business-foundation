@@ -4,7 +4,9 @@
 各製品の起動・管理者の作成・トークンの発行・MCP の env ファイル・n8n のワークフローの取り込みまでを、**公式の CLI と API だけで**行う。
 画面でしかできない操作に当たると、手順を表示して止まる。終わったら同じコマンドを実行し直せば、済んだ手順は飛ばして続きから進む。
 
-本番（`--target prod`）は枠だけ（AWS のデプロイの後に実装する。ADR-21）。
+本番（`--target prod`）は、外部の値の形式の確認（GA4）・OpenSEO・admin-auth の確認・オンプレの確認・本番の Chatwoot と Mautic の API でできる初期設定（`chatwoot-prod`・`mautic-prod`）・本番の MCP の env ファイル（`mcp-prod`）まで。画面でしかできないこと（Chatwoot の onboarding、Mautic のインストールと設定）と AWS への書き込み（Secrets Manager・運用の Lambda）は、案内して止まり、人が行う。
+
+**全体の順番（設定スクリプトが確かめない AWS・オンプレの手順を含む）と、人が行う作業の一覧は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md)。** 段階 `apps` の前提（DB の作成・ECS の台数）と本番の n8n の provision は、2026-10-28 からスクリプトが確かめる・行う。それでも確かめられない手順（公開サイトのビルドと配信など）は、そちらの 4 節にある。
 
 親スクリプトは 2 本ある。**バックエンド全体**（`setup/setup.mjs`）を先に、**フロントエンド全体**（`setup/frontend.mjs`。公開サイトと監視アプリ）を後に実行する（[フロントエンド全体](#フロントエンド全体setupfrontendmjs)）。オプション・終了コード・設定ファイル・状態ファイルは 2 本で共通（引数の解釈と実行の順番は `setup/lib/runner.mjs`）。
 
@@ -27,6 +29,7 @@ node setup/setup.mjs --target dev
 
 | オプション | 意味 |
 |---|---|
+| `--phase <段階>` | **prod だけ**。その段階だけを実行する（下の「本番の段階」）。省略すると `env` から `apps` までを順に進める。`google` は明示したときだけ動く。dev に付けたとき・無い段階のときは、何もせずに `1` で終わる |
 | `--check` | 何も変えずに、各モジュールの状態を表示する |
 | `--only <id,...>` | 指定したモジュールだけ（id は `--list` で見る） |
 | `--from <id>` | 指定したモジュールから後ろだけ（失敗したあとに続きから） |
@@ -38,6 +41,30 @@ node setup/setup.mjs --target dev
 
 終了コード: `0` 終わった／`1` 失敗（直してから `--from <id>`）／`3` 画面の操作が必要（案内に従って再実行）。
 
+## 本番の段階（`--target prod`）
+
+本番は次の 5 段階の順に進める（2026-10-27。ユーザーの決定）。各モジュールは `meta.phases` で自分の段階を宣言し、親スクリプトが段階の順 → `MODULES` の順に並べて呼ぶ。AWS への書き込み（デプロイ・プッシュ・Secret の値）と画面の操作は、案内して止まる（スクリプトは読み取りで確かめるだけ）。
+
+| 順 | 段階（`--phase`） | すること | モジュール |
+|---|---|---|---|
+| 1 | `env` | 本番用の環境変数の設定: 道具（aws・sam 1.154 以上・docker・pnpm 11）・AWS の認証とアカウント・`cloud/samconfig.toml` の必須の値（`RunLogAdminPrincipalArns`・`GoogleClientId`・`AdminBootstrapEmails`） | `cloud` |
+| 2 | `deploy` | `sam build` → `sam deploy`（1 回目）: global（us-east-1）→ その出力を `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く → 本番スタック → 人が入れる Secret の値（`admin-auth/GOOGLE_CLIENT_SECRET` は必須、SMTP の 4 つは DesiredCount を上げる前でよいので警告だけ） | `cloud` |
+| 3 | `images` | 派生イメージ（Chatwoot・Mautic）のビルドと ECR へのプッシュ。本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` のタグが ECR にあるかを見る（タグを変えたら `samconfig.toml` に書いて `sam deploy` をもう 1 回） | `cloud` |
+| 4 | `apps` | 本番のアプリの設定。先頭の `cloud` が前提を確かめる（DB 作成のタスクのログ〈無ければ止まる〉、global の 2 回目・SNS の購読・SES・DMARC・WireGuard の AMI の固定・オンプレの IAM のキー・SMTP の Secret〈警告だけ〉）。`chatwoot-prod`・`mautic-prod` は ECS の台数（親のパラメータの DesiredCount）を確かめ、0 なら上げる手順を案内して止まる | `cloud`・`admin-auth`・`onprem`・`chatwoot-prod`・`mautic-prod`・`n8n-prod`・`mcp-prod`／（frontend.mjs）`verdant-virgo` |
+| 5 | `google` | 公開サイトが Route 53 から配信された後（`cloud/README.md` の 4.14）に `--phase google` で行う。GA4 のプロパティ・OpenSEO の Search Console と GA4 の接続・公開サイトの測定 ID と Search Console の所有権 | `ga4`・`openseo`／（frontend.mjs）`ga4`・`verdant-virgo` |
+
+**ECR のリポジトリは `sam deploy` が作る**（`cloud/stacks/ecr.yaml`）ので、イメージのプッシュはデプロイの後になる。ECS のサービスは 0 台で作られ、タスク定義はイメージの有無を検査しないので、イメージが無くても 1 回目のデプロイは通る（`cloud/README.md` の 4.2）。admin-auth・consent-api・faq-bot は Lambda で、ECR を使わない（`sam build` がまとめる）。
+
+```bash
+node setup/setup.mjs --target prod --check          # 段階 env〜apps の状態を見る（AWS には読み取りだけ）
+node setup/setup.mjs --target prod                  # env → deploy → images → apps（止まったら案内に従い、同じコマンドを実行し直す）
+node setup/setup.mjs --target prod --phase images   # 1 つの段階だけ
+node setup/frontend.mjs --target prod               # 段階 apps: 公開サイトの .env.production（測定 ID は空。タグを出さない）
+# 公開サイトを配信し、Route 53 で届くようになったら
+node setup/setup.mjs --target prod --phase google
+node setup/frontend.mjs --target prod --phase google   # 測定 ID を入れて書き直す（そのあとビルドし直す）
+```
+
 ## モジュール（実行の順）
 
 | id | 場所 | 自動でやること | 止まって頼むこと（manual） |
@@ -45,18 +72,23 @@ node setup/setup.mjs --target dev
 | `host-relay` | `middleware/host-relay/setup/` | 中継の起動（172.17.0.1 の 8000・1025・5678・3100・3001・3107） | なし |
 | `chatwoot` | `backend/chatwoot-system/setup/` | init-env・DB の準備（イメージが変わったときだけ）・起動・Webhook の私設アドレスへの送信の許可（下の「Webhook の送り先と SSRF 対策」）・管理者とアカウント・管理者のトークン・エージェント専用ユーザー（担当者の権限）とトークン・Web サイトの受信箱とメンバー（エージェント専用ユーザーと管理者）・解決後は新しいチャットにする（`allow_messages_after_resolved: false`）・ラベル 4 つ（`faq-answered` ほか）・エージェントボット「FAQ ボット」と受信箱への接続・マクロ「解決の確認を送る」（ラベル `faq-ask-resolved` を付ける）・担当者への引き継ぎのメール通知（管理者の「新しい会話」のメール。届き先は Chatwoot の MailHog〈8026〉）。onboarding 画面を閉じる | 管理者が既にいてパスワードが分からない（`CHATWOOT_ADMIN_PASSWORD` を書くか `CHATWOOT_RESET_ADMIN_PASSWORD=yes`） |
 | `mautic` | `backend/mautic-system/dev/setup/` | MySQL・MailHog と PHP サーバーの起動（端末から切り離す。ログは `~/.config/comegin/setup/mautic-serve.log`）・未インストールならインストール・Webhook の設定（送り先の私設アドレスの許可・失敗での自動停止の無効化）・カスタム項目 3 つ・フォーム `consult`（`source_dl` は 2026-10-20 にやめた）・セグメント `mql` | **API 資格情報の作成**（画面だけ。下の「画面での操作」） |
-| `ga4` | `middleware/ga4/setup/`（dev・prod） | **dev**: 開発の Astro の環境変数に測定 ID が無いことの確認だけ（あれば失敗）。**prod**: `GA4_PROPERTY_ID`（数字）と `GA4_MEASUREMENT_ID`（`G-…`）の形式の確認（GA4 は SaaS。API は呼ばない。ADR-25） | prod だけ: 本番の GA4 プロパティの作成と設定（`ga4:property`） |
-| `openseo` | `middleware/open-seo-main/dev/setup/`（dev・prod） | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／**prod だけ**（dev は AWS に展開されていないので飛ばす）: Search Console と GA4 用の OAuth クライアント（GA4 は Analytics Admin API・Data API の有効化と `/api/ga4/oauth/callback` を含む）／Search Console の接続（画面）／GA4 の接続（画面。本番のプロパティだけ。ADR-25） |
+| `ga4` | `middleware/ga4/setup/`（dev・prod） | **dev**: 開発の Astro の環境変数に測定 ID が無いことの確認だけ（あれば失敗）。**prod**: `GA4_PROPERTY_ID`（数字）と `GA4_MEASUREMENT_ID`（`G-…`）の形式の確認（GA4 は SaaS。API は呼ばない。ADR-25）。prod は段階 `google` | prod だけ: 本番の GA4 プロパティの作成と設定（`ga4:property`） |
+| `openseo` | `middleware/open-seo-main/dev/setup/`（dev・prod） | 環境変数ファイル（空のキーだけ。`BETTER_AUTH_SECRET` を生成、`AUTH_MODE=local_noauth`）・起動・`/api/health` の確認 | DataForSEO のキー／**prod だけ**（prod は段階 `google`。dev は AWS に展開されていないので飛ばす）: Search Console と GA4 用の OAuth クライアント（GA4 は Analytics Admin API・Data API の有効化と `/api/ga4/oauth/callback` を含む）／Search Console の接続（画面）／GA4 の接続（画面。本番のプロパティだけ。ADR-25） |
 | `strapi` | `backend/strapi-system/setup/` | 環境変数ファイル・`pnpm install`・管理者（0 人のときだけ）・MCP 用の Admin トークン（下書きまで）・ビルド用の読み取りトークン → `strapi-dev.env` | 開発サーバーの起動（別の端末で `pnpm dev`）／既にいる管理者のパスワード |
 | `n8n` | `middleware/n8n/setup/` | init-env・起動・オーナー・公開 API のキー・MCP の有効化とトークン → `n8n-dev.env`・provision（Data Table・Mautic と Chatwoot の Webhook・資格情報・ワークフローの取り込みと子の公開） | 既にいるオーナーのパスワード／作成済みの MCP トークン（写すか `N8N_MCP_ROTATE=true`） |
 | `consent-api` | `backend/consent-api/setup/` | 環境変数ファイル・起動（Valkey 付き）・`/healthz` | なし |
-| `admin-auth` | `backend/admin-auth/setup/` | init-env・起動・discovery と JWKS の確認。許可リストに `ADMIN_EMAIL` | なし（Google の資格情報は任意。無ければ警告だけ） |
+| `admin-auth` | `backend/admin-auth/setup/`（dev・prod） | **dev**: init-env・起動・discovery と JWKS の確認。許可リストに `ADMIN_EMAIL`。**prod**: 本番の discovery を読むだけ（AWS には書き込まない） | dev: なし（Google の資格情報は任意。無ければ警告だけ）／prod: 運用の Lambda での `migrate`・`register-alb-client`（人が実行して `ADMIN_AUTH_PROD_READY=yes`。`manual-steps.md` の 8.1） |
 | `chatwoot-mcp` | `backend/chatwoot-mcp/setup/` | `pnpm install`・`pnpm build`・トークンの確認 → `chatwoot-dev.env` | なし |
 | `faq-bot` | `backend/faq-bot/setup/` | 状態のボットのトークンと secret を環境変数ファイルに写す・`pnpm install`・開発サーバーの死活の表示 | 開発サーバーの起動（別の端末で `pnpm dev`） |
 | `mautic-mcp` | `backend/mautic-mcp/setup/` | `pnpm install`・`pnpm build`・資格情報の確認 → `mautic-dev.env` | なし（資格情報が無ければ失敗。mautic を先に） |
 | `control-plane` | `backend/control-plane/setup/` | Node と pnpm の版の確認・`pnpm install`・`pnpm build`・E-15 の置き場（700） | なし |
 | `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・Google の資格情報と許可リスト（`CONTROL_ADMIN_EMAILS`）・`pnpm install`・Google ログインを始められるかの確認（認可 URL の `hd` とリダイレクト URI） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／**Google の OAuth クライアントの作成**／監視アプリの起動・起動し直し（別の端末で `pnpm dev`） |
+| `cloud` | `cloud/setup/`（prod だけ。段階 `env`・`deploy`・`images`・`apps`。AWS を読む部品は `cloud/setup/aws.mjs` で、`chatwoot-prod`・`mautic-prod`・`n8n-prod` も使う） | 読み取りだけの確認（上の「本番の段階」）: 道具・AWS の認証とアカウント（既定 `798560359429`。違えば `prod.conf` の `AWS_ACCOUNT_ID`）・`samconfig.toml` の必須の値（値は表示しない）・global と本番のスタックの状態・人が入れる Secret に値があるか（値は読まない）・ECR のタグ／段階 `apps`: DB 作成のタスクの成功のログ（今のスタックの作成の後。確かめたら状態に残す。ログは 30 日で消えるため）と、警告だけの 7 項目 | `cloud:env`・`cloud:global`・`cloud:cloudfront-params`・`cloud:sam-deploy`・`cloud:secrets`・`cloud:push`・`cloud:db-init`（`manual-steps.md` の 8.5） |
 | `onprem` | `onprem/setup/`（prod だけ） | 読むだけの確認（wg0・systemd・待ち受け） | 本番の立ち上げ手順の案内（枠だけ） |
+| `chatwoot-prod` | `backend/chatwoot-system/setup/prod/`（prod だけ） | 最初に ECS の `chatwoot-web`・`chatwoot-worker` の DesiredCount（親のパラメータ）が 1 以上か（0 なら `db:chatwoot_prepare` と台数の上げ方を案内して止まる）。開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`。ALB のルール 201）に向けて行う: 受信箱「Web サイト」（解決後は新しいチャット・管理者とエージェント専用ユーザーをメンバーに）・FAQ のラベル 4 つ・FAQ ボット（送り先は本番の faq-bot の関数 URL）と受信箱への接続・マクロ・管理者の引き継ぎのメール通知。website_token を prod の状態に置く（公開サイトの本番のビルドが読む） | `chatwoot-prod:ecs`（台数を上げる）／最初の管理者（画面の onboarding）とエージェント専用ユーザーとそれぞれのトークン／FAQ ボットのトークンと secret を Secrets Manager に入れる（`manual-steps.md` の 8.3） |
+| `mautic-prod` | `backend/mautic-system/dev/setup/prod/`（prod だけ） | 最初に `mautic-web` の DesiredCount が 1 か、最後に `mautic-cron` の DesiredCount が 1 か（インストールの後に上げる）。開発の `mautic` と同じ API の手順を、本番（`https://mkt.comegin.com`。ALB のルール 202）に向けて行う: カスタム項目 3 つ・フォーム consult と自動返信・セグメント mql。フォームの ID を prod の状態に置く | `mautic-prod:ecs-web`・`mautic-prod:ecs-cron`（台数を上げる）／インストール（`/installer`）と画面の設定（API・Webhook のキューモードと私設アドレス `10.99.0.2`・CORS・メール）と初期設定用の API 認証情報（`manual-steps.md` の 8.4） |
+| `n8n-prod` | `middleware/n8n/setup/prod/`（prod だけ） | オンプレの本番の n8n（`127.0.0.1:5679`）に、開発の `n8n` と同じ手順でオーナー（未作成なら作る）・公開 API のキー・MCP のトークン（`N8N_PROD_TOKEN`。`mcp-prod` が `n8n-prod.env` に書く）を用意し、provision（Data Table・Mautic と Chatwoot の Webhook〈送り先 `http://10.99.0.2:5680/webhook/...`〉・資格情報・ワークフロー。子だけ公開）を行う。SNS のトピックは本番スタックの出力から。SNS 用のキーがその IAM ユーザーのものか、ハートビートのアラームの状態（警告だけ）も見る | `n8n-prod:mautic-api-credentials`（n8n 用の Mautic の API 認証情報）・`n8n-prod:chatwoot-admin-token`・`n8n-prod:aws-key`（`manual-steps.md` の 8.6）／親の公開（R1）とハートビートの有効化 |
+| `mcp-prod` | `ops/setup/`（prod だけ） | 本番の MCP の env ファイル 6 つ（`chatwoot-prod`・`mautic-prod`・`mautic-prod-ro`・`strapi-prod`・`n8n-prod`・`posthog-prod`）を `prod.conf` から書く（600）。読み取りだけで確かめる（Chatwoot の `/api/v1/profile`、Mautic の client_credentials、Strapi と n8n の MCP の `tools/list`。strapi-prod に公開・非公開化・削除のツールが出たら失敗） | トークンと API 認証情報の発行（本番の各管理画面。エージェント専用のアカウント。`manual-steps.md` の 8.2） |
 
 ## フロントエンド全体（setup/frontend.mjs）
 
@@ -65,13 +97,14 @@ node setup/setup.mjs --target dev
 ```bash
 node setup/frontend.mjs --target dev --check   # 何も変えずに、どこまで用意できているかを見る
 node setup/frontend.mjs --target dev           # 実行する（止まったら案内に従い、同じコマンドを実行し直す）
-node setup/frontend.mjs --target prod          # 本番のビルド用の .env.production と Search Console の所有権（ビルドと配信はしない）
+node setup/frontend.mjs --target prod          # 段階 apps: 本番のビルド用の .env.production（測定 ID は空。ビルドと配信はしない）
+node setup/frontend.mjs --target prod --phase google   # 公開サイトが Route 53 から配信された後: 測定 ID と Search Console の所有権
 ```
 
 | id | 場所 | 自動でやること | 止まって頼むこと（manual） |
 |---|---|---|---|
 | `ga4` | `middleware/ga4/setup/` | バックエンドと同じモジュール（開発の環境変数に測定 ID が無いことの確認。prod は ID の形式） | prod だけ: `ga4:property` |
-| `verdant-virgo` | `frontend/verdant-virgo/setup/` | **dev**: `.env`（600）を書く（下の表）・`pnpm install`・Lighthouse CI の Chrome の確認・a11y の検査の Chromium（`pnpm exec playwright install chromium`）・受け口の確認（Strapi の公開記事の件数・Chatwoot のウィジェット・Mautic のフォーム・consent-api。止まっていても警告だけ）・dev サーバーの起動（`astro dev --background`。環境変数を書き換えたら `astro dev stop` してから起動し直す）。**prod**: 承認済みの `main` のチェックアウトに `.env.production`（600）を `prod.conf` から書く・そこで `pnpm install`・本番の Strapi（`127.0.0.1:1338`）を読めるかと公開記事の件数（警告だけ）・Search Console の所有権の TXT を DNS で確かめる | dev: `verdant-virgo:restart-dev`（前景の `pnpm dev` が動いていて止められない）／prod: `verdant-virgo:prod-values`（本番の値が足りない）・`verdant-virgo:gsc-domain`（ドメインプロパティの所有権） |
+| `verdant-virgo` | `frontend/verdant-virgo/setup/` | **dev**: `.env`（600）を書く（下の表）・`pnpm install`・Lighthouse CI の Chrome の確認・a11y の検査の Chromium（`pnpm exec playwright install chromium`）・受け口の確認（Strapi の公開記事の件数・Chatwoot のウィジェット・Mautic のフォーム・consent-api。止まっていても警告だけ）・dev サーバーの起動（`astro dev --background`。環境変数を書き換えたら `astro dev stop` してから起動し直す）。**prod**: 承認済みの `main` のチェックアウトに `.env.production`（600）を `prod.conf` から書く・そこで `pnpm install`・本番の Strapi（`127.0.0.1:1338`）を読めるかと公開記事の件数（警告だけ）・Search Console の所有権の TXT を DNS で確かめる（prod は段階 `apps` と `google` の 2 回動く。`apps` は測定 ID を空で書いて所有権の確認を飛ばし、`google` で測定 ID を入れて所有権を確かめる） | dev: `verdant-virgo:restart-dev`（前景の `pnpm dev` が動いていて止められない）／prod: `verdant-virgo:prod-values`（本番の値が足りない）・`verdant-virgo:gsc-domain`（ドメインプロパティの所有権） |
 | `next-js` | `frontend/next-js/setup/` | バックエンドと同じモジュール（監視アプリ） | `next-js:google-client`・`next-js:start-app`・`next-js:restart-app` |
 
 `ga4`・`next-js` はバックエンドの `setup.mjs` にもある（どちらから実行しても同じ結果になる）。
@@ -118,7 +151,19 @@ node setup/frontend.mjs --target prod          # 本番のビルド用の .env.p
 
 管理者のメールアドレスはすべて `ADMIN_EMAIL`（Chatwoot のエージェント専用ユーザーだけは `+ai-agent` 付き）。
 
-**MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`n8n-dev.env`（`umami-dev.env` は ADR-25 で Umami を廃止したので作らない。前に作られたものは自分で消す）。
+**本番の状態ファイル**（`~/.config/comegin/setup/prod.state.json`、600。`--target prod --show <KEY>`）:
+
+| キー | 作る | 用途 |
+|---|---|---|
+| `CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_USER_ID`・`CHATWOOT_INBOX_ID`・`CHATWOOT_WEBSITE_TOKEN` | chatwoot-prod | 受信箱・メンバー。website_token は公開サイトの本番のビルド（verdant-virgo の `.env.production`）が読む |
+| `CHATWOOT_FAQ_BOT_ID`・`CHATWOOT_FAQ_BOT_TOKEN`✔・`CHATWOOT_FAQ_BOT_SECRET`✔ | chatwoot-prod | FAQ ボット。トークンと secret は人が Secrets Manager に入れる（`manual-steps.md` の 8.3） |
+| `MAUTIC_FORM_ID_CONSULT`・`MAUTIC_SEGMENT_ID_MQL`・`MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY` | mautic-prod | フォーム consult の ID は公開サイトの本番のビルドが読む |
+| `N8N_OWNER_PASSWORD`✔・`N8N_API_KEY`✔・`N8N_PROD_TOKEN`✔ | n8n-prod | 本番の n8n のオーナーのログイン（作ったときだけ）／provision／本番の n8n の MCP（mcp-prod が `n8n-prod.env` に書く。`prod.conf` に同じキーがあればそちらが優先） |
+| `DB_INIT_POSTGRES_STACK_CREATED`・`DB_INIT_MYSQL_STACK_CREATED` | cloud（段階 apps） | DB 作成のタスクの成功を確かめた本番スタックの作成時刻（スタックを作り直すと確かめ直す） |
+
+本番の管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）と、Mautic の初期設定用の API 認証情報は、`prod.conf` にだけ置く（状態には写さない）。
+
+**MCP の env ファイル**（`~/.config/comegin/mcp/`、600。`ops/mcp-registry.yaml` が参照する）: 開発は `chatwoot-dev.env`・`mautic-dev.env`・`strapi-dev.env`・`n8n-dev.env`（`umami-dev.env` は ADR-25 で Umami を廃止したので作らない。前に作られたものは自分で消す）。本番は `mcp-prod` が `chatwoot-prod.env`・`mautic-prod.env`・`mautic-prod-ro.env`・`strapi-prod.env`・`n8n-prod.env`・`posthog-prod.env` を `prod.conf` から書く。
 
 **各プロジェクトの環境変数ファイル**: 既存の `dev/init-env.sh` と同じく、**空のキーだけを書く**（暗号化の鍵などを上書きしない）。
 

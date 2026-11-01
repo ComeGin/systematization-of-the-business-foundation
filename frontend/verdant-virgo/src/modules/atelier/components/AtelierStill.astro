@@ -1,0 +1,70 @@
+---
+/**
+ * AtelierStill（下層ページの冒頭の静止画。同じアトリエの別の場所。spec §7）。2026-10-29。
+ *
+ * - トップと同じシーン・同じ光・同じ時間帯を、そのページの置き物の正面のカメラ（glb の cam_<page>）から撮った 1 枚（tools/capture-stills.mjs）。
+ *   Tips の画像・Tips から移るときのカメラの行き先と同じ絵（spec §9 の 3）。three も JS の島も読まない。
+ * - 時間帯は <html data-atelier-phase>（BaseLayout の head の inline script）。4 つの時間帯の URL を data-src-<phase> に持たせ、
+ *   直後の inline script がその時間帯の 1 枚だけを入れる。JS が無いときは <noscript> の昼の絵。
+ * - 飾りなので alt は空（意味は h1・本文が持つ）。
+ *
+ * variant:
+ *   media    … B のページ。PageIntro の slot="media"（4:3。Mobile でも出す。spec §7）
+ *   backdrop … A のサービス一覧・詳細。PageIntro の slot="backdrop"。Desktop はヒーローの区画の全面（文字の側を --atelier-veil で覆う）、
+ *              Mobile は文字の下の 3:4 の塊（Mobile 用の縦長の構図）
+ *   banner   … /accessibility/ の h1 の上（本文と同じ 720px 幅・16:9。01-content-spec.md §4.11）
+ * トップの Tips から移ってきたとき（atelier:vt。lib/transition.ts の readVt と同じ規則: 行き先が合い、2 秒以内）だけ、
+ * 遷移の間だけ根に view-transition-name: vt-atelier を付ける（トップの枠から、この絵の枠へ大きさを変えてつながる。spec §9 の 3）。
+ * 付けっぱなしにしない（第 1 版の教訓: 重なりの層ができ、押せるものが文字の下に回った）。
+ */
+import { VT_MAX_AGE_MS, VT_STORAGE_KEY } from '../lib/transition';
+import { stillSet } from '../lib/stills';
+import type { PageKey, Phase } from '../lib/types';
+import './atelier.css';
+
+interface Props {
+  page: Exclude<PageKey, 'top'>;
+  variant: 'media' | 'backdrop' | 'banner';
+}
+
+const { page, variant } = Astro.props;
+const stills = stillSet(page);
+const phases = Object.keys(stills) as Phase[];
+const size = variant === 'media' ? { width: 960, height: 720 } : variant === 'banner' ? { width: 1440, height: 810 } : { width: 1600, height: 900 };
+const imgData = Object.fromEntries(phases.map((p) => [`data-src-${p}`, stills[p].desktop]));
+const sourceData = variant === 'backdrop' ? Object.fromEntries(phases.map((p) => [`data-srcset-${p}`, stills[p].mobile ?? stills[p].desktop])) : null;
+---
+
+<div data-atelier-still={page} data-atelier-variant={variant} class={`atelier-still atelier-still--${variant}`}>
+  <picture>
+    {sourceData && <source media="(max-width: 767px)" {...sourceData} />}
+    <img alt="" width={size.width} height={size.height} decoding="async" fetchpriority={variant === 'media' ? undefined : 'high'} {...imgData} />
+  </picture>
+  <noscript><img alt="" src={stills.day.desktop} width={size.width} height={size.height} /></noscript>
+  <script is:inline define:vars={{ page, vtKey: VT_STORAGE_KEY, vtMaxAge: VT_MAX_AGE_MS }}>
+    // 訪問の時間帯の 1 枚だけを入れる（spec §5.3・§9 の 5。トップのポスターと同じ作り）
+    (function () {
+      var phase = document.documentElement.getAttribute('data-atelier-phase') || 'day';
+      var root = document.currentScript.parentElement;
+      var source = root.querySelector('picture source');
+      var img = root.querySelector('picture img');
+      if (source) source.setAttribute('srcset', source.getAttribute('data-srcset-' + phase) || source.getAttribute('data-srcset-day'));
+      if (img) img.setAttribute('src', img.getAttribute('data-src-' + phase) || img.getAttribute('data-src-day'));
+      // トップの Tips から移ってきたときだけ、遷移の間だけ同じ名前を付ける
+      try {
+        var raw = sessionStorage.getItem(vtKey);
+        if (raw) {
+          sessionStorage.removeItem(vtKey);
+          var vt = JSON.parse(raw);
+          var now = Date.now();
+          if (vt && vt.from === 'top' && vt.to === page && now >= vt.at && now - vt.at <= vtMaxAge) {
+            root.style.viewTransitionName = 'vt-atelier';
+            var clear = function () { root.style.viewTransitionName = ''; };
+            window.addEventListener('pagereveal', function (e) { if (e.viewTransition) e.viewTransition.finished.finally(clear); else clear(); }, { once: true });
+            setTimeout(clear, vtMaxAge);
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+</div>

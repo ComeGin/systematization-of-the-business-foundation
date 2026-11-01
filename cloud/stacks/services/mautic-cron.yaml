@@ -3,6 +3,9 @@ Description: >-
   mautic-cron: セグメント更新・キャンペーン実行・メールのキュー処理などの定期実行（ECS on Fargate）。TA-06 の 3.1。
   DOCKER_MAUTIC_ROLE=mautic_cron。ALB には繋がない（待ち受けない）。公式の entrypoint は、インストール済みになるまで待ってから cron を起動する。
   Mautic のメッセンジャーのワーカー（mautic_worker）は、既定が同期のため作らない。非同期のキューを使うことにしたら足す（TODO）。
+# cron の定義は公式イメージの /templates/mautic_cron（セグメント・キャンペーンの更新と実行）に、派生イメージで mautic:webhooks:process（毎分）を
+# 足したもの（cloud/images/mautic/Dockerfile の 4）。本番は queue_mode=command_process なので、これが無いと Webhook がオンプレの n8n に届かない。
+# 定義はコンテナの中（/opt/mautic/cron。EFS ではない）に起動のたびに写るので、イメージを更新すれば変わる。
 
 Parameters:
   EnvName:
@@ -83,7 +86,25 @@ Parameters:
       entrypoint が、local.php が無ければテンプレートから作る（startup/check_local_php_exists.sh）。
       アクセスポイントの所有者は uid 33 の www-data で、entrypoint のボリュームの所有者の検査と一致する。
 
+  # ---- 夜間の停止（Application Auto Scaling のスケジュール。2026-10-26。親の NightlyStop* を受け取る）
+  NightlyStopEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: 夜間にタスクを 0 にするか。DesiredCount が 0 のあいだ（起動前）は作らない（朝に勝手に起動しないため）。
+  NightlyStopSchedule:
+    Type: String
+    Default: cron(0 22 * * ? *)
+    Description: 止める時刻（Application Auto Scaling の cron 式。NightlyStopTimezone の時刻）。
+  NightlyStartSchedule:
+    Type: String
+    Default: cron(0 8 * * ? *)
+    Description: 再開する時刻。DesiredCount の台数に戻す。
+  NightlyStopTimezone:
+    Type: String
+    Default: Asia/Tokyo
 Conditions:
+  UseNightlyStop: !And [!Equals [!Ref NightlyStopEnabled, 'true'], !Not [!Equals [!Ref DesiredCount, '0']]]
   MountConfig: !Equals [!Ref MountConfigVolume, 'true']
 
 Resources:
@@ -217,10 +238,12 @@ Resources:
             - { Name: MAUTIC_DB_USER, Value: mautic }
             - { Name: PHP_INI_VALUE_DATE_TIMEZONE, Value: Asia/Tokyo }
             - { Name: MAUTIC_SITE_URL, Value: !Sub 'https://${MktHost}' }
+            # Mautic はこの環境変数を直接は読まない。派生イメージの entrypoint（cloud/images/mautic/comegin-entrypoint.sh）が
+            # 起動のたびに config/parameters_local.php の trusted_proxies に写す（ALB 越しの要求を https・訪問者の IP と判定させる）
             - { Name: MAUTIC_TRUSTED_PROXIES, Value: !Sub '["${TrustedProxyCidr}"]' }
           Secrets:
-            - { Name: MAUTIC_DB_PASSWORD, ValueFrom: !Sub '${SecretNamePrefix}/mautic/DB_PASSWORD' }
-            - { Name: MAUTIC_SECRET_KEY, ValueFrom: !Sub '${SecretNamePrefix}/mautic/SECRET_KEY' }
+            - { Name: MAUTIC_DB_PASSWORD, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/mautic/DB_PASSWORD' }
+            - { Name: MAUTIC_SECRET_KEY, ValueFrom: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretNamePrefix}/mautic/SECRET_KEY' }
           MountPoints:
             - { SourceVolume: mautic-media-images, ContainerPath: /var/www/html/docroot/media/images, ReadOnly: false }
             - { SourceVolume: mautic-media-files, ContainerPath: /var/www/html/docroot/media/files, ReadOnly: false }
@@ -261,6 +284,30 @@ Resources:
             - !Ref SecurityGroupId
           Subnets: !Ref PrivateSubnetIds
       # 固定の 1 タスク。デプロイ中も 2 つ同時に動かさない（二重実行の防止）。止めてから新しいタスクを起動するため、更新中は短く止まる。
+
+  # 夜間の停止（mautic-cron。夜間の Webhook〈I-11〉・キャンペーン・セグメントの更新は朝に処理される。mautic-web は止めない〈夜間のフォームを受け付ける〉）。22 時に最小・最大を 0 にしてタスクを止め、8 時に DesiredCount に戻す（日本時間）。
+  # タスクの台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま（README の 4.11）。
+  # 使う IAM ロールは Application Auto Scaling のサービスにリンクされたロール（無ければ初回に自動で作られる）。
+  NightlyStopScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: UseNightlyStop
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub
+        - 'service/${ClusterName}/${Service.Name}'
+        - ClusterName: !Select [1, !Split ['cluster/', !Ref ClusterArn]]
+      MinCapacity: !Ref DesiredCount
+      MaxCapacity: !Ref DesiredCount
+      ScheduledActions:
+        - ScheduledActionName: nightly-stop
+          Schedule: !Ref NightlyStopSchedule
+          Timezone: !Ref NightlyStopTimezone
+          ScalableTargetAction: { MinCapacity: 0, MaxCapacity: 0 }
+        - ScheduledActionName: morning-start
+          Schedule: !Ref NightlyStartSchedule
+          Timezone: !Ref NightlyStopTimezone
+          ScalableTargetAction: { MinCapacity: !Ref DesiredCount, MaxCapacity: !Ref DesiredCount }
 
 Outputs:
   ServiceName:

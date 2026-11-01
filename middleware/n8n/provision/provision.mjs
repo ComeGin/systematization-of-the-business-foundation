@@ -62,7 +62,8 @@ const CRED = {
   smtp: "MailHog SMTP（開発）",
   // SNS への発行（I-21）と、CloudWatch へのハートビート（n8n-schedule-heartbeat。PutMetricData）の両方に使う（同じ IAM ユーザー）
   aws: "AWS SNS 発行（アクセスキー）",
-  // 週次の棚卸しが Chatwoot の会話一覧を読む（ヘッダー api_access_token。ユーザーに紐づくトークン）
+  // 週次の棚卸しが Chatwoot の会話一覧を読む（ヘッダー api-access-token。ユーザーに紐づくトークン）。
+  // 資格情報の名前はワークフローの JSON が参照するので変えない（ヘッダー名だけをハイフンの綴りにした）
   chatwootApi: "Chatwoot API（api_access_token）",
 };
 
@@ -369,7 +370,8 @@ async function ensureCredentials(api, conf, target, secrets, restSession) {
   if (!conf.CHATWOOT_N8N_API_TOKEN && target === "prod") {
     warn("CHATWOOT_N8N_API_TOKEN が空。管理者のトークンを n8n の資格情報「Chatwoot API」に入れる。棚卸しには会話の一覧を読むだけの権限で足りるので、専用のユーザーのトークンを発行して CHATWOOT_N8N_API_TOKEN に書くことを勧める");
   }
-  wanted.push({ name: CRED.chatwootApi, type: "httpHeaderAuth", data: { name: "api_access_token", value: chatwootToken } });
+  // ヘッダー名はハイフンの綴り。本番の ALB（drop_invalid_header_fields）はアンダースコアを含むヘッダーを捨てる（Chatwoot はどちらでも読む）
+  wanted.push({ name: CRED.chatwootApi, type: "httpHeaderAuth", data: { name: "api-access-token", value: chatwootToken } });
   if (target === "dev") {
     wanted.push({ name: CRED.smtp, type: "smtp", data: { host: conf.SMTP_HOST, port: Number(conf.SMTP_PORT), secure: false, user: "", password: "" } });
     // I-21 の「SNS に発行」は aws の資格情報が必須で、無いと n8n が公開を拒む（2.39.5: "Missing required credential: aws"）。
@@ -529,13 +531,13 @@ async function ensureMauticWebhook(conf) {
 }
 
 // ---------------------------------------------------------------------------
-// Chatwoot（api_access_token。Webhook の作成は管理者のトークンが要る）
+// Chatwoot（api-access-token ヘッダー。本番は ALB を通るのでハイフンの綴り。Webhook の作成は管理者のトークンが要る）
 // ---------------------------------------------------------------------------
 
 async function ensureChatwootWebhook(conf) {
   step("Chatwoot の Webhook（I-12）");
   const base = `${conf.CHATWOOT_API_URL}/api/v1/accounts/${conf.CHATWOOT_ACCOUNT_ID}/webhooks`;
-  const headers = { api_access_token: conf.CHATWOOT_API_ACCESS_TOKEN };
+  const headers = { "api-access-token": conf.CHATWOOT_API_ACCESS_TOKEN };
   const unwrap = (b) => b?.payload?.webhook ?? b?.payload ?? b;
   let list;
   try {
@@ -574,7 +576,7 @@ async function check(conf, target) {
   log("  n8n: API キーが通る");
   await mauticToken(conf);
   log("  Mautic: トークンを取得できる");
-  await http("Chatwoot の Webhook の一覧", `${conf.CHATWOOT_API_URL}/api/v1/accounts/${conf.CHATWOOT_ACCOUNT_ID}/webhooks`, { headers: { api_access_token: conf.CHATWOOT_API_ACCESS_TOKEN } });
+  await http("Chatwoot の Webhook の一覧", `${conf.CHATWOOT_API_URL}/api/v1/accounts/${conf.CHATWOOT_ACCOUNT_ID}/webhooks`, { headers: { "api-access-token": conf.CHATWOOT_API_ACCESS_TOKEN } });
   log("  Chatwoot: Webhook の一覧を読める（管理者のトークン）");
   const files = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".json"));
   const lack = workflowsFor(target).filter((w) => !files.includes(w.file)).map((w) => w.file);

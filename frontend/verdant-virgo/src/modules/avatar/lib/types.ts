@@ -1,33 +1,13 @@
-// avatar モジュールの型（契約）。アバターは A（vivid）と B（calm）のページに出し、C（none）には出さない（設計書 §7）。
-// 文言の既定値は持たない（H-16）。文言は site-content から渡す。
+// avatar モジュールの型（契約）。2026-10-29 から、代表のアバターはトップのアトリエの中にだけ立つ（画面の端のアバターはやめた。atelier spec §11・A-13）。
 import type { VRMHumanBoneName } from "@pixiv/three-vrm";
 
-/**
- * アバターが動きを起こす場面（2026-10-20 の裁定 R20）。
- * arrive＝出た（手を振る）、idle＝しばらく操作が無い（待機の呼吸に入る）、wake＝idle の後に操作があった（直立に戻る）、tap＝アバターを押した（ほかの身ぶり）
- */
-export type AvatarTrigger = "arrive" | "idle" | "wake" | "tap";
-
-/** VRMA（モーションファイル）で動かす表現 */
+/** 身ぶりのクリップの名前（assets/motions/。アトリエの MotionName と同じ 6 つ） */
 export type VrmaEmote = "greeting" | "peace" | "show-full-body";
 
 /** コードで関節を動かす表現（VRMA を使わない） */
 export type ProceduralEmote = "nod" | "point" | "think";
 
 export type EmoteId = VrmaEmote | ProceduralEmote;
-
-/** アバターの操作ボタンの文言（site-content から渡す） */
-export interface AvatarLabels {
-  pause: string;
-  resume: string;
-  collapse: string;
-  expand: string;
-  summon: string;
-  /** アバター本体のボタンの名前（押すと身ぶりをする） */
-  interact: string;
-  /** アバター本体のボタンの補足（title。押す・拡大縮小の操作の案内） */
-  interactHint: string;
-}
 
 /** Mixamo から書き出したクリップの 1 本のトラック（Task 9 の convert-mixamo.mjs が作る） */
 export interface MotionClipTrack {

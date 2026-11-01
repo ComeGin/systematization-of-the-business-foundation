@@ -27,10 +27,12 @@
 ./dev/gen-keys.sh
 ```
 
-表示された公開鍵を AWS に渡す（公開鍵は秘密ではないので CloudFormation や SSM に載せてよい）。渡し方は 2 通りあり、手順は `cloud/README.md` の 4.2.1:
+表示された公開鍵を AWS に渡す（公開鍵は秘密ではないので CloudFormation や SSM に載せてよい）。**次の 2 つの両方に入れる**（手順は `cloud/README.md` の 4.2.1 の手順 3）:
 
-- 推奨: `samconfig.toml` の `parameter_overrides` に `OnpremWireguardPublicKey=<公開鍵>` を書いて `sam deploy`（CloudFormation の値が正になる）
-- すぐに反映したいとき: SSM パラメータ（名前は親スタックの出力 `OnpremPublicKeyParameterName`）に `aws ssm put-parameter --overwrite` で入れる。EC2 が 2 分ごとに読み直してピアを更新する
+- SSM パラメータ（名前は親スタックの出力 `OnpremPublicKeyParameterName`）に `aws ssm put-parameter --overwrite` で入れる。EC2 が 2 分ごとに読み直してピアを更新する（すぐに効く）
+- `samconfig.toml` の `parameter_overrides` に `OnpremWireguardPublicKey=<公開鍵>` を書く（次の `sam deploy` で CloudFormation の値になる）。**書かないと、次の `sam deploy` で SSM の値が `UNSET` に戻り、トンネルが切れる**
+
+**渡すのを忘れると、EC2 はオンプレを知らないので、要求を黙って捨てる**（`wg show` に `latest handshake` が出ず、`0 B received` のまま。2026-10-28 の初回で起きた）。
 **秘密鍵はこのマシンの外に出さない**（Claude Code にも渡さない）。
 
 ### 2. EC2 の公開鍵と Elastic IP を取り出す

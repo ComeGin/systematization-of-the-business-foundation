@@ -144,7 +144,7 @@ describe("provision（開発環境）", () => {
 
     it("棚卸し用の Chatwoot API の資格情報は、CHATWOOT_N8N_API_TOKEN があればそれを入れる", async () => {
       await run("dev", { values: { CHATWOOT_N8N_API_TOKEN: SECRETS.CHATWOOT_N8N_API_TOKEN } });
-      expect(credByName("Chatwoot API（api_access_token）")).toMatchObject({ type: "httpHeaderAuth", data: { name: "api_access_token", value: SECRETS.CHATWOOT_N8N_API_TOKEN } });
+      expect(credByName("Chatwoot API（api_access_token）")).toMatchObject({ type: "httpHeaderAuth", data: { name: "api-access-token", value: SECRETS.CHATWOOT_N8N_API_TOKEN } });
       expect(out.warns).toEqual([]);
     });
 

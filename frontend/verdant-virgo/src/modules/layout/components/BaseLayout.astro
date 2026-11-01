@@ -13,11 +13,11 @@
  * - motionZone は動きの区分。<html data-motion-zone> に出す（既定 calm。A=vivid のページと C=none のページだけが渡す）。none のページには PageTransition を置かない（JS も読まない）
  * - ページ移動の View Transitions の opt-in（@view-transition）と pagereveal の登録は、PageTransitionHead が head に出す。none のページには置かない（C へ入る・C から出る遷移が起きない）
  * - 告知帯（トップだけ）は slot="announcement"、ページ固有の head 要素（JSON-LD など）は slot="head"
- * - アバター（avatar の AvatarDock。画面の左下）は none 以外のページの body の末尾に置く（C のページには DOM も JS も出さない）
+ * - 画面の端のアバター（AvatarDock）は 2026-10-29 にやめた（代表のアバターはトップのアトリエの中にだけ立つ。atelier spec §11・A-13）
  */
 import '@/styles/global.css';
 import { AnalyticsHead, CtaTracking } from '@/modules/analytics';
-import { AvatarDock } from '@/modules/avatar';
+import { PHASE_BOUNDS, PHASE_STORAGE_KEY } from '@/modules/atelier/client';
 import { ChatLoader } from '@/modules/chat';
 import { ConsentBanner } from '@/modules/consent';
 import type { MotionZone } from '@/modules/motion';
@@ -83,6 +83,25 @@ const breadcrumbJsonLd = breadcrumb && {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* アトリエの時間帯（spec §5.3・§9 の 5）。最初の描画の前に <html data-atelier-phase> を付ける。規則は atelier/lib/sky.ts の visitPhase と同じ
+        （atelier:phase があればそれ、無ければ端末の現地時刻で決めて残す。sessionStorage が使えなければ現地時刻）。C のページは JS を読まないので付けない */}
+    {motionZone !== 'none' && (
+      <script is:inline define:vars={{ bounds: PHASE_BOUNDS, key: PHASE_STORAGE_KEY }}>
+        (function () {
+          var phases = ['morning', 'day', 'dusk', 'night'];
+          var phase = null;
+          try { phase = sessionStorage.getItem(key); } catch (e) {}
+          if (phases.indexOf(phase) < 0) {
+            var now = new Date();
+            var h = now.getHours() + now.getMinutes() / 60;
+            phase = 'night';
+            for (var i = 0; i < bounds.length; i++) if (h >= bounds[i].from) phase = bounds[i].phase;
+            try { sessionStorage.setItem(key, phase); } catch (e) {}
+          }
+          document.documentElement.setAttribute('data-atelier-phase', phase);
+        })();
+      </script>
+    )}
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
     {noindex && <meta name="robots" content="noindex" />}
@@ -133,6 +152,5 @@ const breadcrumbJsonLd = breadcrumb && {
     <CtaTracking />
     <SourceDlRedirect />
     {motionZone !== 'none' && <PageTransition />}
-    {motionZone !== 'none' && <AvatarDock zone={motionZone} />}
   </body>
 </html>

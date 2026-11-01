@@ -45,8 +45,8 @@ describe("MODULES の一覧", () => {
       expect(new Set(MODULES).size).toBe(MODULES.length);
     });
 
-    it("どのパスも W からの相対で、<モジュール>/setup/index.mjs（上流取り込みは dev/setup/index.mjs）の形になっている", () => {
-      for (const rel of MODULES) expect(rel).toMatch(/^(?!\/)[^.][\w./-]*\/setup\/index\.mjs$/);
+    it("どのパスも W からの相対で、<モジュール>/setup/index.mjs（上流取り込みは dev/setup/index.mjs、本番だけのモジュールは setup/prod/index.mjs）の形になっている", () => {
+      for (const rel of MODULES) expect(rel).toMatch(/^(?!\/)[^.][\w./-]*\/setup\/(?:prod\/)?index\.mjs$/);
     });
 
     it("どのモジュールのファイルも実在する（--list の「未実装」が無い）", () => {
@@ -54,7 +54,8 @@ describe("MODULES の一覧", () => {
     });
 
     it("README のモジュールの表と、id と場所と順番が一致する", () => {
-      const readme = readFileSync(join(SETUP_DIR, "README.md"), "utf8");
+      // setup.mjs の表は「モジュール（実行の順）」の節だけ（後ろの「フロントエンド全体」の節の表は frontend.mjs のもの）
+      const readme = readFileSync(join(SETUP_DIR, "README.md"), "utf8").split("\n## フロントエンド全体")[0];
       const rows = [...readme.matchAll(/^\| `([\w-]+)` \| `([^`]+)`/gm)].map((m) => ({ id: m[1], dir: m[2].replace(/（.*$/, "") }));
       const fromModules = loaded.map(({ rel, mod }) => ({ id: mod.meta.id, dir: rel.replace(/index\.mjs$/, "") }));
       expect(rows).toEqual(fromModules);

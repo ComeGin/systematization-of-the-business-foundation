@@ -103,6 +103,6 @@ fi
 if $keep_docker; then
     echo "Docker: --keep-docker のため MySQL と MailHog は動かしたままにします"
 else
-    "${COMPOSE[@]}" stop
+    "${COMPOSE[@]}" down
     echo "Docker: MySQL と MailHog を止めました（コンテナと DB のボリュームは残っています。再開は dev/serve.sh）"
 fi

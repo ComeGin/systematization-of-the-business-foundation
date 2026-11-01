@@ -3,7 +3,6 @@
 import { expect, test } from "../support/fixtures";
 import { open } from "./axe";
 import {
-  AVATAR_LABELS,
   MOTION_PAUSE_TARGETS,
 } from "../../src/modules/site-content/a11y";
 
@@ -31,11 +30,8 @@ test.describe("モーション（WebGL なし）", () => {
       });
       await open(page, "/");
       if (testInfo.project.name === "desktop") {
-        await expect(
-          page.locator(
-            '[data-motion="symbol"] img[src*="comegin-symbol-"]',
-          ),
-        ).toBeVisible();
+        // 2026-10-29: ヒーローはアトリエ（第 2 版）。WebGL が無いときはアトリエのポスター
+        await expect(page.locator('[data-motion="atelier"] picture img')).toBeVisible();
         await expect(
           page
             .locator('[data-motion="nav"] nav ul:not([aria-hidden]) a')
@@ -86,8 +82,10 @@ test.describe("モーション（WebGL なし）", () => {
       await expect(globe.getByRole("button")).toHaveCount(0);
       await expect(globe.locator(".globe-osaka__land")).toBeVisible();
       expect(
-        await globe.evaluate(
-          (el) => Number(getComputedStyle(el.querySelector(".globe-osaka__still")!).opacity),
+        await globe.evaluate((el) =>
+          Number(
+            getComputedStyle(el.querySelector(".globe-osaka__still")!).opacity,
+          ),
         ),
       ).toBe(1);
       expect(rendererScripts, "three を読んでいない").toBe(0);
@@ -97,36 +95,31 @@ test.describe("モーション（WebGL なし）", () => {
     });
   });
 
-  test.describe("異常系（アバター）", () => {
-    // 既定の fixture はアバターを止めて開くので、ここだけ動かして開く（avatar.spec.ts と同じ）
-    test.use({ avatarLive: true });
-
-    test("入力: WebGL が無いと、アバターは静止画のまま（一時停止のボタンなし・.vrm を要求しない）で、コンソールにエラーが出ない", async ({
+  test.describe("異常系（ヒーローのアトリエ）", () => {
+    test("入力: WebGL が無いと、アトリエはポスターのまま（canvas なし・一時停止のボタンなし）で、コンソールにエラーが出ない", async ({
       page,
-    }, testInfo) => {
-      test.skip(testInfo.project.name !== "desktop", "Desktop（最初から 3D を出す端末）だけ");
+    }) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("console", (message) => {
         if (message.type() === "error") errors.push(message.text());
       });
-      const models: string[] = [];
-      page.on("request", (request) => {
-        if (new URL(request.url()).pathname.endsWith(".vrm")) models.push(request.url());
+      await page.addInitScript(() => {
+        try {
+          sessionStorage.setItem(
+            "atelier:quality",
+            JSON.stringify({ live: true, dpr: 1 }),
+          );
+        } catch {}
       });
       await open(page, "/");
-      const dock = page.locator('[data-motion="avatar"]');
-      // canUseWebGL() が false なので、three を取りに行く前に failed になる
-      await expect(dock).toHaveAttribute("data-avatar-state", "failed", { timeout: 10_000 });
-      await expect(dock.locator("img.avatar-dock__still")).toBeVisible();
-      await expect(dock.locator("canvas")).toHaveCount(0);
+      await page.waitForTimeout(4_000);
+      const root = page.locator('[data-motion="atelier"]');
+      await expect(root.locator("picture img")).toBeVisible();
+      await expect(root.locator("canvas")).toHaveCount(0);
       await expect(
-        dock.getByRole("button", {
-          name: new RegExp(`^(${AVATAR_LABELS.pause}|${AVATAR_LABELS.resume})\\s*${MOTION_PAUSE_TARGETS.avatar}$`),
-        }),
+        root.getByRole("button", { name: /動きを止める|動きを再開する/ }),
       ).toHaveCount(0);
-      await page.waitForTimeout(1_000);
-      expect(models, ".vrm を要求しない").toEqual([]);
       expect(
         errors.filter((e) => !/Failed to load resource|net::ERR_/.test(e)),
       ).toEqual([]);

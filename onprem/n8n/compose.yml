@@ -15,12 +15,18 @@
 #   docker compose build     # 派生イメージ（RDS の CA つき）
 #   docker compose up -d
 
+# プロジェクト名を明示する（2026-10-28）。省略するとディレクトリ名（n8n）になり、開発の middleware/n8n と同じ名前になる。
+# 同じ名前だと、ボリューム・ネットワーク・コンテナ名を共有してしまう（本番の n8n が開発の n8n-data〈開発の暗号化キー入り〉を読み、
+# 「Mismatching encryption keys」で起動しなかった）。変えると別のボリュームになるので、変えない
+name: comegin-prod-n8n
+
 services:
   n8n:
     build:
       context: .
       args:
         N8N_VERSION: ${N8N_VERSION:?.env に N8N_VERSION を設定してください（.env.example を参照）}
+        N8N_DIGEST: ${N8N_DIGEST:?.env に N8N_DIGEST を設定してください（.env.example を参照）}
     image: comegin/n8n-onprem:${N8N_VERSION}
     restart: unless-stopped
     ports:
@@ -68,8 +74,8 @@ services:
       start_period: 60s
 
   runners:
-    # n8n 本体とバージョンを必ず一致させる（N8N_VERSION）。DB には接続しない
-    image: ghcr.io/n8n-io/runners:${N8N_VERSION}
+    # n8n 本体とバージョンを必ず一致させる（N8N_VERSION）。DB には接続しない。タグとダイジェストの両方で固定する
+    image: ghcr.io/n8n-io/runners:${N8N_VERSION}@${N8N_RUNNERS_DIGEST:?.env に N8N_RUNNERS_DIGEST を設定してください（.env.example を参照）}
     restart: unless-stopped
     depends_on:
       - n8n

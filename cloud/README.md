@@ -12,6 +12,8 @@
 
 収益化（`points-api`・`I-26`〜`I-30`・`E-19` の S3 Object Lock）は作っていない（本システムの完成後。ポート 3106 とフォルダ名を予約しているだけ）。
 
+**設定スクリプト（`setup/`）・オンプレ（`onprem/`）と合わせた本番の全体の順番と、人が行う作業の一覧は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md)。** この README の 4 節は、その各手順の詳細（コマンドと注意）。
+
 ## 1. 構成
 
 ```
@@ -27,7 +29,7 @@ cloud/
     runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
     secrets.yaml             Secrets Manager（20 個。faq-bot の 2 個を含む）
-    data.yaml                RDS（MySQL 8.4・PostgreSQL 16）、Valkey、EFS、S3
+    data.yaml                Aurora Serverless v2（MySQL 8.4 互換〈Mautic〉と PostgreSQL 16 互換〈4 アプリで共有〉）、Valkey、EFS、S3
     cluster.yaml             ECS クラスター、ロググループ（Service Connect は使わない）
     edge.yaml                ACM、ALB、リスナールール、WAF、Route 53
     cdn.yaml                 Astro の配信（CloudFront、OAC、Route 53）
@@ -78,6 +80,7 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 - AWS CLI、SAM CLI（1.154 以上）、Docker（イメージのビルドとミラー用）。AWS の認証は環境（SSO・プロファイル）に任せ、`samconfig.toml` にキーを書かない。
 - **デプロイは運用者が実行する。** エージェントに ECS・RDS・CloudFormation の変更権限を渡さない（TA-06 の 8 節）。
 - AWS アカウントは単一（`798560359429`）。**AWS Free Tier の期間内のアカウントは、CloudFront のフラットレートプランを購読できない**（公式の制約。アカウントは 2026-09-16 作成。初回で確かめる）。
+- **Lambda の同時実行数の上限**: このアカウントの `ConcurrentExecutions` は新しいアカウントの初期値の **10** だったが、2026-10-26 に Service Quotas（「AWS Lambda → Concurrent executions」`L-B99A9384`）で 1,000 を申請し、**2026-10-27 に `aws lambda get-account-settings` で 1,000 を確認した**。Lambda は予約していない枠を常に 100 残すことを求めるので、上限が 121 未満のアカウントでは、予約同時実行数を付けた関数（consent-api 10・admin-auth 5・admin-auth-ops 1・faq-bot 5。計 21）の作成が失敗する。別のアカウントに出すときは先に確かめる。待てない場合だけ、親のパラメータ `ConsentApiReservedConcurrency`・`AdminAuthReservedConcurrency`・`AdminAuthOpsReservedConcurrency`・`FaqBotReservedConcurrency` を 0（予約を付けない）にできる（そのあいだは、関数 URL への大量の要求〈faq-bot〉がアカウント全体の枠を使い切り、同意の受け口とログインまで止まりうる。運用の Lambda を同時に 2 回呼ばない）。
 - `RunLogAdminPrincipalArns` に、**デプロイに使う主体（IAM ユーザー `comegin-iam`、または CloudFormation のサービスロール）の ARN** を入れること。入れないと、E-15 の写しのバケットポリシーが自分自身の更新を拒否して詰む。
 - **`capabilities` は `CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND`**（`samconfig.toml.example` のとおり）。IAM ロールとユーザーに固定の名前（`comegin-<env>-...`）を付けているため、`CAPABILITY_IAM` だけでは拒否される。
 - `cp samconfig.toml.example samconfig.toml` して値を入れる。`samconfig.toml` は `cloud/.gitignore` で除外している。
@@ -91,9 +94,41 @@ SAM CLI の `--parameter-overrides` は「前回の値を使う」ことがで�
 
 ## 3. 費用
 
-見積もりは未実施（TA-06 の 9 節）。固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、RDS（2 台）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
+### 3.1 見積もり（2026-10-26）
+
+**月 約 $365（税抜き。消費税 10% 込みで約 $401、年 約 $4,800）**（2026-10-27 に PostgreSQL も Aurora Serverless v2 にした後。MySQL の Serverless v2 と Fargate の夜間の停止は 2026-10-26）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
+
+| 区分 | 項目 | 月額（USD） | 前提・単価 |
+|---|---|---:|---|
+| 計算 | ECS Fargate mautic-web（1 vCPU・2 GB、x86、常時） | 44.98 | vCPU $0.05056/時・GB $0.00553/時 |
+| 計算 | ECS Fargate chatwoot-web・chatwoot-worker・mautic-cron（計 2 vCPU・4 GB、x86、毎日 22 時〜翌 8 時は 0 台） | 52.48 | 同上。1 日 14 時間（夜間の停止で月 $37 前後下がる） |
+| 計算 | EC2 t4g.nano（WireGuard）＋EBS gp3 8 GB | 4.71 | $0.0054/時・$0.096/GB 月 |
+| 計算 | Lambda（4 関数。arm64） | 0 | 常時無料枠（月 100 万リクエスト・40 万 GB 秒）に収まる想定 |
+| DB | Aurora PostgreSQL Serverless v2（Chatwoot・admin-auth・Strapi・n8n が共有。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（上限は 2 ACU で月 $219） |
+| DB | Aurora MySQL Serverless v2（Mautic。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（山で伸びると増える。上限は 2 ACU で月 $219） |
+| DB | Aurora ストレージ（各 10 GB）と I/O（計 4,000 万回/月） | 12.00 | $0.12/GB 月・$0.24/100 万回 |
+| DB | ElastiCache Valkey cache.t4g.micro × 1 | 14.60 | $0.02/時 |
+| DB | EFS（2 GB・日次バックアップ）・S3（計 5 GB） | 2.02 | $0.36/GB 月・$0.025/GB 月 |
+| ネットワーク | ALB（平均 0.5 LCU） | 20.66 | $0.0243/時・$0.008/LCU 時 |
+| ネットワーク | NAT Gateway（処理 30 GB/月） | 47.12 | $0.062/時・$0.062/GB |
+| ネットワーク | パブリック IPv4 × 4（NAT・WireGuard・ALB の 2 AZ） | 14.60 | $0.005/時 |
+| ネットワーク | CloudFront・インターネットへの転送 | 0 | フラットレートの Free プラン。転送は月 100 GB の無料枠内の想定（超過は $0.114/GB） |
+| ネットワーク | Route 53（ホストゾーン 1） | 0.50 | 作成済み |
+| セキュリティ | WAF（ALB 用。Web ACL 1・ルール 8・100 万リクエスト） | 13.60 | $5/ACL・$1/ルール・$0.60/100 万（CloudFront 用はプランに含まれる） |
+| セキュリティ | Secrets Manager（22 個） | 8.85 | $0.40/個（$8.80）＋API の呼び出し |
+| 運用 | CloudWatch（アラーム 30〈課金はアラームの中のメトリクスの数で 37〉・Container Insights 標準 約 60 メトリクス・ログ 6 GB） | 18.66 | $0.10/アラームのメトリクス・$0.30/メトリクス・$0.76/GB（無料枠を引いた） |
+| 運用 | ECR（計 4 GB）・SES（3,000 通/月）・SNS・ACM | 0.70 | |
+| | **合計** | **364.98** | |
+
+- **固定費（時間課金）が 9 割**（Aurora 30%・Fargate 27%・NAT と IPv4 17%・ALB 6%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $475**（それぞれ ＋$55）。
+- **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $268**（Fargate が無い）。
+- **CloudFront のフラットレートのプランが使えない場合**（Free Tier の期間のアカウントは購読できない。4.3）、CloudFront 用の WAF の分（$5＋ルール 4＋リクエスト）で月 約 $9 増える。
+- 含めていないもの: 消費税、AWS サポートのプラン、新規アカウントの Free Tier のクレジット（あれば最初の月々から差し引かれる）、オンプレ（Strapi・n8n・監視アプリ・OpenSEO）と外部 SaaS（Anthropic・PostHog・GA4・Cal.com・DataForSEO・Google Workspace）。
+- **下げる余地**（いずれも未適用。判断は R1）: Fargate の Compute Savings Plans（Aurora Serverless v2 にはリザーブドインスタンスが効かない）、Fargate の ARM（Graviton。2 つの公式イメージは arm64 に対応。月 $27 前後下がる。2026-10-26 は x86 のままと決めた）、mautic-cron を 0.25 vCPU・0.5 GB に下げる（実測の後）。インターフェースの VPC エンドポイントで NAT を置き換えるのは、エンドポイント 1 つ × 2 AZ で月 $20 前後かかり、この規模では NAT より高い。
+
+固定費がかかる要素: ALB、WAF（ALB 用。フラットレートプランの対象外）、Fargate（4 サービス〈mautic-web・mautic-cron・chatwoot-web・chatwoot-worker〉。タスクは各 1。自作のサービスは Lambda〈ADR-26〉）、Aurora（MySQL・PostgreSQL とも Serverless v2 で最小 0.5 ACU〈各 月 $55 前後〉＋ストレージと I/O）、ElastiCache（1 ノード）、NAT Gateway（1 つ）、EFS、
 **EC2 t4g.nano（WireGuard。1 台）と Elastic IP（public IPv4 の課金）と EBS 8 GB（gp3）**、
-Secrets Manager（18 個 + RDS が管理するマスターの 2 個 = 20 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 27 個〈`alarms.yaml`〉、ログ、メトリクス）。
+Secrets Manager（20 個 + RDS が管理するマスターの 2 個 = 22 個。1 個あたり月 $0.40 前後）、CloudWatch（アラーム 30 個〈`alarms.yaml` の 28 個と `observability.yaml` のハートビートの 2 個〉、ログ、メトリクス）。
 
 **ADR-21 による増減（概算。単価は見積もりで確かめる）**: Fargate のサービスが 2 つ減る（Strapi と n8n が各 1 vCPU・2 GB。東京の公表単価からの概算で、1 つあたり月 $45 前後。n8n は runners のサイドカー分も減る）。
 EC2 t4g.nano（月 $4 前後）、Elastic IP（public IPv4 は 1 つ月 $3.65）、EBS 8 GB（月 $1 未満）が増える。Secrets Manager が 9 個減る（月 $3.6 前後）。アラームは 4 つ減って 2 つ増える（さらに n8n のハートビートのアラームが 1 つ増える）。
@@ -140,66 +175,150 @@ WireGuard の EC2 は、デプロイの直後から起動する（オンプレ�
 #### 4.2.1 WireGuard（オンプレとの接続）: 鍵の受け渡しとオンプレ側の設定
 
 鍵は、EC2 の秘密鍵が EC2 の外に出ない形で受け渡す。**秘密鍵を CloudFormation・SSM・Secrets Manager・チャットに載せない。** 渡すのは公開鍵だけ（秘密鍵ではないので、CloudFormation のパラメータと SSM のパラメータに載せてよい）。
+下の手順は、2026-10-28 に本番でトンネルが通った順番。オンプレ側の詳細は `onprem/wireguard/README.md`。
+
+```
+オンプレ（10.99.0.2）                                 AWS（VPC 10.20.0.0/16）
+ ├ 秘密鍵: ~/.config/comegin/wireguard/private.key     ├ WireGuard の EC2（wg0 = 10.99.0.1 / Elastic IP = 出力 WireguardPublicIp）
+ │   （このマシンから出さない）                         │   秘密鍵: /etc/wireguard/server.key（EC2 から出さない）
+ └ wg0 ──── UDP 51820（オンプレから外向きに接続）───▶   ├ オンプレ → RDS の 5432 だけを通す
+          ◀─── Webhook（10.99.0.2:5680 だけ）────────   └ Mautic・Chatwoot → n8n の Webhook だけを通す
+```
+
+| 値 | 作る場所 | 渡し方 |
+|---|---|---|
+| EC2 の公開鍵 | EC2 の中（user-data が初回の起動で作る） | EC2 が SSM の `/comegin/<env>/wireguard/server-public-key` に書く → オンプレが読む |
+| オンプレの公開鍵 | オンプレ（`onprem/wireguard/dev/gen-keys.sh`） | SSM の `/comegin/<env>/wireguard/onprem-public-key` と `samconfig.toml` の `OnpremWireguardPublicKey` → EC2 が 2 分ごとに読んでピアにする（`wg-peer-sync.timer`） |
+| Elastic IP | CloudFormation | スタックの出力 `WireguardPublicIp` → オンプレの `Endpoint`（ポートは `WireguardPort`。既定 51820） |
+
+| アドレス | 中身 |
+|---|---|
+| `10.99.0.0/24`（`OnpremWireguardCidr`） | トンネルの中だけで使うアドレス帯。VPC（`VpcCidr`。既定 `10.20.0.0/16`）の外で、重ならない値として決めた（AWS が割り当てたものではない） |
+| `10.99.0.1`（`WireguardServerAddress`） | EC2 の `wg0`（仮想の NIC）。EC2 の本物の NIC（ENI）は VPC のアドレス（`10.20.0.x`）と Elastic IP を持ち、それとは別 |
+| `10.99.0.2`（`OnpremPeerAddress`） | オンプレの `wg0`。Mautic・Chatwoot の Webhook の宛先（`10.99.0.2:5680`） |
+
+以下のコマンドは、次の関数を定義してから使う（スタックの出力を読む）:
 
 ```bash
 OUT() { aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+```
 
-# 1. 初回のデプロイのあと（OnpremWireguardPublicKey は空のまま）、EC2 が起動して公開鍵を SSM に書くまで数分待つ。
-#    うまくいかないときは、SSM Session Manager で入って user-data のログを見る（SSH は使わない）:
-aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"
-#   （EC2 の中）sudo tail -n 50 /var/log/wireguard-setup.log ; sudo wg show
+**1. EC2 の公開鍵と Elastic IP を取り出す**（初回のデプロイのあと数分。`OnpremWireguardPublicKey` は空のままでよい）
 
-# 2. EC2 の公開鍵と、Endpoint の IP を取り出す（オンプレの Peer に入れる値）
+```bash
 aws ssm get-parameter --region ap-northeast-1 --name "$(OUT WireguardServerPublicKeyParameterName)" --query Parameter.Value --output text
 OUT WireguardPublicIp
 ```
 
-オンプレ側（人が実行。`onprem/` の README が詳細）。鍵対は、オンプレで作り、**秘密鍵はオンプレの秘匿ファイルにだけ置く**（画面に出さない）:
+- 公開鍵が `ParameterNotFound` のままなら、EC2 の user-data が途中で止まっている（下の「つまずいたとき」）。
+
+**2. オンプレで鍵を作る**（前提: `sudo apt install wireguard-tools`）
 
 ```bash
-( umask 077; wg genkey > wg-onprem.key )      # 秘密鍵。リポジトリに入れない
-wg pubkey < wg-onprem.key > wg-onprem.pub     # 公開鍵（これを EC2 に渡す）
+cd onprem/wireguard && ./dev/gen-keys.sh
 ```
 
-オンプレの `wg0.conf` の形（`<...>` は置き換える）:
+- 秘密鍵は `~/.config/comegin/wireguard/private.key`（600）に置かれ、画面には公開鍵だけが出る。何度実行しても、既にある鍵は作り直さない。
+- オンプレの LAN が `10.99.0.0/24` や `10.20.0.0/16` と重なっていないことを、`ip -br addr` と `ip route` で確かめる（重なると経路が食い違う。重なるなら上の 3 つのパラメータと `onprem/wireguard/wg0.conf.example` をそろえて変える）。
 
-```ini
-[Interface]
-Address = 10.99.0.2/24
-PrivateKey = <wg-onprem.key の中身>
-[Peer]
-PublicKey = <手順 2 の EC2 の公開鍵>
-Endpoint = <WireguardPublicIp>:51820
-AllowedIPs = 10.99.0.1/32, 10.20.0.0/16
-PersistentKeepalive = 25
+**3. オンプレの公開鍵を AWS に渡す**（**SSM と `samconfig.toml` の両方に入れる**）
+
+```bash
+# すぐ効く。EC2 は 2 分ごとにこの値を読み直して、ピアを足す
+aws ssm put-parameter --region ap-northeast-1 --name "$(OUT OnpremPublicKeyParameterName)" \
+  --type String --overwrite --value '<手順 2 で表示された公開鍵>'
 ```
 
-- `AllowedIPs` は EC2 のアドレス（`10.99.0.1/32`）と VPC の CIDR（`VpcCidr`。RDS への経路）。**`PersistentKeepalive` が要る**（EC2 から先にオンプレへ送れない。オンプレの送信元ポートは NAT で変わる）。
-- EC2 側のピアの `AllowedIPs` は `10.99.0.2/32`（`OnpremPeerAddress`）だけ。EC2 は、オンプレからの通信を masquerade するので、オンプレに VPC のタスクの IP への経路は要らない。
+同じ値を `cloud/samconfig.toml` の `parameter_overrides` に書く。あわせて AMI も固定する（次の `sam deploy` で反映。デプロイは急がなくてよい）:
 
-オンプレの公開鍵を EC2 に渡す（EC2 は 2 分ごとに SSM のパラメータを読んで、ピアを更新する。インスタンスは置き換わらない）:
-
-| 方法 | 手順 | 注意 |
-|---|---|---|
-| (a) 推奨 | `samconfig.toml` の `parameter_overrides` に `"OnpremWireguardPublicKey=<wg-onprem.pub の中身>"` を書いて `sam deploy` | CloudFormation の値が正になる |
-| (b) すぐに反映したい | `aws ssm put-parameter --region ap-northeast-1 --name /comegin/prod/wireguard/onprem-public-key --type String --overwrite --value '<wg-onprem.pub の中身>'`（人が実行） | **CloudFormation の管理値（初期は `UNSET`）とずれる（ドリフト）。** 同じ値を `samconfig.toml` の `OnpremWireguardPublicKey` にも書いておく（書かないと、ドリフトの検知で差が出る。あとで別の値をこのパラメータに入れるときに、元の値と食い違う） |
-
-確認（オンプレの鍵を渡してから、数分以内）:
-
-- オンプレ: `sudo wg show` に `latest handshake` が出る。`ping 10.99.0.1` が通る。`psql "host=<PostgresEndpoint> dbname=strapi user=strapi sslmode=verify-full sslrootcert=<RDS の CA 束>"` で RDS に繋がる（TLS の検証は、4.7 と同じ CA 束で行う。接続先は RDS のエンドポイント名のまま。名前は VPC の private IP に解決される）。
-- AWS 側: `aws ssm start-session --target <WireguardInstanceId>` で入り、`sudo wg show`（`latest handshake` と転送量）と `sudo nft list ruleset`（forward の既定が drop で、許可が 2 行だけであること）を見る。
-- **Webhook の送信先**（人が各製品の管理画面で設定する）: Mautic は `http://10.99.0.2:5680/webhook/mautic-event`、Chatwoot は `http://10.99.0.2:5680/webhook/chatwoot-event`。HTTP だが、WireGuard の内側を通る。署名の検証（`I-11` `I-12`）は引き続き n8n 側で必須。
-  Mautic・Chatwoot のタスクは、宛先が VPC の外（`10.99.0.0/24`）なので、private サブネットの経路表（`PrivateRouteToOnprem`）で EC2 に届く。届かないときは、SG（`WireguardSecurityGroup` の ingress が 4 つの SG から tcp 5680 か）、EC2 の送信元／宛先チェックが無効か、nftables のカウンターを順に見る。
-
-**AMI を固定する（初回のデプロイのあとに必ず行う）。** 既定では、AMI は SSM の「最新」を指す。新しい AMI が出たあとの更新でインスタンスが置き換わる設計になると、**秘密鍵が失われ、公開鍵が変わる（オンプレの `wg0.conf` の `PublicKey` の更新が要る）**。動いている EC2 の AMI の ID を取り出して、`samconfig.toml` の `parameter_overrides` に書く:
+```
+"OnpremWireguardPublicKey=<手順 2 で表示された公開鍵>",
+"WireguardFixedAmiId=<下のコマンドの値>",
+```
 
 ```bash
 aws ec2 describe-instances --region ap-northeast-1 --instance-ids "$(OUT WireguardInstanceId)" --query 'Reservations[0].Instances[0].ImageId' --output text
-# → "WireguardFixedAmiId=<ami-...>" を samconfig.toml に書いて sam deploy（空でなければ SSM の「最新」より優先される）
 ```
 
-- ENI は別のリソースで、EC2 に差している。**インスタンスの置き換え（AMI やインスタンスタイプの変更）は、新しい EC2 が同じ ENI を使おうとして「使用中」で失敗し、ロールバックする見込み**（未検証）。意図せず鍵が入れ替わることを防ぐ副作用でもある。意図して置き換えるときは、古い EC2 を手で終了（`aws ec2 terminate-instances`）してから `sam deploy` する。ENI・Elastic IP・経路は引き継がれるので、オンプレの `Endpoint` は変わらない。**新しい EC2 の公開鍵（手順 2）を、オンプレの `wg0.conf` の `PublicKey` に入れて `wg-quick` を再起動する。**
-- OS の更新: SSM Session Manager で入り、`sudo dnf upgrade --security -y`。カーネルが更新されたときは再起動（ENI・Elastic IP・秘密鍵・nftables・systemd のユニットは変わらない。短く止まる）。止まっている間は、オンプレの Strapi・n8n が RDS に届かず、Webhook が欠落する（TA-05 の縮退運転）。
+- **SSM だけに入れると、CloudFormation の管理値（`UNSET`）とずれ、次の `sam deploy` で `UNSET` に戻ってトンネルが切れる。** `samconfig.toml` だけだと、反映が次のデプロイまで待ちになる。
+- **渡すのを忘れると、EC2 はオンプレを知らないので、要求を黙って捨てる**（オンプレの `wg show` に `latest handshake` が出ず、`0 B received` のまま。2026-10-28 の初回で起きた）。
+- **AMI の固定は初回のデプロイのあとに必ず行う。** 既定は SSM の「最新」の AMI で、新しい AMI が出たあとのデプロイでインスタンスが置き換わると、**EC2 の秘密鍵が失われ、公開鍵が変わる**（オンプレの設定の作り直しが要る）。空でなければ SSM の「最新」より優先される。
+- このデプロイに `UserData` の変更（2026-10-27 のスワップの追加など）も入っていると、EC2 は 1 回停止・起動する（置き換えはしない）。鍵とスワップはディスクに残るので、トンネルは数十秒で戻る。
+
+**4. オンプレの設定を作って置く**
+
+```bash
+./dev/render-conf.sh --endpoint <手順 1 の Elastic IP> --server-public-key <手順 1 の EC2 の公開鍵>
+sudo install -m 600 -o root -g root ~/.config/comegin/wireguard/wg0.conf /etc/wireguard/wg0.conf
+```
+
+- `render-conf.sh` は雛形 `onprem/wireguard/wg0.conf.example` に値を入れる。秘密鍵はファイルから直接読み、コマンドラインにも画面にも出さない。作られる設定の形:
+
+```ini
+[Interface]
+Address = 10.99.0.2/32
+PrivateKey = <オンプレの秘密鍵>
+MTU = 1380
+[Peer]
+PublicKey = <EC2 の公開鍵>
+Endpoint = <WireguardPublicIp>:51820
+AllowedIPs = 10.20.0.0/16, 10.99.0.1/32
+PersistentKeepalive = 25
+```
+
+- `AllowedIPs` は VPC の CIDR（`VpcCidr`。RDS への経路）と EC2 のアドレス（`10.99.0.1/32`）。**`PersistentKeepalive` が要る**（EC2 から先にオンプレへ送れない。オンプレの送信元ポートは NAT で変わる）。`ListenPort` は書かない（オンプレから外向きに接続する。`wg show` の `listening port` が毎回変わるのは正常）。
+- **`MTU = 1380` は EC2 側と同じ値**（自動に任せると EC2 側が 8921 になり、PPPoE〈1454〉や DS-Lite・MAP-E〈1460〉の回線で外側の UDP が分割される）。
+- EC2 側のピアの `AllowedIPs` は `10.99.0.2/32`（`OnpremPeerAddress`）だけ。EC2 は、オンプレからの通信も VPC からの通信も masquerade するので、オンプレに VPC のタスクの IP への経路は要らない（オンプレから見た Webhook の送信元は常に `10.99.0.1`）。
+
+**5. 起動する**
+
+```bash
+sudo systemctl enable --now wg-quick@wg0
+```
+
+- 再起動後も自動で上がる。Strapi・n8n より先に上がる必要がある（`onprem/README.md` の「起動の順番」）。
+
+**6. 疎通を確かめる**（手順 3 から数分以内）
+
+| 場所 | コマンド | 合格の目安 |
+|---|---|---|
+| オンプレ | `sudo wg show wg0` | `latest handshake` が 2 分以内に出ていて、`transfer` の `received` が 0 B でない |
+| オンプレ | `ping -c 3 10.99.0.1` | EC2 まで届く |
+| オンプレ | `psql "host=<PostgresEndpoint> dbname=strapi user=strapi sslmode=verify-full sslrootcert=<RDS の CA 束>"` | RDS に繋がる（TLS の検証は 4.7 と同じ CA 束。接続先は RDS のエンドポイント名のまま。名前は VPC の private IP に解決される） |
+| EC2（`aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"`） | `sudo wg show` | ピアが 1 つ（オンプレの公開鍵）で、`latest handshake` がある |
+| EC2 | `sudo nft list ruleset` | forward の既定が drop で、許可が、戻りの通信（`ct state established,related accept`）と新しい接続の 2 行の、計 3 行だけ |
+
+**7. その後**
+
+- Strapi・n8n を立ち上げる（WireGuard → Strapi → n8n の順。`onprem/README.md`）。設定スクリプトでは、段階 apps の `onprem` モジュールが手順 2〜6 と立ち上げを案内する。
+- n8n の受け口が起動したら、各製品の管理画面で Webhook の送信先を設定する: Mautic は `http://10.99.0.2:5680/webhook/mautic-event`、Chatwoot は `http://10.99.0.2:5680/webhook/chatwoot-event`。HTTP だが、WireGuard の内側を通る。署名の検証（`I-11` `I-12`）は引き続き n8n 側で必須。
+  Mautic・Chatwoot のタスクは、宛先が VPC の外（`10.99.0.0/24`）なので、private サブネットの経路表（`PrivateRouteToOnprem`）で EC2 に届く。届かないときは、SG（`WireguardSecurityGroup` の ingress が 4 つの SG から tcp 5680 か）、EC2 の送信元／宛先チェックが無効か、nftables のカウンターを順に見る。
+
+**つまずいたとき**（上の 2 つは 2026-10-27〜28 の初回で起きた）:
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| 手順 1 の EC2 の公開鍵が `ParameterNotFound` のまま | user-data が途中で止まっている。初回は t4g.nano（512 MiB）で `dnf install` がメモリ不足で強制終了され（`Out of memory: Killed process ... (dnf)`）、鍵の生成から先が一つも実行されなかった | 下の「user-data が止まったとき」 |
+| オンプレの `wg show` に `latest handshake` が無く、`0 B received`（`ping 10.99.0.1` は 100% loss） | **オンプレの公開鍵が EC2 に渡っていない**（SSM の `onprem-public-key` が `UNSET`）。WireGuard は知らない相手の要求を黙って捨てるので、オンプレからは「送っているのに返事が無い」としか見えない | 手順 3 を行う。`aws ssm get-parameter --region ap-northeast-1 --name "$(OUT OnpremPublicKeyParameterName)" --query Parameter.Value --output text` が、オンプレの `wg show` の `interface:` の `public key` と同じか確かめる |
+| 上と同じ症状で、鍵は合っている | EC2 の公開鍵か Endpoint の取り違え／UDP 51820 の外向きを、オンプレの回線・ルーター・仮想マシンの NAT が止めている | オンプレの `[Peer] PublicKey` が手順 1 の値と同じか、`Endpoint` が手順 1 の Elastic IP か。EC2 の SG（`WireguardSecurityGroup`）は UDP 51820 を `WireguardIngressCidr`（既定 `0.0.0.0/0`）から受ける |
+| handshake はあるが RDS に届かない | RDS の SG が WireGuard の EC2 からの 5432 を許していない／DB 名の違い（DB ユーザーの権限は `strapi` `n8n` だけ） | `network.yaml` の SG。EC2 で `sudo nft list ruleset` のカウンター |
+| `/var/log/wireguard-setup.log` の最後が `FAILED to publish` | EC2 が公開鍵を SSM に書けなかった | インスタンスのロールと、public サブネットのインターネットへの経路を確かめ、下の手順で user-data を実行し直す |
+
+**user-data が止まったとき**: SSM で入らなくても、`aws ec2 get-console-output --region ap-northeast-1 --instance-id "$(OUT WireguardInstanceId)" --latest --output text | grep -E 'part-001|Killed|FAILED'` で起動時の出力が読める（読み取りだけ）。テンプレートは、dnf の前に 1 GiB のスワップファイル（`/swapfile`）を作るように直してある。**user-data は初回の起動でしか流れない**（テンプレートの `UserData` の変更をデプロイすると EC2 は停止・起動するが、流れ直さない）ので、既に動いている EC2 は SSM で入って直す:
+
+```bash
+aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"
+# （EC2 の中。テンプレートの user-data の冒頭と同じことを手で行ってから、user-data をもう一度実行する。どれも何度実行しても同じ結果になる）
+sudo bash -c 'if [ ! -f /swapfile ]; then dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; chmod 600 /swapfile; mkswap /swapfile; fi; swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile; grep -q "^/swapfile " /etc/fstab || echo "/swapfile none swap defaults 0 0" >> /etc/fstab'
+free -m                                                  # Swap の total が 1023 前後になる
+sudo bash /var/lib/cloud/instance/scripts/part-001       # 最後に「wireguard setup: done」（数分かかる）
+sudo wg show                                             # interface: wg0 と listening port: 51820（ピアは手順 3 まで無い）
+```
+
+**運用**:
+
+- ENI は別のリソースで、EC2 に差している。**インスタンスの置き換え（AMI やインスタンスタイプの変更）は、新しい EC2 が同じ ENI を使おうとして「使用中」で失敗し、ロールバックする見込み**（未検証）。意図せず鍵が入れ替わることを防ぐ副作用でもある。意図して置き換えるときは、古い EC2 を手で終了（`aws ec2 terminate-instances`）してから `sam deploy` する。ENI・Elastic IP・経路は引き継がれるので、オンプレの `Endpoint` は変わらない。**新しい EC2 の公開鍵（手順 1）でオンプレの設定を作り直し（`./dev/render-conf.sh ... --force`）、`sudo systemctl restart wg-quick@wg0` する。**
+- OS の更新: SSM Session Manager で入り、`sudo dnf upgrade --security -y`（スワップがあるので t4g.nano でも足りる）。カーネルが更新されたときは再起動（ENI・Elastic IP・秘密鍵・nftables・systemd のユニットは変わらない。短く止まる）。止まっている間は、オンプレの Strapi・n8n が RDS に届かず、Webhook が欠落する（TA-05 の縮退運転）。
 - 停止（ステータスチェックの失敗）は ops トピックに通知される。システム側の障害は自動復旧する（`WireguardSystemRecoverAlarm`）。トンネルそのもの（`latest handshake` の途絶）の監視は作っていない（5 節）。
 
 ### 4.3 global の 2 回目: フラットレートプランの購読
@@ -227,7 +346,7 @@ aws sns confirm-subscription --region ap-northeast-1 --topic-arn "$OPS_TOPIC" --
 
 **`--authenticate-on-unsubscribe true` が要点。** SNS の通知メールには購読解除のリンクが付いており、転送を受けた人でも解除できてしまう。
 これを防ぐのは、トピックポリシーではなく、購読の確認時にこのフラグを付けること（公式: Amazon SNS security best practices）。
-トピックポリシーの `sns:Unsubscribe` の Deny は補助にすぎない。`comegin-lead-alert` も同じ手順で購読する。
+**トピックポリシーで `sns:Unsubscribe` は制限できない**（SNS がトピックポリシーで受け付ける action に無く、書くと作成に失敗する。2026-10-27 の初回のデプロイで判明し、Deny を外した。公式: Valid Amazon SNS policy actions）。`comegin-lead-alert` も同じ手順で購読する。
 TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」方法では、このフラグを付けられない。
 
 購読の状態（`Confirmed` の数）の監視（TA-05 の項目 8）は作っていない。通知経路そのものが壊れた場合に SNS では知らせられないため、SNS 以外の手段が要る（未決定。5 節）。
@@ -246,17 +365,45 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 | IAM ユーザー | 許すこと | 使う場所 |
 |---|---|---|
 | `comegin-<env>-onprem-strapi-media` | Strapi のメディアのバケット（`comegin-<env>-strapi-media-<アカウント ID>`）への `s3:GetObject`・`PutObject`・`DeleteObject` と、`s3:ListBucket` だけ | オンプレの Strapi（`onprem/strapi` の秘匿ファイルの `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY`。Strapi の S3 プロバイダーは SDK の既定の探索でこれを読む） |
-| `comegin-<env>-onprem-n8n-sns` | `comegin-ops-alert`・`comegin-lead-alert` への `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` だけへの `cloudwatch:PutMetricData`（n8n のスケジュール実行のハートビート）。購読の変更・トピックの設定変更・アラームの操作・監視アプリの名前空間（`ComeGin/Onprem`）への送信は不可 | オンプレの n8n の AWS の資格情報（エディターで、アクセスキーを入れる。SNS のノードとハートビートの HTTP Request ノードで同じ資格情報を使う。前回の Assume Role と Use System Credentials は使わない） |
+| `comegin-<env>-onprem-n8n-sns` | `comegin-ops-alert`・`comegin-lead-alert` への `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` だけへの `cloudwatch:PutMetricData`（n8n のスケジュール実行のハートビート）。購読の変更・トピックの設定変更・アラームの操作・監視アプリの名前空間（`ComeGin/Onprem`）への送信は不可 | オンプレの n8n の AWS の資格情報「AWS SNS 発行（アクセスキー）」（SNS のノードとハートビートの HTTP Request ノードで同じ資格情報を使う。前回の Assume Role と Use System Credentials は使わない）。**人はキーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書くだけ**で、設定スクリプトの `n8n-prod` が、このユーザーの有効なキーかを確かめてから n8n に入れる（`setup/manual-steps.md` の 8.6。エディターでは入れない） |
 
-アクセスキーの発行（**人が自分の端末で実行する。Claude Code の実行環境では実行しない。キーを画面に出さず、ファイルに直接書く**）:
+アクセスキーの発行（**人が自分の端末で実行する。Claude Code の実行環境では実行しない。キーを画面に出さず、ファイルに直接書く**）。
+キーのファイルは**リポジトリの外（ホームディレクトリ）に作る**。リポジトリの中に作ると、`.gitignore` に無い `*.key` を誤ってコミットしたり、Claude Code が読んだりしうる。
 
 ```bash
+# Strapi 用
 ( umask 077
   aws iam create-access-key --user-name comegin-prod-onprem-strapi-media \
-    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ./strapi-media.key )
-# 中身は「アクセスキー ID<タブ>シークレット」。オンプレの秘匿ファイルの値に写したら、このファイルを消す（shred -u ./strapi-media.key）。
-# n8n 用も同じ（--user-name comegin-prod-onprem-n8n-sns）。n8n のエディターの資格情報に入れたら、ファイルを消す。
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ~/strapi-media.key )
+
+# n8n 用
+( umask 077
+  aws iam create-access-key --user-name comegin-prod-onprem-n8n-sns \
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ~/n8n-sns.key )
 ```
+
+- `umask 077` でファイルは 600（自分だけが読み書きできる）になる。サブシェル `( ... )` の中なので、端末の umask は変わらない。
+- 中身は 1 行で「アクセスキー ID〈タブ〉シークレット」。**シークレットが返るのは作成のこの 1 回だけ**（後から AWS に聞いても取り出せない）。
+- 写し先:
+
+  | ファイル | 写し先 | 写した後 |
+  |---|---|---|
+  | `~/strapi-media.key` | `onprem/strapi/.env` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` | `docker compose up -d` で読み込ませ、管理画面から画像を 1 枚アップロードできることを確かめる（4.13） |
+  | `~/n8n-sns.key` | `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` | `node setup/setup.mjs --target prod --only n8n-prod` で n8n の資格情報に入る |
+
+- 写すときはエディタで行う（vim なら写し先を開いて `:r ~/strapi-media.key` で取り込み、2 行に分ける）。`echo KEY=... >> .env` はシェルの履歴に値が残るので使わない。画面に一度も出さずに写すなら、値を引数ではなく環境変数で渡す（`ps` に出ない）:
+
+  ```bash
+  ( umask 077
+    IFS=$'\t' read -r AWS_ID AWS_SECRET < ~/strapi-media.key
+    export AWS_ID AWS_SECRET
+    awk '/^AWS_ACCESS_KEY_ID=/     {print "AWS_ACCESS_KEY_ID=" ENVIRON["AWS_ID"]; next}
+         /^AWS_SECRET_ACCESS_KEY=/ {print "AWS_SECRET_ACCESS_KEY=" ENVIRON["AWS_SECRET"]; next}
+         {print}' onprem/strapi/.env > onprem/strapi/.env.tmp && mv onprem/strapi/.env.tmp onprem/strapi/.env )
+  ```
+
+- **写したら、キーのファイルを消す**: `shred -u ~/strapi-media.key ~/n8n-sns.key`（中身を上書きしてから消す。`rm` は名前を消すだけで中身がディスクに残る）。SSD やジャーナル・スナップショットのあるファイルシステムでは上書きが効かないことがある（`man shred`）ので、漏れた疑いがあれば下のとおりキーを止める。
+- 写す前にファイルをなくしたら、シークレットは取り出せないので、`aws iam delete-access-key --user-name <ユーザー> --access-key-id <アクセスキー ID>` で消してから作り直す。
 
 - キーは 1 ユーザーあたり 2 つまで。ローテーションは、新しいキーを作って切り替え、古いキーを `aws iam update-access-key --status Inactive` で止めて動作を確かめてから、`aws iam delete-access-key` で消す。
 - **キーを Claude Code の環境変数に引き継がない**（監視アプリの許可リスト方式の `env` のとおり）。キーが漏れた疑いがあれば、すぐに `delete-access-key` する（権限は上の 1 バケットか 2 トピックだけ）。
@@ -301,18 +448,48 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 
 - **RDS の CA**（`https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`）は、DB に接続する各イメージが持つ。上流のイメージは、薄い**派生イメージ**（`cloud/images/<製品>/Dockerfile`）にして ECR に置く。
   `FROM <上流>:<固定のタグ>` に CA を足すだけで、Mautic だけは設定ファイルへの小さなパッチも入る（下の表）。**Strapi と n8n はオンプレで動かす（ADR-21）ので、ECR に置かない。** オンプレの Strapi・n8n も、同じ CA 束（下の SHA-256 で確かめたもの）で RDS の証明書とホスト名を検証して接続する（`onprem/` 側の設定）。
-- CA の取得はビルド時（`ADD --checksum=sha256:...`）で、**SHA-256 は `fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c`**（2026-10-04 に取得した 111 証明書の束）。
+- CA の取得はビルド時（`ADD --checksum=sha256:...`）で、**SHA-256 は `90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b`**（2026-10-28 に取得した 114 証明書の束。配信元の更新日は 2026-10-14）。履歴: 2026-10-04 の 111 証明書の束（`fe45bbebf92a…`）→ 2026-10-28 に、オンプレの Strapi のビルドが `digest mismatch` で止まって更新に気づいた。増えた 3 枚は sa-west-1 の Amazon RDS のルート CA（RSA2048・RSA4096・ECC384。発行日 2026-09-02）で、114 枚すべてが O=Amazon Web Services・OU=Amazon RDS の自己署名のルート CA、東京（ap-northeast-1）の 3 枚も入っていることを確かめた。
   AWS が束を更新すると、**ビルドも ops-tasks のタスクも失敗する（意図した動作。改ざんの検知と、CA の更新を人が確かめるため）。** 更新の手順:
-  1. `curl -fsS https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o /tmp/b.pem` で取得し、中身（証明書の数、発行者）を確かめる。
-  2. `sha256sum /tmp/b.pem` の値を、`cloud/images/*/Dockerfile` の `RDS_CA_SHA256` と、親のパラメータ `RdsCaSha256`（ops-tasks）に反映する。
-  3. 2 つの派生イメージを、ビルドの連番を上げたタグでビルドし直して push する。
+  気づき方: `docker compose build`（オンプレの Strapi・n8n）や派生イメージのビルドが `failed to solve: digest mismatch sha256:<今の束>: sha256:<固定した値>` で止まる。DB 作成のタスク（4.8）はログに `sha256sum: WARNING: 1 computed checksum did NOT match` が出て `exitCode` が 1 になる。
+  1. 束を取得し、**中身が正規の更新か**を確かめる（2026-10-28 に行った手順）:
+
+     ```bash
+     mkdir -p /tmp/rds-ca && cd /tmp/rds-ca
+     curl -fsS -o a.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+     curl -fsS -o b.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem   # 2 回取って同じか
+     sha256sum a.pem b.pem                                     # ビルドのエラーの「今の束」の値と一致するか
+     curl -fsSI https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem | grep -i last-modified
+     grep -c 'BEGIN CERTIFICATE' a.pem                         # 枚数（前回から何枚増えたか）
+     awk '/BEGIN CERT/{n++} {print > ("c" n ".pem")}' a.pem
+     for f in c*.pem; do openssl x509 -in "$f" -noout -subject -issuer -startdate -nameopt RFC2253 | paste -sd'|'; done > certs.txt
+     grep -vc 'O=Amazon Web Services' certs.txt                # 0 であること（ほかの発行者が混ざっていない）
+     grep -c 'ap-northeast-1 Root CA' certs.txt                # 3 であること（本番の RDS の CA が残っている）
+     sort -t'|' -k3 -r certs.txt | head -5                     # 新しい証明書（増えた分）が何か
+     ```
+
+     合格の目安: すべてが `O=Amazon Web Services`・`OU=Amazon RDS` の自己署名のルート CA（subject と issuer が同じ）で、増えた分が新しいリージョンのものなど説明のつくもの。説明のつかない発行者や中間 CA が混ざっていたら、値を更新せずに止まって調べる。
+  2. `sha256sum` の値を、次の **8 か所** に反映する（7 か所はリポジトリ。どれも `ADD --checksum` か `sha256sum -c` で照合する）:
+     - `cloud/images/chatwoot/Dockerfile`・`cloud/images/mautic/Dockerfile` の `RDS_CA_SHA256`
+     - `onprem/n8n/Dockerfile`・`backend/strapi-system/Dockerfile` の `RDS_CA_SHA256`（オンプレ。2026-10-27 に Strapi も照合する形にそろえた）
+     - `cloud/template.yaml` の親のパラメータ `RdsCaSha256` の既定値と、`cloud/stacks/ops-tasks.yaml` の `RdsCaSha256` の既定値
+     - この節の上の SHA-256 の値（と履歴）
+     - **`samconfig.toml` の `parameter_overrides` の `RdsCaSha256`**（書いてある場合。**テンプレートの既定値より優先されるので、ここが古いままだとデプロイしても反映されない**。2026-10-28 に、既定値だけを直してデプロイし、タスク定義が古い値のまま残った）。`grep -n RdsCaSha256 cloud/samconfig.toml` で確かめる
+  3. `cd cloud && sam build && sam deploy` で、DB 作成のタスク定義を新しい版にする。反映されたかは、次の値が新しい SHA-256 になっていることで確かめる:
+
+     ```bash
+     aws ecs describe-task-definition --region ap-northeast-1 --task-definition comegin-prod-db-init-postgres \
+       --query "taskDefinition.containerDefinitions[0].environment[?name=='RDS_CA_SHA256'].value | [0]" --output text
+     ```
+
+     待てないときは `aws ecs run-task` に `--overrides '{"containerOverrides":[{"name":"psql","environment":[{"name":"RDS_CA_SHA256","value":"<新しい値>"}]}]}'` を付けて 1 回だけ新しい値で照合できる（CloudFormation の値とずれるので、あとで必ずデプロイする）。
+  4. オンプレの Strapi・n8n をビルドし直す（`docker compose build --no-cache`。`onprem/README.md` の「起動の順番」）。2 つの派生イメージは、次に版を上げるときに、ビルドの連番を上げたタグでビルドし直して push する（古い束でも東京〈ap-northeast-1〉の CA が入っていれば、動いているイメージはそのままでよい）。
 - ElastiCache（`rediss://`）は、Amazon の公開 CA で署名されており、Node（consent-api）と Ruby（Chatwoot）の既定の信頼ストアで検証される。検証を無効にする設定は入れていない。
 - 自作の admin-auth（Lambda。ADR-26）は、Lambda の実行環境の `/var/runtime/ca-cert.pem`（RDS の CA を含む）を `NODE_EXTRA_CA_CERTS` で読む（2026-10-12 まではイメージに同梱していた）。
 
 | 接続元 | 検証のしかた（テンプレートの設定） | 検証の状況 |
 |---|---|---|
 | Chatwoot（Rails・libpq） | `PGSSLMODE=verify-full`、`PGSSLROOTCERT=/etc/rds/global-bundle.pem` | libpq は、自作の CA のローカルの PostgreSQL で確認済み（正しいとき接続、CA が無いときとホスト名が違うときは失敗）。Chatwoot の Rails 本体では未 |
-| Mautic（Doctrine・PDO と起動時の `mysqladmin ping`） | `config.php` に `PDO::MYSQL_ATTR_SSL_CA` と `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT` を足し（ビルド時のパッチ。2 か所に入ったことと `php -l` を確かめ、確かめられなければビルドが失敗する）、mariadb-admin の設定（`/etc/mysql/conf.d/rds-ssl.cnf`）に `ssl-ca` と `ssl-verify-server-cert`。RDS の MySQL は `require_secure_transport=1`（`data.yaml`） | **派生イメージのビルドを確認済み。PHP 8.3 の PDO と `mysqladmin` は、自作の CA のローカルの TLS つき MySQL で確認済み**（正しいとき接続、CA が違うときとホスト名が違うときは失敗）。Mautic 本体の起動は未 |
+| Mautic（Doctrine・PDO と起動時の `mysqladmin ping`、インストーラー） | `config.php` に `PDO::MYSQL_ATTR_SSL_CA` と `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT` を足し（Dockerfile の 2。2 か所に入ったことと `php -l` を確かめ、確かめられなければビルドが失敗する）、インストーラーの `SchemaHelper` にも同じ指定を足す（3）。mariadb-admin の設定（`/etc/mysql/conf.d/rds-ssl.cnf`）に `ssl-ca` と `ssl-verify-server-cert`（1）。Aurora MySQL は `require_secure_transport=ON`（`data.yaml`） | **1・2 を入れた時点の派生イメージのビルドは確認済み。PHP 8.3 の PDO と `mysqladmin` は、自作の CA のローカルの TLS つき MySQL で確認済み**（正しいとき接続、CA が違うときとホスト名が違うときは失敗）。**3〜5（2026-10-26 に追加）は、取り込み済みの 7.2.0 のソースと上流の cron の定義の写しでパッチが当たることだけを確かめ、通しのビルドは未**。Mautic 本体の起動は未 |
 | admin-auth | `DATABASE_SSL=true`（CA は `NODE_EXTRA_CA_CERTS=/var/runtime/ca-cert.pem`。Lambda の実行環境のもの） | edge が実装済み。実機では未 |
 | オンプレの Strapi・n8n（WireGuard 経由） | `onprem/` の設定（Strapi は `DATABASE_SSL=true`、n8n は `DB_POSTGRESDB_SSL_CA_FILE` と `REJECT_UNAUTHORIZED=true`）。接続先は RDS のエンドポイント名（ホスト名の検証が通る） | 未（実機で、トンネルを張ってから確かめる） |
 | ops-tasks の DB 作成タスク | 起動時に CA を取得して SHA-256 を照合し、`PGSSLMODE=verify-full`（MySQL は `--ssl-mode=VERIFY_IDENTITY`） | CA の取得と照合は、各イメージで確認済み |
@@ -321,19 +498,46 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 検証するのは `sslaccept=strict` を付けたときだけ。外すと、暗号化だけで検証しない設定に戻る。いま Prisma を使うサービスは無い（以前の Umami で確かめた。ADR-25 で外した）。Prisma の製品を足すときは URL に `sslaccept=strict` を付ける。
 なお、Node の pg は sslmode の `require` を `verify-full` の別名として扱うが、pg v9 では libpq 互換（検証しない）に変わる予定なので、`verify-full` と明示している。
 
-#### 派生イメージ（2 本。上流のタグを固定してビルドする）
+#### 派生イメージ（2 本。上流をタグとダイジェストで固定してビルドする）
 
 タグは `<上流のタグ>-<ビルドの連番>`（再ビルドするときは連番を上げる。ECR のタグは上書きできない）。
+上流は **タグとダイジェストの両方**で固定する（`UPSTREAM_TAG` と `UPSTREAM_DIGEST`。どちらも必須。上流のタグは付け替えられうるので、CA の更新などで作り直したときに別の中身を取り込まないため。ダイジェストがあれば Docker はそれを使う）。ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の `Digest`（読み取りだけ）。上流の版を上げたら両方を変える。
 
-| 製品 | Dockerfile | `UPSTREAM_TAG` | ECR のリポジトリ | パラメータの例 |
-|---|---|---|---|---|
-| Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
-| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-1` |
+| 製品 | Dockerfile | `UPSTREAM_TAG` | `UPSTREAM_DIGEST`（2026-10-27 に取得） | ECR のリポジトリ | パラメータの例 |
+|---|---|---|---|---|---|
+| Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1` | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
+| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f` | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-3`（`-1` は 7 が無く DB に TLS で接続しない。`-2` は 6 が無くメールを作ると 500。どちらも使わない） |
 
 ```bash
-docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 -t $ECR/comegin/prod/chatwoot:v4.18.0-1 cloud/images/chatwoot
+docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 \
+  --build-arg UPSTREAM_DIGEST=sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1 \
+  -t $ECR/comegin/prod/chatwoot:v4.18.0-1 cloud/images/chatwoot
 docker push $ECR/comegin/prod/chatwoot:v4.18.0-1
 ```
+
+**push で `file integrity checksum failed for "<パス>"` が出たとき**: 手元の Docker（overlay2）に置かれた層のファイルが、pull したときの中身から変わっている（壊れている）。
+Docker は push のときに層を組み立て直し、pull のときに記録した各ファイルのチェックサムと照合するので、壊れた中身が ECR に送られることはない（それまでに送れた層も正しい）。
+直し方は、壊れた層を手元から消して上流から取り直すこと。`--no-cache` だけでは上流の層を取り直さない（ビルドのキャッシュが層を持ち続ける）。
+マニフェストまで届いていなければ ECR にタグはできていないので、同じタグで push し直せる（`aws ecr describe-images --repository-name comegin/prod/mautic --image-ids imageTag=<タグ>` が `ImageNotFoundException` なら未作成）。
+
+```bash
+IMG=$ECR/comegin/prod/mautic:7.2.0-1
+docker image rm "$IMG"
+docker builder prune -a -f        # 上流の層を持つビルドのキャッシュを消す（ほかのビルドのキャッシュも消える）
+docker build --pull --no-cache --platform linux/amd64 --build-arg UPSTREAM_TAG=7.2.0-apache \
+  --build-arg UPSTREAM_DIGEST=sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f \
+  -t "$IMG" cloud/images/mautic
+docker save "$IMG" > /dev/null && echo 層はすべて読み直せる   # push と同じ照合をする。エラーなら push も失敗する
+docker push "$IMG"
+```
+
+取り直してもまた壊れるときは、VM（VirtualBox）のメモリかディスクを疑う（2026-10-28 に、Mautic のイメージで少なくとも 2 つのファイルが壊れていた。そのうち 1 つは Docker Hub の層と比べて 1 ビットだけ違っていた）。
+
+Mautic の派生イメージが足すもの（`cloud/images/mautic/Dockerfile` の 1〜7）: 1 `mysqladmin` の TLS、2 Doctrine の PDO の TLS、3 インストーラーの PDO の TLS、4 cron に `mautic:webhooks:process`（毎分）、5 `MAUTIC_TRUSTED_PROXIES` を `config/parameters_local.php` に写す entrypoint のラッパー（`comegin-entrypoint.sh`）、6 上流の 7.2.0 が入れ忘れた依存 `symfony/dom-crawler`・`css-selector`（`composer require`。版を固定）、7 Symfony のキャッシュの作り直し（`cache:warmup`。手元の VM で 1 分半ほどかかる）。
+**7 が無いと 2 は効かない。** 上流のイメージは `var/cache/prod` を焼き込んであり、本番の Symfony は `config.php` が変わってもキャッシュを作り直さない。その場合、Mautic は TLS を使わずに接続し、どの画面も 500（「The site is currently offline…」）になる。`var/logs/prod-*.php` の内側の例外は `[3159] Connections using insecure transport are prohibited while --require_secure_transport=ON` になる（2026-10-29。`7.2.0-1` で起きた）。**6 が無いと、メールの保存が 500 になる**（API の `POST /api/emails/new` も画面も。`var/logs/prod-*.php` に `Class "Symfony\Component\DomCrawler\Crawler" not found`。2026-10-30。`7.2.0-2` で起きた。メールの中のリンクを検査する `ValidEmailLinksValidator` が使うのに、公式イメージの `composer.json` に無い）。起動のログの `MySQL is alive and well.` は、`mysqladmin`（1 の経路）が応答を受けたというだけで、PHP から接続できる証拠にはならない。
+Mautic の PHP のエラーは CloudWatch に出ず、コンテナの中の `var/logs/` にだけ書かれる。読むときは ECS Exec を使う（手元に Session Manager のプラグインが要る）。
+`aws ecs execute-command --region ap-northeast-1 --cluster comegin-prod --task <タスク> --container mautic --interactive --command "bash -c 'tail -c 3000 /var/www/html/var/logs/prod-<日付>.php'"`。原因は、いちばん内側の `PDOException` に書かれている。
+**Mautic のタスク定義に `DEBUG=true` を入れない**（上流の起動の検査が、DB のパスワードなどの環境変数をログに出すため）。上流の cron の entrypoint は `MAUTIC_*` の環境変数をコンテナの中の `/tmp/cron.env` に書く（上流の挙動。コンテナの外には出ない）。
 
 タグを設定ファイル（`samconfig.toml`）に書いてデプロイする（`REPLACE-WITH-FIXED-TAG` のままでは起動しない）。
 
@@ -347,31 +551,95 @@ PostgreSQL に `chatwoot` / `admin_auth` / `strapi` / `n8n` のデータベー�
 `strapi` と `n8n` は、オンプレの Strapi・n8n が WireGuard 経由で使う（ADR-21）。作り方は同じで、使うのはオンプレ側だけ。
 冪等なので、何度実行してもよい（パスワードを Secret の値に揃え直す）。chatwoot のデータベースには拡張（`vector`・`pg_trgm`・`pg_stat_statements`）も入れる。
 
-```bash
-OUT() { aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
-CLUSTER=$(OUT ClusterName); SUBNETS=$(OUT PrivateSubnetIds); OPS_SG=$(OUT OpsTasksSecurityGroupId)
+手順（2026-10-28 に本番で通した形。端末の幅で長い行が折り返されても壊れないよう、1 行を短くして `\` でつないである。`\` の後ろに空白を入れない）:
 
-TASK=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition comegin-prod-db-init-postgres \
+```bash
+# 1. 変数を用意する（関数の定義と変数の設定は行を分ける。端末を開き直したら、ここからやり直す）
+REGION=ap-northeast-1
+OUT() {
+  aws cloudformation describe-stacks \
+    --region "$REGION" \
+    --stack-name comegin-prod \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
+}
+CLUSTER=$(OUT ClusterName)
+SUBNETS=$(OUT PrivateSubnetIds)
+OPS_SG=$(OUT OpsTasksSecurityGroupId)
+echo "CLUSTER=$CLUSTER"     # comegin-prod
+echo "SUBNETS=$SUBNETS"     # subnet-...,subnet-...（private サブネット 2 つ）
+echo "OPS_SG=$OPS_SG"       # sg-...
+
+# 2. タスク定義の CA 束のハッシュが、今の束と同じかを確かめる（4.7。違うと手順 3 のタスクが照合で失敗する）
+aws ecs describe-task-definition \
+  --region "$REGION" \
+  --task-definition comegin-prod-db-init-postgres \
+  --query "taskDefinition.containerDefinitions[0].environment[?name=='RDS_CA_SHA256'].value | [0]" \
+  --output text
+
+# 3. PostgreSQL（chatwoot・admin_auth・strapi・n8n）
+TASK=$(aws ecs run-task \
+  --region "$REGION" \
+  --cluster "${CLUSTER:?CLUSTER が空}" \
+  --launch-type FARGATE \
+  --task-definition comegin-prod-db-init-postgres \
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$OPS_SG],assignPublicIp=DISABLED}" \
-  --query 'tasks[0].taskArn' --output text)
-aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
-aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].[exitCode,reason]'   # exitCode が 0 であること
-aws logs tail /comegin/prod/tasks --since 15m                                                                      # 結果のログ
-# MySQL は --task-definition comegin-prod-db-init-mysql
+  --query 'tasks[0].taskArn' \
+  --output text)
+echo "TASK=$TASK"           # arn:aws:ecs:...（None なら --query を外して実行し、failures を見る）
+
+aws ecs wait tasks-stopped \
+  --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK"      # 止まるまで待つだけ（成否は次で見る。最長 10 分）
+
+aws ecs describe-tasks \
+  --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK" \
+  --query 'tasks[0].[containers[0].exitCode, stoppedReason]'
+#  → [0, "Essential container in task exited"] なら成功
+
+aws logs tail /comegin/prod/tasks --region "$REGION" --since 15m
+#  → CREATE ROLE・CREATE DATABASE・CREATE EXTENSION（chatwoot の 3 つ）の後に「db-init-postgres: done」
+
+# 4. MySQL（mautic）。手順 3 の --task-definition を comegin-prod-db-init-mysql にして同じことを行う
+#    → ログの最後が「db-init-mysql: done」
 ```
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| `ClusterNotFoundException: Cluster not found` | 変数 `CLUSTER` が空（端末を開き直した・手順 1 を飛ばした）。空の `--cluster` は `default` のクラスターを探しに行く | 手順 1 からやり直す。`${CLUSTER:?...}` の書き方なら、空のときは AWS を呼ぶ前に止まる |
+| `bash: 予期しないトークン ... 周辺に構文エラー` | 関数の定義の `}` の後ろに `;` が無いまま、同じ行で次のコマンドを続けた | 手順 1 のとおり行を分ける |
+| `aws: error: argument --query: expected one argument` と「コマンドが見つかりません」 | 貼り付けたときに長い行が `--query` の直後で折り返され、改行が入った | 手順 1 の、行を短くして `\` でつないだ形を使う |
+| `exitCode` が 1 で、ログに `sha256sum: WARNING: 1 computed checksum did NOT match` | タスク定義の `RDS_CA_SHA256` が今の束と違う | 4.7 の更新の手順（特に `samconfig.toml` の `RdsCaSha256`） |
+| `exitCode` が `null` で `stoppedReason` に `CannotPullContainerError` | Docker Hub のイメージを取得できない | private サブネットの NAT の経路 |
+| ログに `password authentication failed` か `could not connect` | RDS のマスターの資格情報か、ops-tasks の SG から RDS への 5432 | `ops-tasks.yaml`・`network.yaml` |
 
 - このタスクは、Docker Hub の公開イメージ（`postgres:16.15-alpine`、`mysql:8.4.11`。マイナーまで固定）を NAT 経由で取得し、**起動時に RDS の CA 束を取得して SHA-256 を照合したうえで、サーバー証明書とホスト名を検証して接続する**（PostgreSQL は `verify-full`、MySQL は `VERIFY_IDENTITY`）。AWS が束を更新すると照合に失敗する（4.7 の更新の手順）。
 - **RDS のマスターの資格情報を読めるのは、このタスクの実行ロール（`comegin-<env>-ops-tasks-execution`）だけ。どのサービスのタスク定義からも参照しない。** 運用者が RunTask で起動したときだけ読まれる。
 - TODO(未検証): `MYSQL_PWD` は非推奨だが 8.4 でも使える想定。使えなければ `--defaults-extra-file` に替える。
 
-**`strapi` と `n8n` のパスワードをオンプレに渡す**（人が実行する。画面に出さず、ファイルに直接書く）。DB 作成のあと（パスワードが Secret の値に揃ったあと）に、オンプレの秘匿ファイルの `DATABASE_PASSWORD`（Strapi）と `DB_POSTGRESDB_PASSWORD`（n8n）に写す:
+**`strapi` と `n8n` のパスワードをオンプレに渡す**（人が実行する。画面に出さず、ファイルに直接書く）。DB 作成のあと（パスワードが Secret の値に揃ったあと）に、オンプレの秘匿ファイルの `DATABASE_PASSWORD`（Strapi）と `DB_POSTGRESDB_PASSWORD`（n8n）に写す。
+ファイルは**リポジトリの外（ホームディレクトリ）に作る**（4.5 のキーと同じ理由。リポジトリの中だと、`.gitignore` に無い `*.pw` を誤ってコミットしたり、Claude Code が読んだりしうる）:
 
 ```bash
 ( umask 077
-  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/strapi/DB_PASSWORD --query SecretString --output text > ./strapi-db.pw
-  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/n8n/DB_PASSWORD --query SecretString --output text > ./n8n-db.pw )
-# 値をオンプレの秘匿ファイルに写したら、./strapi-db.pw と ./n8n-db.pw を消す（shred -u）。
+  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/strapi/DB_PASSWORD --query SecretString --output text > ~/strapi-db.pw
+  aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/n8n/DB_PASSWORD --query SecretString --output text > ~/n8n-db.pw )
 ```
+
+| ファイル | 写し先 |
+|---|---|
+| `~/strapi-db.pw` | `onprem/strapi/.env` の `DATABASE_PASSWORD` |
+| `~/n8n-db.pw` | `onprem/n8n/.env` の `DB_POSTGRESDB_PASSWORD` |
+
+- 中身はパスワードだけの 1 行（`--output text` が末尾に改行を付ける）。写し方は 4.5 と同じで、エディタで行う（vim なら写し先を開いて `:r ~/strapi-db.pw` で取り込み、`DATABASE_PASSWORD=` の後ろにつなげる）。`echo ... >> .env` はシェルの履歴に値が残るので使わない。
+- 写したら消す: `shred -u ~/strapi-db.pw ~/n8n-db.pw`（4.5 の `shred` の限界の注意も同じ）。パスワードは Secrets Manager に残っているので、なくしても取り出し直せる。
+
+あわせて、オンプレの秘匿ファイルの `DATABASE_HOST`（Strapi）と `DB_POSTGRESDB_HOST`（n8n）には、PostgreSQL のクラスターのエンドポイントを入れる（親スタックの出力には無い。IP アドレスで書かない。TLS の検証はこのホスト名で行う）:
+
+```bash
+aws rds describe-db-clusters --region ap-northeast-1 --db-cluster-identifier comegin-prod-postgres --query 'DBClusters[0].Endpoint' --output text
+```
+
+Secret は、スタックを作り直すと新しい値になる（2026-10-27 の作り直しで変わった）。**前に写した値は使わず、DB 作成のあとに取り出し直す。** オンプレの起動の手順は `onprem/README.md` の「起動の順番」。
 
 この 2 つの Secret は、ECS のどのタスク定義も参照しない（`ops-tasks` の DB 作成タスクだけが読む）。**値を変えたら、`db-init-postgres` を再実行して RDS 側のユーザーのパスワードを揃え、オンプレの秘匿ファイルも更新する。**
 
@@ -383,11 +651,178 @@ aws ecs execute-command --cluster "$CLUSTER" --task <タスク ARN> --container 
 
 ### 4.9 SES: 本番アクセスの申請と SMTP 認証情報
 
-1. **本番アクセスの申請**（AWS コンソールの SES）。**現在はサンドボックス**（24 時間で 200 通、毎秒 1 通。検証済みの宛先にしか送れない）。顧客向けメールを送る前（BA-04 のトスアップを始める前）に済ませる。申請には配信停止と苦情の扱いの説明が要る。
-2. ドメイン ID（`ses.yaml`）の DKIM と MAIL FROM が `Verified` になるのを待つ（Route 53 のレコードは自動）。
-3. **SMTP 認証情報を Mautic 用と Chatwoot 用で別々に発行する**（コンソール: SES → SMTP settings → Create SMTP credentials）。ユーザー名と SMTP パスワードを 4.6 の Secret に入れる。SMTP のエンドポイントは `email-smtp.ap-northeast-1.amazonaws.com`、ポート 587（STARTTLS）。
-4. **apex（`comegin.com`）の SPF と DMARC は作っていない。** `comegin.com` は Google Workspace のメールも使っており、apex には既に MX と SPF の TXT があると思われる（未確認）。SPF の TXT は 1 つしか持てないため、`include:amazonses.com` を既存の SPF に足す作業と、DMARC の設定は人間が行う。MAIL FROM のサブドメイン（`bounce.`）の MX と SPF は `ses.yaml` が作るので、衝突しない。
-5. バウンスと苦情を Mautic に返す経路は未決定（TA-06 の 11 節）。SES のイベントを社内の通知（ops）に流すと、宛先のメールアドレスが載ってしまうため、ここでは設定していない。
+SES の送信元は `comegin.com`（ドメイン ID。`ses.yaml`）。CloudFormation で作れるのはドメイン ID・DKIM・MAIL FROM・設定セットまでで、**本番アクセスの申請・SMTP 認証情報の発行・DMARC は人が行う**（API・コンソールでしかできない、または Google Workspace と共有する DNS のため）。
+手順は 2026-10-28 に AWS の公式文書（Request production access・Obtaining Amazon SES SMTP credentials・Complying with DMARC）と、上流の Mautic 7.2 のソース（メールの設定の画面）で確かめた。
+
+| 順 | すること | だれが | いつまでに |
+|---|---|---|---|
+| 1 | ドメインの検証（DKIM・MAIL FROM）が通ったかを確かめる | 人・端末（読み取り） | デプロイの直後 |
+| 2 | 本番アクセス（サンドボックスの解除）を申請する | 人・画面 | **公開サイトを配信した後**（4.14。2026-10-28 のユーザーの決定）。審査は最初の応答まで最大 96 時間かかるので、配信したらすぐ |
+| 3 | SMTP 認証情報を Mautic 用と Chatwoot 用で別々に発行する | 人・画面 | Chatwoot・Mautic の DesiredCount を上げる前（4.11） |
+| 4 | SMTP 認証情報を Secrets Manager に入れる | 人・端末 | 同上 |
+| 5 | Chatwoot（環境変数。自動）と Mautic（管理画面）に設定する | 人・画面 | 各製品の起動の後 |
+| 6 | apex の DMARC を設定する | 人・画面（Route 53） | 顧客へ送り始める前 |
+| 7 | 送信を確かめる | 人・画面 | 5 の後 |
+
+設定スクリプトの段階 `apps`（`cloud`）は、本番アクセス・DKIM・MAIL FROM・DMARC・SMTP の Secret の値の有無を読み取りで確かめ、済んでいなければ警告する（止めない）。
+
+#### 4.9.1 ドメインの検証を確かめる
+
+`ses.yaml` が DKIM の CNAME 3 つと、MAIL FROM（`bounce.comegin.com`）の MX・SPF を Route 53 に作る。DNS が行き渡ると、SES が自動で検証する（数分〜72 時間）。
+
+```bash
+aws sesv2 get-email-identity --region ap-northeast-1 --email-identity comegin.com \
+  --query '{Sendable:VerifiedForSendingStatus, Dkim:DkimAttributes.Status, MailFrom:MailFromAttributes.MailFromDomainStatus}'
+#  → Sendable true・Dkim "SUCCESS"・MailFrom "SUCCESS" なら済み
+#    （--query の {名前:式} の名前は英数字だけ。日本語にすると「Bad jmespath expression: Unknown token」で失敗する）
+```
+
+- `PENDING` のまま 72 時間を過ぎたら、Route 53 のホストゾーン `comegin.com` に `ses.yaml` のレコードがあるか（`dig CNAME <トークン>._domainkey.comegin.com`、`dig MX bounce.comegin.com`）を見る。
+- **検証が通っていても、サンドボックスのあいだは検証済みの宛先にしか送れない**（次の 4.9.2）。
+
+#### 4.9.2 本番アクセスを申請する（サンドボックスの解除）
+
+新しいアカウントは、リージョンごとにサンドボックスに置かれる。サンドボックスの制限: **検証済みのアドレス・ドメイン（とメールボックスシミュレーター）にしか送れない、24 時間で 200 通、毎秒 1 通**。顧客向けのメール（フォームの自動返信・Chatwoot の返信・BA-04 のトスアップのキャンペーン）を送る前に解除する。**申請は東京（`ap-northeast-1`）で行う**（us-east-1 などほかのリージョンの状態は関係ない）。
+
+**申請するのは、公開サイト（`https://comegin.com`）を配信した後**（4.14。2026-10-28 のユーザーの決定）。審査は Web サイトの URL から送るメールの種類を見るため。ドメインの検証（4.9.1）も先に済ませる（承認が早い。公式）。審査のあいだ（最大 96 時間）は、顧客向けのメールが送れないので、フォームの自動返信やチャットのメール通知を使う運用は、承認を待ってから始める。
+
+コンソールでの手順:
+
+1. SES のコンソール（リージョンは **アジアパシフィック（東京）**）→ 左の **Account dashboard**
+2. 上の「Your Amazon SES account is in the sandbox」の右の **View Get set up page** → **Request production access**
+3. 入力する:
+
+   | 項目 | 入れる値 |
+   |---|---|
+   | **Mail type** | **Transactional**（2026-10-28 のユーザーの決定。立ち上げ期は、フォームの自動返信・問い合わせの返信・担当者への通知が大半。1 対 1 で、相手の操作がきっかけ）。Mautic のキャンペーンでの一斉送信が大半になったら、SES のコンソールのアカウントの詳細で Marketing に改める |
+   | **Website URL** | `https://comegin.com` |
+   | **Additional contacts** | SES からの連絡を受けるアドレス（カンマ区切りで 4 つまで。運用の共有アドレスなど） |
+   | **Preferred contact language** | **Japanese** |
+   | **Acknowledgement** | 「明示的に求めた人にだけ送る」「バウンスと苦情を処理する仕組みがある」に同意する（下の「バウンスと苦情の扱い」を満たしてから） |
+
+4. **Submit request**。AWS サポートのケースが作られ、**最初の応答まで最大 96 時間**（公式）。追加の情報を求められたら、サポートのケースに返信する。審査中は内容を直せない。
+
+審査で使い方の説明を求められたときの文案（そのまま、または事情に合わせて直して返信する）:
+
+```
+comegin.com は当社（SaaS の販売）の Web サイトです。SES からは次のメールを送ります。
+1. 問い合わせフォーム（Mautic）の送信者への自動返信（1 通／送信）
+2. Web サイトのチャット（Chatwoot）で、担当者が訪問者に返す返信と、会話の記録
+3. 問い合わせを受けた社内の担当者への通知
+4. 問い合わせ・資料請求をした見込み客への、事業に関するお知らせ（Mautic のキャンペーン。各メールに配信停止のリンクを付ける）
+宛先は、当社のフォームやチャットに自分でアドレスを入力した人と、社内の担当者だけです。名簿の購入・収集はしません。
+バウンスと苦情は、SES のアカウント単位の抑制リストで以後の送信を止め、バウンス率と苦情率は CloudWatch のアラームで監視しています（SES の審査の基準より手前で通知）。
+配信停止の申し出は Mautic の配信停止のリンクで受け付け、以後のキャンペーンから外します。
+想定の送信数は、立ち上げ期で 1 日あたり数十〜数百通です。
+```
+
+CLI で申請する場合（コンソールと同じ。`--production-access-enabled` を付けると申請になる）:
+
+```bash
+aws sesv2 put-account-details --region ap-northeast-1 \
+  --production-access-enabled --mail-type TRANSACTIONAL \
+  --website-url https://comegin.com --contact-language JA \
+  --additional-contact-email-addresses <連絡先のアドレス> \
+  --use-case-description "<上の文案>"
+```
+
+状態の確かめ方（読み取りだけ）:
+
+```bash
+aws sesv2 get-account --region ap-northeast-1 \
+  --query '{Production:ProductionAccessEnabled, Review:Details.ReviewDetails.Status, Quota:SendQuota, Suppression:SuppressionAttributes.SuppressedReasons}'
+#  → Production true になれば解除済み。Review は審査の状態。Quota（Max24HourSend・MaxSendRate）は承認のときに決まる
+```
+
+**バウンスと苦情の扱い**（申請の Acknowledgement の前提。今あるものと無いもの）:
+
+- **アカウント単位の抑制リスト**: 2019-11-25 より後に SES を使い始めたアカウントは、バウンスと苦情の両方で既定で有効（公式）。ハードバウンスと苦情のアドレスには、以後 SES が送らない。上の `get-account` の `Suppression` が `["BOUNCE","COMPLAINT"]` であることを確かめる。無効なら `aws sesv2 put-account-suppression-attributes --region ap-northeast-1 --suppressed-reasons BOUNCE COMPLAINT`。
+- **率の監視**: `alarms.yaml` の `ses-bounce-rate`（4%）と `ses-complaint-rate`（0.08%）が ops に通知する（SES の審査の基準 5%・0.1% より手前）。
+- **Mautic のコンタクトへの反映**（バウンス・苦情のアドレスを Mautic で「連絡しない（DNC）」にする）は **ADR-30 で決めた**（2026-10-28）: SES の設定セット → EventBridge → Lambda `ses-feedback` → Mautic の REST API。恒久的なバウンスは理由「バウンス」、苦情は理由「配信停止」。**実装は未着手**で、それまでは抑制リストが送信を止める（申請の条件は満たす）。SES のイベントを社内の通知（ops）に流さない方針は変えない（宛先のメールアドレスが載るため）。
+
+#### 4.9.3 SMTP 認証情報を発行する（Mautic 用と Chatwoot 用で別々に）
+
+SMTP 認証情報は IAM ユーザーのアクセスキーから作られる（**AWS のシークレットアクセスキーそのものではない。リージョンごとに別**）。2 つに分けるのは、片方が漏れたときに、もう片方を止めずに作り直せるようにするため。発行する人の主体には、IAM のユーザー・グループの作成とアクセスキーの作成の権限が要る（`iam:CreateUser`・`iam:CreateGroup`・`iam:PutGroupPolicy`・`iam:AddUserToGroup`・`iam:CreateAccessKey`）。
+
+1. SES のコンソール（**東京**）→ 左の **SMTP settings**。SMTP endpoint が `email-smtp.ap-northeast-1.amazonaws.com` であることを確かめる
+2. 右上の **Create SMTP credentials**（IAM のコンソールが開く）
+3. **User Name** に `comegin-prod-ses-smtp-mautic` を入れて **Create user**
+4. 画面の **Download .csv file** で保存する（**この画面を閉じると二度と見られない**）。**Show** で画面に出さない
+5. Chatwoot 用も同じ手順で、名前は `comegin-prod-ses-smtp-chatwoot`
+
+- コンソールが作るユーザーは、グループ `AWSSESSendingGroupDoNotRename`（ポリシーは `ses:SendRawEmail` だけ）に入る（2024-09-06 以降の公式の動き）。グループの名前を変えない。
+- 保存した CSV は、ブラウザのダウンロードの場所（`~/Downloads` など。**リポジトリの外**）に置く。1 行目が見出し、2 行目が「IAM のユーザー名, SMTP のユーザー名, SMTP のパスワード」（列の順は `head -1 <CSV>` で見出しだけを見て確かめる。見出しに値は無い）。
+- SMTP のユーザー名は `AKIA` で始まる文字列、パスワードは 44 文字前後。**どちらも秘密値として扱う**（ユーザー名はアクセスキー ID）。
+
+#### 4.9.4 Secrets Manager に入れる
+
+CSV から読み、値を画面にもコマンドラインの引数にも出さずに入れる（`printf` はシェルの組み込みなので `ps` に出ない。`file:///dev/stdin` で標準入力から渡す）。人が自分の端末で実行する:
+
+```bash
+put_smtp() {  # 使い方: put_smtp <CSV のパス> <mautic|chatwoot>
+  ( IFS=, read -r _ SMTP_USER SMTP_PASS < <(sed -n 2p "$1" | tr -d '\r"')
+    printf %s "$SMTP_USER" | aws secretsmanager put-secret-value --region ap-northeast-1 \
+      --secret-id "comegin/prod/$2/SMTP_USERNAME" --secret-string file:///dev/stdin --query Name --output text
+    printf %s "$SMTP_PASS" | aws secretsmanager put-secret-value --region ap-northeast-1 \
+      --secret-id "comegin/prod/$2/SMTP_PASSWORD" --secret-string file:///dev/stdin --query Name --output text )
+}
+put_smtp ~/Downloads/<Mautic 用の CSV>.csv mautic
+put_smtp ~/Downloads/<Chatwoot 用の CSV>.csv chatwoot
+shred -u ~/Downloads/<Mautic 用の CSV>.csv ~/Downloads/<Chatwoot 用の CSV>.csv
+```
+
+- 表示されるのは Secret の名前だけ（`--query Name`）。CSV の列の順が違ったら（4.9.3 の見出しで確かめる）、`read` の変数の並びを合わせる。
+- `shred` の限界は 4.5 と同じ。漏れた疑いがあれば、IAM のコンソールでその SMTP ユーザーを消し、4.9.3 からやり直す（**SMTP のパスワードを変える方法は、ユーザーを消して作り直すことだけ**。公式）。
+
+#### 4.9.5 アプリに設定する
+
+| 製品 | 設定のしかた | 送信元 |
+|---|---|---|
+| **Chatwoot** | **人の作業は無い。** タスク定義が `SMTP_ADDRESS`（`email-smtp.ap-northeast-1.amazonaws.com`）・`SMTP_PORT`（587）・STARTTLS・証明書の検証（`SMTP_OPENSSL_VERIFY_MODE=peer`）を環境変数で持ち、`SMTP_USERNAME`・`SMTP_PASSWORD` を Secret から読む（`services/chatwoot-*.yaml`）。**Secret はタスクの起動時に読まれる**ので、4.9.4 の後に DesiredCount を上げる（4.11）。既に動いているなら、`aws ecs update-service --region ap-northeast-1 --cluster comegin-prod --service comegin-prod-chatwoot-web --force-new-deployment`（worker も同じ。台数は変わらない） | 親のパラメータ `ChatwootMailerSenderEmail`（既定 `Chatwoot <no-reply@comegin.com>`） |
+| **Mautic** | **管理画面で設定する**（環境変数では渡していない。`services/mautic-web.yaml` の冒頭）。右上の歯車 → **Configuration**（設定）→ **Email Settings**（メール設定）→ **Mail Send Settings** の **Email DSN** に、**Scheme** `smtp`・**Host** `email-smtp.ap-northeast-1.amazonaws.com`・**Port** `587`・**User** と **Password** に 4.9.4 の Mautic 用の値（Secrets Manager から人が写す。下）。Path・Options は空。**Save** の後に **Send test email**。`smtp` の Scheme は 587 で STARTTLS を使う（Mautic 7 は Symfony Mailer。`smtps` は 465 の暗黙の TLS で、ここでは使わない） | 同じ画面の **E-mail address to send mail from**・**Name to send mail as**（`@comegin.com` のアドレス。例 `info@comegin.com`） |
+
+Mautic の画面に入れる値の取り出し方（画面に出るのは、そのときだけ。人のいない場所で行い、入れたら端末を閉じる）:
+
+```bash
+aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/mautic/SMTP_USERNAME --query SecretString --output text
+aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/prod/mautic/SMTP_PASSWORD --query SecretString --output text
+```
+
+- 送信元は **`comegin.com` のアドレスならどれでもよい**（ドメインごと検証済み）。返信を受けるなら、そのアドレスが Google Workspace に実在すること（`no-reply@` への返信は届かない）。
+- 送信のすべてに、ドメインの既定の設定セット `comegin-prod`（TLS は必須・評判のメトリクス）が効く。
+
+#### 4.9.6 apex の DMARC を設定する（SPF は足さなくてよい）
+
+- **apex（`comegin.com`）の SPF に `include:amazonses.com` を足す必要は無い。** SES のメールは、エンベロープの送信元が MAIL FROM のサブドメイン `bounce.comegin.com` になり、SPF はそちらの TXT（`ses.yaml` が作る）で評価される。DMARC の SPF の照合は、サブドメインでも「緩い照合」で通る（公式: Complying with DMARC）。DKIM も `comegin.com` の Easy DKIM で通る。apex の SPF は Google Workspace のもののまま触らない（10 回の DNS 参照の上限を使わないため）。
+- **DMARC の TXT は apex に 1 つ必要**（Gmail・Yahoo は一斉送信の送り手に DMARC を求め、無いと迷惑メールに入りやすい）。`comegin.com` は Google Workspace と共有なので、既にあるかを先に見る:
+
+  ```bash
+  dig +short TXT _dmarc.comegin.com
+  ```
+
+  無ければ、Route 53 のホストゾーン `comegin.com` に TXT を足す（まず監視だけの `p=none` から始め、集計レポートで SES と Workspace の両方が通ることを確かめてから `quarantine` に上げる）:
+
+  ```
+  名前: _dmarc.comegin.com   種類: TXT
+  値:   "v=DMARC1; p=none; rua=mailto:<集計レポートを受けるアドレス>"
+  ```
+
+- **`aspf=s`（SPF の厳しい照合）を入れない。** 入れると、MAIL FROM がサブドメインの SES のメールが SPF の照合に落ちる（公式）。`adkim=s` も入れない。既にあるレコードにこれらがあれば外す。
+- このレコードは CloudFormation の外（Workspace と共有するため）。設定スクリプトの段階 `apps` は、DMARC の TXT が無い・`aspf=s` があるときに警告する。
+
+#### 4.9.7 送信を確かめる
+
+- **サンドボックスのあいだ**: 宛先も検証済みでなければ届かない。確かめたいアドレスを一時的に検証する（SES のコンソール → **Verified identities** → **Create identity** → **Email address**。届いたメールのリンクを開く）。終わったら、その ID を消す。メールボックスシミュレーター（`success@simulator.amazonses.com`）への送信は、サンドボックスでも数に入らずに試せる。
+- **Mautic**: 4.9.5 の **Send test email**（ログインしている管理者のアドレスに届く）。
+- **Chatwoot**: 管理画面のパスワードの再設定のメールや、担当者への「新しい会話」の通知（4.17 の 5）が届くこと。届かないときは、Sidekiq（`chatwoot-worker`）のログで SMTP の応答（`535 Authentication Credentials Invalid` はユーザー名・パスワードの誤り、`554 Message rejected: Email address is not verified` はサンドボックスか送信元のドメインの誤り）を見る。
+- 届いたメールのヘッダー（Gmail なら「メッセージのソースを表示」）で、`SPF: PASS`（`bounce.comegin.com`）・`DKIM: PASS`（`comegin.com`）・`DMARC: PASS` を確かめる。
+
+#### 4.9.8 運用
+
+- **受信サーバーへの TLS は必須（`SesTlsPolicy=REQUIRE`）**。TLS で繋がらない受信先には送らない（問い合わせの内容や氏名を平文で流さない）。届かない宛先が業務に要ると分かったら、`R1` の判断でデプロイの設定ファイルに `SesTlsPolicy=OPTIONAL` を書いてデプロイする。
+- **送信の上限**（`SendQuota`）を超えると送信が拒否される。Mautic のキャンペーンで一斉に送るときは、上の `get-account` の上限を先に見る。上限の引き上げは SES のコンソールの **Account dashboard** から申請する。
+- **SMTP 認証情報の入れ替え**: 新しい SMTP ユーザーを作る（4.9.3）→ Secret に入れる（4.9.4）→ Chatwoot は新しいデプロイ、Mautic は画面で入れ直す → 送信を確かめる → 古い SMTP ユーザーを IAM のコンソールで消す。
+- バウンスと苦情を Mautic のコンタクトに返す経路は ADR-30（実装は未着手。4.9.2 の「バウンスと苦情の扱い」）。実装したら、Mautic で専用の API 認証情報を作り、Secret `comegin/prod/ses-feedback/MAUTIC_CLIENT_ID`・`MAUTIC_CLIENT_SECRET` に入れる手順をここに足す。
 
 ### 4.10 マイグレーションとアプリの初期設定
 
@@ -406,16 +841,16 @@ aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].co
 
 | サービス | 手順 |
 |---|---|
-| **Chatwoot** | 上の `db:chatwoot_prepare`（entrypoint は `docker/entrypoints/rails.sh` のまま、`command` だけ上書き）。**初回とイメージを更新するたびに、サービスを起動する前に実行する。** |
+| **Chatwoot** | 上の `db:chatwoot_prepare`（entrypoint は `docker/entrypoints/rails.sh` のまま、`command` だけ上書き）。**初回とイメージを更新するたびに、サービスを起動する前に実行する。** Webhook（オンプレの n8n。`10.99.0.2:5680`）を送れるよう、タスク定義に `SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true` を入れてある（宛先ごとの許可が無いので、Chatwoot の SG の出口を 443・587・RDS・Valkey・`10.99.0.2:5680` だけに絞っている。`network.yaml`）。 |
 | **admin-auth** | **運用の Lambda で行う**（4.19。RunTask は使わない）。① `{"action":"migrate"}`（許可リストの初期値も入る）② `{"action":"register-alb-client"}`。**① のあとでないと、ログインの判定が 500 になる** |
-| **Mautic** | **RunTask は要らない。** 公式の entrypoint が、インストール済み（`config/local.php` に `db_driver` と `site_url` がある）なら、web ロールの起動のたびに `doctrine:migrations:migrate` を実行する。未インストールのあいだは何もせず、cron は**インストールが終わるまで待つ**。初回は、`mautic-web` を起動し、ログインした管理者がブラウザで `https://<MktHost>/installer` を開いてインストールする（`/installer` は OIDC の内側）。`local.php` は EFS の `config` に保存され、再起動で消えない。CLI でするなら ECS Exec（`su -s /bin/sh www-data -c 'cd /var/www/html && php ./bin/console mautic:install https://<MktHost> --admin_email=<…> --admin_password=<…>'`。未検証）。管理者のパスワードは Secrets Manager に置かず、インストール時に人間が決める。**TODO(未検証)**: Mautic の設定名（`MAUTIC_SITE_URL`、`MAUTIC_TRUSTED_PROXIES`）。 |
+| **Mautic** | **RunTask は要らない。** 公式の entrypoint が、インストール済み（`config/local.php` に `db_driver` と `site_url` がある）なら、web ロールの起動のたびに `doctrine:migrations:migrate` を実行する。未インストールのあいだは何もせず、cron は**インストールが終わるまで待つ**。初回は、`mautic-web` を起動し、ログインした管理者がブラウザで `https://<MktHost>/installer` を開いてインストールする（`/installer` は OIDC の内側）。`local.php` は EFS の `config` に保存され、再起動で消えない。CLI でするなら ECS Exec（`su -s /bin/sh www-data -c 'cd /var/www/html && php ./bin/console mautic:install https://<MktHost> --admin_email=<…> --admin_password=<…>'`。未検証）。管理者のパスワードは Secrets Manager に置かず、インストール時に人間が決める。**信頼するプロキシ（ALB）は、派生イメージの entrypoint が起動のたびに `config/parameters_local.php` に書く**（`MAUTIC_TRUSTED_PROXIES` から。環境変数だけでは Mautic が読まない。`cloud/images/mautic/comegin-entrypoint.sh`）。インストールの前に効いているので、`site_url` は `https://` で保存される（インストール後に「設定 > システム設定」の Site URL が `https://<MktHost>` であることを確かめる）。インストーラーの DB 接続も派生イメージで TLS にしてある（Dockerfile の 3）。**DB の画面のパスワードを空のまま送らない**（上流 7.2 の不具合。2026-10-29 に本番で起きた）: 接続の確認は環境変数の値で補って通るが、`config/local.php` には空のパスワードを保存するため、次のテーブルの作成が `[1045] Access denied … (using password: NO)` になる。起きたら、ECS Exec で `local.php` の `db_password` を環境変数 `MAUTIC_DB_PASSWORD` の値に書き直してから `/installer/step/1.1` を開く（DB の画面からやり直すとまた空で保存される）。**インストール後に管理画面で行う設定**（開発は `backend/mautic-system/dev/setup` が同じことをする。`setup/README.md` の「Webhook の送り先と SSRF 対策」）: ①設定 > Webhook 設定 の「キューモード」を `command_process`（送るのは mautic-cron の毎分の `mautic:webhooks:process`。派生イメージの cron に入れてある）②同じ画面の「私設アドレスの許可」に **`10.99.0.2` だけ**（範囲では許可しない）③「失敗での自動停止」は無効にしない ④設定 > システム設定 > CORS 設定 に本番の公開サイトのオリジンだけ（「ドメインを制限する」は Yes のまま）。 |
 | **Strapi・n8n（オンプレ）** | オンプレで動かす（ADR-21）。起動時に自分で RDS の `strapi`・`n8n` データベースを移行する。WireGuard が張れていて、4.8 のパスワードを渡してから起動する。 |
 
 **移行が失敗したら、サービスのイメージを更新しない**（古いイメージのまま動かし続ける）。
 
 #### n8n の AWS の資格情報（SNS への発行）
 
-オンプレの n8n の AWS ノードには、IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーを入れる（4.5 で発行）。n8n のエディターで、AWS の資格情報を作る: 認証は**アクセスキー**、リージョンは `ap-northeast-1`。ワークフローの SNS ノードにこの資格情報を使う。ハートビートの HTTP Request ノード（`PutMetricData`）も同じ資格情報で署名する（次の節）。
+オンプレの n8n の AWS ノードには、IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーを入れる（4.5 で発行）。キーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書いて `node setup/setup.mjs --target prod --only n8n-prod` を実行すると、provision が AWS の資格情報「AWS SNS 発行（アクセスキー）」（認証は**アクセスキー**、リージョンは `ap-northeast-1`）を作り、ワークフローの SNS ノードに割り当てる（エディターで手で作らない。`setup/manual-steps.md` の 8.6）。ハートビートの HTTP Request ノード（`PutMetricData`）も同じ資格情報で署名する（次の節）。
 前回の Assume Role・Use System Credentials・`N8N_AWS_SYSTEM_CREDENTIALS_ACCESS_ENABLED` は使わない（ロール `sns-publisher` は無い）。引き受けや購読の変更の権限は、このユーザーに無い（2 トピックへの `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` への `PutMetricData` だけ。TA-04 の 1 節）。
 
 #### n8n のスケジュール実行のハートビート（TA-05 の 4 節の項目 3）
@@ -438,8 +873,17 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 
 | 順 | サービス | 条件・注意 |
 |---|---|---|
-| 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
+| 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。コマンドは 4.17 の「前提」。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
 | 2 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
+
+**夜間の停止（2026-10-26。ユーザーの決定）**: `chatwoot-web`・`chatwoot-worker`・`mautic-cron` は、毎日 22 時に 0 台にして翌 8 時に DesiredCount に戻す（日本時間。各サービスの `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。`mautic-web` は止めない。
+- **夜間の影響**: 公開サイトのチャットのウィジェットが出ない（Chatwoot が 503。FAQ ボットも答えない）。Mautic のフォームの申し込みは受け付けるが、n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新は 8 時以降にまとめて処理される。Chatwoot の Webhook（I-12）とメールも 8 時以降。
+- 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
+- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**切り替え（`NightlyStopEnabled`・DesiredCount・時刻の変更）は昼に行う**。夜間に行うと、①`NightlyStopEnabled=false` にしたり DesiredCount を 0 にしたりすると、スケジュールが消えてもタスクの数は 0 のまま残り、朝になっても起動しない（CloudFormation は変わっていない DesiredCount を送り直さない見込み）②DesiredCount を変えると、最小と最大がすぐ昼の台数になり、その夜は止まらない。①になったら `aws ecs update-service --cluster <ClusterName> --service comegin-prod-<svc> --desired-count 1` で戻す。夜間にほかの変更だけを `sam deploy` しても、止めたタスクが起きるかは未確認（起きても次の 22 時に止まり直す）。
+- 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（希望 0）は鳴らない。ALB の 5xx の比率は、夜間にチャットに来た訪問者の 503 を数えるが、5 分で 20 リクエスト以下は見ない。
+- Application Auto Scaling は、サービスにリンクされた IAM ロール（`AWSServiceRoleForApplicationAutoScaling_ECSService`）を使う。初回のデプロイで自動で作られる（デプロイの主体に `iam:CreateServiceLinkedRole` が要る）。
+
+**Aurora Serverless v2 の最大 ACU を変えるとき**: `max_connections` は最大 ACU から決まり（2 ACU で 100 前後〈MySQL〉）、**インスタンスを再起動するまで反映されない**（静的なパラメータ）。`MysqlMaxCapacity`・`PostgresMaxCapacity` を変えて `sam deploy` した後、`aws rds reboot-db-instance --db-instance-identifier comegin-prod-mysql-1`（PostgreSQL は `comegin-prod-postgres-1`）を人が実行する（数十秒止まる）。張り付きは `ACUUtilization` のアラーム（`alarms.yaml`）で知る。Mautic（Apache）の同時処理数の既定は 150 で、2 ACU の接続数の上限を超えうる。`/mtc/event` が多いときに接続が足りなくなったら、最大 ACU を上げる。
 
 consent-api と admin-auth は Lambda（ADR-26）で DesiredCount を持たない。`sam deploy` の時点で ALB から呼ばれる（4.18・4.19）。**admin-auth は 4.19 の migrate と登録が済むまで、管理画面に誰も入れない**（Chatwoot・Mautic を起動する前に済ませる）。
 `mautic-web` と `mautic-cron` の DesiredCount は 0 か 1 しか受け付けない（テンプレートが拒否する）。
@@ -448,7 +892,7 @@ WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1�
 ### 4.12 イメージの更新
 
 1. 新しいイメージを ECR に置く（4.7）。
-2. **DB のスキーマが変わる製品（Chatwoot・Mautic）**: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
+2. **DB のスキーマが変わる製品（Chatwoot・Mautic）**（Mautic は RunTask ではなく、mautic-web の起動時に entrypoint が移行する〈4.10〉。移行が長いとヘルスチェックの猶予〈180 秒〉を超えて途中で入れ替えられるので、版を上げるときは、その間だけ親のパラメータ `MauticWebHealthCheckGracePeriodSeconds`〈例 1800〉をデプロイの設定ファイルに書いて延ばし、移行が終わったら戻す。ECS Exec で `php bin/console doctrine:migrations:migrate` を先に済ませてもよい）: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
 3. **スキーマが変わらない更新**: タグを変えてデプロイするだけ（ローリング更新。サーキットブレーカーが、新しいタスクの起動が失敗し続けたときに直前に戻す）。
 4. Strapi と n8n の更新は、オンプレで行う（ADR-21。`onprem/` の README）。このスタックの対象外。
 5. **4.13 の確認をデプロイごとに行う。** 製品を更新すると訪問者向けのパスが変わりうる。許可リスト方式なので、変わると機能が止まる側に倒れる（管理画面が開く側には倒れない）。
@@ -459,6 +903,12 @@ WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1�
 ```bash
 # 訪問者向け: 認証なしで 200（パスは edge.yaml の許可リスト）
 curl -s -o /dev/null -w '%{http_code}\n' https://<ChatHost>/widget                      # 200 か製品の応答（Chatwoot のウィジェット）
+# ウィジェットの JS（/vite/assets/*。edge.yaml のルール 103）。302 なら認証の内側に落ちていて、ウィジェットが空になる
+curl -s "https://<ChatHost>/widget?website_token=<website_token>" | grep -o '/vite/assets/widget-[^"]*\.js' | head -1 \
+  | xargs -I{} curl -s -o /dev/null -w '%{http_code}\n' "https://<ChatHost>{}"           # 200
+
+# Chatwoot の API はヘッダー api-access-token（ハイフン）で通る。api_access_token（アンダースコア）は ALB が捨てて 401 になる
+curl -s -o /dev/null -w '%{http_code}\n' -H 'api-access-token: <トークン>' https://<ChatHost>/api/v1/profile   # 200
 curl -s -o /dev/null -w '%{http_code}\n' https://<ConsentHost>/v1/consent               # 200（同意の状態の取得）
 
 # 機械向けの API: トークン無しでは製品側が拒否する（401）
@@ -481,7 +931,7 @@ dig +short stats.comegin.com
 
 **Strapi のメディア（オンプレの Strapi から）**: 管理画面で画像を 1 枚アップロードし、署名付き URL（有効 1 時間）で取得できること。S3 のバケットが非公開のままであること（バケットのパブリックアクセスのブロックが全部オンであること）。アップロードは IAM ユーザー `onprem-strapi-media` のキーで行われる（CloudTrail で確かめられる）。
 
-**WireGuard**: 4.2.1 の確認（`latest handshake`、RDS への接続、Webhook の疎通）。Mautic・Chatwoot の管理画面から Webhook を試し送信して、オンプレの n8n に届くこと。EC2 の `sudo nft list ruleset` で forward の許可が 2 行だけであること。
+**WireGuard**: 4.2.1 の確認（`latest handshake`、RDS への接続、Webhook の疎通）。Mautic・Chatwoot の管理画面から Webhook を試し送信して、オンプレの n8n に届くこと。EC2 の `sudo nft list ruleset` で forward の許可が、戻りの通信（`ct state established,related accept`）と新しい接続の 2 行の、計 3 行だけであること。
 
 **ハートビートのアラーム**（ともに ops トピックへ。ALARM と OK の両方で通知。5 分 × 3 期間・欠損は違反。`HeartbeatAlarmActionsEnabled` を共有）:
 
@@ -548,33 +998,211 @@ fields @timestamp, httpRequest.clientIp, httpRequest.uri, terminatingRuleId
 フィールド名は WAF のログの形式（公式: AWS WAF log examples）に基づく。**未検証**（実機のログで確かめる）。
 管理画面の保存・アップロード（Mautic のメールの本文、Chatwoot の添付）が Count に入っていなければ、Block にしてよい。入っていれば、そのルールだけを Count の上書き（`RuleActionOverrides`）に足してから Block にする。
 
-ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・送信元 IP あたり。consent 30、フォーム 100、API 1000、`auth.` 300、その他 2000）。同じログで実測して決める。
+ALB 用の WAF のレート制限のしきい値は暫定値（5 分あたり・送信元 IP あたり。consent 100〈2026-10-26 に 30 から上げた。CGNAT で正規の同意の記録が欠けないよう。1 回の同意は 2 リクエスト〉、フォーム 100、API 1000、`auth.` 300、その他 2000）。同じログで実測して決める。
 
 ### 4.17 faq-bot（Chatwoot の FAQ ボット。ADR-26）
 
 Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-11-faq-bot-design.md`。**`sam build` は `backend/faq-bot/Makefile` を使い、pnpm と esbuild でまとめる**（開発機に pnpm 11 が要る。npm は使わない）。
 
-1. 本番の Chatwoot（管理画面の「設定 → ラベル」）でラベル `faq-answered`・`faq-unmatched`・`faq-handoff` を作る。
-2. 「設定 → ボット」でエージェントボット「FAQ ボット」を作る（Webhook の URL は後で入れるので、仮に `https://example.invalid/webhook`）。作成後の画面か `GET /api/v1/accounts/<id>/agent_bots/<bot_id>`（管理者のトークン）で access_token と secret を控える。
-3. Secrets Manager に入れる（4.6 と同じく、シェルの履歴に残らない方法で）:
+#### 前提: 本番の Chatwoot を起動する（移行 → `chatwoot-web` → `chatwoot-worker`）
+
+下の 1〜8 は本番の Chatwoot の管理画面で行うので、先に Chatwoot を動かす（2026-11-01 に追加）。2 つのサービスは 0 台で作られる（`template.yaml` の `ChatwootWebDesiredCount`・`ChatwootWorkerDesiredCount` は既定 0）。順番は 4.11 の表の 1 と同じで、ここでは手順を書き下す。
+
+- **台数は `cloud/samconfig.toml` の `parameter_overrides` で上げる。** `aws ecs update-service --desired-count` で直接変えない（次の `sam deploy` で 0 に戻る。2 節の「重要」）。
+- **昼（8〜22 時）に行う。** 夜間の停止の最中に DesiredCount を変えると、その夜は止まらない（4.11 の「夜間の停止」）。
+- **web を先、worker を後にする。** web（Rails。画面・API・ウィジェット・ALB のヘルスチェック）が動かないと、onboarding も 4.13 の確認もできない。worker（Sidekiq）は、メールの送信・Webhook・エージェントボットへのイベントの送信を処理する。worker が 0 台のあいだは、会話は作られても FAQ ボットにイベントが届かずに答えず、メールも出ない（ジョブは Valkey に溜まり、worker が起動すると処理される）。
+- **1 つ上げるたびにデプロイし、確かめてから次に進む**（4.11）。
+
+① 前提を確かめる。
+
+- Chatwoot のイメージが ECR にあり、パラメータ `ChatwootImageTag` のタグと一致している（4.7。`node setup/setup.mjs --target prod --phase images --check`）
+- データベース `chatwoot` とユーザーがある（4.8。段階 `apps` の `cloud` が `cloud:db-init` で止める）
+- SMTP の Secret（`comegin/prod/chatwoot/SMTP_USERNAME`・`SMTP_PASSWORD`）に値を入れてある（4.9.4）。**Secret はタスクの起動時に読まれる**ので、台数を上げる前に入れる（後から入れたら、4.9.5 の `--force-new-deployment`）
+- admin-auth の migrate と `register-alb-client` が済んでいる（4.19。済んでいないと `chat.` の管理画面に入れない）
+
+② 移行（`db:chatwoot_prepare`）を RunTask で実行する。**初回とイメージを更新するたびに、台数を上げる前に行う**（4.10。entrypoint はそのまま、`command` だけ上書きする）。
+
+```bash
+# 変数を用意する（4.8 と同じ。端末を開き直したら、ここからやり直す）
+REGION=ap-northeast-1
+OUT() {
+  aws cloudformation describe-stacks \
+    --region "$REGION" \
+    --stack-name comegin-prod \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
+}
+CLUSTER=$(OUT ClusterName)
+SUBNETS=$(OUT PrivateSubnetIds)
+CHATWOOT_SG=$(OUT ChatwootWebSecurityGroupId)
+
+# 移行を実行して、終わるまで待つ
+TASK=$(aws ecs run-task \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --launch-type FARGATE \
+  --task-definition comegin-prod-chatwoot-web \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$CHATWOOT_SG],assignPublicIp=DISABLED}" \
+  --overrides '{"containerOverrides":[{"name":"chatwoot","command":["bundle","exec","rails","db:chatwoot_prepare"]}]}' \
+  --query 'tasks[0].taskArn' \
+  --output text)
+aws ecs wait tasks-stopped --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK"
+aws ecs describe-tasks \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --tasks "$TASK" \
+  --query 'tasks[0].containers[0].exitCode'   # 0 であること
+```
+
+0 でなければ、台数を上げない（CloudWatch Logs の chatwoot-web のロググループで、そのタスクのログを見る）。
+
+③ `chatwoot-web` を起動する。`cloud/samconfig.toml` の `parameter_overrides` に `"ChatwootWebDesiredCount=1",` を足して、デプロイする。
+
+```bash
+cd cloud && sam build && sam deploy
+aws ecs wait services-stable \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --services comegin-prod-chatwoot-web
+```
+
+確かめる: 4.13 の Chatwoot の行（`/widget` が 200、`/app/` が 302 で `auth.` に飛ぶ）と、アラーム `comegin-prod-chatwoot-web-unhealthy-hosts` が鳴っていないこと。Rails の初回の起動は遅いので、`services-stable` が終わるまで数分かかる。
+
+④ `chatwoot-worker` を起動する。同じく `"ChatwootWorkerDesiredCount=1",` を足して、デプロイする。
+
+```bash
+cd cloud && sam build && sam deploy
+aws ecs wait services-stable \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --services comegin-prod-chatwoot-worker
+aws ecs describe-services \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --services comegin-prod-chatwoot-web comegin-prod-chatwoot-worker \
+  --query 'services[].[serviceName,desiredCount,runningCount]' \
+  --output table   # どちらも 1・1
+```
+
+⑤ ブラウザで `https://<ChatHost>/` を開き、admin-auth（Google）でログインした後に Chatwoot の onboarding の画面が出ることを確かめる（onboarding は下の 1 で行う）。
+
+設定スクリプト（`node setup/setup.mjs --target prod --only chatwoot-prod`）は、2 つの DesiredCount が 0 なら ②〜④ を案内して止まる（`chatwoot-prod:ecs`）。移行の終了コードと ③④ の確認は、スクリプトでは確かめない。
+
+#### FAQ ボットの設定
+
+受信箱・ラベル・ボット・マクロは**設定スクリプト（`chatwoot-prod`。段階 `apps`）が Chatwoot の API で作る**（2026-11-01 に、手作業の手順からスクリプトの手順に書き直した。開発の `chatwoot` と同じ関数〈`backend/chatwoot-system/setup/index.mjs` の `ensure*`〉を本番に向けて呼ぶ）。人が行うのは、画面でしかできない最初の 2 人と、AWS への書き込み（Secrets Manager・公開サイトの配信）だけ。止まる id と案内の正本は `setup/manual-steps.md` の 8.3。
+
+1. **人・画面** 最初の 2 人（管理者と AI エージェント）を作り、値を `~/.config/comegin/setup/prod.conf` に書く（`chatwoot-prod:onboarding`）。画面は日本語で出る（英語の名前を括弧に添える）。
+
+   **(a) 管理者とアカウント**（onboarding）
+
+   - `https://<ChatHost>/` を開き、admin-auth（Google）でログインした後、onboarding の画面で氏名・メール・パスワード・アカウント名を入れる。ここで作った管理者は、インスタンス全体の SuperAdmin にもなる
+   - 作り終わると、アカウントの管理画面（`/app/accounts/<数字>/dashboard`）が開く。**この `<数字>` が `CHATWOOT_ACCOUNT_ID`**
+   - 左下のアバター → プロフィール設定 の下の「アクセストークン」の「コピー」で、**`CHATWOOT_ADMIN_TOKEN`** を控える
+   - `/super_admin`（Super Admin Console。左上に「Super Admin Console」と出る画面）は、インスタンス全体の管理画面で、ここでは使わない。担当者の招待・受信トレイ・ラベルは、アカウントの管理画面（`https://<ChatHost>/app/`）で行う
+
+   **(b) エージェント専用ユーザー「AI エージェント」**（ADR-17。本番の MCP〈`mcp-prod`〉と共用）
+
+   - アカウントの管理画面の左のメニュー **設定 → 担当者**（Settings → Agents）→ 右上の **担当者を追加**（Add Agent）で、次のとおり入れて追加する:
+
+     | 項目 | 値 |
+     |---|---|
+     | 名前 | `AI エージェント` |
+     | 役割 | **担当者**（Agent）。「管理者」にしない（ほかの権限だと 2 で止まる） |
+     | メールアドレス | 管理者のメールに `+` を付けたもの（例: `kamegin4+ai-agent@comegin.com`。同じ受信箱に届き、SES のサンドボックスでも `@comegin.com` 宛てなので届く） |
+
+   - 届いた招待メールのリンクを開き、パスワードを決める（このユーザー専用。パスワードマネージャーに保存する）
+   - **シークレットウィンドウ**で `https://<ChatHost>/app/login` を開き、admin-auth の Google ログイン（許可リストの自分のアカウント）を通った後、Chatwoot のログイン画面で **AI エージェントのメールとパスワード**でログインする（今のウィンドウには管理者のセッションが残っているため）
+   - 左下のアバター → プロフィール設定 の「アクセストークン」をコピーし、**`CHATWOOT_AGENT_TOKEN`** として控える
+   - 招待メールが届かないとき: 招待メールは worker（Sidekiq）が SMTP（SES）で送る。前提の ④ の `describe-services` で `chatwoot-worker` の `runningCount` が 1 か、SMTP の Secret が入っているか（前提の ①）を見る。送信のエラーは `chatwoot-worker` のログに出る（4.9.7）
+
+   **(c) `prod.conf` に書く**
 
    ```bash
-   read -rs SECRET_VALUE   # access_token を貼る（画面に出ない）
-   aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN --secret-string "$SECRET_VALUE"
-   read -rs SECRET_VALUE   # secret を貼る
-   aws secretsmanager put-secret-value --region ap-northeast-1 --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_SECRET --secret-string "$SECRET_VALUE"
-   unset SECRET_VALUE
+   cd ~/ComeGin/systematization-of-the-business-foundation   # リポジトリのルート
+   aws sso login                  # 2 で ECS の台数を読むのに AWS の認証が要る（読み取りだけ）
+   aws sts get-caller-identity    # Account が 798560359429 であること
+
+   # faq-bot の関数 URL（1 回目の sam deploy でできている。末尾は / で終わる）
+   aws cloudformation describe-stacks \
+     --region ap-northeast-1 \
+     --stack-name comegin-prod \
+     --query "Stacks[0].Outputs[?OutputKey=='FaqBotFunctionUrl'].OutputValue" \
+     --output text
+   # 例: https://abcd1234.lambda-url.ap-northeast-1.on.aws/ → 書く値は末尾に webhook を足したもの
+
+   chmod 600 ~/.config/comegin/setup/prod.conf
    ```
 
-4. 公開サイトを `faq.json` 入りでビルドして配信する（`https://<SiteHost>/faq.json` が JSON を返すこと）。
-5. `sam build` → `sam deploy`。出力の `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を、2 のボットの Webhook の URL に入れる。
-6. 「設定 → 受信箱 → Web サイト → ボットの設定」で「FAQ ボット」を選ぶ（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。
-7. 受信箱「Web サイト」の設定を合わせる（2026-10-12 に追加。開発は `backend/chatwoot-system/setup/index.mjs` が同じことをする）:
-   - **解決した会話への書き込みを許さない**（受信箱の設定の「解決後のメッセージを許可」を切る。API では `allow_messages_after_resolved: false`）。解決後はウィジェットに「新しいチャットを開始する」が出て、新しい会話になる（既定のままだと、解決した会話が開き直される）。
-   - **担当者（人）を受信箱のメンバーにする**（「設定 → 受信箱 → Web サイト → 共同作業者」）。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）。
-   - **各担当者が、プロフィールの通知設定で「新しい会話が作成されたとき」のメールを有効にする**（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。本人のトークンでしか変えられない）。受信箱の自動割り当てが有効なら、続けて「割り当てられたとき」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる。
-   - **ラベル `faq-ask-resolved` と、マクロ「解決の確認を送る」を作る**（「設定 → ラベル」と「設定 → マクロ」。マクロは全員で共有し、動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）。
-8. 確かめる: ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま。
+   トークンをシェルの履歴に残さないよう、`echo` ではなくエディタで書く:
+
+   ```ini
+   CHATWOOT_ADMIN_TOKEN=<(a) の管理者のアクセストークン>
+   CHATWOOT_ACCOUNT_ID=<(a) の URL の数字>
+   CHATWOOT_AGENT_TOKEN=<(b) の AI エージェントのアクセストークン>
+   PUBLIC_SITE_URL=https://comegin.com
+   FAQ_BOT_WEBHOOK_URL=https://<id>.lambda-url.ap-northeast-1.on.aws/webhook
+   # CHATWOOT_BASE_URL は書かなくてよい（既定 https://chat.comegin.com）
+   ```
+
+   スクリプトは実行の前に形式を確かめる（URL は `https://`、アカウント ID は数字だけ、`FAQ_BOT_WEBHOOK_URL` は `https://<id>.lambda-url.<リージョン>.on.aws/webhook`）。
+
+2. **自動** 設定スクリプトを実行する。**Chatwoot が動いている昼（8〜22 時）に行う**（夜間の停止の最中は Chatwoot に届かない。4.11）。
+
+   ```bash
+   node setup/setup.mjs --target prod --check --only chatwoot-prod   # まず何も変えずに見る
+   node setup/setup.mjs --target prod --only chatwoot-prod           # 実行する
+   ```
+
+   `--check` の 1 回目は「受信箱がまだ状態に無い」「FAQ のラベルが無い」などの「まだ」が並ぶ（作る前なので正しい）。`DesiredCount が 0`（前提の ③④ が未了）か `prod.conf に無いキー`（1 の (c) の書き漏れ）が出たら、先に直す。
+
+   実行すると、管理者のトークンが管理者の、AI エージェントのトークンが担当者（`agent`）のものかを確かめてから、次を行う（どれも作り済みなら名前で見つけて飛ばすので、何度実行してもよい）:
+   - 受信箱「Web サイト」（Web ウィジェット。`website_url` は `PUBLIC_SITE_URL`）を作り、`website_token` を prod の状態（`CHATWOOT_WEBSITE_TOKEN`）に置く。公開サイトの本番のビルドがそれを読む（4）
+   - **解決した会話への書き込みを許さない**（`allow_messages_after_resolved: false`）。解決後はウィジェットに「新しいチャットを開始する」が出て、新しい会話になる（既定のままだと、解決した会話が開き直される）
+   - **管理者と AI エージェントを受信箱のメンバーにする**。担当者の権限のユーザーは、所属した受信箱の会話しか見えない。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）
+   - ラベル 4 つ: `faq-answered`・`faq-unmatched`・`faq-handoff`・`faq-ask-resolved`
+   - エージェントボット「FAQ ボット」（送り先は `FAQ_BOT_WEBHOOK_URL`。違っていれば直す）を作り、受信箱に接続する（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。ボットの access_token と secret は prod の状態（`CHATWOOT_FAQ_BOT_TOKEN`・`CHATWOOT_FAQ_BOT_SECRET`。600）にだけ置き、画面に出さない
+   - マクロ「解決の確認を送る」（全員で共有。動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）
+   - **管理者**の「新しい会話が作成された時」のメール通知を有効にする（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。画面で手で入れなくてよい）
+
+   1 回目は Secrets Manager の手前で「画面での操作が必要: FAQ ボットの access_token と secret を Secrets Manager に入れる」と出て、終了コード `3` で止まる（3 に進む）。
+
+   | 止まったときの表示 | 原因と直し方 |
+   |---|---|
+   | `CHATWOOT_ADMIN_TOKEN で…認証できない（401）` | トークンの写し間違い。プロフィール設定から写し直す |
+   | `…アカウント N の管理者ではない`／`…担当者（agent）ではない` | 2 つのトークンを逆に書いた、または AI エージェントの役割が「管理者」。設定 → 担当者 で役割を直す |
+   | `本番の Chatwoot に届かない` | Chatwoot が止まっている（夜間の停止の最中を含む） |
+   | `ECS の台数を確かめられない` | AWS の認証が切れている（`aws sso login`） |
+
+3. **人・端末** FAQ ボットの access_token と secret を Secrets Manager の `comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN`・`CHATWOOT_BOT_SECRET` に入れる（`chatwoot-prod:faq-bot-secrets`）。
+
+   **これは AI エージェント（人のユーザー）の値ではなく、2 でスクリプトが作ったエージェントボット「FAQ ボット」の値**で、画面から写すものは無い。Chatwoot の中の 3 つの「誰」:
+
+   | | 何か | 値 | 置き場所 | 使うもの |
+   |---|---|---|---|---|
+   | 管理者 | 人のユーザー | アクセストークン | `prod.conf` の `CHATWOOT_ADMIN_TOKEN` | 設定スクリプト（初期設定のあいだだけ） |
+   | AI エージェント | 人と同じ種類のユーザー（担当者の権限） | アクセストークン | `prod.conf` の `CHATWOOT_AGENT_TOKEN` | 本番の MCP（`conversation-triage` など） |
+   | FAQ ボット | エージェントボット（ユーザーではない。設定 → ボット） | access_token と secret | 状態ファイル → Secrets Manager | faq-bot（Lambda） |
+
+   access_token は、faq-bot が返信・ラベル・担当者への引き継ぎで Chatwoot の API を呼ぶ認証に使う（返信は「FAQ ボット」の名前で送られる）。secret は、Chatwoot が faq-bot への Webhook に付ける署名（`X-Chatwoot-Signature`。4.13 以降）の鍵で、faq-bot は署名が合わないリクエストを拒む。
+
+   案内に出る 2 行を、そのまま貼り付けて実行する（値は画面にもシェルの履歴にもコマンドラインにも出ず、状態ファイルからパイプで渡る。`--show` は末尾に改行を付けるので `tr` で落とす）。成功するとそれぞれ `ARN`・`VersionId` が返る:
+
+   ```bash
+   node setup/setup.mjs --target prod --show CHATWOOT_FAQ_BOT_TOKEN | tr -d '\n' \
+     | aws secretsmanager put-secret-value --region ap-northeast-1 \
+         --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN --secret-string file:///dev/stdin
+   node setup/setup.mjs --target prod --show CHATWOOT_FAQ_BOT_SECRET | tr -d '\n' \
+     | aws secretsmanager put-secret-value --region ap-northeast-1 \
+         --secret-id comegin/prod/faq-bot/CHATWOOT_BOT_SECRET --secret-string file:///dev/stdin
+   ```
+
+   続けて、案内に出るトークンの指紋（SHA-256 の先頭 8 文字。秘密値ではない）を `prod.conf` に `FAQ_BOT_SECRETS_STORED=<指紋>` と書き、2 の実行のコマンドをもう一度実行する（作り済みのものは飛ばし、`✓ 終わった`〈終了コード `0`〉）。ボットが作り直されてトークンが変わると指紋が合わなくなり、もう一度入れるよう案内される。faq-bot はコールドスタートのたびに Secret を読むので、入れ直しても `sam deploy` は要らない
+4. **人・端末** `node setup/frontend.mjs --target prod`（`.env.production` に `website_token` が入る）→ 公開サイトを `faq.json` 入りでビルドして配信する（4.14。`https://<SiteHost>/faq.json` が JSON を返すこと）
+5. **人・画面** ほかの担当者（人）を受信箱「Web サイト」のメンバーにし（「設定 → 受信トレイ → Web サイト」の共同作業者〈Collaborators〉のタブ）、**各担当者が自分のプロフィールの通知設定で「新しい会話が作成された時」のメールを有効にする**（本人のトークンでしか変えられないので、スクリプトは管理者の分だけ行う）。受信箱の自動割り当てが有効なら、続けて「会話が自分に割り当てられた時」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる
+6. 確かめる: `node setup/setup.mjs --target prod --check --only chatwoot-prod` が通る（台数・2 つのトークンの権限・受信箱の設定とメンバー・ボットの接続と送り先・ラベル・マクロ・管理者の通知・Secrets Manager の申告）。ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま
+
+初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` を消してよい（その後の `chatwoot-prod` は止まって案内する。`setup/manual-steps.md` の 8.3）。
 
 - **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
 - しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。
@@ -602,11 +1230,21 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
    ```bash
    OPS=$(OUT AdminAuthOpsFunctionName)
    aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"migrate"}' /dev/stdout
-   aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"register-alb-client"}' /dev/stdout
-   # ALB がトークンの要求で invalid_client になるときは '{"action":"register-alb-client","authMethod":"client_secret_post"}'
+   aws lambda invoke --region ap-northeast-1 --function-name "$OPS" --cli-binary-format raw-in-base64-out --payload '{"action":"register-alb-client","authMethod":"client_secret_post"}' /dev/stdout
    ```
 
    結果の JSON が `{"ok":true,…}` であること。`{"ok":false,…}` は入力の誤り、`FunctionError` は実行の失敗（ロググループ `/aws/lambda/comegin-<env>-admin-auth-ops`）。
+   `OUT` は CloudFormation の出力を名前で 1 つ取り出すシェル関数（`OUT() { aws cloudformation describe-stacks --region ap-northeast-1 --stack-name comegin-prod --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }`。貼り付けで途中が改行されると壊れる）。
+
+   **ALB のクライアント認証は `client_secret_post`**（2026-10-29 に本番で確定）。既定の `client_secret_basic` で登録すると、管理画面が **`561 Authentication Error`** になる（ALB の `ELBAuthError` が増え、admin-auth のログは `GET /api/auth/oauth2/authorize` が 302、`POST /api/auth/oauth2/token` が **400**。Better Auth は登録と違う方式のクライアントを拒否し、Basic なら 401、それ以外は 400 を返す）。basic で登録してしまったら、上の post の行を送り直せばよい（デプロイは要らない）。
+
+   **Google でログインした後に `https://auth.comegin.com/` の `not found` に落ちるとき**: ログインの後に保留中の認可を続ける oauth-provider の after フックが、本番で効かなかった（2026-10-29。原因は未特定。`backend/admin-auth/README.md` の「実地で未確認」）。セッションは作られているので、管理画面を開き直せば通る。2026-10-29 の修正（`/sign-in` の戻り先を、元の認可リクエストで認可エンドポイントを開き直す URL にした。`src/pages.ts`）を含む版をデプロイすれば起きない。
+
+   **Google の画面で `エラー 400: redirect_uri_mismatch` が出たとき**: admin-auth（Better Auth）が Google に送る戻り先は **`https://<AuthHost>/api/auth/callback/google`**（既定 `https://auth.comegin.com/api/auth/callback/google`。`BETTER_AUTH_URL` ＋ basePath `/api/auth` ＋ `/callback/google`。`backend/admin-auth/src/auth.ts`・`constants.ts`）。これを、親のパラメータ `GoogleClientId` の OAuth クライアントの **「承認済みのリダイレクト URI」** に登録する（Google Cloud Console → Google Auth Platform → Clients → そのクライアント）。
+   - エラーの画面の「このエラーの詳細」に、Google が受け取った `redirect_uri` と `client_id` が出る。`client_id` が `GoogleClientId` と同じクライアントか、`redirect_uri` が登録した値と**完全に**同じか（`https`・大文字小文字・末尾の `/`）を見る。
+   - よくある取り違え: 開発のクライアント（`comegin-admin-auth-dev`。ngrok の URI だけ）の ID を `GoogleClientId` に書いた／URI を「承認済みの JavaScript 生成元」の欄に入れた／ALB の `https://<ChatHost>/oauth2/idpresponse` を Google に登録した（これは ALB と admin-auth のあいだの戻り先で、`register-alb-client` が admin-auth に登録するもの。Google には登録しない）。
+   - 登録してから効くまで、**5 分〜数時間**かかることがある（Google の公式）。AWS 側の変更（デプロイ）は要らない。
+   - クライアントを作り直したり別のクライアントに替えたりしたら、`GoogleClientId`（samconfig.toml → `sam deploy`）と Secret `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）を**同じクライアントの値**にそろえる（片方だけだと、次は `invalid_client` になる）。
 4. 確かめる: 管理画面（`chat.`・`mkt.`）を開き、`auth.` に飛んで Google でログインし、戻ってこられること。**ALB の認証のメトリクス（`AWS/ApplicationELB` の `ELBAuthError`・`ELBAuthFailure` が 0 であること）と、IdP の呼び出しの所要時間（`ELBAuthLatency`）**を見る（ALB のアクセスログは未設定〈5 章〉。原因を詳しく見るときは一時的に有効にして `error_reason` を見る）。アラーム `admin-auth-errors`・`admin-auth-throttles`・`admin-auth-target-5xx` が鳴っていないこと。
 
 - **ALB の IdP の呼び出し（トークン・UserInfo）が待つ時間は公式文書で確かめられていない。** 呼び出しの数秒前にブラウザが同じ関数を呼ぶため、起動済みである見込み（仕様の D1）。遅い・失敗するときは `AdminAuthProvisionedConcurrency=1` にしてデプロイする（常時 1 つ起動。月 4〜5 USD 前後）。
@@ -620,29 +1258,29 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | 領域 | TODO | どこに書いたか |
 |---|---|---|
 | **訪問者向けパス** | TA-06 の 5.3 の想定値で入れてある。各製品のバージョンで DevTools により実測して確定する（Chatwoot は `/packs/*` 以外のアセットのパスがあるか、Mautic は `/form/generate.js` などの埋め込み用のパス）。ヘルスチェックのパスも実測 | `edge.yaml` |
-| **SES** | 本番アクセスの申請、apex の SPF と DMARC を Google Workspace と統合、バウンスと苦情を Mautic に返す経路 | 4.9、`ses.yaml` |
+| **SES** | 本番アクセスの申請（4.9.2。Transactional・公開サイトの配信の後）、apex の DMARC（4.9.6。Google Workspace と共有）、バウンスと苦情を Mautic に返す Lambda `ses-feedback` の実装（ADR-30。設計は決定済み）。SMTP 認証情報の IAM ユーザーは CloudFormation の外（コンソールが作る。4.9.3） | 4.9、`ses.yaml` |
 | **E-15 の写し** | 頻度と形式、保持期間とライフサイクル（決まるまで設定しない）、Object Lock（保持期間が決まってから）。`If-None-Match` を必須にするバケットポリシーの Deny は実機未検証（書き込みは単発の `PutObject` で、マルチパートを使わないこと） | `runlog-archive.yaml` |
 | **SNS の購読** | `AuthenticateOnUnsubscribe` を付けた確認（4.4）。購読状態（`Confirmed` の数）の監視は未作成（SNS 以外の手段が要る。TA-05 の項目 8） | 4.4 |
 | **外形監視** | 訪問者向けパスが認証なしで 200 を返すこと、管理画面が 302 を返すこと（200 は認証が外れた異常）、`cms.`・`n8n.`・`stats.` の名前が引けないことの定期確認は未作成（TA-05 の項目 6・7。CloudWatch Synthetics か Route 53 のヘルスチェックの案）。4.13 を手で行う | — |
 | **WireGuard（ADR-21）** | ①**実機で一度も動かしていない**。AL2023 のカーネルに `wireguard` のモジュールがあるか、`wireguard-tools` が core のリポジトリにあるか（無ければ user-data が失敗し、`/var/log/wireguard-setup.log` に残る）。②nftables のルール（forward の既定 drop、両方向の masquerade）と、WireGuard の応答が SG の egress の許可なしで通るか（SG はステートフルなので通る想定。オンプレの `PersistentKeepalive` が通信を保つ）。③`ec2:recover`（`WireguardSystemRecoverAlarm`）が t4g で使えるか。④**トンネルそのもの（`latest handshake` の途絶）の監視は未作成**（EC2 の中から `PutMetricData` する案。IAM と名前空間を足す必要がある）。EC2 の死活（ステータスチェック）だけを見ている。⑤Webhook の再送の有無（Mautic・Chatwoot がオンプレの停止中に取りこぼした分を後から送るか）は、DD-07 の縮退運転で確かめる。⑥OS の更新は手動（4.2.1）。自動更新は入れていない。⑦AMI の変更で EC2 を置き換えると、ENI が「使用中」で失敗する見込み（未検証。4.2.1）。⑧`WireguardIngressCidr` は `0.0.0.0/0`（オンプレの IP が固定でないため）。固定の IP が使えるなら絞る | `wireguard.yaml`、`network.yaml`、4.2.1 |
 | **n8n のハートビート** | 実機で確かめる: ①n8n の HTTP Request ノードが、AWS の資格情報（アクセスキー）で `PutMetricData`（CloudWatch の Query API）に署名でき、`ComeGin/OnpremN8n` で通ること（名前空間の綴りの違いは `AccessDenied`）。②n8n を 15 分止めるとアラームが ALARM になり、再開で OK に戻り、どちらも ops に通知が届くこと。③5 分の送信間隔と 5 分の期間の境目で、1 期間のデータが 0 になる揺れがあっても、3 期間連続でなければ発火しないこと。④`heartbeatEnabled` が `false` の環境（開発）では、ALARM のままになること（意図どおり） | `observability.yaml`、`iam.yaml`、4.10 |
 | **オンプレの IAM ユーザー** | アクセスキーの発行（4.5）。S3 の署名付き URL（Strapi の S3 プロバイダー）が、IAM ユーザーのキーで動くこと。ローテーションの運用（キーは 1 ユーザー 2 つまで）。Strapi のアップロードの ACL（`BucketOwnerEnforced` のバケットなので、ACL を付けない設定が要る。`strapi-system` 側） | `iam.yaml`、4.5 |
-| **Mautic** | ①`MAUTIC_SITE_URL` と `MAUTIC_TRUSTED_PROXIES` の設定名と形式（公式の「local.php の設定は `MAUTIC_<大文字の名前>`」に基づく想定）。**`trusted_proxies` が無いと ALB 越しのアクセスを HTTP と判定して壊れる恐れ**。②メールの設定名（SMTP は管理画面で設定する）。③非同期のキューを使うなら `mautic_worker` のサービスを足す。④`mautic-web` を 2 タスク以上にするには、セッションの保存先（Valkey か RDS）を決める。⑤派生イメージの `config.php` のパッチは、上流の版を上げるとパターンが合わなくなりうる（そのときはビルドが失敗する。黙って検証なしにはならない）。⑥Mautic 本体の起動と、`/installer` でのインストール | `services/mautic-*.yaml`、`images/mautic/Dockerfile` |
-| **Chatwoot** | S3 をタスクロールで使えるか（`AWS_ACCESS_KEY_ID` を空のまま SDK の既定の探索に倒れるか。倒れなければ専用の IAM ユーザーのキーを Secret に）。有効にする拡張を採用バージョンの `db/schema.rb` で確かめる。Rails 本体で `PGSSLMODE=verify-full` が効くか | `services/chatwoot-*.yaml`、`ops-tasks.yaml` |
+| **Mautic** | ①`MAUTIC_SITE_URL` の設定名と形式（公式の「local.php の設定は `MAUTIC_<大文字の名前>`」に基づく想定）。`trusted_proxies` は 2026-10-26 に、環境変数では効かない（`TrustMiddleware` は local.php と parameters_local.php だけを読む）と分かり、派生イメージの entrypoint で parameters_local.php に書く形にした（実機では未確認。インストール後の Site URL が `https://` であることで確かめる）。②メールの設定名（SMTP は管理画面で設定する）。③非同期のキューを使うなら `mautic_worker` のサービスを足す。④`mautic-web` を 2 タスク以上にするには、セッションの保存先（Valkey か RDS）を決める。⑤派生イメージの `config.php` のパッチは、上流の版を上げるとパターンが合わなくなりうる（そのときはビルドが失敗する。黙って検証なしにはならない）。⑥Mautic 本体の起動と、`/installer` でのインストール | `services/mautic-*.yaml`、`images/mautic/Dockerfile` |
+| **Chatwoot** | `SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true` で、管理画面から Webhook を試し送信して `10.99.0.2:5680` に届くこと（SG の出口を絞ったので、届かないときは SG の出口と WireGuard の SG を見る）。S3 をタスクロールで使えるか（`AWS_ACCESS_KEY_ID` を空のまま SDK の既定の探索に倒れるか。倒れなければ専用の IAM ユーザーのキーを Secret に）。有効にする拡張を採用バージョンの `db/schema.rb` で確かめる。Rails 本体で `PGSSLMODE=verify-full` が効くか | `services/chatwoot-*.yaml`、`ops-tasks.yaml` |
 | **RDS への TLS** | すべてのサービスが検証つきで接続する形にした（4.7 の表）。**実機の RDS で、各製品が検証つきで繋がること**（とくにオンプレの Strapi と n8n・Chatwoot の Rails・Mautic 本体）。繋がらない製品があっても、`PostgresForceSsl` を 0 にしたり検証を外したりする前に、製品側の設定を探す | `data.yaml`、4.7 |
-| **エンジンのバージョン** | RDS は `8.4` と `16` のプレフィックス指定（最新のマイナーを確かめて固定）。Valkey は `8.0`（CloudFormation と ElastiCache が受け付けるかを実機で確かめる。無ければ 7.2。開発は `valkey/valkey:8-alpine`）。Chatwoot の Sidekiq に問題が出たら、同じノードタイプのまま Redis OSS 7.1 に切り替える | `data.yaml` |
-| **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は既定の `client_secret_basic`（ALB が post を使う場合は、運用の Lambda に `{"action":"register-alb-client","authMethod":"client_secret_post"}` を送って登録し直す。4.19）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
+| **エンジンのバージョン** | Aurora は `8.4.mysql_aurora.8.4.8` と `16.15`（2026-10-26 時点の東京の最新。マイナーは自動で上がる）。Valkey は `8.0`（CloudFormation と ElastiCache が受け付けるかを実機で確かめる。無ければ 7.2。開発は `valkey/valkey:8-alpine`）。Chatwoot の Sidekiq に問題が出たら、同じノードタイプのまま Redis OSS 7.1 に切り替える | `data.yaml` |
+| **admin-auth** | PKCE は今は必須にしていない（ALB が送るか確認できないため。Wave 4 で確かめる）。**許可リストから外しても、ALB のセッション Cookie は最大 12 時間有効**（`OidcSessionTimeoutSeconds` を短くするかの検討を含む）。ALB のクライアント認証は `client_secret_post`（2026-10-29 に本番で確定。basic では 561。4.19）。ログインの後に認可が続かない件（after フック）の本番だけの原因は未特定（戻り先を変えて回避済み）。ALB と Better Auth の組み合わせの実地確認 | `edge.yaml`、`services/admin-auth.yaml` |
 | **フラットレートプラン** | 購読の実機での確認（Free Tier のアカウントは不可）。apex か `www` か（プランは 1 apex まで）。allowance を超えた後の挙動。標準アクセスログは Pro 以上（Free は無し）。`/404.html` を `frontend/verdant-virgo` に作る | `global/template.yaml`、`cdn.yaml` |
 | **WAF** | Common ルールの Count から Block への切り替え（判断は R1。4.16）、しきい値の実測、WAF のログの配信権限（デプロイ主体に `logs:CreateLogDelivery` と `logs:PutResourcePolicy` などが要る見込み）。ALB のアクセスログは未設定 | `edge.yaml`、4.16 |
-| **ネットワーク** | タスクのセキュリティグループの外向きは tcp の全ポートを `0.0.0.0/0` に開けている（ECR・Secrets Manager・SES が呼ぶ外部 API）。宛先で絞るのは未着手 | `network.yaml` |
-| **データの保全** | EFS の復元手順の確認（日次の自動バックアップ）。RDS の Enhanced Monitoring・Performance Insights は付けていない。Multi-AZ は止まった時間の実績を見て順に冗長化する（TA-06 の 4.6） | `data.yaml` |
+| **ネットワーク** | タスクのセキュリティグループの外向きは tcp の全ポートを `0.0.0.0/0` に開けている（ECR・Secrets Manager・SES が呼ぶ外部 API）。**Chatwoot の 2 つだけは 2026-10-26 に宛先で絞った**（443・587・RDS・Valkey・`10.99.0.2:5680`。`SAFE_FETCH_ALLOW_PRIVATE_NETWORK` で製品側の SSRF 対策が外れるため）。ほかのタスクは未着手 | `network.yaml` |
+| **データの保全** | EFS の復元手順の確認（日次の自動バックアップ）。Aurora の Enhanced Monitoring・Performance Insights は付けていない。Aurora はクラスターなので、止まった時間の実績を見て、読み取りの複製（フェイルオーバーの先）をクラスターに足すだけで冗長化できる（TA-06 の 4.6） | `data.yaml` |
 | **見積もり** | 費用の見積もり（TA-06 の 9 節）。アラームの数、Container Insights、WAF のログ、WireGuard の EC2 と Elastic IP、インターネットへのデータ転送（RDS の応答・Webhook）を含める。3 節の増減の概算は未確認の単価に基づく | 3 節 |
 | **CSP（ADR-25）** | 公開サイトの `Content-Security-Policy` をどこで付けるか（CloudFront のカスタムの応答ヘッダーポリシーか、Astro 側か）。CloudFront で付けるなら、フラットレートプランの Free で独自の応答ヘッダーポリシーが使えるかを確かめる。GA4 の許可は Google の CSP ガイドの表に合わせる | `cdn.yaml` |
 | **未着手の設計** | 収益化（`points-api`・3106・`E-19` の S3 Object Lock）。オンプレの **Strapi** のハートビートのアラーム（監視アプリと n8n のスケジュール実行のハートビートはある）。`consent-api` の TTL とバックアップ（TA-06 の 11 節） | — |
 
 ## 6. 設計書との差分と判断メモ
 
-- **Secret が 18 個**（`secrets.yaml`。ほかに RDS が管理するマスターの 2 個）。ADR-21 で Strapi と n8n の鍵類を外した（`DB_PASSWORD` の 2 個だけ残す）。ADR-24 で Cal.com の 4 個を、ADR-25 で Umami の 2 個（と `services/umami.yaml` が作っていた `DATABASE_URL` の 1 個）を外した。
+- **Secret が 20 個**（`secrets.yaml`。自動生成 13・人が入れる 7。ほかに RDS が管理するマスターの 2 個）。ADR-21 で Strapi と n8n の鍵類を外した（`DB_PASSWORD` の 2 個だけ残す）。ADR-24 で Cal.com の 4 個を、ADR-25 で Umami の 2 個（と `services/umami.yaml` が作っていた `DATABASE_URL` の 1 個）を外した。
 - **ECR は 2 本**: Mautic と Chatwoot。**DB に接続する上流のイメージは、薄い派生イメージ**（RDS の CA を足したもの。4.7）にして置く。TA-06 の 3.2「イメージは ECR に置く」に従う。Strapi・n8n・n8n-runners は、オンプレで動かすので置かない（ADR-21）。自作のサービス（consent-api・admin-auth）は ADR-26 で Lambda になり、ECR を外した（2026-10-12）。
 - **`cdn.yaml`・`ses.yaml`・`ops-tasks.yaml`・`alarms.yaml`**: 固定シートの一覧にないが必要なので足した（OAC 専用の Astro バケットとデプロイ用 IAM の対象、SES のドメイン ID、DB 作成のタスク、アラーム）。
 - **イメージのタグは製品ごと**（2 個）: mautic-web と mautic-cron、chatwoot-web と chatwoot-worker のずれを防ぐ。タグは `<上流のタグ>-<ビルドの連番>`。
@@ -655,15 +1293,23 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - **Umami を外した**（ADR-25。ユーザーの決定による例外。TA-01 の 8 節の SaaS の基準は変えない）: アクセス解析の正本を GA4（SaaS）にした。**デプロイ前に外した**（まだ一度もデプロイしていないので、Retain の ECR と Secret は AWS に残っていない。前の版をデプロイ済みの環境では、`comegin/<env>/umami` の ECR と `comegin/<env>/umami/*` の Secret を手で消す。RDS の `umami` データベースも手で消す）。外したもの: `services/umami.yaml`（タスク定義・サービス・実行ロールとタスクロール・`umami/DATABASE_URL` の Secret）・`images/umami/`、ECR の `umami` リポジトリ、Secret 2 個（`umami/DB_PASSWORD`・`APP_SECRET`）、RDS の `umami` データベース（ops-tasks の作成も）、ALB の `stats.` のルール 3 つ（訪問者向け `/script.js`・`/api/send`、機械向け `/mcp`、OIDC）とターゲットグループ、ACM の SAN、Route 53 の `stats.`、WAF の `rate-limit-api` の `/mcp` の条件（`/mcp` を受けるサービスが無くなった）、SG（`UmamiSecurityGroup` と ALB・RDS からの許可。ALB の egress も）、ロググループ、アラーム 2 つ（実行中のタスク数・unhealthy）、`ALB_PROTECTED_HOSTS` の `stats.`、親の `UmamiService` とパラメータ（`StatsHost`・`UmamiPort`・`UmamiImageTag`・`UmamiDesiredCount`・`UmamiCpu`・`UmamiMemory`）。デプロイ用の設定ファイルのパラメータの上書きにこれらを書いていたら、デプロイ前に消す（未知のパラメータは更新を失敗させる）。**ACM の証明書は SAN が減るので置き換わる**（新しい証明書を DNS 検証してから差し替える）。**PostgreSQL の SG の `GroupDescription` を直したので、この SG も置き換わる**（未デプロイのうちに直した。デプロイ後に変えると RDS の SG の付け替えになる）。
 - **Strapi・n8n を外した**（ADR-21）: `services/strapi.yaml`・`services/n8n.yaml`・`images/n8n/`、ALB の `cms.`・`n8n.` のルールとターゲットグループ、ACM の名前、Route 53 のレコード、WAF の `cms.` の API の分、ECR の 3 本、Strapi と n8n の鍵類の Secret（9 個）、アラーム 4 つ、ログのグループを外した。**ECR のリポジトリと Secret は `DeletionPolicy: Retain` なので、テンプレートから外しても AWS に残る**（ロググループは消える）。 まだ一度もデプロイしていないので実害は無いが、前の版をデプロイ済みの環境では、不要な ECR のリポジトリと Secret を手で消す。RDS の `strapi`・`n8n` データベースと、S3 の Strapi のメディアのバケットは、データの置き場として残した（ops-tasks の DB 作成もそのまま）。
 - **Service Connect を廃止した**: n8n への Webhook と n8n からの API の呼び出しにしか使っていなかった。cluster の名前空間、4 つのサービスの設定とパラメータ、n8n 関連の SG のルールを外した。n8n（オンプレ）から Chatwoot・Mautic の API は ALB の機械向けのルール経由になる（1.1）。
+- **データベースは Aurora Serverless v2**（2026-10-27。ユーザーの条件「アプリケーション側に互換がある場合はサーバーレス、それ以外はクラスター。サーバーレスとクラスターでコストを比較すること」）。単価は Pricing API の東京の値（月 730 時間）:
+  - **互換**: MySQL（Mautic）も PostgreSQL（Chatwoot・admin-auth・Strapi・n8n）も、Aurora Serverless v2 に互換がある（同じ Aurora のエンジン。Chatwoot が使う pgvector も含む）。東京で Aurora MySQL 8.4 互換と Aurora PostgreSQL 16.15 の `db.serverless` が使えることを、2026-10-27 に `DescribeOrderableDBInstanceOptions` で確かめた → **どちらもサーバーレス**
+  - **コストの比較**: サーバーレスは $0.15/ACU 時（最小 0.5 ACU で月 $55、平均 1 ACU で月 $110、上限の 2 ACU で月 $219）。クラスターのいちばん安い構成は db.t4g.medium（$0.113/時＝月 $82。db.t3.medium は $0.125/時）で、T 系は CPU クレジットの超過料金（$0.09/vCPU 時）がかかりうる。**損益分岐は平均 0.75 ACU**。どちらも一時停止はできない（自動の一時停止は接続がゼロの状態が続かないと効かず、Mautic の毎分の cron と、Chatwoot・n8n・Strapi の常時の接続で止まらない）。平均が 0.75 ACU を超え続けるならクラスターのほうが安いので、`ACUUtilization` のアラームと Cost Explorer（使用タイプ `Aurora:ServerlessV2Usage`）で見直す
+  - **経緯**: 2026-10-26 は「高コストでなく互換があればサーバーレス」の方針で、MySQL はサーバーレス、PostgreSQL は「1 ACU 程度が要る」という想定でクラスターにした。その前は RDS の単一インスタンスと比べてサーバーレスを高コストとしたが、方針の選択肢に単一インスタンスは無いので撤回した。2026-10-27 に条件の文言（互換があればサーバーレス）に合わせ、PostgreSQL もサーバーレスにした
+  - **1 つにまとめられない**: Aurora はクラスターごとにエンジンが 1 つで、Mautic は MySQL 専用（インストーラーのドライバーは `pdo_mysql` だけ）、Chatwoot は PostgreSQL 専用。PostgreSQL の側は、1 つのクラスターを 4 アプリで共有している
+  - **Valkey はノードを持つクラスター**（cache.t4g.micro × 1）。ElastiCache Serverless は常にクラスターモードで、対応するクライアントしか使えず（公式の troubleshooting）、Chatwoot の Sidekiq は Redis Cluster に対応しないため、互換が無い
+  - Aurora はストレージが自動で伸びるので、空き容量のアラーム 2 つを外した。RDS のイベントは、インスタンスとクラスターの 2 つの購読にした（ops トピックのポリシーも、発行元の `db:` と `cluster:` の両方を許す。`cluster:` が無いとクラスターのイベントが黙って拒否される）。最大 ACU への張り付きは `ACUUtilization` のアラームで知る
+- **WireGuard の終端だけは EC2**（計算資源は、特に理由が無ければ ECS on Fargate か Lambda にする方針の例外）: Fargate では WireGuard を動かせない（カーネルのモジュールと `NET_ADMIN` の権限が要るが、Fargate のタスクには付けられない。経路表の宛先にする固定の ENI も持てない）。Lambda は常駐できない。AWS Site-to-Site VPN は、オンプレ側に固定のグローバル IP が要り（オンプレの IP は固定でない）、IP なしで使う証明書の認証には AWS Private CA の費用がかかる。そのため、いちばん小さい EC2（t4g.nano。月 $4 前後）を 1 台置く。
 - **WireGuard の SG は `network.yaml` に置いた**: SG は子スタック間の循環参照を避けるため network.yaml にまとめる流儀に合わせた。`wireguard.yaml` には `WireguardSecurityGroupId` を渡す。経路（`AWS::EC2::Route`）は `wireguard.yaml` が持ち、`network.yaml` の `PrivateRouteTableId` を親が渡す。
 - **WireGuard の ENI を別のリソースにした**: 経路表の宛先を ENI にして、送信元／宛先チェックの無効化と Elastic IP の関連付けも ENI に付ける（固定シートの「EC2 の ENI」）。
 - **両方向の masquerade**（固定シートの「オンプレから VPC への通信は SNAT」に、VPC からオンプレの向きを足した）: オンプレに VPC のタスクの IP への経路を持たせないため。代わりに、オンプレの nginx から見える送信元が `10.99.0.1` だけになる。
-- **forward は既定で drop、許可は 2 行**: オンプレから VPC は tcp 5432 だけ、VPC からオンプレは `10.99.0.2:5680/tcp` だけ（固定シートのとおり。オンプレから VPC は、ポートも 5432 に絞った）。
+- **forward は既定で drop、新しい接続の許可は 2 行**（ほかに戻りの通信の `ct state established,related accept` が 1 行）: オンプレから VPC は tcp 5432 だけ、VPC からオンプレは `10.99.0.2:5680/tcp` だけ（固定シートのとおり。オンプレから VPC は、ポートも 5432 に絞った）。
 - **オンプレの公開鍵を SSM のパラメータにした**: user-data に鍵を埋めないため、鍵の入れ替えでインスタンスが置き換わらない。EC2 が 2 分ごとに読む（`wg-peer-sync`）。パラメータ `OnpremWireguardPublicKey`（固定シート）は、このパラメータの値になる。
 - **`ec2:recover`**: `StatusCheckFailed_System` のアラームに自動復旧のアクションを付けた（固定シートの「StatusCheckFailed（ops トピック）」に足した）。
 - **パラメータ名**: `OnpremWireguardCidr` は WireGuard のアドレス帯（`10.99.0.0/24`）。UDP の受信元は別名の `WireguardIngressCidr`（既定 `0.0.0.0/0`）。`OnpremWebhookPort`（5680）、`WireguardServerAddress`（10.99.0.1）、`WireguardInstanceType`、`WireguardAmiSsmId`・`WireguardFixedAmiId`（AMI の固定）を足した。
 - **`CAPABILITY_NAMED_IAM`**: 既存のテンプレートが IAM ロールに固定の名前を付けていたのに、`samconfig.toml.example` は `CAPABILITY_IAM` だけだった（デプロイで拒否される）。IAM ユーザーも固定の名前なので、例を直した。
-- **SNS の購読解除**: トピックポリシーだけでは止まらず、`AuthenticateOnUnsubscribe` が要る（4.4）。TA-04・TA-05 には、リードが訂正を追記済み。
+- **SNS の購読解除**: トピックポリシーだけでは止まらず、`AuthenticateOnUnsubscribe` が要る（4.4）。TA-04・TA-05 には、リードが訂正を追記済み。**2026-10-27**: 補助として残していたトピックポリシーの `sns:Unsubscribe` の Deny は、SNS が受け付けない action で初回のデプロイが失敗した（`Policy statement action out of service scope!`）ので外した。
 - **PostgreSQL のデータベースは 4 つ**（`chatwoot`・`admin_auth`・`strapi`・`n8n`。`points` と、ADR-24 で外した `calcom`、ADR-25 で外した `umami` を除く。もとは 6 つで、TA-05 は 5 つ、TA-06 は 7 つと食い違っていた）。
 - **mautic-web はローリング更新**、mautic-cron は止めてから起動する（二重実行の防止。更新中は短く止まる）。
 - **WAF**: `auth.` ホストにもレート制限をかけた（Better Auth のレート制限は `X-Forwarded-For` を信頼するため、効き目は WAF に頼る）。

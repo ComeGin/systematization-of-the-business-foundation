@@ -12,6 +12,9 @@
 //     記事は本番の Strapi（オンプレの 127.0.0.1:1338。ADR-21）をビルド時に読み、dist/ に取り込む（公開サイトは実行時に Strapi を読まない）。
 //     ビルドと配信はしない（ビルドの実行は人が指示する。配信は人間が承認する。ADR-15・cloud/README.md の 4.14）。
 //     Search Console のドメインプロパティの所有権（Route 53 の TXT）を DNS で確かめる（AA-02 の表の 1。人の作業）
+//   - prod は段階 apps と google の 2 回動く（ctx.siteRouted は google のときだけ true）。apps（公開サイトが Route 53 から配信される前）は
+//     GA4 の測定 ID を空で書き（タグを出さない）、Search Console の所有権の確認を飛ばす。google（配信の後に --phase google）で
+//     測定 ID を入れて書き直し、所有権を確かめる（書き直したらビルドし直す）
 //
 // 方針:
 //   - 状態・設定から写す値（トークン・ID・同意の版）は、環境変数ファイルの今の値より優先して書き換える（正本は状態・設定）。
@@ -34,7 +37,9 @@ export const meta = {
   id: "verdant-virgo",
   title: "公開サイト（Astro。環境変数・導入・計測の道具・dev サーバー）",
   targets: ["dev", "prod"],
-  after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api"],
+  phases: ["apps", "google"],
+  // dev は開発のモジュール、prod は chatwoot-prod・mautic-prod（website_token とフォームの ID を状態に置く）の後
+  after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api", "chatwoot-prod", "mautic-prod"],
 };
 
 const DIR = "frontend/verdant-virgo";
@@ -274,11 +279,12 @@ function devValues(ctx, current) {
 /** 本番の値。すべて prod.conf（と状態）から。足りないキーは missing に入れる */
 function prodValues(ctx) {
   const missing = [];
-  const req = (key, hint) => {
-    const v = ctx.value(key);
-    if (!v) missing.push(hint ? `${key}（${hint}）` : key);
-    return v;
+  const req = (key, hint, value = ctx.value(key)) => {
+    if (!value) missing.push(hint ? `${key}（${hint}）` : key);
+    return value;
   };
+  // chatwoot-prod・mautic-prod が状態に置く値は、状態を先に読む（受信箱やフォームを作り直したとき、prod.conf の古い値を焼かない）
+  const stateFirst = (key) => ctx.state.get(key) || ctx.conf[key];
   const consent = consentValues(ctx);
   const values = {
     SITE_URL: trimUrl(
@@ -299,10 +305,10 @@ function prodValues(ctx) {
       "本番の Strapi のメディアのバケット。onprem/strapi と同じ値",
     ),
     UPLOAD_S3_REGION: ctx.value("UPLOAD_S3_REGION") || "ap-northeast-1",
-    PUBLIC_GA4_MEASUREMENT_ID: req(
-      "GA4_MEASUREMENT_ID",
-      "ga4 モジュールで設定する",
-    ),
+    // 公開サイトが Route 53 から配信される前（段階 apps）は空にする（未設定ならタグを出さない。ga4 モジュールもプロパティの手順を飛ばす）
+    PUBLIC_GA4_MEASUREMENT_ID: ctx.siteRouted
+      ? req("GA4_MEASUREMENT_ID", "ga4 モジュールで設定する")
+      : "",
     PUBLIC_POSTHOG_PROJECT_TOKEN: req(
       "SITE_POSTHOG_PROJECT_TOKEN",
       "本番の PostHog プロジェクトのトークン。phc_ で始まる",
@@ -310,19 +316,26 @@ function prodValues(ctx) {
     PUBLIC_POSTHOG_HOST: trimUrl(
       ctx.value("SITE_POSTHOG_HOST") || "https://us.i.posthog.com",
     ),
+    // 接続先は chatwoot-prod・mcp-prod と同じ CHATWOOT_BASE_URL を既定にする（公開サイトだけ別にするときだけ SITE_CHATWOOT_BASE）
     PUBLIC_CHATWOOT_BASE: trimUrl(
-      ctx.value("SITE_CHATWOOT_BASE") || "https://chat.comegin.com",
+      ctx.value("SITE_CHATWOOT_BASE") ||
+        ctx.conf.CHATWOOT_BASE_URL ||
+        "https://chat.comegin.com",
     ),
     PUBLIC_CHATWOOT_WEBSITE_TOKEN: req(
       "CHATWOOT_WEBSITE_TOKEN",
-      "本番の Chatwoot の受信箱「Web サイト」の website_token",
+      "本番の Chatwoot の受信箱「Web サイト」の website_token。chatwoot-prod が状態に置く（node setup/setup.mjs --target prod --only chatwoot-prod）",
+      stateFirst("CHATWOOT_WEBSITE_TOKEN"),
     ),
     PUBLIC_MAUTIC_BASE: trimUrl(
-      ctx.value("SITE_MAUTIC_BASE") || "https://mkt.comegin.com",
+      ctx.value("SITE_MAUTIC_BASE") ||
+        ctx.conf.MAUTIC_BASE_URL ||
+        "https://mkt.comegin.com",
     ),
     MAUTIC_FORM_ID_CONSULT: req(
       "MAUTIC_FORM_ID_CONSULT",
-      "本番の Mautic のフォーム consult の数値 ID",
+      "本番の Mautic のフォーム consult の数値 ID。mautic-prod が状態に置く（node setup/setup.mjs --target prod --only mautic-prod）",
+      stateFirst("MAUTIC_FORM_ID_CONSULT"),
     ),
     PUBLIC_CALCOM_BASE: trimUrl(
       ctx.value("SITE_CALCOM_BASE") || "https://app.cal.com",
@@ -598,6 +611,9 @@ async function prodStrapiNote(ctx, env) {
       };
 }
 
+const GSC_SKIPPED_BEFORE_ROUTE53 =
+  "GA4 の測定 ID は空で書き（タグを出さない）、Search Console の所有権の確認は飛ばした（段階 apps）。公開サイトが Route 53 から配信されたら node setup/frontend.mjs --target prod --phase google で書き直し、ビルドし直す";
+
 function gscSteps(domain) {
   return [
     `https://search.google.com/search-console を comegin.com の Workspace のアカウントで開き、プロパティを追加 → 「ドメイン」に ${domain} を入れて続行（URL プレフィックスではなくドメインプロパティ。apex と www の両方を覆う）`,
@@ -649,7 +665,8 @@ export async function check(ctx) {
     const strapi = await prodStrapiNote(ctx, env);
     mark(strapi.ok, strapi.text, strapi.text);
     const domain = ctx.value("GSC_DOMAIN") || "comegin.com";
-    if (ctx.value("OPENSEO_SKIP_GSC") !== "yes")
+    if (!ctx.siteRouted) notes.push(GSC_SKIPPED_BEFORE_ROUTE53);
+    else if (ctx.value("OPENSEO_SKIP_GSC") !== "yes")
       mark(
         await gscVerified(domain),
         `Search Console の所有権の TXT が ${domain} にある`,
@@ -773,7 +790,8 @@ export async function apply(ctx) {
 
     // 4. Search Console のドメインプロパティ（OpenSEO が GSC を読む前提。使わないなら OPENSEO_SKIP_GSC=yes）
     const domain = ctx.value("GSC_DOMAIN") || "comegin.com";
-    if (ctx.value("OPENSEO_SKIP_GSC") !== "yes") {
+    if (!ctx.siteRouted) ctx.log(GSC_SKIPPED_BEFORE_ROUTE53);
+    else if (ctx.value("OPENSEO_SKIP_GSC") !== "yes") {
       if (!(await gscVerified(domain)))
         ctx.manual(
           "gsc-domain",

@@ -70,6 +70,16 @@ function buildSignedOAuthQuery(search) {
   return signed.toString();
 }
 
+// ログインのあとに戻る先。元の認可リクエスト（署名などの付加分を除く）で認可エンドポイントを開き直し、ログイン済みとして ALB へ戻す。
+// oauth-provider の after フックが callback で続きを返せばそちらが優先されるが、本番ではそれが効かず / の 404 に落ちたため
+// （2026-10-29）、フックに頼らずに戻れるようにしておく。認可リクエストでないとき（/sign-in を直接開いたとき）は / のまま
+function buildResumeURL(search) {
+  const params = new URLSearchParams(search);
+  if (!params.has("client_id")) return "/";
+  for (const key of ["sig", "exp", "ba_iat", "ba_param", "ba_pl"]) params.delete(key);
+  return "${AUTH_BASE_PATH}/oauth2/authorize?" + params.toString();
+}
+
 button.addEventListener("click", async () => {
   button.disabled = true;
   message.textContent = "";
@@ -80,7 +90,7 @@ button.addEventListener("click", async () => {
       credentials: "same-origin",
       body: JSON.stringify({
         provider: "google",
-        callbackURL: "/",
+        callbackURL: buildResumeURL(window.location.search),
         errorCallbackURL: "/error",
         oauth_query: buildSignedOAuthQuery(window.location.search),
       }),

@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FORM_SUCCESS_EVENT as AVATAR_FORM_SUCCESS_EVENT } from "@/modules/avatar/lib/triggers";
 import {
   dispatchFormSuccess,
   FORM_SUCCESS_EVENT,
   type FormKey,
 } from "@/modules/forms/lib/events";
 
-// dispatchFormSuccess（送信の成功を document に知らせる。受け手はアバターの watchTriggers）。
+// dispatchFormSuccess（送信の成功を document に知らせる汎用の合図。2026-10-29 に受け手だった画面の端のアバターは無くなった）。
 // 計測（PostHog）は外部なのでモックする。document は EventTarget の偽物にする。
 vi.mock("@/modules/analytics/client", () => ({ track: vi.fn() }));
 
@@ -29,9 +28,8 @@ describe("dispatchFormSuccess", () => {
       expect(received).toEqual(["consult"]);
     });
 
-    it("送り手（forms）の定数と受け手（avatar の triggers）の定数が同じ値", () => {
+    it("合図の名前は comegin:form-success", () => {
       expect(FORM_SUCCESS_EVENT).toBe("comegin:form-success");
-      expect(AVATAR_FORM_SUCCESS_EVENT).toBe(FORM_SUCCESS_EVENT);
     });
   });
 

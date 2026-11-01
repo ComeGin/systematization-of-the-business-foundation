@@ -12,7 +12,7 @@
  * - 5 秒を超えて自動で動くので、一時停止のボタンを右下に 1 つだけ置く（MotionPauseFor。storageKey は MotionBlobs と共有の motion:cta-blobs）。
  *   target は CTA バナーの aside（bannerId）。押すと aside に data-motion-paused が付き、global.css の規則で光の縁・粒の animation が止まり、
  *   MotionBlobs（externalPause）は同じ属性を MutationObserver で読んで粒を止める。1 つのボタンで両方が止まり、ボタンは 1 つだけ。
- * - 動く層は、止める手段のボタンが水和して出る（aside に data-motion-ready="true" が付く）まで見せず、動かさない（HeroBackdrop と同じ。2.2.2）。
+ * - 動く層は、止める手段のボタンが水和して出る（aside に data-motion-ready="true" が付く）まで見せず、動かさない（2.2.2）。
  * - 根は流れに入らない absolute inset-0 で、クリックを受けない。文字とボタンの列（relative z-[1]）の下に回る。装飾は aria-hidden。
  *   一時停止のボタンだけが aria-hidden の外にあり、DOM の最後（CTA の後）。
  * - 根の data-motion="cta-glow" は部品の印。B（calm）のページには置かない（光り物を出さない）。

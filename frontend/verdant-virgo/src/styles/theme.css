@@ -82,3 +82,38 @@
   --ring: var(--color-role-focus-ring);
   --radius: var(--radius-md);
 }
+
+/*
+ * アトリエ（ヒーロー第 2 版）の時間帯のトークン（spec §5.3「デザインシステムに精錬」A-1）。
+ * <html data-atelier-phase> は BaseLayout の head の inline script が最初の描画の前に付ける（端末の現地時刻。1 回の訪問の中では固定）。
+ * 属性が無いとき（JS なし）は昼。--atelier-veil は文字の後ろの覆い（不透明の色。実際の覆いは 84% で重ね、白い絵の上でも 4.5:1 を保つ）、
+ * --atelier-tip-* は Tips の札、--atelier-glow は置き物の縁の光（three の setHover が読む）。
+ */
+:root {
+  --atelier-veil: #0b1a33;
+  --atelier-tip-bg: #ffffff;
+  --atelier-tip-text: #10203a;
+  --atelier-tip-muted: #45536b;
+  --atelier-glow: #ffd7a1;
+}
+:root[data-atelier-phase="morning"] {
+  --atelier-veil: #10223c;
+  --atelier-tip-bg: #fbfaf6;
+  --atelier-tip-text: #13243d;
+  --atelier-tip-muted: #4a566a;
+  --atelier-glow: #ffe2b8;
+}
+:root[data-atelier-phase="dusk"] {
+  --atelier-veil: #24142a;
+  --atelier-tip-bg: #fff6ee;
+  --atelier-tip-text: #2a1626;
+  --atelier-tip-muted: #5d4552;
+  --atelier-glow: #ffb47a;
+}
+:root[data-atelier-phase="night"] {
+  --atelier-veil: #050a1c;
+  --atelier-tip-bg: #0f1834;
+  --atelier-tip-text: #f2f5ff;
+  --atelier-tip-muted: #b8c2dc;
+  --atelier-glow: #ffcf8a;
+}

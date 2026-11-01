@@ -32,6 +32,7 @@ type RevealRecord = {
   named: string[];
 };
 
+
 /** 1 ページの中の view-transition-name（none・auto 以外）の一覧（computed）。DOM の順 */
 const computedNamesScript = () =>
   [...document.querySelectorAll<HTMLElement>("*")]

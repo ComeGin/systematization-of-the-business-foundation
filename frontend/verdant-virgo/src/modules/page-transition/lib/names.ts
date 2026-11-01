@@ -6,6 +6,8 @@ export const VT = {
   articleTitle: "vt-article-title",
   articleMedia: "vt-article-media",
   contactTitle: "vt-contact-title",
+  /** トップのアトリエ（AtelierHero の根）→ 下層ページの冒頭の静止画（AtelierStill の根）。遷移の間だけ付ける（2026-10-29） */
+  atelier: "vt-atelier",
 } as const;
 
 export type VtMap = typeof VT;

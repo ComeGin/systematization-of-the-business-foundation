@@ -4,6 +4,8 @@
 それ以外の操作に当たると、**手順を表示して止まる**（終了コード 3）。この文書は、その操作をまとめたもの。
 操作が終わったら、**同じコマンドを実行し直す**。済んだ手順は飛ばして、続きから進む。
 
+**スクリプトが止まらない（確かめない）人の作業もある**（公開サイトのビルドと配信、オンプレの WireGuard・Strapi・n8n の立ち上げの手順そのものなど。SES や SNS の購読のように警告だけで止めないものもある）。全体の順番と一覧は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md)。
+
 パスはリポジトリのルートからの相対。画面の表記は、各製品の開発環境の言語（Mautic・n8n は英語）に合わせてある。
 画面の表記は 2026-10-05 に各製品のソース（翻訳ファイル）で確かめた。版が上がって表記が変わっていたら、この文書を直す。
 
@@ -33,7 +35,21 @@
 | （verdant-virgo の失敗）`PUBLIC_GA4_MEASUREMENT_ID` がある | 開発の Astro の環境変数ファイルに測定 ID が書かれている | ga4 と同じ。その行を消して `node setup/frontend.mjs --target dev --from verdant-virgo` | [7.5](#75-ga4adr-25) |
 | `verdant-virgo:prod-values`（`--target prod`） | 本番の公開サイトのビルドの値が `prod.conf` に足りない（ビルドを行う承認済みの `main` のチェックアウト `SITE_BUILD_CHECKOUT` が無い・作業ツリーと同じときは失敗として止まる） | 表示されたキーを `prod.conf` に書く（雛形は `setup/setup.conf.example` の「公開サイト」） | `setup/README.md` の「フロントエンド全体」 |
 | `verdant-virgo:gsc-domain`（`--target prod`） | `comegin.com` に Search Console の所有権の TXT が無い | Search Console にドメインプロパティを登録し、Route 53 に TXT を足す（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
+| `cloud:env`（`--target prod`。段階 `env`） | 道具・AWS の認証・`cloud/samconfig.toml` の必須の値が足りない | 道具を入れる／`aws sso login` など／`samconfig.toml` を雛形から作って値を書く | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:rollback`／`cloud:leftovers`（段階 `deploy`） | 本番スタックの初回の作成が失敗して戻された／戻されずに残ったリソースがある | スタックを消す／表示されたコマンドで残りを消す | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:global`／`cloud:cloudfront-params`／`cloud:sam-deploy`（段階 `deploy`） | global・本番のスタックが無い・失敗している／CloudFront の 2 つのパラメータが雛形のまま | `sam deploy --config-env global`／表示された ARN を書く／`sam build` → `sam deploy` | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:secrets`（段階 `deploy`） | `admin-auth/GOOGLE_CLIENT_SECRET` に値が無い | シェルの履歴に残らない方法で `put-secret-value` | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:push`（段階 `images`） | 本番スタックのイメージのタグが ECR に無い | 表示されたコマンドでビルドしてプッシュする | [8.5](#85-aws-のデプロイcloud) |
+| `cloud:db-init`（段階 `apps` の最初） | DB 作成のタスクが、今の本番スタックの作成の後に成功したログが無い | `db-init-postgres`・`db-init-mysql` を RunTask する | [8.5](#85-aws-のデプロイcloud) |
+| `chatwoot-prod:ecs`（`--target prod`） | `chatwoot-web`・`chatwoot-worker` の DesiredCount（親のパラメータ）が 0 | `db:chatwoot_prepare` の RunTask → `samconfig.toml` に台数を書いて `sam deploy` | [8.3](#83-本番の-chatwootchatwoot-prod) |
+| `mautic-prod:ecs-web`／`mautic-prod:ecs-cron`（`--target prod`） | `mautic-web` の DesiredCount が 0（インストールの前）／`mautic-cron` が 1 でない（初期設定の後） | `samconfig.toml` に台数を書いて `sam deploy` | [8.4](#84-本番の-mauticmautic-prod) |
+| `n8n-prod:mautic-api-credentials`／`n8n-prod:chatwoot-admin-token`／`n8n-prod:aws-key`（`--target prod`） | n8n 用の Mautic の API 認証情報が無い・ほかの用途と同じ値／Chatwoot の管理者のトークンが無い／SNS 用の IAM のキーが無い・そのユーザーのものでない | Mautic の画面で作る／`CHATWOOT_ADMIN_TOKEN` を書く／キーを発行して書く | [8.6](#86-本番の-n8nn8n-prod) |
+| `n8n-prod:owner-password`／`n8n-prod:owner-login`／`n8n-prod:mcp-token`（`--target prod`） | 本番の n8n に、スクリプトが作っていないオーナー・MCP のトークンが既にある | 開発の 3.5・4 と同じ（キーは `prod.conf` の `N8N_OWNER_PASSWORD`・`N8N_PROD_TOKEN`・`N8N_MCP_ROTATE`） | [8.6](#86-本番の-n8nn8n-prod) |
 | `onprem:onprem-bringup`（`--target prod`） | 本番のオンプレ | AWS のデプロイの後 | [8](#8-本番--target-prod) |
+| `admin-auth:prod-deploy`／`admin-auth:prod-migrate`（`--target prod`） | 本番の admin-auth の discovery が応答しない／運用の Lambda での移行と ALB の登録を申告していない | 段階 `deploy`（`--phase deploy`）を済ませる／`admin-auth-ops` に `migrate`・`register-alb-client` を送り、`ADMIN_AUTH_PROD_READY=yes` を書く | [8.1](#81-本番の-admin-auth) |
+| `chatwoot-prod:onboarding`／`chatwoot-prod:faq-bot-secrets`（`--target prod`） | 本番の Chatwoot の管理者・エージェント専用ユーザーのトークンが無い／FAQ ボットのトークンを Secrets Manager に入れたと申告していない | 画面の onboarding とエージェントの招待をしてトークンを書く／表示されたコマンドで Secrets Manager に入れて `FAQ_BOT_SECRETS_STORED=yes` | [8.3](#83-本番の-chatwootchatwoot-prod) |
+| `mautic-prod:settings`（`--target prod`） | 本番の Mautic が未インストール・API が無効・画面の設定を申告していない・初期設定用の API 認証情報が無い | インストールして画面で設定し、`MAUTIC_SETUP_CLIENT_*` と `MAUTIC_PROD_SETTINGS_DONE=yes` を書く | [8.4](#84-本番の-mauticmautic-prod) |
+| `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く | [8.2](#82-本番の-mcpmcp-prod) |
 
 ## 1. 設定ファイルの書き方（全節で共通）
 
@@ -219,7 +235,9 @@ Claude Console（https://platform.claude.com）で API キーを作り、`dev.co
 
 OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・ループバックだけ）は、調査とランク追跡に DataForSEO（費用が出る）を、実績の取得に Google Search Console と GA4 を使う。スクリプトは環境変数ファイルを作って起動し、`/api/health` の `checks` を見て、足りないものだけを案内する。
 
-**`--target dev` では Google（OAuth クライアント・Search Console・GA4）の手順を飛ばす**（2026-10-06）。開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いため。dev で案内するのは DataForSEO だけで、check も Google の接続を求めない。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使うので、**AWS に展開した後に `node setup/setup.mjs --target prod --only ga4,openseo` で Google の手順を行う**（値は `~/.config/comegin/setup/prod.conf` に書く）。dev の実行は Google の OAuth クライアントを OpenSEO の環境変数ファイルに書かない（prod で設定したクライアントを `dev.conf` の `GOOGLE_CLIENT_ID`〈admin-auth 用〉で上書きしないため）。
+**`--target dev` では Google（OAuth クライアント・Search Console・GA4）の手順を飛ばす**（2026-10-06）。開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いため。dev で案内するのは DataForSEO だけで、check も Google の接続を求めない。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使うので、**公開サイトが Route 53 から配信された後に `node setup/setup.mjs --target prod --phase google` で Google の手順を行う**（値は `~/.config/comegin/setup/prod.conf` に書く）。dev の実行は Google の OAuth クライアントを OpenSEO の環境変数ファイルに書かない（prod で設定したクライアントを `dev.conf` の `GOOGLE_CLIENT_ID`〈admin-auth 用〉で上書きしないため）。
+
+**prod の `ga4`・`openseo` は段階 `google` だけで動く**（2026-10-27。`setup/README.md` の「本番の段階」）。AWS に展開しても、公開サイト（Astro）が Route 53 から配信されるまでは Search Console にも GA4 にもデータが無いため、`--phase` を付けない実行（`env`〜`apps`）には入らない。
 
 | 表示の id | すること |
 |---|---|
@@ -237,7 +255,7 @@ Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_G
 
 アクセス解析（流入・ページ・参照元）の正本は GA4（ADR-25）。エージェント（`analytics-reporter`）は OpenSEO の MCP（`get_google_analytics_*`）で読む。**プロパティは本番の 1 つだけ**で、開発環境の公開サイトには測定 ID を設定しない（開発ではタグを出さない）。構成の正本は `middleware/ga4/README.md`。
 
-**`--target dev` では、本番のプロパティの作成（`ga4:property`）と OpenSEO への接続（`openseo:ga4-connect`）を飛ばす**（2026-10-06。7.4 と同じ理由）。dev の `ga4` が確かめるのは「開発の Astro に測定 ID が無いこと」だけ。下の 2 つは AWS に展開した後に `--target prod --only ga4,openseo` で行い、値は `prod.conf` に書く。
+**`--target dev` では、本番のプロパティの作成（`ga4:property`）と OpenSEO への接続（`openseo:ga4-connect`）を飛ばす**（2026-10-06。7.4 と同じ理由）。dev の `ga4` が確かめるのは「開発の Astro に測定 ID が無いこと」だけ。下の 2 つは公開サイトが Route 53 から配信された後に `--target prod --phase google` で行い、値は `prod.conf` に書く。それまで（段階 `apps`）は公開サイトの `.env.production` に測定 ID を空で書く（タグを出さない）。配信の後に `setup.mjs --target prod --phase google` と `frontend.mjs --target prod --phase google` を実行し、ビルドし直す（2026-10-27）。
 
 | 表示の id | すること |
 |---|---|
@@ -250,7 +268,87 @@ OAuth の同意画面が「テスト中」のままだと、更新トークン�
 
 ## 8. 本番（`--target prod`）
 
-いまは枠だけ。設定は `~/.config/comegin/setup/prod.conf`（雛形は同じ `setup/setup.conf.example`）。`ga4`・`openseo` は prod でも動き、**Google の手順（`ga4:property`・`openseo:google-oauth-client`・`openseo:gsc-connect`・`openseo:ga4-connect`）は prod だけで出る**（7.4・7.5。AWS に展開して公開サイトが動いてから）。`onprem` は、AWS のデプロイ（`cloud/README.md`）の後に WireGuard → Strapi → n8n の順で人が立ち上げる手順を表示する。手順の正本は `onprem/README.md` と `onprem/wireguard/README.md`。
+設定は `~/.config/comegin/setup/prod.conf`（雛形は同じ `setup/setup.conf.example`）。本番でスクリプトが行うのは、外部の値の形式の確認（GA4）・OpenSEO・admin-auth の確認・オンプレの確認・本番の Chatwoot と Mautic の API でできる初期設定・本番の MCP の env ファイルまで。画面でしかできないことと AWS への書き込みは、案内して止まる。`ga4`・`openseo` は prod でも動き、**Google の手順（`ga4:property`・`openseo:google-oauth-client`・`openseo:gsc-connect`・`openseo:ga4-connect`）は prod だけで出る**（7.4・7.5。AWS に展開して公開サイトが動いてから）。`onprem` は、AWS のデプロイ（`cloud/README.md`）の後に WireGuard → Strapi → n8n の順で人が立ち上げる手順を表示する。手順の正本は `onprem/README.md` と `onprem/wireguard/README.md`。
+
+### 8.1 本番の admin-auth
+
+`admin-auth` は、本番の discovery（`https://auth.comegin.com/.well-known/openid-configuration`。ほかのホストなら `prod.conf` の `AUTH_HOST`）を読んで確かめるだけで、AWS には書き込まない。DB の移行と ALB のクライアント登録は、表示された手順のとおり、人が自分の端末で運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` と `{"action":"register-alb-client"}` を送る（`cloud/README.md` の 4.19）。管理画面に Google でログインできたら `ADMIN_AUTH_PROD_READY=yes` を書く（移行の有無は DB の中にあり、外から読み取りだけでは確かめられないため申告制）。
+
+### 8.2 本番の MCP（`mcp-prod`）
+
+`ops/mcp-registry.yaml` の本番の登録 6 つの env ファイル（`~/.config/comegin/mcp/<名前>` の env ファイル、600）を `prod.conf` から書く。**Chatwoot・Strapi・n8n・PostHog はエージェント専用のアカウントで発行する**（人間の管理者のトークンを使わない。ADR-17。操作の主体と権限を分けるため）。
+
+**Mautic は例外**: Mautic の API 認証情報は、だれのものでも上流の権限は管理者になる（client_credentials は管理者が作ったときだけ付き、ロールは作った人のものが付く。2026-10-27 に上流の ApiBundle の ClientController で確認）。エージェント用（`mcp-prod`）と analytics-reporter 用（`mcp-prod-ro`）の違いは、MCP サーバの ACCESS_LEVEL（登録表）とエージェント定義の tools の許可リストだけで、Mautic 側では絞れない。認証情報を 2 つに分けるのは、片方を失効・入れ替えしても、もう片方を止めないため。
+
+| `prod.conf` のキー | 発行するところ | 注意 |
+|---|---|---|
+| `CHATWOOT_AGENT_TOKEN`・`CHATWOOT_ACCOUNT_ID` | 本番の Chatwoot で、エージェント専用のユーザー（担当者の権限）を作ってログインし、プロフィール設定のアクセストークン | 担当者（agent）の権限でないと失敗にする（`chatwoot-prod` と同じ）。管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）と同じ値も失敗にする |
+| `MAUTIC_CLIENT_ID`・`MAUTIC_CLIENT_SECRET` | 本番の Mautic の 設定 > API 認証情報（OAuth 2。**管理者がログインして作る**。名前は `comegin-prod-mcp` など）。2 節と同じ手順 | 上流の権限は管理者。初期設定用（`MAUTIC_SETUP_CLIENT_*`）と同じ値は失敗にする |
+| `MAUTIC_RO_CLIENT_ID`・`MAUTIC_RO_CLIENT_SECRET` | 同じ画面で、もう 1 つ作る（`mautic-prod-ro`。analytics-reporter 専用。名前は `comegin-prod-mcp-ro` など） | 上流の権限は管理者（読み取りだけに絞るのは ACCESS_LEVEL の `read_only`）。`mautic-prod` と同じ値は失敗にする |
+| `STRAPI_PROD_TOKEN` | オンプレの本番の Strapi（`127.0.0.1:1338`）の管理画面で、MCP 用の Admin トークン（**下書きまで**。公開・非公開化・削除の権限を与えない） | `tools/list` に `publish_`・`unpublish_`・`delete_` が出たら失敗にする |
+| `N8N_PROD_TOKEN` | オンプレの本番の n8n（`127.0.0.1:5679`）の 設定 > MCP のアクセストークン | n8n のトークンでは `publish_workflow`・`execute_workflow` を絞れない。これらを tools に含むエージェント定義は control-plane が起動しない（警告も出る） |
+| `POSTHOG_PROD_API_KEY`・`POSTHOG_PROD_PROJECT_ID` | PostHog の個人 API キー（「MCP Server」のプリセットで、本番のプロジェクトの読み取りだけ）とプロジェクトの数値 ID | `phx_` で始まる個人 API キー（プロジェクトのトークン `phc_` ではない） |
+
+確かめるのはデータの読み取りだけ（Chatwoot の `/api/v1/profile`、Mautic の client_credentials と連絡先 1 件、Strapi と n8n の MCP の `tools/list`）。`--check` でも、認証のための Mautic のトークンの発行と MCP のセッションの作成・終了は行う。env ファイルの中身が `prod.conf` と違えば `--check` が知らせる（apply で書き直す）。n8n の MCP のトークンでは公開・実行のツールを絞れないので、それらを tools に含むエージェント定義は control-plane が起動しない（`backend/control-plane/src/runner/agent.ts`）。`chatwoot-prod`・`mautic-prod*` は承認済みの main のチェックアウト（`CONTROL_MAIN_CHECKOUT`）の `dist` で動くので、そこで `pnpm install && pnpm build` が済んでいないか、chatwoot-mcp がアンダースコアのヘッダーで送る古い版（2026-10-26 より前）だと案内が出る（main を最新にしてビルドし直す。6 節）。
+
+### 8.3 本番の Chatwoot（`chatwoot-prod`）
+
+開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`）に向けて行う。本番は `rails runner` を使わないので、最初の 2 人は画面で作る。画面の操作・コマンド・止まったときの見方の詳細は `cloud/README.md` の 4.17 の 1〜3。
+
+1. `cloud/README.md` の 4.17 の「前提」のとおり、`db:chatwoot_prepare` を済ませ、chatwoot-web → chatwoot-worker の順に起動しておく（4.10・4.11）
+2. `https://chat.comegin.com` を開き（admin-auth の Google ログインの内側）、onboarding で最初の管理者とアカウントを作る。管理者のプロフィール設定のアクセストークンを `CHATWOOT_ADMIN_TOKEN=`、URL の `/app/accounts/<数字>/` を `CHATWOOT_ACCOUNT_ID=` に書く
+3. 設定 → 担当者（英語の画面では Settings → Agents）の「担当者を追加」で、エージェント専用ユーザー（担当者の権限）を招待し、招待メールからパスワードを決めてログインする。そのユーザーのトークンを `CHATWOOT_AGENT_TOKEN=` に書く（`mcp-prod` と共用。ADR-17）
+4. 親スタックの出力 `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を `FAQ_BOT_WEBHOOK_URL=`、本番の公開サイトの URL を `PUBLIC_SITE_URL=` に書いて、`node setup/setup.mjs --target prod --only chatwoot-prod` を実行する
+5. 止まったら、表示されたコマンドで FAQ ボットの access_token と secret を Secrets Manager に入れ（値は画面に出さず、パイプで渡す）、案内に出るトークンの指紋（SHA-256 の先頭 8 文字。秘密値ではない）を `FAQ_BOT_SECRETS_STORED=<指紋>` に書いて実行し直す。ボットが作り直されてトークンが変わると指紋が合わなくなり、もう一度入れるよう案内される
+
+管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）は `prod.conf` だけに置き、状態ファイルには写さない。初期設定が終わったら `prod.conf` から消してよい（その後の `chatwoot-prod` は止まって案内する）。
+
+ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（本人のトークンでしか変えられない。`cloud/README.md` の 4.17 の 5）。
+
+### 8.4 本番の Mautic（`mautic-prod`）
+
+開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
+
+- インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
+- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈8.2〉。初期設定が終わったら画面で消してよい）
+- 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
+
+画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`docs/runbooks/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。
+API 認証情報は、歯車 → API Credentials → New で Authorization Protocol `OAuth 2`・Redirect URI `https://localhost`（必須の欄だが client_credentials では使わない）。一覧の Public Key がクライアント ID、Secret Key がシークレット。`prod.conf` は `chmod 600` にする。
+
+Mautic と Chatwoot から n8n（I-11・I-12）への Webhook は、オンプレの本番の n8n の provision が作る（`middleware/n8n/provision`。宛先は `http://10.99.0.2:5680/webhook/...`）。
+
+### 8.5 AWS のデプロイ（`cloud`）
+
+本番の段階 `env`・`deploy`・`images` は `cloud`（`cloud/setup/index.mjs`）が受け持つ（`setup/README.md` の「本番の段階」）。AWS には読み取り（`sts get-caller-identity`・`cloudformation describe-stacks`・`ecr describe-images`・`secretsmanager describe-secret`）しか行わず、デプロイ・プッシュ・Secret の値の書き込みは人が自分の端末で行う（`cloud/README.md` の 2 節）。`samconfig.toml` の値と Secret の値は表示しない。
+
+| 表示の id | すること |
+|---|---|
+| `cloud:env` | AWS CLI・SAM CLI（1.154 以上）・Docker・pnpm 11 を入れる。AWS の認証は `AWS_PROFILE` か `aws sso login`（アカウントが既定の `798560359429` でなければ止まる。別のアカウントに出すなら `prod.conf` の `AWS_ACCOUNT_ID`）。`cp cloud/samconfig.toml.example cloud/samconfig.toml`（600）にして、`RunLogAdminPrincipalArns`・`GoogleClientId`・`AdminBootstrapEmails` を書く（CloudFront の 2 つは次の段階で書く） |
+| `cloud:global` | `cd cloud && sam deploy --config-env global`（`cloud/README.md` の 4.1） |
+| `cloud:cloudfront-params` | 表示された global の出力（`CertificateArn`・`WebAclArn`）を `samconfig.toml` の `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く |
+| `cloud:sam-deploy` | `cd cloud && sam build`（必須）→ `sam deploy`（4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
+| `cloud:rollback` | 本番スタックが `ROLLBACK_COMPLETE`（初回の作成が失敗して戻された。更新できない）。イベントで原因を確かめてテンプレートを直し、`aws cloudformation delete-stack` → `wait stack-delete-complete` で消す（入れ子のスタックの Validation failure は `aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true` で見る） |
+| `cloud:leftovers` | 本番スタックが無いのに、固定の名前の Retain のリソース（SNS 2・`comegin/prod/*` の Secret・runlog-archive の S3・ECR 2）が残っている。作成の失敗で戻されずに残ったもので、そのままでは `sam deploy` が名前の衝突で失敗する。中身が空なのを確かめてから、表示されたコマンドで消す（Secret は `--force-delete-without-recovery`。データがあるなら消さずに止まって、リソースのインポートを考える）。2026-10-27 の初回のデプロイで起きた |
+| `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は警告だけで、Chatwoot・Mautic の DesiredCount を上げる前（4.11）に入れる。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
+| `cloud:db-init` | 段階 `apps` の最初。`cloud/README.md` の 4.8 の手順で `comegin-prod-db-init-postgres` と `comegin-prod-db-init-mysql` を RunTask する（ログの最後が `db-init-<engine>: done`）。スクリプトはロググループ `/comegin/prod/tasks` を、今の本番スタックの作成の後に絞って読み、見つけたら状態に残す（ログは 30 日で消えるため。スタックを作り直すとパスワードが変わるので確かめ直す）。同じ段階で、global の 2 回目・SNS の購読（`--authenticate-on-unsubscribe` 付きか）・SES の本番アクセスと DKIM・MAIL FROM・`comegin.com` の DMARC（無い・厳しい照合）・WireGuard の AMI の固定・オンプレの IAM ユーザーのキー・SMTP の Secret を読み、済んでいなければ警告する（止めない） |
+| `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
+
+### 8.6 本番の n8n（`n8n-prod`）
+
+オンプレの本番の n8n（`http://127.0.0.1:5679`。`onprem/n8n`）に、開発の `n8n` と同じ手順でオーナー・公開 API のキー・MCP のトークンを用意し、provision（`middleware/n8n/provision`）を `--target prod` で行う（2026-10-28 から設定スクリプトに入った。以前は provision を別に実行していた）。`onprem`・`chatwoot-prod`・`mautic-prod` の後に動く。
+
+| 表示の id | すること |
+|---|---|
+| `n8n-prod:mautic-api-credentials` | 本番の Mautic に管理者でログインし、設定 > API 認証情報 で OAuth 2 の認証情報を **n8n 用に別に** 作る（名前 `comegin-prod-n8n`。2 節と同じ手順）→ `N8N_MAUTIC_CLIENT_ID=`・`N8N_MAUTIC_CLIENT_SECRET=`。エージェント用（`MAUTIC_CLIENT_*`）・参照専用（`MAUTIC_RO_CLIENT_*`）・初期設定用（`MAUTIC_SETUP_CLIENT_*`）と同じ値は失敗にする（片方を失効しても、もう片方を止めないため。8.2） |
+| `n8n-prod:chatwoot-admin-token` | `CHATWOOT_ADMIN_TOKEN=`（8.3 と同じ値。Webhook を作る・secret をそろえるのに要る。初期設定の後に消したなら、この実行の間だけ戻す）。週次の棚卸し用に、会話を読むだけのユーザーのトークンを `CHATWOOT_N8N_API_TOKEN=` に書くのを勧める（空なら管理者のトークンが n8n に入り、警告が出る） |
+| `n8n-prod:aws-key` | IAM ユーザー `comegin-prod-onprem-n8n-sns` のアクセスキーを発行して `AWS_ACCESS_KEY_ID=`・`AWS_SECRET_ACCESS_KEY=` に書く（`cloud/README.md` の 4.5。表示されたコマンドでリポジトリの外の `~/n8n-sns.key` に直接書き、写したら `shred -u ~/n8n-sns.key`）。スクリプトは、そのキーがこのユーザーの有効なキーかを `iam list-access-keys` で確かめる（強い権限の別のキーを n8n に入れさせない） |
+
+- オーナーは、未作成ならスクリプトが作る（メールは `ADMIN_EMAIL`、パスワードは `--target prod --show N8N_OWNER_PASSWORD`）。先に画面で作ったなら、`prod.conf` に `N8N_OWNER_PASSWORD=` を書く（3.5 と同じ）。
+- MCP のトークンは prod の状態の `N8N_PROD_TOKEN` に入り、続く `mcp-prod` が `~/.config/comegin/mcp/n8n-prod.env` に書く。画面で作ったトークンがあるなら、その値を `prod.conf` の `N8N_PROD_TOKEN=` に書くか、`N8N_MCP_ROTATE=true`（4 節と同じ）。
+- SNS のトピックの ARN は本番スタックの出力から読む（書かなくてよい）。Mautic・Chatwoot の Webhook の送り先は `http://10.99.0.2:5680/webhook/...`（WireGuard 越し）。
+- **親（I-11・I-12）は未公開のまま**取り込む。公開は R1 の判断で、`prod.conf` に `N8N_PUBLISH_PARENTS=true` を書いて再実行する。
+- **ハートビート**: アラーム `comegin-prod-onprem-n8n-schedule-heartbeat` が OK でなければ警告が出る。n8n の画面で Data Table `ops_settings` の `heartbeatEnabled` を `true` にし、「n8n スケジュール実行のハートビート」を公開する（`middleware/n8n/workflows/GUIDE.md` の 9.7・`cloud/README.md` の 4.10）。
 
 ## 9. ログイン先の一覧
 

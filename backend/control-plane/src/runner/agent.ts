@@ -25,6 +25,12 @@ import { parseAgentOutput } from "./output.js";
 
 const SHELL_TOOLS = ["Bash", "PowerShell"] as const;
 const MCP_TOOL = /^mcp__[a-z][a-z0-9-]*__\S+$/;
+// 本番で人間だけが行う操作（TA-07 の 3.3・ADR-17）。MCP のトークンでは絞れない（n8n）か、絞り忘れが起きうる（Strapi）ので、
+// これらを tools に含む定義は起動しない（エージェント定義の許可リストだけに頼らない）
+const HUMAN_ONLY_PROD_TOOLS = [
+  /^mcp__n8n-prod__(publish_workflow|unpublish_workflow|execute_workflow|archive_workflow)$/,
+  /^mcp__strapi-prod__(publish|unpublish|delete)_/,
+];
 const CONVERSATION_TARGET_PREFIX = "chatwoot-conversation:";
 const MAX_TOOL_TARGETS = 200;
 
@@ -95,6 +101,10 @@ export async function runAgent(input: AgentRunInput): Promise<RunResult> {
   const badMcp = definition.tools.filter((tool) => tool.startsWith("mcp__") && !MCP_TOOL.test(tool));
   if (badMcp.length > 0) {
     return failure("エージェント定義の MCP ツール名が不正のため起動しなかった", "invalid_response");
+  }
+  const humanOnly = definition.tools.filter((tool) => HUMAN_ONLY_PROD_TOOLS.some((pattern) => pattern.test(tool)));
+  if (humanOnly.length > 0) {
+    return failure(`エージェント定義に本番で人間だけが行う操作のツールが含まれるため起動しなかった（${humanOnly.join(", ")}）`, "invalid_response");
   }
   const { builtin, mcpServers: serverNames } = splitTools(definition.tools);
 

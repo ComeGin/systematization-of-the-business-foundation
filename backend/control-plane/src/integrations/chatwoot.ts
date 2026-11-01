@@ -45,7 +45,8 @@ export class ChatwootReader {
     const result = await fetchJson<unknown>({
       upstream: "chatwoot",
       url: `${this.config.baseUrl}/api/v1/accounts/${this.config.accountId}${path}`,
-      init: { headers: { api_access_token: this.config.apiToken, Accept: "application/json" } },
+      // ヘッダーはハイフンの綴り（本番の ALB の drop_invalid_header_fields はアンダースコアを含むヘッダーを捨てる。Chatwoot はどちらでも読む）
+      init: { headers: { "api-access-token": this.config.apiToken, Accept: "application/json" } },
       timeoutMs: CONTROL_TIMEOUT_SEC.chatwootRead * 1000,
       signal: this.signal,
       firstRequest: this.first,

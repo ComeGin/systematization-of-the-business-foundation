@@ -258,7 +258,7 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 
 ### B7. GA4 と Search Console の接続（AWS に展開した後。2026-10-06 に A1b から移した。ADR-25）
 
-開発環境（`--target dev`）では Google の手順を飛ばす（A1b）。公開サイトを AWS に展開してから、`node setup/setup.mjs --target prod --only ga4,openseo` で行う。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使う。値は `~/.config/comegin/setup/prod.conf` に書く。Search Console の OAuth クライアントと接続（`openseo:google-oauth-client`・`openseo:gsc-connect`）も同じ実行で案内される（`setup/manual-steps.md` の 7.4）。
+開発環境（`--target dev`）では Google の手順を飛ばす（A1b）。公開サイトを AWS に展開して Route 53 から配信してから、`node setup/setup.mjs --target prod --phase google` で行う（2026-10-27 に本番の設定スクリプトを段階に分けた。`setup/README.md` の「本番の段階」）。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使う。値は `~/.config/comegin/setup/prod.conf` に書く。Search Console の OAuth クライアントと接続（`openseo:google-oauth-client`・`openseo:gsc-connect`）も同じ実行で案内される（`setup/manual-steps.md` の 7.4）。
 
 **あなたの作業（GA4 のプロパティ。本番の 1 つだけ）**
 - [ ] GA4 で本番のプロパティを作る（タイムゾーン `Asia/Tokyo`・通貨 `JPY`・データ保持 14 か月・Google シグナル オフ・広告のリンクなし・ユーザー提供データの収集 オフ）。Web のデータストリームを作り、測定 ID（`G-…`）を得る
@@ -273,7 +273,7 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 出典: `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`（API の有効化・リダイレクト URI・Connect with Google・トークンは Better Auth の account テーブルに暗号化して保存）、`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`（スコープは `analytics.readonly`）。
 
 **Claude の作業**
-- `node setup/setup.mjs --target prod --check --only ga4,openseo` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、`OPENSEO_GSC_CONNECTED` か `OPENSEO_SKIP_GSC`、`OPENSEO_GA4_CONNECTED` か `OPENSEO_SKIP_GA4` がある）
+- `node setup/setup.mjs --target prod --phase google --check` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、`OPENSEO_GSC_CONNECTED` か `OPENSEO_SKIP_GSC`、`OPENSEO_GA4_CONNECTED` か `OPENSEO_SKIP_GA4` がある）
 - Claude Code から `mcp__openseo__get_google_analytics_measurement_health` を `comegin.com` のプロジェクトで呼び、**接続済み（`not_connected` でない）**ことと、選んだのが本番のプロパティであることを確かめる（無料。費用の出るツールは呼ばない）
 - `I-05`（本番のタグ）が通るまではデータが無いのが正常（`empty_but_ok`。DD-03 の 5.2）
 

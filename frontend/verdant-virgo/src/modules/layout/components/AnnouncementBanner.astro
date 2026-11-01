@@ -6,6 +6,8 @@
  * 本文は「…」で省かず折り返す（拡大・狭い幅でも全文を読めるように。WCAG 1.4.4・1.4.10）。
  * リンクは slot="cta" に CTAButton（variant="link"・icon="arrow-right"・iconPosition="end"）を置く。
  * 文言はすべて props で渡す（既定値を持たない。H-16）。
+ * 動き（2026-10-28。ヒーローの作り直しの Task 11）: リンクの矢印は hover・キーボードのフォーカスで右へ 4px。バッジには読み込みの時に 1 回だけ光が流れる
+ * （1 回で終わるので一時停止のボタンは要らない。2.2.2）。reduced-motion ではどちらも動かさない。
  */
 import { Badge } from '@/components/ui/badge';
 
@@ -21,12 +23,50 @@ interface Props {
 const { badge, text, shortText } = Astro.props;
 ---
 
-<div class="border-b border-border bg-surface-subtle">
+<div data-announcement class="border-b border-border bg-surface-subtle">
   <div class="site-container flex items-center justify-center gap-2 py-2 md:gap-3">
-    <Badge variant="accent" className="hidden md:inline-flex">{badge}</Badge>
+    <Badge variant="accent" className="announcement__badge relative hidden overflow-hidden md:inline-flex">{badge}</Badge>
     <p class="type-ui-text phrase hidden text-text-body md:block md:min-w-0">{text}</p>
     {/* Mobile は短い本文（§4.1 の 1-1）。390px では 1 行に収まる長さで、幅が足りない・拡大したときは折り返す */}
     <p class="type-ui-text phrase min-w-0 text-text-body md:hidden">{shortText}</p>
     <div class="shrink-0"><slot name="cta" /></div>
   </div>
 </div>
+
+<style is:global>
+  [data-announcement] [data-icon='inline-end'] {
+    transition: transform var(--motion-duration-micro) var(--motion-ease-standard);
+  }
+  [data-announcement] a:hover [data-icon='inline-end'],
+  [data-announcement] a:focus-visible [data-icon='inline-end'] {
+    transform: translateX(4px);
+  }
+  /* バッジに読み込みの時に 1 回だけ流れる光（斜めの明るい帯が左から右へ） */
+  .announcement__badge::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, #fff 55%, transparent) 50%, transparent 70%);
+    transform: translateX(-120%);
+    animation: announcement-shine var(--motion-duration-large) var(--motion-ease-standard) 600ms 1 forwards;
+    pointer-events: none;
+  }
+  @keyframes announcement-shine {
+    to {
+      transform: translateX(120%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-announcement] [data-icon='inline-end'] {
+      transition: none;
+    }
+    [data-announcement] a:hover [data-icon='inline-end'],
+    [data-announcement] a:focus-visible [data-icon='inline-end'] {
+      transform: none;
+    }
+    .announcement__badge::after {
+      animation: none;
+      display: none;
+    }
+  }
+</style>

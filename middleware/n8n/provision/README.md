@@ -8,7 +8,7 @@
 2. **Data Table**: 5 つの表（`dedup_mautic` `dedup_chatwoot` `ops_settings` `monitor_state` `contact_link`）を作る（あれば足りない列だけを足す）。`ops_settings` に設定の行を入れる。**接続先など環境から決まる行**（`notifyBackend`・`mauticBaseUrl`・`snsTopicArn*`・`chatwootBaseUrl`・`chatwootAccountId`）は毎回上書きし、**定期実行のスイッチ**（`inventoryEnabled`・`heartbeatEnabled`・`opsMonitorEnabled`・`heartbeatNamespace`）は**無いときだけ**既定値（`false`）で入れる（人が `true` にした値を再実行で戻さない）。
 3. **Mautic の Webhook**（I-11 用）を作る。Mautic が作った **Secret をそのまま受け取る**。
 4. **Chatwoot の Webhook**（I-12 用）を作る。Chatwoot が作った **シークレットをそのまま受け取る**。
-5. **n8n の資格情報**を作る（あれば値を入れ直す）: 署名鍵 2 つ（3・4 のシークレット）、Mautic の API、Chatwoot の API（Header Auth `api_access_token`。週次の棚卸し用。`CHATWOOT_N8N_API_TOKEN`、空なら管理者のトークンで代用して、本番では警告を出す）、開発は MailHog の SMTP と、使われない AWS のダミー（I-21 の SNS のノードは資格情報が必須で、無いと n8n が公開を拒むため。開発は MailHog に送るので SNS のノードは通らない）／本番は AWS（SNS）と、使われない SMTP のダミー（同じ理由。本番は SNS に送るので MailHog のノードは通らない）。
+5. **n8n の資格情報**を作る（あれば値を入れ直す）: 署名鍵 2 つ（3・4 のシークレット）、Mautic の API、Chatwoot の API（Header Auth。ヘッダー名は `api-access-token`〈ハイフン。本番の ALB がアンダースコアのヘッダーを捨てるため〉。週次の棚卸し用。`CHATWOOT_N8N_API_TOKEN`、空なら管理者のトークンで代用して、本番では警告を出す）、開発は MailHog の SMTP と、使われない AWS のダミー（I-21 の SNS のノードは資格情報が必須で、無いと n8n が公開を拒むため。開発は MailHog に送るので SNS のノードは通らない）／本番は AWS（SNS）と、使われない SMTP のダミー（同じ理由。本番は SNS に送るので MailHog のノードは通らない）。
 6. **ワークフロー**を子 → 親の順に取り込む（あれば更新）。資格情報を割り当て、子の呼び出し先を取り込み先の ID に付け替え、タグを付ける。
 7. **子（I-21・I-19）を公開する**。親（I-11・I-12）は `--publish` を付けたときだけ公開する。I-18 は公開しない。**定期実行の 3 本（週次の棚卸し・ハートビート・運用監視）は、`--publish` を付けても公開しない**（人が確かめてから公開する。`ops-monitor` は開発だけに取り込む）。
 
@@ -74,6 +74,8 @@ await provision({ target: "dev", conf: buildConf("dev", values), publish: false,
 | `--publish` | `dev.conf` の `N8N_PUBLISH_PARENTS=true`（既定は親を公開しない） |
 
 ## 本番（`--target prod`）
+
+**2026-10-28 から、本番も設定スクリプトの `n8n-prod`（`middleware/n8n/setup/prod/index.mjs`。`node setup/setup.mjs --target prod --phase apps`）がこの provision を呼ぶ。** オーナー・API キー・MCP のトークンの用意と、SNS のトピックの ARN（本番スタックの出力）を受け持つので、下の設定ファイルを手で書く必要は無い（`setup/manual-steps.md` の 8.6）。CLI は今までどおり使える。
 
 - 設定ファイルは `~/.config/comegin/n8n-provision/prod.conf`。本番の n8n（オンプレ。`127.0.0.1:5679`）の API キー、クラウドの Mautic の API 資格情報、クラウドの Chatwoot の**管理者**のトークン（Webhook の作成用）、**棚卸し専用のトークン `CHATWOOT_N8N_API_TOKEN`（会話の一覧を読むだけのエージェントの権限のユーザーで発行する。空だと管理者のトークンを n8n に入れることになり、警告が出る）**、SNS 用の IAM ユーザーのキー、SNS のトピックの ARN を書く。
 - **親（I-11・I-12）の公開（`--publish`）は `R1` の判断で行う**（エージェントは公開しない。README の「本番」）。

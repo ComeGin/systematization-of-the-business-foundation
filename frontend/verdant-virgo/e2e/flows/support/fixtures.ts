@@ -174,7 +174,7 @@ export const test = base.extend<
     calcom: CalcomMode;
     looksHuman: boolean;
     humanBrowser: void;
-    avatarPaused: void;
+    atelierPaused: void;
     traffic: Traffic;
     cleanup: Cleanup;
   },
@@ -190,16 +190,16 @@ export const test = base.extend<
    */
   looksHuman: [false, { option: true }],
   /**
-   * アバター（A のページの左下の 3D）は、既定で「一時停止で開いた」状態にする（sessionStorage motion:avatar=paused。
-   * 訪問者が止めたときと同じ振る舞いで、静止画のまま three と約 4MB のモデルを読まない）。E2E の対象ではなく、
-   * 2 つのワーカーで WebGL を描くと機械の負荷で操作の待ちが延びるため（a11y の support/fixtures.ts と同じ）
+   * トップのアトリエ（3D）は、既定で「一時停止で開いた」状態にする（sessionStorage motion:atelier=paused。
+   * 訪問者が止めたときと同じ振る舞いで、ポスターのまま three と glb・VRM を読まない）。E2E の対象ではなく、
+   * 2 つのワーカーで WebGL を描くと機械の負荷で操作の待ちが延びるため（2026-10-29。以前は画面の端のアバターを止めていた）
    */
-  avatarPaused: [
+  atelierPaused: [
     async ({ context }, use) => {
       await context.addInitScript(() => {
         try {
-          if (window.sessionStorage.getItem("motion:avatar") === null)
-            window.sessionStorage.setItem("motion:avatar", "paused");
+          if (window.sessionStorage.getItem("motion:atelier") === null)
+            window.sessionStorage.setItem("motion:atelier", "paused");
         } catch {
           // sessionStorage が使えないフレーム（第三者の iframe など）は何もしない
         }

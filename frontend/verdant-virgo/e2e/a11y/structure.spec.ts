@@ -106,3 +106,22 @@ test.describe("見出しと名前", () => {
     });
   });
 });
+
+// 2026-10-29（ヒーロー第 2 版 Task 9。atelier spec §11・A-13）: 画面の端のアバター（AvatarDock）はサイトから外した。
+// 代表のアバターはトップのアトリエの中にだけ立つ（同じ画面に 2 人いない）
+test.describe("画面の端のアバター（外した）", () => {
+  test.describe("異常系", () => {
+    for (const route of ["/", "/services/", "/about/", "/blog/"]) {
+      test(`入力: ${route} に画面の端のアバター（[data-motion="avatar"]）が無く、その島（AvatarStage）も読まれない`, async ({ page }) => {
+        const scripts: string[] = [];
+        page.on("request", (request) => {
+          if (/AvatarStage/.test(request.url())) scripts.push(request.url());
+        });
+        await open(page, route);
+        await expect(page.locator('[data-motion="avatar"]')).toHaveCount(0);
+        expect(await page.locator('astro-island[component-url*="AvatarStage"]').count()).toBe(0);
+        expect(scripts).toEqual([]);
+      });
+    }
+  });
+});

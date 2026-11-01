@@ -35,12 +35,6 @@ export interface MorphGalleryProps {
   class?: string;
 }
 
-export interface MotionSymbolProps {
-  /** 置く面。dark は navy の地の上（白いシンボルにする）。既定は light（ネイビーのシンボル） */
-  tone?: "light" | "dark";
-  class?: string;
-}
-
 export interface MotionBlobsProps {
   /** MotionPause の名前（動いている間）。文言は site-content から */
   pauseLabel: string;
@@ -73,17 +67,6 @@ export interface MotionPauseForProps {
   tone?: "light" | "dark";
   /** 対象名（MotionPause の target。sr-only で名前に足す。site-content の MOTION_PAUSE_TARGETS）。target（要素の id）とは別 */
   targetName?: string;
-  class?: string;
-}
-
-/** A（vivid）のヒーローの地。navy.900 の上のグリッド・スポットライト・光の筋と、右下の一時停止のボタン */
-export interface HeroBackdropProps {
-  /** MotionPause の名前（動いている間）。文言は site-content の MOTION_PAUSE */
-  pauseLabel: string;
-  /** MotionPause の名前（止まっている間） */
-  resumeLabel: string;
-  /** 一時停止のボタンの対象名（site-content の MOTION_PAUSE_TARGETS.hero） */
-  pauseTarget: string;
   class?: string;
 }
 

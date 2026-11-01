@@ -186,7 +186,10 @@ pnpm test:integration   # 結合: ALB の形のイベントで lambda.ts（本�
 - **ALB が PKCE を送るか。** Better Auth は既定で PKCE を必須にする。ALB が PKCE に対応しているか確認できなかったため、**登録スクリプトは PKCE を必須にしない**（機密クライアントで、シークレットと `state`・`nonce` で守られる。Better Auth が互換性のために用意している設定）。ALB の対応が確認できたら `--require-pkce` を付けて登録し直す。
 - **ALB が ID トークンの署名を検証するか、その鍵の種類。** Better Auth の既定は EdDSA だが、ALB が対応するか確認できないため、最も互換性の高い RS256 にしてある。
 - **ALB の UserInfo の呼び出し。** ALB は access token を UserInfo に送り、返ったクレームを `X-Amzn-Oidc-*` ヘッダーに載せる。ローカルでは `curl` で同じ呼び出し（`Authorization: Bearer <access token>`）が通ることまでを確かめた。ALB が実際に送る形（スコープの組み合わせ、`email` クレームの有無、クレームの大きさの上限 11 KB）は、ALB 越しにログインして `X-Amzn-Oidc-Data` を確かめるまで分からない。
-- **ログイン画面から認可フローが続くか。** `/sign-in` は、認可リクエストの署名つきクエリ（`oauth_query`）を `POST /api/auth/sign-in/social` に付けて渡す（`@better-auth/oauth-provider` のクライアントと同じ規則）。Google ログインのあとに、保留していた認可リクエストが続いて ALB へ戻るかは、本物の Google ログインが無いと確かめられていない。
+- **ログイン画面から認可フローが続くか（本番で続かなかった。2026-10-29）。** `/sign-in` は、認可リクエストの署名つきクエリ（`oauth_query`）を `POST /api/auth/sign-in/social` に付けて渡す（`@better-auth/oauth-provider` のクライアントと同じ規則）。本来は Google のコールバックで oauth-provider の after フックが保留中の認可を続け、ALB へ戻す。
+  - **本番では毎回続かず、コールバックの戻り先 `/` の 404（`not found`）に落ちた。** セッションは作られるので、管理画面を開き直せば通る。
+  - Google だけを差し替えた再現（Postgres・`src` の auth・handler・lambda の変換）では続いた。本番との違いは突き止めていない（残るのは、esbuild の束ね・Node 22・本物の Google とブラウザ）。
+  - **対処として、コールバックの戻り先（`callbackURL`）を、元の認可リクエスト（署名などの付加分を除く）で `/api/auth/oauth2/authorize` を開き直す URL にした**（`pages.ts` の `buildResumeURL`）。フックが効けばフックの応答が優先され、効かなくてもログイン済みとして認可がやり直されて ALB へ戻る。再現で、フックが効く場合と効かない場合（`oauth_query` を送らない）の両方で ALB の `/oauth2/idpresponse` へ戻ることを確かめた。
 - **`mapProfileToUser` が拒否したときの画面。** Google のコールバックの途中で拒否した場合に、`/error` へ遷移するか、Better Auth の既定のエラーページになるかを確認していない（どちらでも、ログインは通らない）。
 - **ALB が認可のレスポンスに付く `iss` パラメーター（RFC 9207）を無視するか。** Better Auth は常に付ける。
 - **ALB 配下でのレート制限。** Better Auth のレート制限は `X-Forwarded-For` の先頭の値を送信元とみなす。ALB は送信元を末尾に足すだけなので、先頭は詐称できる。**実効のあるレート制限は ALB の WAF に頼る**（TA-06 の 5.5。`auth.` にもかける）。

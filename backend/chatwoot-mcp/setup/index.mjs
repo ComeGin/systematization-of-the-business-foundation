@@ -28,7 +28,8 @@ async function ensureTooling(ctx) {
 
 /** Chatwoot のユーザーのアクセストークンで自分のプロフィールを読み、アカウントに入れているかを確かめる（読み取りのみ） */
 async function verifyToken(ctx, baseUrl, token, accountId) {
-  const profile = await ctx.http("Chatwoot のトークンの確認", `${baseUrl}/api/v1/profile`, { headers: { api_access_token: token } });
+  // ヘッダーはハイフンの綴り（本番の ALB はアンダースコアのヘッダーを捨てる。Chatwoot はどちらでも読む。src/services/chatwoot-client.ts と同じ）
+  const profile = await ctx.http("Chatwoot のトークンの確認", `${baseUrl}/api/v1/profile`, { headers: { "api-access-token": token } });
   const membership = (profile?.accounts ?? []).find((a) => Number(a.id) === Number(accountId));
   if (!membership) throw new Error(`このトークンのユーザーはアカウント ${accountId} に入っていない（chatwoot モジュールの状態 CHATWOOT_ACCOUNT_ID と CHATWOOT_AGENT_TOKEN を確かめる）`);
   return membership.role;

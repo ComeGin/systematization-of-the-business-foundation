@@ -338,14 +338,6 @@ html:has(#cookie-banner:not([hidden])) body {
   padding-bottom: calc(var(--consent-banner-height, 20rem) + 1rem);
 }
 /*
- * アバター（avatar の AvatarDock。左下に固定）は、バナーが出ている間その高さ＋ 1rem だけ上へ逃がす（Desktop のバナーも左下のカード）。
- * bottom ではなく translate で動かす（transform はレイアウトのずれ〈CLS〉に数えられない。バナーの高さが後から測られて変わってもずれにならない）。
- */
-html:has(#cookie-banner:not([hidden])) [data-motion="avatar"] {
-  translate: 0 calc(-1 * (var(--consent-banner-height, 20rem) + 1rem));
-}
-
-/*
  * ページ遷移（同じオリジンの移動）を CSS の View Transitions でつなぐ（計画書の「迷わず進む」）。
  * ヘッダーは view-transition-name: site-header で、ナビの現在地の形が次のページへ続く。対応していないブラウザは通常の遷移。
  * opt-in の @view-transition { navigation: auto; } はここには置かない。BaseLayout が C 以外のページの head にだけ出す

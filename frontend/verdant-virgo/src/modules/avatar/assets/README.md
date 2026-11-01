@@ -1,6 +1,7 @@
 # アバターの素材（src/modules/avatar/assets）
 
-サイトのアバター（A〈vivid〉と B〈calm〉のページに出す。設計は `docs/superpowers/specs/2026-10-19-aceternity-motion-design.md`）が配信する素材。
+代表のアバター（トップのアトリエの中に立つ人形。`src/modules/avatar/lib/figure.ts`。設計は `docs/superpowers/specs/2026-10-28-hero-atelier-design.md` §6.4）が配信する素材。
+**画面の端のアバター（AvatarDock）は 2026-10-28 にやめた（A-13）**。端のアバターの静止画（`still.webp`・`icon.webp`）と書き出しの道具（`pnpm avatar:stills`）は 2026-10-29 に消した。
 ここにあるものは、訪問者のブラウザへ送られる（誰でもダウンロードできる状態になる。U-10 で了承済み）。
 
 ## ファイルと出所
@@ -9,7 +10,6 @@
 | ------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `avatar.vrm`              | 自社のアバターのモデル（VRM 0.x。`extensions.VRM`）               | 自社で VRoid Studio で作り、Blender（VRM Add-on、`saturday06_blender_vrm_exporter_experimental_4.10.2`）で書き出した原本 `亀谷銀大_VRoid.vrm`（2026-10-19 にユーザーが配置） | `pnpm avatar:slim`                   |
 | `motions/*.json`          | 身ぶりのクリップ 7 本（`MotionClipJson`。型は `../lib/types.ts`） | [Mixamo](https://www.mixamo.com/)（Adobe）の FBX 7 本（Without Skin、30fps。2026-10-19 にユーザーが配置）                                                                    | `pnpm avatar:motions`                |
-| `still.webp`・`icon.webp` | 静止画（reduced-motion のときと、たたんだときのアイコン）         | 上のモデルとクリップを撮ったもの                                                                                                                                             | `pnpm avatar:stills`（開発サーバーを起動してから） |
 
 `avatar.vrm` のメタ情報は「作者だけ・商用不可・再配布禁止」（`allowedUserName: OnlyAuthor`・`commercialUssageName: Disallow`・`licenseName: Redistribution_Prohibited`）にしてある。
 ダウンロードを妨げるものではなく、第三者の再利用を許さない旨をファイル自身に記すためのもの。
