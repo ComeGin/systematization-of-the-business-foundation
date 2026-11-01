@@ -39,7 +39,15 @@ export const meta = {
   targets: ["dev", "prod"],
   phases: ["apps", "google"],
   // dev は開発のモジュール、prod は chatwoot-prod・mautic-prod（website_token とフォームの ID を状態に置く）の後
-  after: ["ga4", "strapi", "chatwoot", "mautic", "consent-api", "chatwoot-prod", "mautic-prod"],
+  after: [
+    "ga4",
+    "strapi",
+    "chatwoot",
+    "mautic",
+    "consent-api",
+    "chatwoot-prod",
+    "mautic-prod",
+  ],
 };
 
 const DIR = "frontend/verdant-virgo";
@@ -302,7 +310,7 @@ function prodValues(ctx) {
     ),
     UPLOAD_S3_BUCKET: req(
       "UPLOAD_S3_BUCKET",
-      "本番の Strapi のメディアのバケット。onprem/strapi と同じ値",
+      "本番の Strapi のメディアのバケット comegin-prod-strapi-media-<アカウント ID>。onprem/strapi と同じ値。配信用の comegin-prod-astro-… ではない",
     ),
     UPLOAD_S3_REGION: ctx.value("UPLOAD_S3_REGION") || "ap-northeast-1",
     // 公開サイトが Route 53 から配信される前（段階 apps）は空にする（未設定ならタグを出さない。ga4 モジュールもプロパティの手順を飛ばす）
@@ -340,7 +348,12 @@ function prodValues(ctx) {
     PUBLIC_CALCOM_BASE: trimUrl(
       ctx.value("SITE_CALCOM_BASE") || "https://app.cal.com",
     ),
-    PUBLIC_CALCOM_LINK: ctx.value("CALCOM_LINK") || "",
+    // 開発では任意（空なら予約枠の代わりにメールの案内）だが、本番では必須にする。空のままビルドすると、完了画面の予約枠が
+    // 毎回「予約枠を表示できませんでした」になり、PUBLIC_CALCOM_BASE は既定値で焼き込まれるので dist の検査でも気づけない（2026-11-02 に起きた）
+    PUBLIC_CALCOM_LINK: req(
+      "CALCOM_LINK",
+      "Cal.com のイベント「オンライン面談」の <ユーザー名>/<イベントの slug>。URL ではなくオリジンの後ろだけ。イベントは Cal.com の画面で人が作る",
+    ),
     PUBLIC_CONSENT_BASE: trimUrl(
       ctx.value("SITE_CONSENT_BASE") || "https://consent.comegin.com",
     ),
@@ -372,6 +385,17 @@ function problemsOf(ctx, env) {
       !/^G-[A-Z0-9]+$/.test(env.PUBLIC_GA4_MEASUREMENT_ID)
     )
       p.push("GA4_MEASUREMENT_ID が G- で始まる英大文字・数字になっていない");
+    // 段階 google（配信の後）では、.env.production の測定 ID が prod.conf と同じであることまで確かめる。
+    // 段階 apps で空のまま書いた .env.production でビルドすると、ga4.ts の早期 return でタグのコードごと消え、
+    // dist の検査でもビルドの失敗でも気づけない（2026-11-02 の配信はこの状態で、タグが出ていなかった）
+    if (
+      ctx.siteRouted &&
+      (env.PUBLIC_GA4_MEASUREMENT_ID ?? "") !==
+        (ctx.value("GA4_MEASUREMENT_ID") ?? "")
+    )
+      p.push(
+        `PUBLIC_GA4_MEASUREMENT_ID（${env.PUBLIC_GA4_MEASUREMENT_ID || "空"}）が prod.conf の GA4_MEASUREMENT_ID と違う。段階 apps の値のまま。node setup/frontend.mjs --target prod --phase google で書き直してからビルドし直す`,
+      );
     for (const k of [
       "PUBLIC_CHATWOOT_BASE",
       "PUBLIC_MAUTIC_BASE",
@@ -379,6 +403,16 @@ function problemsOf(ctx, env) {
     ])
       if (isLocal(env[k]) || !/^https:\/\//.test(env[k] ?? ""))
         p.push(`${k}（${env[k]}）が本番の https の URL ではない`);
+    // 画像の取り込みの許可（image.remotePatterns）と dist の検査は、このバケットから作る（src/modules/blog/integration.ts）。
+    // 配信用のバケット（親スタックの出力 AstroBucketName）と取り違えると、記事の画像が取り込まれずに署名付き URL のまま出て、
+    // ビルドの最後の検査（DD-05 の 1.5.4）で止まる（2026-11-02 に起きた）
+    if (
+      env.UPLOAD_S3_BUCKET &&
+      !/^comegin-[a-z0-9]+-strapi-media-\d{12}$/.test(env.UPLOAD_S3_BUCKET)
+    )
+      p.push(
+        `UPLOAD_S3_BUCKET（${env.UPLOAD_S3_BUCKET}）が Strapi のメディアのバケット（comegin-prod-strapi-media-<アカウント ID>）の形ではない。配信用の comegin-prod-astro-… と取り違えていないか（cloud/README.md の 4.14「ビルドの前提」）`,
+      );
     if (!env.PUBLIC_CONSENT_COOKIE_DOMAIN)
       p.push(
         "CONSENT_COOKIE_DOMAIN が空（本番は .comegin.com。consent-api の COOKIE_DOMAIN と同じ値）",

@@ -119,7 +119,7 @@ node setup/frontend.mjs --target prod --phase google   # 公開サイトが Rout
 | `MAUTIC_FORM_ID_CONSULT` | 状態の `MAUTIC_FORM_ID_CONSULT`（mautic） |
 | `CONSENT_POLICY_VERSION`・`PUBLIC_CONSENT_COOKIE_DOMAIN` | `backend/consent-api` の環境変数ファイルの `CONSENT_POLICY_VERSION`・`COOKIE_DOMAIN`（同じ値にそろえる決まり） |
 | `PUBLIC_POSTHOG_PROJECT_TOKEN`・`PUBLIC_POSTHOG_HOST` | 設定の `SITE_POSTHOG_PROJECT_TOKEN`・`SITE_POSTHOG_HOST`。空なら `backend/strapi-system` の環境変数ファイルの値（Strapi と同じプロジェクトに送る） |
-| `PUBLIC_CALCOM_LINK` | 設定の `CALCOM_LINK`（任意） |
+| `PUBLIC_CALCOM_LINK` | 設定の `CALCOM_LINK`（任意。**prod では必須**で、空なら `verdant-virgo:prod-values` で止まる） |
 | `PUBLIC_GA4_MEASUREMENT_ID` | **書かない**（開発ではタグを出さない。ADR-25。あれば失敗） |
 
 - **`.env.production` は承認済みの `main` のチェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）にだけ書く。** `astro build` は production モードで、`.env.production` を `.env` より優先して読む（`astro.config.mjs` の `loadEnv` は `NODE_ENV` で読むので、`--mode` では逃がせない）。作業ツリーに置くと `pnpm lh` などの開発のビルドまで本番の値で焼かれるため、作業ツリーと同じ場所は止める。dev の `--check` は作業ツリーにこのファイルがあると警告する。そのチェックアウトの監視アプリの builtin の `lighthouse`・`a11y` も本番の値でビルドされる（同意の前は GA4・PostHog を読み込まないので、計測で本番の数値は汚れない）

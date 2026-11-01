@@ -223,20 +223,24 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 止まる id は `mcp-prod:prod-values`・`mcp-prod:finish`。
 
 - [ ] **人・画面** エージェント専用のアカウントでトークンを発行して `prod.conf` に書く: `CHATWOOT_AGENT_TOKEN`（P7）・`MAUTIC_CLIENT_*` と `MAUTIC_RO_CLIENT_*`（別々に 2 つ）・`STRAPI_PROD_TOKEN`・`POSTHOG_PROD_API_KEY`（`phx_`）と `POSTHOG_PROD_PROJECT_ID`（`N8N_PROD_TOKEN` は P9 が状態に置くので書かなくてよい）— manual 8.2
-- [ ] **人・端末** 承認済みの `main` のチェックアウトで `pnpm install && pnpm build`（本番の MCP はそこの `dist` で動く）— manual 8.2
+- [ ] **人・端末** 承認済みの `main` のチェックアウトを `checkout --detach origin/main` で合わせ、`backend/chatwoot-mcp` と `backend/mautic-mcp` で**それぞれ** `pnpm install && pnpm build`（本番の MCP はそこの `dist` で動く。2 つは別のプロジェクトで、片方の install ではもう片方が入らない）— manual 6.1
+- [ ] **人・GitHub** 「修正がまだ origin/main に入っていない」と出たら、ビルドより先に修正を含むブランチを PR で main にマージする（ADR-18。作業ブランチの修正は本番の MCP に効かない）— manual 6.1
 - 再実行で **自動**（env ファイル 6 つ・読み取りだけの確認）
 
 ### P11. 公開サイトの値（`node setup/frontend.mjs --target prod`）
 
 止まる id は `verdant-virgo:prod-values`。
 
-- [ ] **人・端末** `prod.conf` に `SITE_BUILD_CHECKOUT`（承認済みの main のチェックアウト。作業ツリーは不可）・`PUBLIC_SITE_URL`・`SITE_STRAPI_API_TOKEN`（P6）・`UPLOAD_S3_BUCKET`・`SITE_POSTHOG_PROJECT_TOKEN` を書く — setup「フロントエンド全体」
+- [ ] **人・画面** Cal.com（SaaS。ADR-24）に完了画面で予約させるイベント「オンライン面談」を作り、`<ユーザー名>/<イベントの slug>` を控える（所要時間は画面の「30分程度」と合わせる。01-content-spec の C14。説明文は 03-handoff の Cal.com の行）。2026-11-02 に、`CALCOM_LINK` が空のまま配信され、完了画面の予約枠が毎回「予約枠を表示できませんでした」になった。そのため **`--target prod` では `CALCOM_LINK` を必須にした**（空なら `prod-values` で止まる。開発では任意のまま）
+- [ ] **人・端末** `prod.conf` に `CALCOM_LINK`（上で控えた `<ユーザー名>/<slug>`。URL ではなくオリジンの後ろだけ）・`SITE_BUILD_CHECKOUT`（承認済みの main のチェックアウト。作業ツリーは不可）・`PUBLIC_SITE_URL`・`SITE_STRAPI_API_TOKEN`（P6）・`UPLOAD_S3_BUCKET`（**Strapi のメディアのバケット `comegin-prod-strapi-media-<アカウント ID>`。4.14 の同期先の `comegin-prod-astro-…` ではない**。取り違えると記事の画像が署名付き URL のまま出て、ビルドが「dist/ に Strapi・S3 の URL が残っています」で止まる。形が違えば設定スクリプトが止める）・`SITE_POSTHOG_PROJECT_TOKEN` を書く — setup「フロントエンド全体」
 - 再実行で **自動**（`.env.production` を書く。測定 ID は空＝タグを出さない）
 
 ### P12. ビルドと配信〔未検査〕
 
-- [ ] **人・端末** 承認済みの main のチェックアウトで公開サイトをビルドする（`SITE_URL` 未設定のビルドは意図して止まる）
-- [ ] **人・端末** `DeployPolicyArn` を付けた主体で、S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**）— cloud 4.14
+- [ ] **人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）に、カテゴリ 3 つ（slug は `know-the-issues`・`compare-methods`・`consider-adoption`）があり、**公開済みの記事が 1 本以上ある**ことを確かめる。無ければ `R2` が記事を公開する（0 件だとビルドは「公開済みの記事が 0 件です」で意図して止まる。DD-05 の 1.2。エージェントは下書きまで）— cloud 4.14「ビルドの前提」
+- [ ] **人・端末** **承認済みの main のチェックアウト**（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）の `frontend/verdant-virgo` で `pnpm install && pnpm build` する。**作業ツリーでビルドしない**（開発の `.env` の値で焼かれ、ビルドは成功してしまう。2026-11-02 に、この経路で開発の値のサイトが本番に配信された）。`SITE_URL` 未設定のビルドは意図して止まる — cloud 4.14
+- [ ] **人・端末** 同期の前に、`dist` に開発の接続先（ngrok・ポート付きの localhost）が無いこと、sitemap と canonical のホストが `PUBLIC_SITE_URL` だけであること、`chat.`・`mkt.`・`consent.comegin.com` と Cal.com のイベント（`CALCOM_LINK`）が焼き込まれていることを確かめる — cloud 4.14 の手順 2
+- [ ] **人・端末** スタックをデプロイした主体（`comegin-prod-admin`）でバケット名とディストリビューション ID を取り、`DeployPolicyArn` を付けた主体（`comegin-prod-deploy`）に切り替えて、**`dist` の絶対パス（`SITE_DIST`）から** S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**。配信用の主体は `DescribeStacks` を持たないので、名前の取得には使えない。相対パスの `frontend/verdant-virgo/dist/` を作業ツリーのルートで使うと、開発用の `dist` が上がる）— cloud 4.14
 - [ ] **人・端末** デプロイ後の確認（訪問者向けは 200、管理画面は 302 で `auth.`、許可リストの外は 404、`cms.`・`n8n.`・`stats.` は引けない）— cloud 4.13
 - [ ] **人・画面** FAQ ボットの確認（`/faq.json` が返る・「料金は税込ですか？」で回答・担当者への引き継ぎのメール）— cloud 4.17 の 6
 - [ ] 〔警告〕**人・画面** 配信したらすぐ、SES の**本番アクセスを申請する**（メールの種類は **Transactional**、言語は日本語。2026-10-28 のユーザーの決定。最初の応答まで最大 96 時間で、承認までは検証済みの宛先にしか送れない）— cloud 4.9.2
@@ -252,7 +256,10 @@ node setup/frontend.mjs --target prod --phase google
 - [ ] **人・画面** Search Console にドメインプロパティ `comegin.com` を登録し、Route 53 に TXT を足す（`verdant-virgo:gsc-domain`）— manual 7.4
 - [ ] **人・画面** OpenSEO 用の OAuth クライアント（Search Console API・Analytics Admin API・Data API を有効に。リダイレクト URI 2 つ）→ `OPENSEO_GOOGLE_CLIENT_*` — manual 7.4・7.5
 - [ ] **人・画面** `http://localhost:3001` で Search Console と GA4 に接続 → **〔申告〕** `OPENSEO_GSC_CONNECTED=yes`・`OPENSEO_GA4_CONNECTED=yes` — manual 7.4・7.5
-- [ ] **人・端末** 測定 ID 入りでビルドし直して、P12 と同じ手順で配信する
+- [ ] **人・端末** `node setup/frontend.mjs --target prod --phase google` を（`--check` ではなく）実行して `.env.production` に測定 ID を書き直す。`--check` で「`PUBLIC_GA4_MEASUREMENT_ID`（空）が prod.conf の `GA4_MEASUREMENT_ID` と違う」と出るうちは、書き直していない（2026-11-02 に検査を追加）
+- [ ] **人・端末** 測定 ID 入りでビルドし直して、P12 と同じ手順で配信する。同期の前に `dist/_astro/` の JS に測定 ID があることを確かめる（GA4 の画面のスニペットは貼らない）— `middleware/ga4/README.md` の 5.1
+- [ ] **人・画面** 配信の後、同意の前に `googletagmanager.com` へのリクエストが無く、同意の後に GA4 の**リアルタイム**に閲覧が出ることを確かめる — `middleware/ga4/README.md` の 5.1
+- [ ] **人・画面** Search Console（`sc-domain:comegin.com`）の **サイトマップ** に `https://comegin.com/sitemap-index.xml` を送信し、ステータスが「成功しました」になり、検出された URL の数が `sitemap-0.xml` の件数と合うことを確かめる — manual 7.4
 
 ### P14. 運用開始の仕上げ〔未検査〕
 
@@ -283,7 +290,7 @@ node setup/frontend.mjs --target prod --phase google
 | `db:chatwoot_prepare` | 確かめない（`chatwoot-prod:ecs` の案内に出る） | Chatwoot が 500 を返す | cloud 4.10 |
 | Strapi の最初の管理者とトークン | 確かめない（足りないと `mcp-prod:prod-values`・`verdant-virgo:prod-values` で止まる） | 同左 | manual 8.2 |
 | Webhook の試し送信 | 確かめない | Mautic・Chatwoot のイベントが欠ける | onprem「疎通の確かめ方」 |
-| 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない | cloud 4.14 |
+| 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
 
 ## 5. 申告制のフラグ（`prod.conf`）
 
