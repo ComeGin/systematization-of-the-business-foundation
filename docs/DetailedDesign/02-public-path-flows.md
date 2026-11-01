@@ -600,6 +600,7 @@ AA-04 の 3.2 は「`LH-seo` が 1.0 未満ならループの作用を全面停�
 
 - **`HttpOnly` を付けない。** ページの描画時に JavaScript が読む必要があるため（付けると 3.3 の役割分担が壊れる）。
 - **`Secure` と `SameSite=Lax` を付ける。** 同意の Cookie は他サイトからの遷移でも読めてよいが、第三者の文脈で送る必要は無い。
+- **（2026-11-02 に追加）同じ名前のホストだけの Cookie（`Domain` なし）を残さない。** `Domain` なしと `Domain=.comegin.com` の Cookie は別のものとして共存し、`document.cookie` では古いほうが先に並ぶ。2026-11-02 に開発の値（`PUBLIC_CONSENT_COOKIE_DOMAIN` が空）のサイトが配信されていた間に書かれた `granted` が残り、後から選んだ「同意しない」（`Domain` 付き）が読まれず、GA4・PostHog が読み込まれ続けた。公開サイトは、`Domain` 付きで書く設定のとき、(1) 書く前にホストだけの Cookie を消し（`lib/consent.ts` の `clearHostOnlyCookie`）、(2) 描画の前の判定で同じ名前が 2 つあればホストだけのほうを消す（`ConsentBanner.astro`）。受け口の応答は `Set-Cookie` を 1 つしか返せない（ALB）ので、消すのはサイト側の JavaScript だけで行う。
 - **Cookie に入れるのは状態と識別子だけ**（3.3）。訪問者の情報を入れない。
 - **CORS の設定が要る。** 公開サイトのオリジン（`SITE_URL`）だけを許し、資格情報（Cookie）付きのリクエストを許可する。**`*` を使わない**（Cookie 付きでは使えず、使えたとしても他サイトから同意を書き換えられる）。
 

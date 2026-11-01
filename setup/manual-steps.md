@@ -274,7 +274,7 @@ OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・
 
 ~~Google Analytics（GA4）は接続しない~~ → **ADR-25（2026-10-06）で GA4 を接続する**（アクセス解析の正本を GA4 にした。手順は 7.5）。
 
-**サイトマップの送信**（公開サイトの配信の後。設定スクリプトは確かめない）: Search Console のドメインプロパティ `comegin.com` の **インデックス作成 → サイトマップ** で、`https://comegin.com/sitemap-index.xml` を送信する（`@astrojs/sitemap` が出すインデックス。中身の `sitemap-0.xml` を個別に送らない。ページが増えて `sitemap-1.xml` ができてもインデックスが拾う）。ドメインプロパティなので、入力欄には完全な URL を書く。`SITE_URL` を `www` 付きに変えたら送り直す。送信後は「成功しました」と、検出された URL の数が `sitemap-0.xml` の `<loc>` の件数と合うことを確かめる（2026-11-02 時点で 18 件。404 などの `noindex` のページは入っていない）。
+**サイトマップの送信**（公開サイトの配信の後。設定スクリプトは確かめない）: Search Console のドメインプロパティ `comegin.com` の **インデックス作成 → サイトマップ** で、`https://comegin.com/sitemap-index.xml` を送信する（`@astrojs/sitemap` が出すインデックス。中身の `sitemap-0.xml` を個別に送らない。ページが増えて `sitemap-1.xml` ができてもインデックスが拾う）。ドメインプロパティなので、入力欄には完全な URL を書く。`SITE_URL` を `www` 付きに変えたら送り直す。送信後は「成功しました」と、検出された URL の数が `sitemap-0.xml` の `<loc>` の件数と合うことを確かめる（2026-11-02 時点で 18 件。404 などの `noindex` のページは入っていない）。2026-11-02 に送信し、成功を確かめた。同じ URL は `robots.txt` の `Sitemap:` にも書いてある（`frontend/verdant-virgo/src/pages/robots.txt.ts`。`SITE_URL` から作る。`noindex` のページは `Disallow` にしない。クローラーが読めないと `noindex` に気づけないため）。
 
 Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_GSC=yes` を書く。詳しい手順はモジュール（`middleware/open-seo-main/dev/setup/index.mjs`）の案内にも出る。
 
@@ -290,6 +290,8 @@ Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_G
 | `openseo:ga4-connect`（prod） | Google Cloud Console で（Search Console と同じ OAuth クライアントのプロジェクトで）「Google Analytics Admin API」と「Google Analytics Data API」を有効にする → OAuth クライアントのリダイレクト URI に `http://localhost:3001/api/ga4/oauth/callback` を足す（GSC の URI は残す）→ `http://localhost:3001` のプロジェクトの設定（Analytics）で「Connect with Google」→ 読み取り専用の権限に同意し、**本番のプロパティ**を選ぶ → `OPENSEO_GA4_CONNECTED=yes` を書く。GA4 を使わないなら `OPENSEO_SKIP_GA4=yes` |
 
 開発の Astro（`frontend/verdant-virgo`）の環境変数ファイルに `PUBLIC_GA4_MEASUREMENT_ID` があると、`ga4` は**失敗として止まる**（画面の操作ではなく設定の誤りのため）。その行を消して `--from ga4` で再実行する（本番のビルドだけが測定 ID を持つ）。
+
+**接続の後に「Couldn't load properties」と出るとき**（2026-11-02 に起きた）は、OpenSEO のログ（`docker logs open-seo-main-open-seo-1`）の `ga4.property_discovery_failed` の `status` を見る。`403` なら Analytics Admin API が、OAuth クライアントの Google Cloud プロジェクト（クライアント ID の先頭の数字がプロジェクト番号）で有効になっていない。同意画面で Analytics のチェックを外した場合も 403 になるが、それは OpenSEO の DB の `account` テーブル（`provider_id` が `google-analytics`）の `scope` に `analytics.readonly` が無いことで見分けられる。API を有効にしたら数分待ってページを読み直す（接続し直さなくてよい）。Google アカウントにプロパティの権限が無い場合は 403 にならず、一覧が空になる。
 
 OAuth の同意画面が「テスト中」のままだと、更新トークンの期限が短く、接続が切れることがある（出典 `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`）。切れたら画面で接続し直す。
 

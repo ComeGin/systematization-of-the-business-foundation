@@ -19,9 +19,11 @@ if (!policyVersion) {
   console.warn('[consent] CONSENT_POLICY_VERSION が未設定です（同意の版が空のまま記録されます）。');
 }
 const buttonClass = `${buttonVariants({ variant: 'outline' })} h-11 w-full md:h-9`;
+// 同意の Cookie を書く Domain（本番は .comegin.com）。下のインラインのスクリプトが、残ったホストだけの Cookie を消すのに使う
+const cookieDomain = import.meta.env.PUBLIC_CONSENT_COOKIE_DOMAIN ?? '';
 ---
 
-<div id={CONFIG_ELEMENT_ID} data-policy-version={policyVersion} hidden></div>
+<div id={CONFIG_ELEMENT_ID} data-policy-version={policyVersion} data-cookie-domain={cookieDomain} hidden></div>
 <section
   id="cookie-banner"
   hidden
@@ -43,10 +45,17 @@ const buttonClass = `${buttonVariants({ variant: 'outline' })} h-11 w-full md:h-
 </section>
 
 <!-- 未同意（Cookie が無い・形が違う・版が違う）のときだけ、描画の前に表示する。判定は lib/consent.ts の getConsent と同じ -->
+<!-- Domain 付きで書く設定なのに同じ名前の Cookie が 2 つあれば、先にホストだけの Cookie を消す（lib/consent.ts の clearHostOnlyCookie と同じ）。
+     Domain なしで書かれた古い Cookie が先に読まれ、後から選んだ「同意しない」が効かなくなるため（2026-11-02 に起きた）。
+     このスクリプトはバンドルする JS より先に動くので、ここで消せば以後の読み取りはすべて Domain 付きの Cookie になる -->
 <script is:inline>
   (function () {
     var banner = document.getElementById('cookie-banner');
-    var version = document.getElementById('comegin-consent-config').getAttribute('data-policy-version') || '';
+    var config = document.getElementById('comegin-consent-config');
+    var version = config.getAttribute('data-policy-version') || '';
+    if (config.getAttribute('data-cookie-domain') && (document.cookie.match(/(?:^|; )comegin_consent=/g) || []).length > 1) {
+      document.cookie = 'comegin_consent=; Max-Age=0; Path=/; SameSite=Lax; Secure';
+    }
     var match = document.cookie.match(/(?:^|; )comegin_consent=([^;]*)/);
     var decided = false;
     if (match) {
