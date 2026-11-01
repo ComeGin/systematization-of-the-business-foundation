@@ -385,6 +385,17 @@ function problemsOf(ctx, env) {
       !/^G-[A-Z0-9]+$/.test(env.PUBLIC_GA4_MEASUREMENT_ID)
     )
       p.push("GA4_MEASUREMENT_ID が G- で始まる英大文字・数字になっていない");
+    // 段階 google（配信の後）では、.env.production の測定 ID が prod.conf と同じであることまで確かめる。
+    // 段階 apps で空のまま書いた .env.production でビルドすると、ga4.ts の早期 return でタグのコードごと消え、
+    // dist の検査でもビルドの失敗でも気づけない（2026-11-02 の配信はこの状態で、タグが出ていなかった）
+    if (
+      ctx.siteRouted &&
+      (env.PUBLIC_GA4_MEASUREMENT_ID ?? "") !==
+        (ctx.value("GA4_MEASUREMENT_ID") ?? "")
+    )
+      p.push(
+        `PUBLIC_GA4_MEASUREMENT_ID（${env.PUBLIC_GA4_MEASUREMENT_ID || "空"}）が prod.conf の GA4_MEASUREMENT_ID と違う。段階 apps の値のまま。node setup/frontend.mjs --target prod --phase google で書き直してからビルドし直す`,
+      );
     for (const k of [
       "PUBLIC_CHATWOOT_BASE",
       "PUBLIC_MAUTIC_BASE",

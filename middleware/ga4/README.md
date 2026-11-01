@@ -11,6 +11,8 @@ GA4 は Google の SaaS で、こちらで動かすものは無い。このデ�
 
 開発環境用のプロパティは作らない。**開発の公開サイト（`astro dev`）にはタグを出さない**（ユーザーの決定）。
 
+**作成済み（2026-11-02）**: プロパティ ID `561857847`、Web ストリームの測定 ID `G-4ZXN1J3013`（どちらも秘密値ではない。`prod.conf` の `GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に書いてある）。
+
 | 項目 | 値 | Admin API での名前（確かめるとき用） |
 |---|---|---|
 | プロパティ | 本番の 1 つだけ（例: `ComeGin（本番）`） | `properties/{GA4_PROPERTY_ID}` |
@@ -64,7 +66,17 @@ setup の設定キー（`~/.config/comegin/setup/prod.conf`。`--target prod` �
 
 3. 同意を取り消したら `gtag('consent', 'update', { analytics_storage: 'denied' })` を送り、以後のページではタグを読み込まない
 
-実装の正本は公開サイトのコード（DD-02 の 6.1 の設置の順序）。上は仕様の確認用の形で、そのまま貼るものではない。
+実装の正本は公開サイトのコード（`frontend/verdant-virgo/src/modules/analytics/lib/ga4.ts`。DD-02 の 6.1 の設置の順序）。上は仕様の確認用の形で、そのまま貼るものではない。
+
+**GA4 の画面（データストリーム →「タグの実装手順を表示する」）が出すスニペットは `<head>` に貼らない。** 測定 ID を `PUBLIC_GA4_MEASUREMENT_ID` としてビルドに渡せば、`ga4.ts` が同じ `gtag('js')`・`gtag('config')` を同意の後にだけ実行する。画面のスニペットをそのまま貼ると、次の 3 点で設計と食い違う（2026-11-02 に確かめた）。
+
+| 画面のスニペット | この基盤の実装 |
+|---|---|
+| 同意の前から gtag.js を読み込み、Cookie `_ga` を書く | 同意（`comegin_consent` の `s=granted`）の後にだけ読み込む（Consent Mode v2 の basic） |
+| `consent default` が無い（広告の 3 つも既定のまま） | `consent default` で 4 つとも `denied` にしてから、`analytics_storage` だけを `granted` にする |
+| `allow_google_signals`・`allow_ad_personalization_signals` が既定の `true` | タグ側でも `false` にする |
+
+測定 ID が空のままビルドすると、`ga4.ts` の早期 return でタグのコードごと消える（ビルドも dist の検査も失敗しない）。`frontend.mjs --target prod --phase google --check` は、`.env.production` の測定 ID が `prod.conf` と違えば「まだ」と出す（2026-11-02 に追加）。
 
 ## 3. CSP（公開サイトの応答ヘッダー）
 
@@ -111,6 +123,22 @@ setup は GA4 の API を呼ばない。**`--target dev` では 1〜6 を飛ば�
 7. 開発の公開サイトの環境変数（`frontend/verdant-virgo` の `.env`・`.env.local`・`.env.development`・`.env.development.local`）に `PUBLIC_GA4_MEASUREMENT_ID` を書かない（書いてあると setup が失敗する。消してから `--from ga4` で実行し直す）
 
 本番のビルドに `PUBLIC_GA4_MEASUREMENT_ID` を渡すのは本番のビルドの設定（`cloud/`）。画面の表記は Google 側で変わることがある。
+
+### 5.1 測定 ID を入れて配信した後に確かめること（setup は確かめない）
+
+1. `node setup/frontend.mjs --target prod --phase google` で `.env.production` を書き直し、承認済みの main のチェックアウトでビルドし直して配信する（`cloud/README.md` の 4.14。`docs/runbooks/00-setup-overview.md` の P13）
+2. 同期の前に、`dist/_astro/` の JS に測定 ID と `googletagmanager.com/gtag/js` があることを確かめる（`rg -l G-4ZXN1J3013 "$SITE_DIST/_astro"`。1 件も無ければ測定 ID が空のまま）
+3. 配信の後、Cookie を消したブラウザで https://comegin.com/ を開き、**同意する前に** `googletagmanager.com` へのリクエストが無いこと（開発者ツールの Network）、**同意した後に** `gtag/js` と `google-analytics.com/g/collect` へのリクエストが出ることを確かめる
+4. GA4 の レポート → **リアルタイム** に自分の閲覧が出ることを確かめる（反映は数十秒〜数分。通常のレポートは 24〜48 時間）
+5. **同意しない**を選んだ場合に `g/collect` が出ないことを確かめる。フッターの「Cookie 設定」から撤回した後のページでも出ないこと
+
+### 5.2 任意で行う設定（決めていない。行うならこの表に記録する）
+
+| 設定 | 場所 | 行う理由・行わない理由 |
+|---|---|---|
+| 内部トラフィックの除外 | 管理 → データストリーム → タグ設定を行う → 内部トラフィックの定義（IP）→ 管理 → データフィルタで「有効」にする | 自分たちの閲覧が少ない数の流入を大きく歪める。ただし IP が固定でないと効かない。まず「テスト」状態で確かめてから有効にする（有効にすると除外したデータは戻らない） |
+| Search Console とのリンク | 管理 → サービス間のリンク設定 → Search Console のリンク | GA4 の画面で検索クエリが見られる。エージェントは OpenSEO から GSC を直接読むので、無くても観測は欠けない |
+| 除外する参照のリスト | 管理 → データストリーム → タグ設定を行う → 除外する参照のリスト | 他ドメインを経由して戻る導線（決済など）が無いので今は不要。Cal.com は iframe の埋め込みで遷移しない |
 
 ## 6. 受け入れたこと（ADR-25 の結果。詳細は ADR-25）
 

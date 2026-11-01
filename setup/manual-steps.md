@@ -274,6 +274,8 @@ OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・
 
 ~~Google Analytics（GA4）は接続しない~~ → **ADR-25（2026-10-06）で GA4 を接続する**（アクセス解析の正本を GA4 にした。手順は 7.5）。
 
+**サイトマップの送信**（公開サイトの配信の後。設定スクリプトは確かめない）: Search Console のドメインプロパティ `comegin.com` の **インデックス作成 → サイトマップ** で、`https://comegin.com/sitemap-index.xml` を送信する（`@astrojs/sitemap` が出すインデックス。中身の `sitemap-0.xml` を個別に送らない。ページが増えて `sitemap-1.xml` ができてもインデックスが拾う）。ドメインプロパティなので、入力欄には完全な URL を書く。`SITE_URL` を `www` 付きに変えたら送り直す。送信後は「成功しました」と、検出された URL の数が `sitemap-0.xml` の `<loc>` の件数と合うことを確かめる（2026-11-02 時点で 18 件。404 などの `noindex` のページは入っていない）。
+
 Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_GSC=yes` を書く。詳しい手順はモジュール（`middleware/open-seo-main/dev/setup/index.mjs`）の案内にも出る。
 
 ### 7.5 GA4（ADR-25）

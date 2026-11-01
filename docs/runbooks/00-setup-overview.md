@@ -256,7 +256,10 @@ node setup/frontend.mjs --target prod --phase google
 - [ ] **人・画面** Search Console にドメインプロパティ `comegin.com` を登録し、Route 53 に TXT を足す（`verdant-virgo:gsc-domain`）— manual 7.4
 - [ ] **人・画面** OpenSEO 用の OAuth クライアント（Search Console API・Analytics Admin API・Data API を有効に。リダイレクト URI 2 つ）→ `OPENSEO_GOOGLE_CLIENT_*` — manual 7.4・7.5
 - [ ] **人・画面** `http://localhost:3001` で Search Console と GA4 に接続 → **〔申告〕** `OPENSEO_GSC_CONNECTED=yes`・`OPENSEO_GA4_CONNECTED=yes` — manual 7.4・7.5
-- [ ] **人・端末** 測定 ID 入りでビルドし直して、P12 と同じ手順で配信する
+- [ ] **人・端末** `node setup/frontend.mjs --target prod --phase google` を（`--check` ではなく）実行して `.env.production` に測定 ID を書き直す。`--check` で「`PUBLIC_GA4_MEASUREMENT_ID`（空）が prod.conf の `GA4_MEASUREMENT_ID` と違う」と出るうちは、書き直していない（2026-11-02 に検査を追加）
+- [ ] **人・端末** 測定 ID 入りでビルドし直して、P12 と同じ手順で配信する。同期の前に `dist/_astro/` の JS に測定 ID があることを確かめる（GA4 の画面のスニペットは貼らない）— `middleware/ga4/README.md` の 5.1
+- [ ] **人・画面** 配信の後、同意の前に `googletagmanager.com` へのリクエストが無く、同意の後に GA4 の**リアルタイム**に閲覧が出ることを確かめる — `middleware/ga4/README.md` の 5.1
+- [ ] **人・画面** Search Console（`sc-domain:comegin.com`）の **サイトマップ** に `https://comegin.com/sitemap-index.xml` を送信し、ステータスが「成功しました」になり、検出された URL の数が `sitemap-0.xml` の件数と合うことを確かめる — manual 7.4
 
 ### P14. 運用開始の仕上げ〔未検査〕
 
