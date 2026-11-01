@@ -348,7 +348,12 @@ function prodValues(ctx) {
     PUBLIC_CALCOM_BASE: trimUrl(
       ctx.value("SITE_CALCOM_BASE") || "https://app.cal.com",
     ),
-    PUBLIC_CALCOM_LINK: ctx.value("CALCOM_LINK") || "",
+    // 開発では任意（空なら予約枠の代わりにメールの案内）だが、本番では必須にする。空のままビルドすると、完了画面の予約枠が
+    // 毎回「予約枠を表示できませんでした」になり、PUBLIC_CALCOM_BASE は既定値で焼き込まれるので dist の検査でも気づけない（2026-11-02 に起きた）
+    PUBLIC_CALCOM_LINK: req(
+      "CALCOM_LINK",
+      "Cal.com のイベント「オンライン面談」の <ユーザー名>/<イベントの slug>。URL ではなくオリジンの後ろだけ。イベントは Cal.com の画面で人が作る",
+    ),
     PUBLIC_CONSENT_BASE: trimUrl(
       ctx.value("SITE_CONSENT_BASE") || "https://consent.comegin.com",
     ),

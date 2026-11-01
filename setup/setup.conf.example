@@ -103,7 +103,9 @@ OPEN_SEO_IMAGE=
 # 環境変数ファイルの POSTHOG_PROJECT_TOKEN を使う（Strapi と同じプロジェクトに送る）。prod.conf では本番のプロジェクトの値を書く（必須）
 SITE_POSTHOG_PROJECT_TOKEN=
 SITE_POSTHOG_HOST=
-# Cal.com の予約するイベント（<ユーザー名>/<イベントの slug>。URL ではなくオリジンの後ろだけ）。空なら予約枠の代わりにメールの案内を出す
+# Cal.com の予約するイベント（<ユーザー名>/<イベントの slug>。URL ではなくオリジンの後ろだけ）。イベント「オンライン面談」は Cal.com の画面で人が作る。
+# dev.conf では任意（空なら予約枠の代わりにメールの案内を出す）。prod.conf では必須（空なら setup/frontend.mjs が prod-values で止まる。
+# 空のまま配信すると、完了画面の予約枠が毎回「予約枠を表示できませんでした」になる。2026-11-02 に起きた）
 CALCOM_LINK=
 # ---- ここから「公開サイトの本番」は prod.conf にだけ書く（--target prod で .env.production を作る。ビルドと配信はしない） ----
 # 本番のビルドを行う承認済みの main のチェックアウト（絶対パス。空なら CONTROL_MAIN_CHECKOUT）。.env.production はここにだけ書く。

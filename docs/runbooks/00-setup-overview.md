@@ -231,14 +231,15 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 
 止まる id は `verdant-virgo:prod-values`。
 
-- [ ] **人・端末** `prod.conf` に `SITE_BUILD_CHECKOUT`（承認済みの main のチェックアウト。作業ツリーは不可）・`PUBLIC_SITE_URL`・`SITE_STRAPI_API_TOKEN`（P6）・`UPLOAD_S3_BUCKET`（**Strapi のメディアのバケット `comegin-prod-strapi-media-<アカウント ID>`。4.14 の同期先の `comegin-prod-astro-…` ではない**。取り違えると記事の画像が署名付き URL のまま出て、ビルドが「dist/ に Strapi・S3 の URL が残っています」で止まる。形が違えば設定スクリプトが止める）・`SITE_POSTHOG_PROJECT_TOKEN` を書く — setup「フロントエンド全体」
+- [ ] **人・画面** Cal.com（SaaS。ADR-24）に完了画面で予約させるイベント「オンライン面談」を作り、`<ユーザー名>/<イベントの slug>` を控える（所要時間は画面の「30分程度」と合わせる。01-content-spec の C14。説明文は 03-handoff の Cal.com の行）。2026-11-02 に、`CALCOM_LINK` が空のまま配信され、完了画面の予約枠が毎回「予約枠を表示できませんでした」になった。そのため **`--target prod` では `CALCOM_LINK` を必須にした**（空なら `prod-values` で止まる。開発では任意のまま）
+- [ ] **人・端末** `prod.conf` に `CALCOM_LINK`（上で控えた `<ユーザー名>/<slug>`。URL ではなくオリジンの後ろだけ）・`SITE_BUILD_CHECKOUT`（承認済みの main のチェックアウト。作業ツリーは不可）・`PUBLIC_SITE_URL`・`SITE_STRAPI_API_TOKEN`（P6）・`UPLOAD_S3_BUCKET`（**Strapi のメディアのバケット `comegin-prod-strapi-media-<アカウント ID>`。4.14 の同期先の `comegin-prod-astro-…` ではない**。取り違えると記事の画像が署名付き URL のまま出て、ビルドが「dist/ に Strapi・S3 の URL が残っています」で止まる。形が違えば設定スクリプトが止める）・`SITE_POSTHOG_PROJECT_TOKEN` を書く — setup「フロントエンド全体」
 - 再実行で **自動**（`.env.production` を書く。測定 ID は空＝タグを出さない）
 
 ### P12. ビルドと配信〔未検査〕
 
 - [ ] **人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）に、カテゴリ 3 つ（slug は `know-the-issues`・`compare-methods`・`consider-adoption`）があり、**公開済みの記事が 1 本以上ある**ことを確かめる。無ければ `R2` が記事を公開する（0 件だとビルドは「公開済みの記事が 0 件です」で意図して止まる。DD-05 の 1.2。エージェントは下書きまで）— cloud 4.14「ビルドの前提」
 - [ ] **人・端末** **承認済みの main のチェックアウト**（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）の `frontend/verdant-virgo` で `pnpm install && pnpm build` する。**作業ツリーでビルドしない**（開発の `.env` の値で焼かれ、ビルドは成功してしまう。2026-11-02 に、この経路で開発の値のサイトが本番に配信された）。`SITE_URL` 未設定のビルドは意図して止まる — cloud 4.14
-- [ ] **人・端末** 同期の前に、`dist` に開発の接続先（ngrok・ポート付きの localhost）が無いこと、sitemap と canonical のホストが `PUBLIC_SITE_URL` だけであること、`chat.`・`mkt.`・`consent.comegin.com` が焼き込まれていることを確かめる — cloud 4.14 の手順 2
+- [ ] **人・端末** 同期の前に、`dist` に開発の接続先（ngrok・ポート付きの localhost）が無いこと、sitemap と canonical のホストが `PUBLIC_SITE_URL` だけであること、`chat.`・`mkt.`・`consent.comegin.com` と Cal.com のイベント（`CALCOM_LINK`）が焼き込まれていることを確かめる — cloud 4.14 の手順 2
 - [ ] **人・端末** スタックをデプロイした主体（`comegin-prod-admin`）でバケット名とディストリビューション ID を取り、`DeployPolicyArn` を付けた主体（`comegin-prod-deploy`）に切り替えて、**`dist` の絶対パス（`SITE_DIST`）から** S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**。配信用の主体は `DescribeStacks` を持たないので、名前の取得には使えない。相対パスの `frontend/verdant-virgo/dist/` を作業ツリーのルートで使うと、開発用の `dist` が上がる）— cloud 4.14
 - [ ] **人・端末** デプロイ後の確認（訪問者向けは 200、管理画面は 302 で `auth.`、許可リストの外は 404、`cms.`・`n8n.`・`stats.` は引けない）— cloud 4.13
 - [ ] **人・画面** FAQ ボットの確認（`/faq.json` が返る・「料金は税込ですか？」で回答・担当者への引き継ぎのメール）— cloud 4.17 の 6

@@ -990,6 +990,10 @@ rg -o --no-filename '<loc>https?://[^/<]+' "$SITE_DIST"/sitemap-*.xml | sed 's/<
 rg -o --no-filename '<link rel="canonical" href="https?://[^/"]+' "$SITE_DIST" -g '*.html' | sed 's/.*href="//' | sort -u
 # 2-3. 本番の受け口が焼き込まれていること（chat.・mkt.・consent. の 3 行が出れば通過）
 rg -o --no-filename -e 'https://(chat|mkt|consent)\.comegin\.com' "$SITE_DIST/_astro" | sort -u
+# 2-4. 完了画面の予約枠の Cal.com のイベントが焼き込まれていること（prod.conf の CALCOM_LINK。ファイル名が 1 行以上出れば通過）
+#      https://app.cal.com だけでは判定できない（既定値なので、CALCOM_LINK が空でも焼き込まれる。空だと予約枠は毎回「予約枠を表示できませんでした」になる。2026-11-02 に起きた）
+CALCOM_LINK=<ユーザー名>/<イベントの slug>                                  # prod.conf の CALCOM_LINK と同じ値
+rg -l -F "$CALCOM_LINK" "$SITE_DIST/_astro"
 # どれかが通らなければ、ここで止める（ビルドのチェックアウトと .env.production を確かめてビルドし直す）
 
 # 3. 配信用の主体（DeployPolicyArn を付けた主体）に切り替える。BUCKET・DIST・SITE_DIST はシェル変数なので切り替えても残る
