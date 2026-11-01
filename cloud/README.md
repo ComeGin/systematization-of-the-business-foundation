@@ -947,8 +947,36 @@ dig +short stats.comegin.com
 
 ビルドはオンプレで行い、配信（同期と無効化）は人間が承認して実行する（ADR-15。`DeployPolicyArn` を付けた主体で）。**同期 → 無効化の順を入れ替えない**（逆にすると更新が一巡遅れる）。
 
+使う AWS CLI のプロファイルは 2 つ（名前はこの手順での呼び方。`~/.aws/config` に作る。SSO でもアクセスキーでもよい）。
+
+| プロファイル | 主体 | ここで使う操作 |
+|---|---|---|
+| `comegin-prod-admin` | スタックをデプロイした主体（`sam deploy` を実行する人） | `cloudformation:DescribeStacks`（バケット名とディストリビューション ID を取るだけ） |
+| `comegin-prod-deploy` | 管理ポリシー `comegin-prod-deploy`（`DeployPolicyArn`。4.5）だけを付けた主体 | S3 への同期と CloudFront の無効化。`DescribeStacks` は持たないので `OUT` は使えない |
+
 ```bash
-BUCKET=$(OUT AstroBucketName); DIST=$(OUT DistributionId)
+# 1. バケット名とディストリビューション ID を取る（4.8 と同じ関数。関数の定義と変数の設定は行を分ける。端末を開き直したら、ここからやり直す）
+#    DeployPolicyArn の主体は cloudformation:DescribeStacks を持たない（配信の 3 操作だけ）ので、ここはスタックをデプロイした主体で行う
+export AWS_PROFILE=comegin-prod-admin
+REGION=ap-northeast-1
+OUT() {
+  aws cloudformation describe-stacks \
+    --region "$REGION" \
+    --stack-name comegin-prod \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
+}
+BUCKET=$(OUT AstroBucketName)
+DIST=$(OUT DistributionId)
+# 両方が空でないことを確かめてから進む（空のまま進めると s3:// に向かって失敗する。認証切れ・別アカウント・権限不足でも空になる）
+echo "BUCKET=$BUCKET DIST=$DIST"
+[ -n "$BUCKET" ] && [ -n "$DIST" ] || echo '出力が取れない。プロファイル・リージョン・スタック名を確かめる'
+
+# 2. 配信用の主体（DeployPolicyArn を付けた主体）に切り替える。BUCKET・DIST はシェル変数なので切り替えても残る
+export AWS_PROFILE=comegin-prod-deploy
+aws sts get-caller-identity --query Arn --output text   # 配信用の主体の ARN であること
+
+# 3. 同期 → 無効化
 # ハッシュ付きの資産は長期キャッシュ（immutable）
 aws s3 sync frontend/verdant-virgo/dist/ s3://$BUCKET --exclude '*' --include '_astro/*' --cache-control 'public,max-age=31536000,immutable'
 # それ以外（HTML など）は都度検証。--delete で古いページを消す（孤児ページが公開され続けないように）
