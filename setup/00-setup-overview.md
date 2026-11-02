@@ -275,13 +275,13 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 再帰的自己改善の起動元は、オンプレの監視アプリ（`frontend/next-js` ＋ `backend/control-plane`。127.0.0.1:3200）だけ（TA-07 の 3.5）。`next-js-prod` が、承認済みの main のチェックアウトの `frontend/next-js/.env` を本番の値で書き、主体・ビルド・常駐・応答を確かめる。止まる id と、人が行うことは次のとおり（手順の正本と背景は onprem「監視アプリ（改善ループ）を本番で動かす」）。
 
 - [ ] **人・端末** `next-js-prod:checkout` チェックアウトを `checkout --detach origin/main` で合わせる — manual 6
-- [ ] **人・端末** `next-js-prod:build` チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（チェックアウトを動かした後のビルドかを日時で見る）
+- [ ] **人・端末** `next-js-prod:build` チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（チェックアウトを動かした後のビルドかを日時で見る。**定義の yaml だけの PR でも、チェックアウトを動かしたらビルドし直して restart する**）
 - [ ] **人・端末** `next-js-prod:principal` IAM ユーザー `comegin-prod-control-plane`（管理ポリシー `comegin-prod-control-plane` だけ）を作り、キーを `~/.config/comegin/control-plane/aws-credentials`（600）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる — cloud 4.5.2
 - [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票）を書く。Google のクライアント・開く URL・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_PUBLIC_URL`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット）
 - [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
 - [ ] 〔警告〕アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（起動から 15 分ほど）— cloud 4.13
-- [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告）
-- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面で `success`・`skipped` の理由を見る
+- [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告。2026-11-02 に、まとめて有効にした中に入っていて、PR #58 で戻した）。`daily-n8n-export` は [6 節](#6-判断が残っている項目r1)の判断の後に有効にする
+- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面（または `journalctl -u comegin-control`）で `success`・`skipped` の理由を見る。いつ何が動くかは onprem「監視アプリ…」の 5 の表
 
 ### P15. 段階 `operate`: 運用開始の仕上げ
 
@@ -290,6 +290,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] 〔警告〕**人・端末** 配信用の主体（許可セット `ComeginProdDeploy`）がある — cloud 4.5.1
 - [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」
 - [ ] 〔警告〕**人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — cloud 7.3・7.4
+  - 〔未検査〕スクリプトが確かめるのは `prod.conf` から消えたことだけ。Mautic の画面（歯車 → API Credentials）から消したかは確かめない（消した後は、その値で読み取りを試せない）。一覧に `comegin-prod-n8n`・エージェント用・参照専用だけが残っていることを、目で見て確かめる。`CHATWOOT_ADMIN_TOKEN` は、`chatwoot-prod`・`n8n-prod` を再実行するときだけ一時的に戻す
 - [ ] 〔警告〕**人・画面** SES の本番アクセス（P12 で申請したもの）が承認されている — cloud 4.9.2
 - [ ] 〔未検査〕**人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする — cloud 4.17 の 5
 - [ ] **判断** [6 節](#6-判断が残っている項目r1)の項目
@@ -342,6 +343,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | **DB をサーバーレスのままにするか、クラスター（プロビジョンド）にするか** | Aurora Serverless v2（MySQL・PostgreSQL とも。最小 0.5・最大 2 ACU） | 下の「DB のコストの比較」 | cloud 6 |
 | WAF の Common ルールを Count から Block に | Count | WAF のログで管理画面の保存・アップロードが Count に入っていないか | cloud 4.16 |
 | n8n の親（I-11・I-12）の公開 | 未公開 | 受け口の疎通と署名の検証を確かめたか | provision README |
+| `daily-n8n-export`（本番の n8n のワークフローの書き出し）の API キー | **有効**（2026-11-02 に PR #56 でほかの定期実行とまとめて有効にした。判断の記録は無い）。コミュニティ版の n8n はキーにスコープを付けられないので、監視アプリの env に全権限のキーがある | 全権限のキーを監視アプリの env に置き続けてよいか（エージェントの env には渡らない）。受け入れないなら `enabled: false` に戻す PR を出す | `backend/control-plane/README.md` の n8n-export・`ops/README.md` |
 | SES の TLS を必須のままにするか | `REQUIRE` | TLS で受けられない宛先が業務に要るか | cloud 4.9 |
 | バウンス・苦情を Mautic に返す Lambda（ADR-30）をいつ作るか | 設計だけ決定済み・未実装 | 顧客へのキャンペーンの送信を始める時期（その前が望ましい） | AA-05 の ADR-30 |
 | SES の Mail type を Marketing に改めるか | Transactional（2026-10-28 のユーザーの決定） | Mautic のキャンペーンの一斉送信が大半になったか | cloud 4.9.2 |
