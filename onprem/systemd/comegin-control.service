@@ -1,0 +1,30 @@
+# 監視アプリ（frontend/next-js ＋ backend/control-plane。改善ループの起動元）を常駐させる systemd ユニットの雛形。
+# インストールは人が行う（docs/runbooks/00-setup-overview.md の P14・onprem/README.md の「常駐させる」）。ここでは /etc には何も書かない。
+#
+# 動かすのは承認済みの main のチェックアウト（CONTROL_MAIN_CHECKOUT）の frontend/next-js（ADR-18。作業ツリーの未承認の変更を
+# 管制のコードに効かせない。定期実行の定義とエージェント定義をそこから読むのと同じ考え方）。
+# 差し替える箇所: User・WorkingDirectory・Environment の PATH（node と pnpm のある場所。`command -v node pnpm` で確かめる）。
+# 初回とチェックアウトの更新のたびに、人が backend/control-plane と frontend/next-js で pnpm install && pnpm build を済ませておく
+# （起動時にはビルドしない。next start は .next が無いと起動に失敗する）。
+# .env は WorkingDirectory の .env（next start が読む）。秘密値はここに書かない。
+
+[Unit]
+Description=ComeGin control plane (monitoring app and improvement-loop scheduler, on-premises)
+# 本番の Strapi・n8n（MCP の接続先）と WireGuard の後に上げる。それらが止まっても監視アプリは止めない（ハートビートは送り続ける）ので Wants
+Wants=network-online.target comegin-strapi.service comegin-n8n.service
+After=network-online.target wg-quick@wg0.service comegin-strapi.service comegin-n8n.service
+
+[Service]
+Type=simple
+User=kamegin
+WorkingDirectory=/home/kamegin/ComeGin/main-checkout/frontend/next-js
+Environment=PATH=/home/kamegin/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+ExecStart=/home/kamegin/.local/share/pnpm/pnpm start
+# 実行中のエージェントの打ち切り（stop()）に時間を残す
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
