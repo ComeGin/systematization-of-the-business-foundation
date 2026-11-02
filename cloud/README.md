@@ -498,7 +498,40 @@ aws iam list-attached-user-policies --user-name comegin-prod-control-plane   # c
 - **写したら、キーのファイルを消す**: `shred -u ~/strapi-media.key ~/n8n-sns.key`（中身を上書きしてから消す。`rm` は名前を消すだけで中身がディスクに残る）。SSD やジャーナル・スナップショットのあるファイルシステムでは上書きが効かないことがある（`man shred`）ので、漏れた疑いがあれば下のとおりキーを止める。
 - 写す前にファイルをなくしたら、シークレットは取り出せないので、`aws iam delete-access-key --user-name <ユーザー> --access-key-id <アクセスキー ID>` で消してから作り直す。
 
-- キーは 1 ユーザーあたり 2 つまで。ローテーションは、新しいキーを作って切り替え、古いキーを `aws iam update-access-key --status Inactive` で止めて動作を確かめてから、`aws iam delete-access-key` で消す。
+- キーは 1 ユーザーあたり 2 つまで。ローテーションは、新しいキーを作って切り替え、古いキーを `aws iam update-access-key --status Inactive` で止めて動作を確かめてから、`aws iam delete-access-key` で消す。手順は次の「古いキーを止めて消す」。
+
+**古いキーを止めて消す（ローテーションの後。人が自分の端末で行う）**
+
+有効なキーが 2 つあるあいだは、段階 `operate` の `cloud` が「IAM ユーザー … に有効なアクセスキーが 2 つある」と警告を出す。一方、`n8n-prod` の確認は「`prod.conf` のキーが、このユーザーの**有効な**キーか」しか見ない。そのため、古いキーが `prod.conf` に残っていても、両方が有効なあいだは通ってしまう。古いキーを消せば、残っていたときに `n8n-prod:aws-key` で確実に止まる。Inactive を挟むのは、元に戻せるようにするため（`--status Active` で戻せる。消したキーは戻せない）。
+
+```bash
+export AWS_PROFILE=comegin-prod-admin
+IAM_USER=comegin-prod-onprem-n8n-sns      # Strapi は comegin-prod-onprem-strapi-media、監視アプリは comegin-prod-control-plane
+
+# 1. 使っている側に新しいキーが入っていることを確かめる（ID の末尾 4 文字だけを見る。シークレットは出さない）
+grep '^AWS_ACCESS_KEY_ID=' ~/.config/comegin/setup/prod.conf | tail -c 5    # n8n。Strapi は onprem/strapi の秘匿ファイル、監視アプリは 4.5.2 の aws-credentials
+
+# 2. キーの一覧と、最後に使われた日時を見る（古いほうが N/A か、切り替えより前で止まっていれば止めてよい）
+aws iam list-access-keys --user-name "$IAM_USER" --query 'AccessKeyMetadata[].[AccessKeyId,Status,CreateDate]' --output table
+aws iam get-access-key-last-used --access-key-id <キーの ID> --query 'AccessKeyLastUsed.[LastUsedDate,ServiceName]' --output text
+
+# 3. 古いキーを止める
+aws iam update-access-key --user-name "$IAM_USER" --access-key-id <古いキーの ID> --status Inactive
+
+# 4. 止めた状態で 15〜30 分、動いていることを確かめる（n8n はハートビートのアラームが OK のまま。4.10）
+aws cloudwatch describe-alarms --region ap-northeast-1 --alarm-names comegin-prod-onprem-n8n-schedule-heartbeat \
+  --query 'MetricAlarms[0].StateValue' --output text
+
+# 5. 古いキーを消す
+aws iam delete-access-key --user-name "$IAM_USER" --access-key-id <古いキーの ID>
+
+# 6. 警告が消えたことを確かめる（キーの数の警告は n8n-prod ではなく、段階 operate の cloud が出す）
+node setup/setup.mjs --target prod --phase operate --only cloud --check
+```
+
+- `get-access-key-last-used` の日時は、反映が数時間遅れることがあり、時刻も細かくは出ない。新しいキーで動いているかは、ハートビートなどのデータ点（CloudWatch）で見る。
+- 古いキーのシークレットを書いたファイル（`~/n8n-sns.key`・`prod.conf` の写しなど）が残っていても、キーを消せば無効になる。
+- **2026-11-02 の例**: `onprem-n8n-sns` に、10-28 と 11-01 に作ったキーが 2 つ有効で残っていた。10-28 のキーは一度も使われておらず（`N/A`）、11-01 のキーがハートビート（cloudwatch）で使われていた。10-28 のキーを止めてから消し、段階 `operate` の警告が消えたことを確かめた。
 - **キーを Claude Code の環境変数に引き継がない**（監視アプリの許可リスト方式の `env` のとおり）。キーが漏れた疑いがあれば、すぐに `delete-access-key` する（権限は上の 1 バケットか 2 トピックだけ）。
 - スタックは、ユーザーとポリシーを作るだけで、キーの有無を知らない。キーを作っても、CloudFormation の状態にも出力にも残らない。
 
@@ -795,7 +828,7 @@ aws sesv2 get-email-identity --region ap-northeast-1 --email-identity comegin.co
 
 4. **Submit request**。AWS サポートのケースが作られ、**最初の応答まで最大 96 時間**（公式）。追加の情報を求められたら、サポートのケースに返信する。審査中は内容を直せない。
 
-審査で使い方の説明を求められたときの文案（そのまま、または事情に合わせて直して返信する）:
+**申請の画面に使い方の説明を書く欄は無い**（API の `UseCaseDescription` も廃止。2026-11-02 に公式の PutAccountDetails のリファレンスで確かめた）。次の文案は申請には使わず、**審査で使い方の説明を求められたときに、サポートセンターのそのケースへ返信する**ためのもの（そのまま、または事情に合わせて直して返信する）:
 
 ```
 comegin.com は当社（SaaS の販売）の Web サイトです。SES からは次のメールを送ります。
@@ -809,14 +842,13 @@ comegin.com は当社（SaaS の販売）の Web サイトです。SES からは
 想定の送信数は、立ち上げ期で 1 日あたり数十〜数百通です。
 ```
 
-CLI で申請する場合（コンソールと同じ。`--production-access-enabled` を付けると申請になる）:
+CLI で申請する場合（コンソールと同じ。`--production-access-enabled` を付けると申請になる。`--use-case-description` は廃止された引数なので付けない。上の文案はケースへの返信に使う）:
 
 ```bash
 aws sesv2 put-account-details --region ap-northeast-1 \
   --production-access-enabled --mail-type TRANSACTIONAL \
   --website-url https://comegin.com --contact-language JA \
-  --additional-contact-email-addresses <連絡先のアドレス> \
-  --use-case-description "<上の文案>"
+  --additional-contact-email-addresses <連絡先のアドレス>
 ```
 
 状態の確かめ方（読み取りだけ）:
@@ -960,6 +992,31 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 
 有効にする順序: ①スタックをデプロイする（アラームは信号が無いので ALARM から始まる）→ ②アクセスキーを発行して n8n の資格情報に入れる（4.5）→ ③`heartbeatEnabled` を `true` にして、ハートビートのワークフローを公開する → ④アラームの状態が `OK` に戻り、復旧の通知が `comegin-ops-alert` に届くことを確かめる。
 
+**③ と ④ の画面での操作（本番の n8n 2.39。人が行う）**
+
+1. オンプレ機のブラウザで `http://127.0.0.1:5679` を開き、オーナーでログインする。メールは `ADMIN_EMAIL`。パスワードは自分の端末で `node setup/setup.mjs --target prod --show N8N_OWNER_PASSWORD` を実行して見る（Claude Code の `!` では実行しない。値が会話に残る）。
+2. 左のサイドバーの **Overview** → **Data tables** → `ops_settings` を開き、key が `heartbeatEnabled` の行の `value` を **`true`** にする。小文字だけで、引用符と空白は入れない。分岐「ハートビートが有効か」は、値を文字列 `"true"` と大文字小文字を区別して厳密に比べる。`True`・前後の空白・行が無い場合は、何も送らない。同じ表の `heartbeatNamespace` が `ComeGin/OnpremN8n` であることも見る。
+3. **Workflows** →「n8n スケジュール実行のハートビート」を開き、公開する前に **Execute workflow** で 1 回だけ手で動かす（下の表で結果を見分ける）。
+4. エディターの右上の **Publish** で公開する（n8n 2.x では、以前の Active の切り替えが Publish に変わった）。以後 5 分ごとに送る。
+5. **5〜15 分**でアラームが `OK` になり、`comegin-ops-alert` を購読しているメールに OK の通知が届く。3 期間すべてが欠けたときにだけ ALARM になる設定なので、最初の 1 点が届けば OK に戻る（逆に、止まってから ALARM になるまでは 15 分かかる）。最後に `node setup/setup.mjs --target prod --only n8n-prod --check` で、ハートビートの `!` 警告が消えたことを確かめる。
+
+| 手で動かした結果 | 意味 |
+|---|---|
+| 4 つのノードがすべて緑で、`CloudWatch に PutMetricData` の出力に `PutMetricDataResponse`（`RequestId`）がある | 成功 |
+| 「ハートビートが有効か」で false の側に流れ、PutMetricData まで進まない | 値が `"true"` になっていない（大文字が混じっている・空白がある・保存されていない） |
+| PutMetricData が 403 `AccessDenied` | `heartbeatNamespace` の綴りが違う、または資格情報のキーが別のユーザーのもの（4.5） |
+| PutMetricData が `InvalidClientTokenId`・`SignatureDoesNotMatch` | キーが無効（Inactive・削除済み）、またはシークレットが違う |
+
+- このワークフローは `saveDataSuccessExecution: none` にしてあり、**成功した実行は Executions の一覧に残らない**（5 分ごとの記録で DB が膨らまないように）。一覧が空なら正常で、失敗したときだけ記録が残る。動いているかは CloudWatch で見る（読み取りだけ）:
+
+  ```bash
+  aws cloudwatch get-metric-statistics --region ap-northeast-1 --namespace ComeGin/OnpremN8n \
+    --metric-name ScheduleHeartbeat --statistics SampleCount --period 300 \
+    --start-time "$(date -u -d '-30 min' +%FT%TZ)" --end-time "$(date -u +%FT%TZ)"   # 5 分ごとに SampleCount 1
+  ```
+
+- **2026-11-02 の例**: アラームは 2026-10-27 のデプロイから ALARM のままで、名前空間 `ComeGin/OnpremN8n` のメトリクスは 0 件だった（`heartbeatEnabled` が `false` のままで、一度も送っていなかった）。上の手順で有効にすると、20:45 JST から 5 分ごとにデータ点が届き、20:49 に OK になった。
+
 ### 4.11 DesiredCount を上げる順
 
 1 つ上げるたびに、4.13 の確認と、CloudWatch のアラームが鳴っていないことを見る。`samconfig.toml` の `parameter_overrides` に書いてデプロイする。
@@ -1043,6 +1100,7 @@ dig +short stats.comegin.com
 **ビルドの前提（どれかが欠けると、壊れたサイトか開発のサイトが公開される）**
 
 - **ビルドは承認済みの `main` のチェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）で行う。作業ツリーでビルドしない。** 本番の値の `.env.production` は `node setup/frontend.mjs --target prod` がそのチェックアウトにだけ書く。作業ツリーでビルドすると、開発の `.env` の値（`SITE_URL`・Mautic・Chatwoot が開発の ngrok、記事が開発の Strapi の試験記事）がそのまま焼き込まれる。開発の `.env` には `BUILD_TARGET=production` が無いため、「本番のビルドが開発の Strapi を読んだら止める」検査（`src/modules/blog/integration.ts`）も働かず、ビルドは成功してしまう（2026-11-02 に、この経路で開発の値のサイトが本番に配信された。フォームの送信とチャットが失敗し、sitemap と canonical が開発の ngrok を指していた）。
+- **チェックアウトを `origin/main` に合わせてから、ビルドし直す（PR をマージするたび）。** ビルドがマージより先だと、`dist` には修正が入らない。チェックアウトを後から進めても `dist` は作り直されない。2026-11-02 には、`robots.txt` と同意 Cookie の修正（PR #52）のマージとほぼ同時（06:38）にビルドした `dist` が配信された。そのため `robots.txt` が 404 のままで、同意 Cookie の修正も本番に入っていなかった。合わせてビルドし直し、16:29 に配信し直して解消した。下の手順 2-0 で確かめる。
 - **本番の Strapi に、公開済みの記事が 1 本以上ある。** 0 件ならビルドは意図して止まる（DD-05 の 1.2。「公開済みの記事が 0 件です」）。記事の公開は `R2` が本番の管理画面（`http://127.0.0.1:1338/admin`）で行う（エージェントは下書きまで。ADR-17）。カテゴリは `know-the-issues`・`compare-methods`・`consider-adoption` の 3 つの slug で作る（`frontend/verdant-virgo/src/modules/blog/lib/categories.ts`。ほかの slug の記事は警告を出して「課題を知る」として扱われる）。
 - **`prod.conf` の `UPLOAD_S3_BUCKET` は Strapi のメディアのバケット（`comegin-prod-strapi-media-<アカウント ID>`）にする。** 下の手順 1 の `AstroBucketName`（`comegin-prod-astro-…`。同期先）と取り違えない。親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 `StrapiMediaBucketName`）。ビルドは記事の画像を、Strapi が返す署名付き URL で取り込む。取り込みの許可（`image.remotePatterns`）と `dist` の検査は、このバケット名から作る（`src/modules/blog/integration.ts`）。取り違えると、画像が取り込まれずに署名付き URL のまま HTML に出る。そのためビルドは最後に「dist/ に Strapi・S3 の URL が残っています（… `X-Amz-Signature` …）」で止まる（2026-11-02 に起きた。止まらなければ 1 時間で切れる URL が公開されていた）。直したら `node setup/frontend.mjs --target prod --only verdant-virgo` で `.env.production` を書き直してから、ビルドし直す。形が違えば設定スクリプトが止める。
 - 同期元は、下の手順で **`dist` の絶対パス（`SITE_DIST`）** を使う。`frontend/verdant-virgo/dist/` のような相対パスにしない（作業ツリーのルートで実行すると、作業ツリーにある開発用の `dist` が上がる）。
@@ -1075,6 +1133,13 @@ echo "BUCKET=$BUCKET DIST=$DIST"
 # 2. 同期元を決め、開発の値が焼き込まれていないことを確かめる（承認済みの main のチェックアウトの dist。絶対パス）
 SITE_DIST=/home/kamegin/ComeGin/main-checkout/frontend/verdant-virgo/dist   # SITE_BUILD_CHECKOUT（空なら CONTROL_MAIN_CHECKOUT）の下
 SITE_URL=https://comegin.com                                               # prod.conf の PUBLIC_SITE_URL と同じ値
+# 2-0. チェックアウトが origin/main と同じで、dist がそのコミットより後に作られていること（「同じ」と「新しい」が出れば通過）
+#      dist が古いままだと、マージ済みの修正が配信されない（2026-11-02 に robots.txt が 404 のままになった。上の「ビルドの前提」）
+CHECKOUT=${SITE_DIST%/frontend/verdant-virgo/dist}
+git -C "$CHECKOUT" fetch -q origin main
+[ "$(git -C "$CHECKOUT" rev-parse HEAD)" = "$(git -C "$CHECKOUT" rev-parse origin/main)" ] && echo 同じ || echo 'チェックアウトが origin/main と違う。checkout --detach origin/main で合わせてビルドし直す'
+[ "$(stat -c %Y "$SITE_DIST/index.html")" -gt "$(git -C "$CHECKOUT" log -1 --format=%ct)" ] && echo 新しい || echo 'dist がコミットより古い。ビルドし直す'
+test -f "$SITE_DIST/robots.txt" || echo 'dist に robots.txt が無い（804863e2 より前のビルド）'
 # 2-1. 開発の接続先（ngrok・ポート付きの localhost／127.0.0.1）が 1 つも無いこと。出力が空なら通過
 #      （ポートを付けずに localhost だけで探すと、ライブラリの中の判定の文字列に当たるので、ポート付きで探す）
 rg -l -e 'ngrok' -e 'localhost:[0-9]' -e '127\.0\.0\.1:[0-9]' "$SITE_DIST"
@@ -1108,7 +1173,7 @@ aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*'
 
 # 5. 配信後、本番で同じことを確かめる（無効化の完了を待ってから。数分かかる）
 curl -s "$SITE_URL/sitemap-0.xml" | rg -o '<loc>https?://[^/<]+' | sort -u   # SITE_URL の 1 行だけ
-curl -s "$SITE_URL/robots.txt" | rg '^Sitemap:'                             # Sitemap: $SITE_URL/sitemap-index.xml の 1 行（2026-11-02 に追加。それまでは 404）
+curl -s "$SITE_URL/robots.txt" | rg '^Sitemap:'                             # Sitemap: $SITE_URL/sitemap-index.xml の 1 行（2026-11-02 に追加。出なければ古い dist が配信されている。手順 2-0）
 ```
 
 - **`SITE_URL` 未設定のビルドは意図的に停止する**（canonical と sitemap に localhost が焼き込まれるのを防ぐため）。
@@ -1317,7 +1382,7 @@ aws ecs describe-services \
    - **管理者と AI エージェントを受信箱のメンバーにする**。担当者の権限のユーザーは、所属した受信箱の会話しか見えない。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）
    - ラベル 4 つ: `faq-answered`・`faq-unmatched`・`faq-handoff`・`faq-ask-resolved`
    - エージェントボット「FAQ ボット」（送り先は `FAQ_BOT_WEBHOOK_URL`。違っていれば直す）を作り、受信箱に接続する（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。ボットの access_token と secret は prod の状態（`CHATWOOT_FAQ_BOT_TOKEN`・`CHATWOOT_FAQ_BOT_SECRET`。600）にだけ置き、画面に出さない
-   - マクロ「解決の確認を送る」（全員で共有。動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）
+   - マクロ「解決の確認を送る」（全員で共有。動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）。**マクロは会話画面の右の欄にあり、右の欄は最初は閉じている**（ユーザーごとの画面の設定 `is_contact_sidebar_open` が未設定のため）。会話を開き、右端の人の形のボタン（または `Alt+O`）で右の欄を開いてから、見出し「マクロ」を開くと出る（開閉はユーザーごとに覚える）。返信欄で `#` を打っても選べる（プライベートメモでも同じ）。設定 → マクロの一覧にも出る
    - **管理者**の「新しい会話が作成された時」のメール通知を有効にする（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。画面で手で入れなくてよい）
 
    1 回目は Secrets Manager の手前で「画面での操作が必要: FAQ ボットの access_token と secret を Secrets Manager に入れる」と出て、終了コード `3` で止まる（3 に進む）。

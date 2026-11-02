@@ -217,7 +217,7 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 - [ ] **人・端末** P6 で発行した `onprem-n8n-sns` のキーを `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に（スクリプトがそのユーザーのキーかを確かめる）— onprem「本番の n8n」
 - 再実行で **自動**（オーナー・API キー・MCP のトークン・provision。SNS のトピックはスタックの出力から。子だけ公開）
 - [ ] **判断** 親（I-11・I-12）の公開は R1 が決める（`N8N_PUBLISH_PARENTS=true` を書いて再実行）
-- [ ] 〔警告〕**人・画面** ハートビートを有効にする: n8n の `ops_settings` の `heartbeatEnabled` を `true` にしてワークフローを公開 → アラーム `onprem-n8n-schedule-heartbeat` が OK に戻るのを確かめる — cloud 4.10「ハートビート」
+- [ ] 〔警告〕**人・画面** ハートビートを有効にする: n8n の `ops_settings` の `heartbeatEnabled` を `true`（小文字だけ。文字列で厳密に比べる）にし、公開の前に **Execute workflow** で 1 回試してから **Publish** → 5〜15 分でアラーム `onprem-n8n-schedule-heartbeat` が OK に戻るのを確かめる（成功した実行は Executions に残らないので、確かめるのは CloudWatch で）— cloud 4.10「③ と ④ の画面での操作」
 - [ ] 〔未検査〕**人・画面** Mautic・Chatwoot の管理画面から Webhook を試し送信し、オンプレの n8n に届くことを確かめる — cloud 4.13「WireGuard」・onprem「疎通の確かめ方」
 
 ### P10. 本番の MCP（`mcp-prod`）
@@ -241,6 +241,7 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 
 - [ ] **人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）に、カテゴリ 3 つ（slug は `know-the-issues`・`compare-methods`・`consider-adoption`）があり、**公開済みの記事が 1 本以上ある**ことを確かめる。無ければ `R2` が記事を公開する（0 件だとビルドは「公開済みの記事が 0 件です」で意図して止まる。DD-05 の 1.2。エージェントは下書きまで）— cloud 4.14「ビルドの前提」
 - [ ] **人・端末** **承認済みの main のチェックアウト**（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）の `frontend/verdant-virgo` で `pnpm install && pnpm build` する。**作業ツリーでビルドしない**（開発の `.env` の値で焼かれ、ビルドは成功してしまう。2026-11-02 に、この経路で開発の値のサイトが本番に配信された）。`SITE_URL` 未設定のビルドは意図して止まる — cloud 4.14
+- [ ] **人・端末** **PR をマージするたび**、チェックアウトを `origin/main` に合わせてからビルドし直す。ビルドがマージより先だと修正が入らない（2026-11-02 に、`robots.txt` と同意 Cookie の修正のマージと同時にビルドした `dist` が配信され、`robots.txt` が 404 のままだった）。同期の前に、`dist` がチェックアウトのコミットより新しく、`robots.txt` があることを確かめる — cloud 4.14 の手順 2-0
 - [ ] **人・端末** 同期の前に、`dist` に開発の接続先（ngrok・ポート付きの localhost）が無いこと、sitemap と canonical のホストが `PUBLIC_SITE_URL` だけであること、`chat.`・`mkt.`・`consent.comegin.com` と Cal.com のイベント（`CALCOM_LINK`）が焼き込まれていることを確かめる — cloud 4.14 の手順 2
 - [ ] **人・端末** 初回だけ: 配信用の主体を作る。IAM Identity Center に管理ポリシー `comegin-prod-deploy` だけを参照する許可セット `ComeginProdDeploy` を作って自分に割り当て、`~/.aws/config` にプロファイル `comegin-prod-deploy` を足す（**作るまで次の手順の配信用の主体は存在しない**。2026-11-02 の監査で、ポリシーがどの主体にも付いていなかった。確認は `aws iam list-entities-for-policy` に `AWSReservedSSO_ComeginProdDeploy_…` が出ること）— cloud 4.5.1
 - [ ] **人・端末** スタックをデプロイした主体（`comegin-prod-admin`）でバケット名とディストリビューション ID を取り、`DeployPolicyArn` を付けた主体（`comegin-prod-deploy`）に切り替えて、**`dist` の絶対パス（`SITE_DIST`）から** S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**。配信用の主体は `DescribeStacks` を持たないので、名前の取得には使えない。相対パスの `frontend/verdant-virgo/dist/` を作業ツリーのルートで使うと、開発用の `dist` が上がる）— cloud 4.14
@@ -287,7 +288,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 同じ `--phase operate` の最初（`cloud`）が読み取りで確かめ、**止めずに警告だけ出す**（2026-11-02 から）。
 
 - [ ] 〔警告〕**人・端末** 配信用の主体（許可セット `ComeginProdDeploy`）がある — cloud 4.5.1
-- [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っているほうが動くのを確かめてから止めて消す）— cloud 4.5
+- [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」
 - [ ] 〔警告〕**人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — cloud 7.3・7.4
 - [ ] 〔警告〕**人・画面** SES の本番アクセス（P12 で申請したもの）が承認されている — cloud 4.9.2
 - [ ] 〔未検査〕**人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする — cloud 4.17 の 5

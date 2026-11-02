@@ -1,6 +1,6 @@
 id: weekly-keyword-research
 description: "OpenSEO でキーワード候補と検索ボリュームを調べ、E-01 の候補（adoption_status: candidate）を作る。費用が発生する（1 回 2,000 クレジットまで）"
-enabled: false
+enabled: true
 cron: "0 9 * * 1"
 kind: agent
 agent: keyword-researcher

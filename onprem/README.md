@@ -254,7 +254,8 @@ PR が main にマージされてこのチェックアウトを更新したと�
 - MCP のトークンは prod の状態の `N8N_PROD_TOKEN` に入り、続く `mcp-prod` が `~/.config/comegin/mcp/n8n-prod.env` に書く。画面で作ったトークンがあるなら、その値を `prod.conf` の `N8N_PROD_TOKEN=` に書くか、`N8N_MCP_ROTATE=true`（`setup/manual-steps.md` の 4 節と同じ）。
 - SNS のトピックの ARN は本番スタックの出力から読む（書かなくてよい）。Mautic・Chatwoot の Webhook の送り先は `http://10.99.0.2:5680/webhook/...`（WireGuard 越し）。
 - **親（I-11・I-12）は未公開のまま**取り込む。公開は R1 の判断で、`prod.conf` に `N8N_PUBLISH_PARENTS=true` を書いて再実行する。
-- **ハートビート**: アラーム `comegin-prod-onprem-n8n-schedule-heartbeat` が OK でなければ警告が出る。n8n の画面で Data Table `ops_settings` の `heartbeatEnabled` を `true` にし、「n8n スケジュール実行のハートビート」を公開する（`middleware/n8n/workflows/GUIDE.md` の 9.7・`cloud/README.md` の 4.10）。
+- **ハートビート**: アラーム `comegin-prod-onprem-n8n-schedule-heartbeat` が OK でなければ警告が出る。n8n の画面で Data Table `ops_settings` の `heartbeatEnabled` を `true` にし、「n8n スケジュール実行のハートビート」を公開する（`middleware/n8n/workflows/GUIDE.md` の 9.7・`cloud/README.md` の 4.10）。値は小文字の `true` だけにし、公開の前に Execute workflow で 1 回試す。画面での操作と、つまずいたときの見分け方は `cloud/README.md` の 4.10「③ と ④ の画面での操作」（2026-11-02 に有効にした）。
+- **キーの入れ替え**: 新しいキーを `prod.conf` に書いて `n8n-prod` を再実行した後、古いキーを止めて消す（`cloud/README.md` の 4.5「古いキーを止めて消す」）。`n8n-prod` は「`prod.conf` のキーがこのユーザーの有効なキーか」しか見ないので、古いキーが有効なまま残っていても通ってしまう。有効なキーが 2 つあるという警告は、段階 `operate` の `cloud` が出す。
 
 ## 開発環境との違い
 

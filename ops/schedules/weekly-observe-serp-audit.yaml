@@ -1,6 +1,6 @@
 id: weekly-observe-serp-audit
 description: "OpenSEO のランク追跡とサイト監査の保存済みの結果を E-12（source: serp・site_audit）に正規化する。計測と監査の実行は人間が OpenSEO で行う"
-enabled: false
+enabled: true
 cron: "30 6 * * 1"
 kind: agent
 agent: seo-auditor

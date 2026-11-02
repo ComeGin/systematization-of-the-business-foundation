@@ -1,6 +1,6 @@
 id: weekly-observe-lighthouse
 description: "Lighthouse の計測結果を E-12（source: lighthouse）に正規化する。計測（weekly-lighthouse）の完了を待つ"
-enabled: false
+enabled: true
 cron: "15 6 * * 1"
 kind: agent
 agent: seo-auditor

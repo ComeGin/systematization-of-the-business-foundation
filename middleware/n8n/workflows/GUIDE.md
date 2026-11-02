@@ -342,7 +342,7 @@ provision・この手順書のどちらでも、**定期実行の 3 本は公開
 |---|---|---|
 | 週次 問い合わせの棚卸し | `inventoryEnabled=true`、資格情報 `Chatwoot API`、開発は中継（3100）。**月曜 09:00 を待たず**、ワークフローを開いて **Execute workflow**（手動実行）で試せる | 件数と `#番号` が MailHog のメールの「内訳」に出る。**氏名・メール・本文が無いこと**。0 件なら何も届かない（意図どおり） |
 | 運用監視 | `opsMonitorEnabled=true`。開発の OpenSEO と中継（3001）が動いていること | OpenSEO を止めて 5 分待つと `[comegin] ops: ops-monitor:9 ng` が **1 通だけ**届く。戻すと `ok` が 1 通 |
-| n8n スケジュール実行のハートビート | `heartbeatEnabled=true`（**本番だけ**。開発は動かさない）、IAM ユーザーに `PutMetricData` の権限（`cloud/` のデプロイ後）、名前空間・メトリクス名の綴りが IAM の条件と同じ | CloudWatch の `ComeGin/OnpremN8n` の `ScheduleHeartbeat` が 5 分ごとに 1 件。止めると 15 分でアラーム |
+| n8n スケジュール実行のハートビート | `heartbeatEnabled=true`（**本番だけ**。開発は動かさない。値は小文字の `true` だけ。文字列で大文字小文字を区別して厳密に比べるので、`True` や空白入りは無効）、IAM ユーザーに `PutMetricData` の権限（`cloud/` のデプロイ後）、名前空間・メトリクス名の綴りが IAM の条件と同じ。公開の前に **Execute workflow** で 1 回試す | CloudWatch の `ComeGin/OnpremN8n` の `ScheduleHeartbeat` が 5 分ごとに 1 件。止めると 15 分でアラーム。**成功した実行は Executions に残らない**（`saveDataSuccessExecution: none`）ので、一覧が空でも正常。手で動かしたときの結果の見分け方は `cloud/README.md` の 4.10 |
 
 ---
 
