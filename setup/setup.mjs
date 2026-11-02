@@ -5,6 +5,7 @@
 //   node setup/setup.mjs --target dev --check       # 何も変えずに、どこまで用意できているかを表示する
 //   node setup/setup.mjs --target prod              # 本番を段階の順に（env → deploy → images → apps。デプロイ・プッシュは案内して止まる）
 //   node setup/setup.mjs --target prod --phase google  # 公開サイトが Route 53 から配信された後に GA4・OpenSEO
+//   node setup/setup.mjs --target prod --phase operate # google の後。改善ループ（監視アプリ）の常駐と運用開始の仕上げ
 //   node setup/setup.mjs --target dev --only n8n    # 指定したモジュールだけ（カンマ区切りで複数可）
 //   node setup/setup.mjs --target dev --list        # モジュールの一覧と順番
 //   node setup/setup.mjs --target dev --show KEY    # 状態ファイルの値を 1 つだけ表示する（作った管理者のパスワードなど）
@@ -33,6 +34,8 @@ const MODULES = [
   "backend/mautic-mcp/setup/index.mjs",
   "backend/control-plane/setup/index.mjs",
   "frontend/next-js/setup/index.mjs",
+  // prod だけ（段階 operate）。監視アプリを本番の値で常駐させる（改善ループの起動元。setup/00-setup-overview.md の P14）
+  "frontend/next-js/setup/prod/index.mjs",
   "onprem/setup/index.mjs",
   "backend/chatwoot-system/setup/prod/index.mjs",
   "backend/mautic-system/dev/setup/prod/index.mjs",

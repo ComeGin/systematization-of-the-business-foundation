@@ -4,11 +4,11 @@
 //   オーナー（未作成なら作る。パスワードは prod の状態の N8N_OWNER_PASSWORD）→ 公開 API のキー（N8N_API_KEY）→ MCP のアクセストークン
 //   （N8N_PROD_TOKEN。mcp-prod が n8n-prod.env に書く）→ provision（Data Table・Mautic と Chatwoot の Webhook〈送り先は WireGuard 越しの
 //   http://10.99.0.2:5680/webhook/...〉・資格情報・ワークフローの取り込みと子の公開）
-// 以前は setup.mjs に入っておらず、人が middleware/n8n/provision/provision.mjs --target prod を別に実行していた（docs/runbooks/00-setup-overview.md の P9）。
+// 以前は setup.mjs に入っておらず、人が middleware/n8n/provision/provision.mjs --target prod を別に実行していた（setup/00-setup-overview.md の P9）。
 //
 // 人が行うもの（止まって案内する）:
 //   - n8n 用の Mautic の API 認証情報（N8N_MAUTIC_CLIENT_ID・SECRET。エージェント用〈mcp-prod〉・参照専用・初期設定用とは別に作る。
-//     片方を失効しても、もう片方を止めないため。setup/manual-steps.md の 8.2 と同じ考え方）
+//     片方を失効しても、もう片方を止めないため。onprem/README.md の「本番の MCP」 と同じ考え方）
 //   - Chatwoot の管理者のトークン（CHATWOOT_ADMIN_TOKEN。Webhook の作成と secret の取得に要る。chatwoot-prod と同じ値）
 //   - SNS とハートビート用の IAM ユーザー（親の出力 OnpremN8nSnsUserName）のアクセスキー（AWS_ACCESS_KEY_ID・AWS_SECRET_ACCESS_KEY。
 //     cloud/README.md の 4.5。このモジュールは、そのキーがこのユーザーのものかを iam list-access-keys で確かめる〈別の強い権限のキーを入れさせない〉）
@@ -42,7 +42,7 @@ function mauticProblems(ctx) {
 function mauticSteps(ctx, problems) {
   return [
     `足りないもの: ${problems.join("／")}`,
-    `本番の Mautic（${ctx.conf.MAUTIC_BASE_URL || "https://mkt.comegin.com"}）に管理者でログインし、設定 > API 認証情報 > 新規 で OAuth 2 の認証情報を作る（名前 comegin-prod-n8n。リダイレクト URI は http://localhost。上流の権限は作った管理者のものになる。setup/manual-steps.md の 2・8.2）`,
+    `本番の Mautic（${ctx.conf.MAUTIC_BASE_URL || "https://mkt.comegin.com"}）に管理者でログインし、設定 > API 認証情報 > 新規 で OAuth 2 の認証情報を作る（名前 comegin-prod-n8n。リダイレクト URI は http://localhost。上流の権限は作った管理者のものになる。setup/manual-steps.md の 2 節・onprem/README.md の「本番の MCP」）`,
     "Public Key と Secret Key を ~/.config/comegin/setup/prod.conf の N8N_MAUTIC_CLIENT_ID=・N8N_MAUTIC_CLIENT_SECRET= に書く（エージェント用の MAUTIC_CLIENT_*・参照専用の MAUTIC_RO_CLIENT_*・初期設定用の MAUTIC_SETUP_CLIENT_* とは別の値）",
     "同じコマンドを実行し直す",
   ];

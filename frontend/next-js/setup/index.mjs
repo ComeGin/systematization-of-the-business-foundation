@@ -10,8 +10,8 @@ import { join } from "node:path";
 
 export const meta = { id: "next-js", title: "監視アプリ（環境変数・導入・Google ログイン）", targets: ["dev"], after: ["control-plane", "chatwoot-mcp", "mautic-mcp"] };
 
-const LOCAL_URL = "http://127.0.0.1:3200";
-const DEFAULT_HOSTED_DOMAIN = "comegin.com";
+export const LOCAL_URL = "http://127.0.0.1:3200";
+export const DEFAULT_HOSTED_DOMAIN = "comegin.com";
 const REGISTRY = "ops/mcp-registry.yaml";
 
 // 設定（~/.config/comegin/setup/dev.conf）にあれば環境変数ファイルに書く任意の値。
@@ -24,7 +24,7 @@ const OPTIONAL_KEYS = [
   "GOOGLE_HOSTED_DOMAIN",
 ];
 // 「1 つでも設定したら全部必須」のグループ（backend/control-plane の .env.example）
-const GROUPS = {
+export const GROUPS = {
   "I-13 の起票": ["GITHUB_TOKEN", "GITHUB_REPOSITORY", "I13_ISSUE_NUMBER", "I13_REVIEWER"],
   "S3 への写し": ["AWS_REGION", "RUNLOG_BUCKET"],
   "誤った書き込みの突き合わせ": ["MISWRITE_CHATWOOT_BASE_URL", "MISWRITE_CHATWOOT_ACCOUNT_ID", "MISWRITE_CHATWOOT_API_TOKEN", "MISWRITE_AGENT_USER_ID"],
@@ -35,7 +35,7 @@ const planeDirOf = (ctx) => join(ctx.W, "backend/control-plane");
 const envPathOf = (ctx) => join(dirOf(ctx), ".env");
 
 /** ブラウザで開く URL（= BETTER_AUTH_URL）。末尾の / は落とす。以前の既定（localhost:3000。以前は Umami と衝突していた）は 3200 とみなす */
-function publicUrlOf(env) {
+export function publicUrlOf(env) {
   const raw = (env.BETTER_AUTH_URL || LOCAL_URL).replace(/\/+$/, "");
   return raw === "http://localhost:3000" ? LOCAL_URL : raw;
 }
@@ -59,7 +59,7 @@ async function ensureTooling(ctx) {
 }
 
 /** 手元の監視アプリが動いているか（/login が 200）。down = 起動していない */
-async function probe(ctx) {
+export async function probe(ctx) {
   let res;
   try {
     // 開発サーバーは初回の要求でコンパイルするため、待ちを長めにする
@@ -77,7 +77,7 @@ async function probe(ctx) {
  * 起動中の監視アプリが Google ログインを始められるか。POST /api/auth/sign-in/social が返す Google の認可 URL を読み、
  * hd（Workspace のドメイン）とリダイレクト URI（<BETTER_AUTH_URL>/api/auth/callback/google）を確かめる。ログインそのものはしない
  */
-async function verifyGoogle(ctx, publicUrl, domain) {
+export async function verifyGoogle(ctx, publicUrl, domain) {
   let body;
   try {
     body = await ctx.http("監視アプリの Google ログインの確認", `${LOCAL_URL}/api/auth/sign-in/social`, {
@@ -100,7 +100,7 @@ async function verifyGoogle(ctx, publicUrl, domain) {
   return { ok: true, redirect };
 }
 
-function validateGroups(values) {
+export function validateGroups(values) {
   for (const [label, keys] of Object.entries(GROUPS)) {
     const set = keys.filter((k) => values[k]);
     if (set.length > 0 && set.length < keys.length) {

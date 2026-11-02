@@ -4,11 +4,13 @@
 //           （ECR のリポジトリはこのデプロイで作られる。ECS のサービスは 0 台で作られ、イメージが無くても通る。cloud/README.md の 4.2）
 //   images  イメージのビルドと ECR へのプッシュ: 本番スタックのパラメータ ChatwootImageTag・MauticImageTag のタグが ECR にあるか
 //           （タグを変えるときは、samconfig.toml を書き換えて sam build → sam deploy をもう 1 回。cloud/README.md の 4.7・4.12）
-//   apps    段階 apps の前提（docs/runbooks/00-setup-overview.md の P4）。setup.mjs の MODULES で admin-auth より前に置き、段階 apps の先頭で動く。
+//   apps    段階 apps の前提（setup/00-setup-overview.md の P4）。setup.mjs の MODULES で admin-auth より前に置き、段階 apps の先頭で動く。
 //           止めるのは DB 作成のタスク（4.8。admin-auth・onprem・chatwoot-prod・mautic-prod のすべての前提）だけ。
 //           ほかの人の作業（global の 2 回目・SNS の購読・SES・WireGuard の AMI の固定・オンプレの IAM のキー・SMTP の Secret）は、
 //           無くても後の設定は進められるので警告だけにする（どれも以前はスクリプトが確かめていなかった）
-// 段階の順番は setup/lib/runner.mjs の PROD_PHASES（ユーザーの決定。2026-10-27）。この後に google が続く。
+//   operate 運用開始の確認（2026-11-02 に追加。setup/00-setup-overview.md の P15）。止めずに警告だけ: 配信用の主体（4.5.1）・
+//           IAM ユーザーの古いキーの残り・prod.conf に残った初期設定用の値・SES のサンドボックス
+// 段階の順番は setup/lib/runner.mjs の PROD_PHASES（ユーザーの決定。2026-10-27）。apps の後に google・operate が続く。
 //
 // 方針:
 //   - AWS には読み取りだけ（sts get-caller-identity・cloudformation describe-stacks・ecr describe-images・secretsmanager describe-secret、
@@ -32,7 +34,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ENV_NAME, GLOBAL_REGION, GLOBAL_STACK, REGION, STACK, awsJson, dbInitDone, dbInitSteps, describeStack, outputOf, parameterOf, requireMainStack, secretHasValue } from "./aws.mjs";
 
-export const meta = { id: "cloud", title: "AWS（本番のスタック。環境変数・デプロイ・イメージ・apps の前提）", targets: ["prod"], phases: ["env", "deploy", "images", "apps"], after: [] };
+export const meta = { id: "cloud", title: "AWS（本番のスタック。環境変数・デプロイ・イメージ・apps の前提・運用開始の確認）", targets: ["prod"], phases: ["env", "deploy", "images", "apps", "operate"], after: [] };
 
 const DEFAULT_ACCOUNT_ID = "798560359429"; // cloud/README.md の 2 節
 const SAMCONFIG = "cloud/samconfig.toml";
@@ -247,7 +249,7 @@ function imageSteps(account, missing) {
 }
 
 // ---------------------------------------------------------------------------
-// 段階 apps（apps の前提。docs/runbooks/00-setup-overview.md の P4 と 4 節）
+// 段階 apps（apps の前提。setup/00-setup-overview.md の P4 と 4 節）
 // ---------------------------------------------------------------------------
 
 const DB_ENGINES = ["postgres", "mysql"];
@@ -328,6 +330,50 @@ async function appsWarnings(ctx, main) {
   await tryWarn(warnings, "SMTP の Secret", async () => {
     for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) warnings.push(`Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.9.3・4.9.4・4.11）`);
   });
+  await tryWarn(warnings, "配信用の主体", async () => {
+    const w = await deployPrincipalWarning(ctx);
+    if (w) warnings.push(w);
+  });
+  return warnings;
+}
+
+/** 管理ポリシー comegin-<env>-deploy（DeployPolicyArn）の付与先が無ければ警告文。公開サイトの配信（P12）の前に要る */
+async function deployPrincipalWarning(ctx) {
+  const { Account } = await callerIdentity(ctx);
+  const r = await awsJson(ctx, ["iam", "list-entities-for-policy", "--policy-arn", `arn:aws:iam::${Account}:policy/comegin-${ENV_NAME}-deploy`]);
+  const n = (r?.PolicyUsers?.length ?? 0) + (r?.PolicyRoles?.length ?? 0) + (r?.PolicyGroups?.length ?? 0);
+  return n ? null : `管理ポリシー comegin-${ENV_NAME}-deploy がどの主体にも付いていない。公開サイトの配信（cloud/README.md の 4.14 の手順 3）で切り替える主体が無い。IAM Identity Center の許可セット ComeginProdDeploy を作る（cloud/README.md の 4.5.1）`;
+}
+
+// 運用開始の後に prod.conf に残すべきでない値（setup/00-setup-overview.md の P15。初期設定が済んだら消す）
+const SETUP_ONLY_KEYS = [
+  { key: "CHATWOOT_ADMIN_TOKEN", how: "Chatwoot の管理者のトークン。消すと chatwoot-prod・n8n-prod の再実行には書き直しが要る" },
+  { key: "MAUTIC_SETUP_CLIENT_ID", how: "Mautic の初期設定用の API 認証情報。画面（歯車 → API Credentials）でも消す" },
+  { key: "MAUTIC_SETUP_CLIENT_SECRET", how: "同上" },
+];
+
+/** 段階 operate の警告（止めない）。運用開始の仕上げ（P15）と、配信用の主体・キーの残り */
+async function operateWarnings(ctx, main) {
+  const warnings = [];
+  await tryWarn(warnings, "配信用の主体", async () => {
+    const w = await deployPrincipalWarning(ctx);
+    if (w) warnings.push(w);
+  });
+  // キーの入れ替えの後に古いキーが残っていないか（1 ユーザーに有効なキーは 1 つにする。cloud/README.md の 4.5 のローテーション）
+  const users = [outputOf(main, "OnpremStrapiMediaUserName"), outputOf(main, "OnpremN8nSnsUserName"), `comegin-${ENV_NAME}-control-plane`].filter(Boolean);
+  for (const user of users) {
+    await tryWarn(warnings, `IAM ユーザー ${user} のキー`, async () => {
+      const keys = (await awsJson(ctx, ["iam", "list-access-keys", "--user-name", user]))?.AccessKeyMetadata ?? [];
+      const active = keys.filter((k) => k.Status === "Active");
+      if (active.length > 1) warnings.push(`IAM ユーザー ${user} に有効なアクセスキーが ${active.length} つある（作成 ${active.map((k) => k.CreateDate.slice(0, 10)).join("・")}）。使っているほうが動くことを確かめてから、古いキーを update-access-key --status Inactive → delete-access-key（cloud/README.md の 4.5）`);
+    });
+  }
+  const left = SETUP_ONLY_KEYS.filter((k) => ctx.conf[k.key]);
+  if (left.length) warnings.push(`初期設定にだけ使う値が prod.conf に残っている: ${left.map((k) => `${k.key}（${k.how}）`).join("、")}（setup/00-setup-overview.md の P15）`);
+  await tryWarn(warnings, "SES", async () => {
+    const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
+    if (account && account.ProductionAccessEnabled !== true) warnings.push("SES はまだサンドボックス。顧客にメールが届かない（cloud/README.md の 4.9.2。公開サイトの配信の後すぐに申請する）");
+  });
   return warnings;
 }
 
@@ -380,6 +426,12 @@ export async function check(ctx) {
     const notes = DB_ENGINES.map((e) => `DB 作成（db-init-${e}）: ${missing.includes(e) ? "今のスタックの作成の後に成功した記録が無い（cloud/README.md の 4.8）" : "済み"}`);
     for (const w of await appsWarnings(ctx, main)) notes.push(`! ${w}`);
     return { ok: missing.length === 0, notes };
+  }
+  if (ctx.phase === "operate") {
+    const main = await describeStack(ctx, STACK, REGION);
+    if (!main) return { ok: false, notes: [`スタック ${STACK} が無い（先に段階 deploy）`] };
+    const warnings = await operateWarnings(ctx, main);
+    return { ok: true, notes: warnings.length ? warnings.map((w) => `! ${w}`) : ["運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる"] };
   }
   throw new Error(`cloud は段階 ${ctx.phase} を持たない`);
 }
@@ -451,7 +503,15 @@ export async function apply(ctx) {
     ctx.log(`DB 作成（${DB_ENGINES.map((e) => `db-init-${e}`).join("・")}）は今のスタックの作成の後に成功している`);
     const warnings = await appsWarnings(ctx, main);
     for (const w of warnings) ctx.warn(w);
-    ctx.log(warnings.length ? `人の作業が ${warnings.length} 件残っている（上の !。止めずに進む。docs/runbooks/00-setup-overview.md の 4 節）` : "global の 2 回目・SNS の購読・SES・AMI の固定・IAM のキー・SMTP の Secret は済んでいる");
+    ctx.log(warnings.length ? `人の作業が ${warnings.length} 件残っている（上の !。止めずに進む。setup/00-setup-overview.md の 4 節）` : "global の 2 回目・SNS の購読・SES・AMI の固定・IAM のキー・SMTP の Secret・配信用の主体は済んでいる");
+    return;
+  }
+
+  if (ctx.phase === "operate") {
+    const main = await requireMainStack(ctx);
+    const warnings = await operateWarnings(ctx, main);
+    for (const w of warnings) ctx.warn(w);
+    ctx.log(warnings.length ? `運用開始の仕上げが ${warnings.length} 件残っている（上の !。止めずに進む。setup/00-setup-overview.md の P15）` : "運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる");
     return;
   }
 

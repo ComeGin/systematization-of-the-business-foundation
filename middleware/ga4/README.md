@@ -128,7 +128,7 @@ setup は GA4 の API を呼ばない。**`--target dev` では 1〜6 を飛ば�
 
 ### 5.1 測定 ID を入れて配信した後に確かめること（setup は確かめない）
 
-1. `node setup/frontend.mjs --target prod --phase google` で `.env.production` を書き直し、承認済みの main のチェックアウトでビルドし直して配信する（`cloud/README.md` の 4.14。`docs/runbooks/00-setup-overview.md` の P13）
+1. `node setup/frontend.mjs --target prod --phase google` で `.env.production` を書き直し、承認済みの main のチェックアウトでビルドし直して配信する（`cloud/README.md` の 4.14。`setup/00-setup-overview.md` の P13）
 2. 同期の前に、`dist/_astro/` の JS に測定 ID と `googletagmanager.com/gtag/js` があることを確かめる（`cloud/README.md` の 4.14 の手順 2-5。`rg -l G-4ZXN1J3013 "$SITE_DIST/_astro"`。1 件も無ければ測定 ID が空のまま）
 3. 配信の後、Cookie を消したブラウザで https://comegin.com/ を開き、**同意する前に** `googletagmanager.com` へのリクエストが無いこと（開発者ツールの Network）、**同意した後に** `gtag/js` と `google-analytics.com/g/collect` へのリクエストが出ることを確かめる
 4. GA4 の レポート → **リアルタイム** に自分の閲覧が出ることを確かめる（反映は数十秒〜数分。通常のレポートは 24〜48 時間）

@@ -1,5 +1,5 @@
 # 監視アプリ（frontend/next-js ＋ backend/control-plane。改善ループの起動元）を常駐させる systemd ユニットの雛形。
-# インストールは人が行う（docs/runbooks/00-setup-overview.md の P14・onprem/README.md の「常駐させる」）。ここでは /etc には何も書かない。
+# インストールは人が行う（setup/00-setup-overview.md の P14・onprem/README.md の「常駐させる」）。ここでは /etc には何も書かない。
 #
 # 動かすのは承認済みの main のチェックアウト（CONTROL_MAIN_CHECKOUT）の frontend/next-js（ADR-18。作業ツリーの未承認の変更を
 # 管制のコードに効かせない。定期実行の定義とエージェント定義をそこから読むのと同じ考え方）。

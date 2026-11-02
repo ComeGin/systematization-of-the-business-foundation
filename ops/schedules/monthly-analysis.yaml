@@ -1,6 +1,6 @@
 id: monthly-analysis
 description: "月次の順位・流入・CVR の分析。観測を集約して E-13 の候補を判断する（TA-03 の 3.3）"
-enabled: false
+enabled: true
 cron: "0 8 1 * *"
 kind: agent
 agent: proposal-writer

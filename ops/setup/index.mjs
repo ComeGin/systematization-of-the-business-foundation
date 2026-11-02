@@ -12,7 +12,7 @@
 // Mautic の API 認証情報の上流の権限は、どれも管理者になる（2026-10-27 に上流で確認。ApiBundle の ClientController は、client_credentials を
 // 管理者が作ったときだけ付け、ロールは作った人のものを付ける。ロールを選ぶ項目は無い）。mautic-prod と mautic-prod-ro の違いは
 // MCP サーバの ACCESS_LEVEL（登録表）とエージェント定義の tools の許可リストだけで、Mautic 側では絞れない。認証情報を分けるのは、
-// 片方を失効・入れ替えしても、もう片方を止めないため（manual-steps.md の 8.2）。
+// 片方を失効・入れ替えしても、もう片方を止めないため（onprem/README.md の「本番の MCP」）。
 //
 // トークンと API 認証情報は、本番の各管理画面で人が発行する（このモジュールは発行しない）。確かめるのはデータの読み取りだけ:
 //   Chatwoot は GET /api/v1/profile（ALB のルール 203。ヘッダーは api-access-token。ALB がアンダースコアのヘッダーを捨てるため）、

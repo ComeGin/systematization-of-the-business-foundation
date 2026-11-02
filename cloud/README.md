@@ -12,7 +12,7 @@
 
 収益化（`points-api`・`I-26`〜`I-30`・`E-19` の S3 Object Lock）は作っていない（本システムの完成後。ポート 3106 とフォルダ名を予約しているだけ）。
 
-**設定スクリプト（`setup/`）・オンプレ（`onprem/`）と合わせた本番の全体の順番と、人が行う作業の一覧は [`docs/runbooks/00-setup-overview.md`](../docs/runbooks/00-setup-overview.md)。** この README の 4 節は、その各手順の詳細（コマンドと注意）。
+**設定スクリプト（`setup/`）・オンプレ（`onprem/`）と合わせた本番の全体の順番と、人が行う作業の一覧は [`setup/00-setup-overview.md`](../setup/00-setup-overview.md)。** この README の 4 節は、その各手順の詳細（コマンドと注意）。**クラウドの設定の手順はこの README にまとめる**（2026-11-02。ユーザーの決定）。設定スクリプトが本番のクラウドで止まったときの操作（AWS のデプロイ・admin-auth・Chatwoot・Mautic）は 7 節。オンプレの本番の手順は `onprem/README.md`。
 
 ## 1. 構成
 
@@ -426,7 +426,7 @@ sso_registration_scopes = sso:account:access
 
 #### 4.5.2 監視アプリの主体（`ControlPlanePolicyArn`）を作り、キーを発行する（1 回だけ）
 
-監視アプリ（オンプレで常駐。`docs/runbooks/00-setup-overview.md` の P14）は、5 分ごとのハートビートと E-15 の写しを、人がいなくても送り続ける。SSO の資格情報は期限で切れて止まるので、**IAM ユーザーとアクセスキー**を使う。権限はハートビートと写しの追記だけ（上の表）なので、漏れても消せる・読めるものは無い。
+監視アプリ（オンプレで常駐。`setup/00-setup-overview.md` の P14）は、5 分ごとのハートビートと E-15 の写しを、人がいなくても送り続ける。SSO の資格情報は期限で切れて止まるので、**IAM ユーザーとアクセスキー**を使う。権限はハートビートと写しの追記だけ（上の表）なので、漏れても消せる・読めるものは無い。
 
 ```bash
 # 人が自分の端末で、管理者で実行する（Claude Code の実行環境では実行しない）
@@ -458,7 +458,7 @@ aws iam list-attached-user-policies --user-name comegin-prod-control-plane   # c
 | IAM ユーザー | 許すこと | 使う場所 |
 |---|---|---|
 | `comegin-<env>-onprem-strapi-media` | Strapi のメディアのバケット（`comegin-<env>-strapi-media-<アカウント ID>`）への `s3:GetObject`・`PutObject`・`DeleteObject` と、`s3:ListBucket` だけ | オンプレの Strapi（`onprem/strapi` の秘匿ファイルの `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY`。Strapi の S3 プロバイダーは SDK の既定の探索でこれを読む） |
-| `comegin-<env>-onprem-n8n-sns` | `comegin-ops-alert`・`comegin-lead-alert` への `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` だけへの `cloudwatch:PutMetricData`（n8n のスケジュール実行のハートビート）。購読の変更・トピックの設定変更・アラームの操作・監視アプリの名前空間（`ComeGin/Onprem`）への送信は不可 | オンプレの n8n の AWS の資格情報「AWS SNS 発行（アクセスキー）」（SNS のノードとハートビートの HTTP Request ノードで同じ資格情報を使う。前回の Assume Role と Use System Credentials は使わない）。**人はキーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書くだけ**で、設定スクリプトの `n8n-prod` が、このユーザーの有効なキーかを確かめてから n8n に入れる（`setup/manual-steps.md` の 8.6。エディターでは入れない） |
+| `comegin-<env>-onprem-n8n-sns` | `comegin-ops-alert`・`comegin-lead-alert` への `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` だけへの `cloudwatch:PutMetricData`（n8n のスケジュール実行のハートビート）。購読の変更・トピックの設定変更・アラームの操作・監視アプリの名前空間（`ComeGin/Onprem`）への送信は不可 | オンプレの n8n の AWS の資格情報「AWS SNS 発行（アクセスキー）」（SNS のノードとハートビートの HTTP Request ノードで同じ資格情報を使う。前回の Assume Role と Use System Credentials は使わない）。**人はキーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書くだけ**で、設定スクリプトの `n8n-prod` が、このユーザーの有効なキーかを確かめてから n8n に入れる（`onprem/README.md` の「本番の n8n」。エディターでは入れない） |
 
 アクセスキーの発行（**人が自分の端末で実行する。Claude Code の実行環境では実行しない。キーを画面に出さず、ファイルに直接書く**）。
 キーのファイルは**リポジトリの外（ホームディレクトリ）に作る**。リポジトリの中に作ると、`.gitignore` に無い `*.key` を誤ってコミットしたり、Claude Code が読んだりしうる。
@@ -498,7 +498,40 @@ aws iam list-attached-user-policies --user-name comegin-prod-control-plane   # c
 - **写したら、キーのファイルを消す**: `shred -u ~/strapi-media.key ~/n8n-sns.key`（中身を上書きしてから消す。`rm` は名前を消すだけで中身がディスクに残る）。SSD やジャーナル・スナップショットのあるファイルシステムでは上書きが効かないことがある（`man shred`）ので、漏れた疑いがあれば下のとおりキーを止める。
 - 写す前にファイルをなくしたら、シークレットは取り出せないので、`aws iam delete-access-key --user-name <ユーザー> --access-key-id <アクセスキー ID>` で消してから作り直す。
 
-- キーは 1 ユーザーあたり 2 つまで。ローテーションは、新しいキーを作って切り替え、古いキーを `aws iam update-access-key --status Inactive` で止めて動作を確かめてから、`aws iam delete-access-key` で消す。
+- キーは 1 ユーザーあたり 2 つまで。ローテーションは、新しいキーを作って切り替え、古いキーを `aws iam update-access-key --status Inactive` で止めて動作を確かめてから、`aws iam delete-access-key` で消す。手順は次の「古いキーを止めて消す」。
+
+**古いキーを止めて消す（ローテーションの後。人が自分の端末で行う）**
+
+有効なキーが 2 つあるあいだは、段階 `operate` の `cloud` が「IAM ユーザー … に有効なアクセスキーが 2 つある」と警告を出す。一方、`n8n-prod` の確認は「`prod.conf` のキーが、このユーザーの**有効な**キーか」しか見ない。そのため、古いキーが `prod.conf` に残っていても、両方が有効なあいだは通ってしまう。古いキーを消せば、残っていたときに `n8n-prod:aws-key` で確実に止まる。Inactive を挟むのは、元に戻せるようにするため（`--status Active` で戻せる。消したキーは戻せない）。
+
+```bash
+export AWS_PROFILE=comegin-prod-admin
+IAM_USER=comegin-prod-onprem-n8n-sns      # Strapi は comegin-prod-onprem-strapi-media、監視アプリは comegin-prod-control-plane
+
+# 1. 使っている側に新しいキーが入っていることを確かめる（ID の末尾 4 文字だけを見る。シークレットは出さない）
+grep '^AWS_ACCESS_KEY_ID=' ~/.config/comegin/setup/prod.conf | tail -c 5    # n8n。Strapi は onprem/strapi の秘匿ファイル、監視アプリは 4.5.2 の aws-credentials
+
+# 2. キーの一覧と、最後に使われた日時を見る（古いほうが N/A か、切り替えより前で止まっていれば止めてよい）
+aws iam list-access-keys --user-name "$IAM_USER" --query 'AccessKeyMetadata[].[AccessKeyId,Status,CreateDate]' --output table
+aws iam get-access-key-last-used --access-key-id <キーの ID> --query 'AccessKeyLastUsed.[LastUsedDate,ServiceName]' --output text
+
+# 3. 古いキーを止める
+aws iam update-access-key --user-name "$IAM_USER" --access-key-id <古いキーの ID> --status Inactive
+
+# 4. 止めた状態で 15〜30 分、動いていることを確かめる（n8n はハートビートのアラームが OK のまま。4.10）
+aws cloudwatch describe-alarms --region ap-northeast-1 --alarm-names comegin-prod-onprem-n8n-schedule-heartbeat \
+  --query 'MetricAlarms[0].StateValue' --output text
+
+# 5. 古いキーを消す
+aws iam delete-access-key --user-name "$IAM_USER" --access-key-id <古いキーの ID>
+
+# 6. 警告が消えたことを確かめる（キーの数の警告は n8n-prod ではなく、段階 operate の cloud が出す）
+node setup/setup.mjs --target prod --phase operate --only cloud --check
+```
+
+- `get-access-key-last-used` の日時は、反映が数時間遅れることがあり、時刻も細かくは出ない。新しいキーで動いているかは、ハートビートなどのデータ点（CloudWatch）で見る。
+- 古いキーのシークレットを書いたファイル（`~/n8n-sns.key`・`prod.conf` の写しなど）が残っていても、キーを消せば無効になる。
+- **2026-11-02 の例**: `onprem-n8n-sns` に、10-28 と 11-01 に作ったキーが 2 つ有効で残っていた。10-28 のキーは一度も使われておらず（`N/A`）、11-01 のキーがハートビート（cloudwatch）で使われていた。10-28 のキーを止めてから消し、段階 `operate` の警告が消えたことを確かめた。
 - **キーを Claude Code の環境変数に引き継がない**（監視アプリの許可リスト方式の `env` のとおり）。キーが漏れた疑いがあれば、すぐに `delete-access-key` する（権限は上の 1 バケットか 2 トピックだけ）。
 - スタックは、ユーザーとポリシーを作るだけで、キーの有無を知らない。キーを作っても、CloudFormation の状態にも出力にも残らない。
 
@@ -795,7 +828,7 @@ aws sesv2 get-email-identity --region ap-northeast-1 --email-identity comegin.co
 
 4. **Submit request**。AWS サポートのケースが作られ、**最初の応答まで最大 96 時間**（公式）。追加の情報を求められたら、サポートのケースに返信する。審査中は内容を直せない。
 
-審査で使い方の説明を求められたときの文案（そのまま、または事情に合わせて直して返信する）:
+**申請の画面に使い方の説明を書く欄は無い**（API の `UseCaseDescription` も廃止。2026-11-02 に公式の PutAccountDetails のリファレンスで確かめた）。次の文案は申請には使わず、**審査で使い方の説明を求められたときに、サポートセンターのそのケースへ返信する**ためのもの（そのまま、または事情に合わせて直して返信する）:
 
 ```
 comegin.com は当社（SaaS の販売）の Web サイトです。SES からは次のメールを送ります。
@@ -809,14 +842,13 @@ comegin.com は当社（SaaS の販売）の Web サイトです。SES からは
 想定の送信数は、立ち上げ期で 1 日あたり数十〜数百通です。
 ```
 
-CLI で申請する場合（コンソールと同じ。`--production-access-enabled` を付けると申請になる）:
+CLI で申請する場合（コンソールと同じ。`--production-access-enabled` を付けると申請になる。`--use-case-description` は廃止された引数なので付けない。上の文案はケースへの返信に使う）:
 
 ```bash
 aws sesv2 put-account-details --region ap-northeast-1 \
   --production-access-enabled --mail-type TRANSACTIONAL \
   --website-url https://comegin.com --contact-language JA \
-  --additional-contact-email-addresses <連絡先のアドレス> \
-  --use-case-description "<上の文案>"
+  --additional-contact-email-addresses <連絡先のアドレス>
 ```
 
 状態の確かめ方（読み取りだけ）:
@@ -943,7 +975,7 @@ aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].co
 
 #### n8n の AWS の資格情報（SNS への発行）
 
-オンプレの n8n の AWS ノードには、IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーを入れる（4.5 で発行）。キーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書いて `node setup/setup.mjs --target prod --only n8n-prod` を実行すると、provision が AWS の資格情報「AWS SNS 発行（アクセスキー）」（認証は**アクセスキー**、リージョンは `ap-northeast-1`）を作り、ワークフローの SNS ノードに割り当てる（エディターで手で作らない。`setup/manual-steps.md` の 8.6）。ハートビートの HTTP Request ノード（`PutMetricData`）も同じ資格情報で署名する（次の節）。
+オンプレの n8n の AWS ノードには、IAM ユーザー `comegin-<env>-onprem-n8n-sns` のアクセスキーを入れる（4.5 で発行）。キーを `~/.config/comegin/setup/prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に書いて `node setup/setup.mjs --target prod --only n8n-prod` を実行すると、provision が AWS の資格情報「AWS SNS 発行（アクセスキー）」（認証は**アクセスキー**、リージョンは `ap-northeast-1`）を作り、ワークフローの SNS ノードに割り当てる（エディターで手で作らない。`onprem/README.md` の「本番の n8n」）。ハートビートの HTTP Request ノード（`PutMetricData`）も同じ資格情報で署名する（次の節）。
 前回の Assume Role・Use System Credentials・`N8N_AWS_SYSTEM_CREDENTIALS_ACCESS_ENABLED` は使わない（ロール `sns-publisher` は無い）。引き受けや購読の変更の権限は、このユーザーに無い（2 トピックへの `sns:Publish` と、名前空間 `ComeGin/OnpremN8n` への `PutMetricData` だけ。TA-04 の 1 節）。
 
 #### n8n のスケジュール実行のハートビート（TA-05 の 4 節の項目 3）
@@ -959,6 +991,31 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 | リージョン・送信先 | `ap-northeast-1` の CloudWatch（`PutMetricData`） | |
 
 有効にする順序: ①スタックをデプロイする（アラームは信号が無いので ALARM から始まる）→ ②アクセスキーを発行して n8n の資格情報に入れる（4.5）→ ③`heartbeatEnabled` を `true` にして、ハートビートのワークフローを公開する → ④アラームの状態が `OK` に戻り、復旧の通知が `comegin-ops-alert` に届くことを確かめる。
+
+**③ と ④ の画面での操作（本番の n8n 2.39。人が行う）**
+
+1. オンプレ機のブラウザで `http://127.0.0.1:5679` を開き、オーナーでログインする。メールは `ADMIN_EMAIL`。パスワードは自分の端末で `node setup/setup.mjs --target prod --show N8N_OWNER_PASSWORD` を実行して見る（Claude Code の `!` では実行しない。値が会話に残る）。
+2. 左のサイドバーの **Overview** → **Data tables** → `ops_settings` を開き、key が `heartbeatEnabled` の行の `value` を **`true`** にする。小文字だけで、引用符と空白は入れない。分岐「ハートビートが有効か」は、値を文字列 `"true"` と大文字小文字を区別して厳密に比べる。`True`・前後の空白・行が無い場合は、何も送らない。同じ表の `heartbeatNamespace` が `ComeGin/OnpremN8n` であることも見る。
+3. **Workflows** →「n8n スケジュール実行のハートビート」を開き、公開する前に **Execute workflow** で 1 回だけ手で動かす（下の表で結果を見分ける）。
+4. エディターの右上の **Publish** で公開する（n8n 2.x では、以前の Active の切り替えが Publish に変わった）。以後 5 分ごとに送る。
+5. **5〜15 分**でアラームが `OK` になり、`comegin-ops-alert` を購読しているメールに OK の通知が届く。3 期間すべてが欠けたときにだけ ALARM になる設定なので、最初の 1 点が届けば OK に戻る（逆に、止まってから ALARM になるまでは 15 分かかる）。最後に `node setup/setup.mjs --target prod --only n8n-prod --check` で、ハートビートの `!` 警告が消えたことを確かめる。
+
+| 手で動かした結果 | 意味 |
+|---|---|
+| 4 つのノードがすべて緑で、`CloudWatch に PutMetricData` の出力に `PutMetricDataResponse`（`RequestId`）がある | 成功 |
+| 「ハートビートが有効か」で false の側に流れ、PutMetricData まで進まない | 値が `"true"` になっていない（大文字が混じっている・空白がある・保存されていない） |
+| PutMetricData が 403 `AccessDenied` | `heartbeatNamespace` の綴りが違う、または資格情報のキーが別のユーザーのもの（4.5） |
+| PutMetricData が `InvalidClientTokenId`・`SignatureDoesNotMatch` | キーが無効（Inactive・削除済み）、またはシークレットが違う |
+
+- このワークフローは `saveDataSuccessExecution: none` にしてあり、**成功した実行は Executions の一覧に残らない**（5 分ごとの記録で DB が膨らまないように）。一覧が空なら正常で、失敗したときだけ記録が残る。動いているかは CloudWatch で見る（読み取りだけ）:
+
+  ```bash
+  aws cloudwatch get-metric-statistics --region ap-northeast-1 --namespace ComeGin/OnpremN8n \
+    --metric-name ScheduleHeartbeat --statistics SampleCount --period 300 \
+    --start-time "$(date -u -d '-30 min' +%FT%TZ)" --end-time "$(date -u +%FT%TZ)"   # 5 分ごとに SampleCount 1
+  ```
+
+- **2026-11-02 の例**: アラームは 2026-10-27 のデプロイから ALARM のままで、名前空間 `ComeGin/OnpremN8n` のメトリクスは 0 件だった（`heartbeatEnabled` が `false` のままで、一度も送っていなかった）。上の手順で有効にすると、20:45 JST から 5 分ごとにデータ点が届き、20:49 に OK になった。
 
 ### 4.11 DesiredCount を上げる順
 
@@ -1043,6 +1100,7 @@ dig +short stats.comegin.com
 **ビルドの前提（どれかが欠けると、壊れたサイトか開発のサイトが公開される）**
 
 - **ビルドは承認済みの `main` のチェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）で行う。作業ツリーでビルドしない。** 本番の値の `.env.production` は `node setup/frontend.mjs --target prod` がそのチェックアウトにだけ書く。作業ツリーでビルドすると、開発の `.env` の値（`SITE_URL`・Mautic・Chatwoot が開発の ngrok、記事が開発の Strapi の試験記事）がそのまま焼き込まれる。開発の `.env` には `BUILD_TARGET=production` が無いため、「本番のビルドが開発の Strapi を読んだら止める」検査（`src/modules/blog/integration.ts`）も働かず、ビルドは成功してしまう（2026-11-02 に、この経路で開発の値のサイトが本番に配信された。フォームの送信とチャットが失敗し、sitemap と canonical が開発の ngrok を指していた）。
+- **チェックアウトを `origin/main` に合わせてから、ビルドし直す（PR をマージするたび）。** ビルドがマージより先だと、`dist` には修正が入らない。チェックアウトを後から進めても `dist` は作り直されない。2026-11-02 には、`robots.txt` と同意 Cookie の修正（PR #52）のマージとほぼ同時（06:38）にビルドした `dist` が配信された。そのため `robots.txt` が 404 のままで、同意 Cookie の修正も本番に入っていなかった。合わせてビルドし直し、16:29 に配信し直して解消した。下の手順 2-0 で確かめる。
 - **本番の Strapi に、公開済みの記事が 1 本以上ある。** 0 件ならビルドは意図して止まる（DD-05 の 1.2。「公開済みの記事が 0 件です」）。記事の公開は `R2` が本番の管理画面（`http://127.0.0.1:1338/admin`）で行う（エージェントは下書きまで。ADR-17）。カテゴリは `know-the-issues`・`compare-methods`・`consider-adoption` の 3 つの slug で作る（`frontend/verdant-virgo/src/modules/blog/lib/categories.ts`。ほかの slug の記事は警告を出して「課題を知る」として扱われる）。
 - **`prod.conf` の `UPLOAD_S3_BUCKET` は Strapi のメディアのバケット（`comegin-prod-strapi-media-<アカウント ID>`）にする。** 下の手順 1 の `AstroBucketName`（`comegin-prod-astro-…`。同期先）と取り違えない。親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 `StrapiMediaBucketName`）。ビルドは記事の画像を、Strapi が返す署名付き URL で取り込む。取り込みの許可（`image.remotePatterns`）と `dist` の検査は、このバケット名から作る（`src/modules/blog/integration.ts`）。取り違えると、画像が取り込まれずに署名付き URL のまま HTML に出る。そのためビルドは最後に「dist/ に Strapi・S3 の URL が残っています（… `X-Amz-Signature` …）」で止まる（2026-11-02 に起きた。止まらなければ 1 時間で切れる URL が公開されていた）。直したら `node setup/frontend.mjs --target prod --only verdant-virgo` で `.env.production` を書き直してから、ビルドし直す。形が違えば設定スクリプトが止める。
 - 同期元は、下の手順で **`dist` の絶対パス（`SITE_DIST`）** を使う。`frontend/verdant-virgo/dist/` のような相対パスにしない（作業ツリーのルートで実行すると、作業ツリーにある開発用の `dist` が上がる）。
@@ -1075,6 +1133,13 @@ echo "BUCKET=$BUCKET DIST=$DIST"
 # 2. 同期元を決め、開発の値が焼き込まれていないことを確かめる（承認済みの main のチェックアウトの dist。絶対パス）
 SITE_DIST=/home/kamegin/ComeGin/main-checkout/frontend/verdant-virgo/dist   # SITE_BUILD_CHECKOUT（空なら CONTROL_MAIN_CHECKOUT）の下
 SITE_URL=https://comegin.com                                               # prod.conf の PUBLIC_SITE_URL と同じ値
+# 2-0. チェックアウトが origin/main と同じで、dist がそのコミットより後に作られていること（「同じ」と「新しい」が出れば通過）
+#      dist が古いままだと、マージ済みの修正が配信されない（2026-11-02 に robots.txt が 404 のままになった。上の「ビルドの前提」）
+CHECKOUT=${SITE_DIST%/frontend/verdant-virgo/dist}
+git -C "$CHECKOUT" fetch -q origin main
+[ "$(git -C "$CHECKOUT" rev-parse HEAD)" = "$(git -C "$CHECKOUT" rev-parse origin/main)" ] && echo 同じ || echo 'チェックアウトが origin/main と違う。checkout --detach origin/main で合わせてビルドし直す'
+[ "$(stat -c %Y "$SITE_DIST/index.html")" -gt "$(git -C "$CHECKOUT" log -1 --format=%ct)" ] && echo 新しい || echo 'dist がコミットより古い。ビルドし直す'
+test -f "$SITE_DIST/robots.txt" || echo 'dist に robots.txt が無い（804863e2 より前のビルド）'
 # 2-1. 開発の接続先（ngrok・ポート付きの localhost／127.0.0.1）が 1 つも無いこと。出力が空なら通過
 #      （ポートを付けずに localhost だけで探すと、ライブラリの中の判定の文字列に当たるので、ポート付きで探す）
 rg -l -e 'ngrok' -e 'localhost:[0-9]' -e '127\.0\.0\.1:[0-9]' "$SITE_DIST"
@@ -1108,7 +1173,7 @@ aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*'
 
 # 5. 配信後、本番で同じことを確かめる（無効化の完了を待ってから。数分かかる）
 curl -s "$SITE_URL/sitemap-0.xml" | rg -o '<loc>https?://[^/<]+' | sort -u   # SITE_URL の 1 行だけ
-curl -s "$SITE_URL/robots.txt" | rg '^Sitemap:'                             # Sitemap: $SITE_URL/sitemap-index.xml の 1 行（2026-11-02 に追加。それまでは 404）
+curl -s "$SITE_URL/robots.txt" | rg '^Sitemap:'                             # Sitemap: $SITE_URL/sitemap-index.xml の 1 行（2026-11-02 に追加。出なければ古い dist が配信されている。手順 2-0）
 ```
 
 - **`SITE_URL` 未設定のビルドは意図的に停止する**（canonical と sitemap に localhost が焼き込まれるのを防ぐため）。
@@ -1245,7 +1310,7 @@ aws ecs describe-services \
 
 #### FAQ ボットの設定
 
-受信箱・ラベル・ボット・マクロは**設定スクリプト（`chatwoot-prod`。段階 `apps`）が Chatwoot の API で作る**（2026-11-01 に、手作業の手順からスクリプトの手順に書き直した。開発の `chatwoot` と同じ関数〈`backend/chatwoot-system/setup/index.mjs` の `ensure*`〉を本番に向けて呼ぶ）。人が行うのは、画面でしかできない最初の 2 人と、AWS への書き込み（Secrets Manager・公開サイトの配信）だけ。止まる id と案内の正本は `setup/manual-steps.md` の 8.3。
+受信箱・ラベル・ボット・マクロは**設定スクリプト（`chatwoot-prod`。段階 `apps`）が Chatwoot の API で作る**（2026-11-01 に、手作業の手順からスクリプトの手順に書き直した。開発の `chatwoot` と同じ関数〈`backend/chatwoot-system/setup/index.mjs` の `ensure*`〉を本番に向けて呼ぶ）。人が行うのは、画面でしかできない最初の 2 人と、AWS への書き込み（Secrets Manager・公開サイトの配信）だけ。止まる id と案内の正本は `cloud/README.md` の 7.3。
 
 1. **人・画面** 最初の 2 人（管理者と AI エージェント）を作り、値を `~/.config/comegin/setup/prod.conf` に書く（`chatwoot-prod:onboarding`）。画面は日本語で出る（英語の名前を括弧に添える）。
 
@@ -1317,7 +1382,7 @@ aws ecs describe-services \
    - **管理者と AI エージェントを受信箱のメンバーにする**。担当者の権限のユーザーは、所属した受信箱の会話しか見えない。ボットから担当者への引き継ぎ（`faq-handoff`・`faq-unmatched`。`pending` → `open`）の通知は、受信箱のメンバーにだけ作られる（管理者でもメンバーでなければ届かない）
    - ラベル 4 つ: `faq-answered`・`faq-unmatched`・`faq-handoff`・`faq-ask-resolved`
    - エージェントボット「FAQ ボット」（送り先は `FAQ_BOT_WEBHOOK_URL`。違っていれば直す）を作り、受信箱に接続する（**これで新しい会話は pending で始まり、ボットが先に答える**。外すと元に戻る）。ボットの access_token と secret は prod の状態（`CHATWOOT_FAQ_BOT_TOKEN`・`CHATWOOT_FAQ_BOT_SECRET`。600）にだけ置き、画面に出さない
-   - マクロ「解決の確認を送る」（全員で共有。動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）
+   - マクロ「解決の確認を送る」（全員で共有。動作は「ラベルを追加: `faq-ask-resolved`」だけ）。担当者が返信の後にこのマクロを押すと、ボットが訪問者に［解決しました］ボタンを送る。ボタンが出ずにラベルが残っていたら、ラベルを外してから押し直す（`docs/superpowers/specs/2026-10-12-faq-bot-ask-resolved-design.md`）。**マクロは会話画面の右の欄にあり、右の欄は最初は閉じている**（ユーザーごとの画面の設定 `is_contact_sidebar_open` が未設定のため）。会話を開き、右端の人の形のボタン（または `Alt+O`）で右の欄を開いてから、見出し「マクロ」を開くと出る（開閉はユーザーごとに覚える）。返信欄で `#` を打っても選べる（プライベートメモでも同じ）。設定 → マクロの一覧にも出る
    - **管理者**の「新しい会話が作成された時」のメール通知を有効にする（引き継ぎで作られる通知の種類が「新しい会話」〈`conversation_creation`〉のため。画面で手で入れなくてよい）
 
    1 回目は Secrets Manager の手前で「画面での操作が必要: FAQ ボットの access_token と secret を Secrets Manager に入れる」と出て、終了コード `3` で止まる（3 に進む）。
@@ -1357,7 +1422,7 @@ aws ecs describe-services \
 5. **人・画面** ほかの担当者（人）を受信箱「Web サイト」のメンバーにし（「設定 → 受信トレイ → Web サイト」の共同作業者〈Collaborators〉のタブ）、**各担当者が自分のプロフィールの通知設定で「新しい会話が作成された時」のメールを有効にする**（本人のトークンでしか変えられないので、スクリプトは管理者の分だけ行う）。受信箱の自動割り当てが有効なら、続けて「会話が自分に割り当てられた時」の通知も来る（両方有効だと引き継ぎごとにメールが 2 通）。メールは Chatwoot の SMTP（本番は SES。4.9）から送られる
 6. 確かめる: `node setup/setup.mjs --target prod --check --only chatwoot-prod` が通る（台数・2 つのトークンの権限・受信箱の設定とメンバー・ボットの接続と送り先・ラベル・マクロ・管理者の通知・Secrets Manager の申告）。ウィジェットで「料金は税込ですか？」と送り、回答・ラベル `faq-answered` を見る。「営業時間は？」で担当者に回る（`open`・`faq-unmatched`）と、担当者にメールが届く。CloudWatch の `comegin-prod-faq-bot-errors` が OK のまま
 
-初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` を消してよい（その後の `chatwoot-prod` は止まって案内する。`setup/manual-steps.md` の 8.3）。
+初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` を消してよい（その後の `chatwoot-prod` は止まって案内する。`cloud/README.md` の 7.3）。
 
 - **faq-bot が失敗すると（Lambda の例外は関数 URL で 502）、Chatwoot は送り直さずに会話を `open` にする。** 訪問者は担当者に回り、アラームが `ops` に届く。
 - しきい値（`FaqMatchHigh`・`FaqMatchLow`・`FaqMatchMargin`）は仕様 11 節の評価で決めた値が既定。変えるときは `backend/faq-bot/tests/matcher-eval.test.ts` で評価し直してから、パラメータで渡す。
@@ -1469,3 +1534,56 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - **mautic-web はローリング更新**、mautic-cron は止めてから起動する（二重実行の防止。更新中は短く止まる）。
 - **WAF**: `auth.` ホストにもレート制限をかけた（Better Auth のレート制限は `X-Forwarded-For` を信頼するため、効き目は WAF に頼る）。
 - **cfn-guard の指摘のうち意図した例外**: ALB の 443 を `0.0.0.0/0` に開ける、タスクの外向き、`Resource: '*'` しか書けないアクション（`ecr:GetAuthorizationToken`・`ssmmessages`・`PutMetricData`）、E-15 の写しの Object Lock・アクセスログ・レプリケーション、RDS の Multi-AZ とマスターユーザー名、S3 のアクセスログとレプリケーション。理由は各テンプレートのコメントにある。
+
+## 7. 設定スクリプトが止まったときの操作（本番のクラウド）
+
+2026-11-02 に `setup/manual-steps.md` の 8 節（8.1・8.3・8.4・8.5）から移した（置き場所の決まりは `setup/00-setup-overview.md` の冒頭）。表示の id の早見表は `setup/manual-steps.md` の 0 節。オンプレの本番（本番の MCP・MCP の dist・本番の n8n・監視アプリ）は `onprem/README.md` にある。
+
+設定は `~/.config/comegin/setup/prod.conf`（雛形は同じ `setup/setup.conf.example`）。本番でスクリプトが行うのは、外部の値の形式の確認（GA4）・OpenSEO・admin-auth の確認・オンプレの確認・本番の Chatwoot と Mautic の API でできる初期設定・本番の MCP の env ファイルまで。画面でしかできないことと AWS への書き込みは、案内して止まる。`ga4`・`openseo` は prod でも動き、**Google の手順（`ga4:property`・`openseo:google-oauth-client`・`openseo:gsc-connect`・`openseo:ga4-connect`）は prod だけで出る**（`setup/manual-steps.md` の 7.4・7.5。AWS に展開して公開サイトが動いてから）。`onprem` は、AWS のデプロイ（`cloud/README.md`）の後に WireGuard → Strapi → n8n の順で人が立ち上げる手順を表示する。手順の正本は `onprem/README.md` と `onprem/wireguard/README.md`。
+
+### 7.1 AWS のデプロイ（`cloud`）
+
+本番の段階 `env`・`deploy`・`images` と、`apps` の最初・`operate` の確認は `cloud`（`cloud/setup/index.mjs`）が受け持つ（`setup/README.md` の「本番の段階」）。AWS には読み取り（`sts get-caller-identity`・`cloudformation describe-stacks`・`ecr describe-images`・`secretsmanager describe-secret`）しか行わず、デプロイ・プッシュ・Secret の値の書き込みは人が自分の端末で行う（`cloud/README.md` の 2 節）。`samconfig.toml` の値と Secret の値は表示しない。
+
+| 表示の id | すること |
+|---|---|
+| `cloud:env` | AWS CLI・SAM CLI（1.154 以上）・Docker・pnpm 11 を入れる。AWS の認証は `AWS_PROFILE` か `aws sso login`（アカウントが既定の `798560359429` でなければ止まる。別のアカウントに出すなら `prod.conf` の `AWS_ACCOUNT_ID`）。`cp cloud/samconfig.toml.example cloud/samconfig.toml`（600）にして、`RunLogAdminPrincipalArns`・`GoogleClientId`・`AdminBootstrapEmails` を書く（CloudFront の 2 つは次の段階で書く） |
+| `cloud:global` | `cd cloud && sam deploy --config-env global`（`cloud/README.md` の 4.1） |
+| `cloud:cloudfront-params` | 表示された global の出力（`CertificateArn`・`WebAclArn`）を `samconfig.toml` の `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く |
+| `cloud:sam-deploy` | `cd cloud && sam build`（必須）→ `sam deploy`（4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
+| `cloud:rollback` | 本番スタックが `ROLLBACK_COMPLETE`（初回の作成が失敗して戻された。更新できない）。イベントで原因を確かめてテンプレートを直し、`aws cloudformation delete-stack` → `wait stack-delete-complete` で消す（入れ子のスタックの Validation failure は `aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true` で見る） |
+| `cloud:leftovers` | 本番スタックが無いのに、固定の名前の Retain のリソース（SNS 2・`comegin/prod/*` の Secret・runlog-archive の S3・ECR 2）が残っている。作成の失敗で戻されずに残ったもので、そのままでは `sam deploy` が名前の衝突で失敗する。中身が空なのを確かめてから、表示されたコマンドで消す（Secret は `--force-delete-without-recovery`。データがあるなら消さずに止まって、リソースのインポートを考える）。2026-10-27 の初回のデプロイで起きた |
+| `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は警告だけで、Chatwoot・Mautic の DesiredCount を上げる前（4.11）に入れる。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
+| `cloud:db-init` | 段階 `apps` の最初。`cloud/README.md` の 4.8 の手順で `comegin-prod-db-init-postgres` と `comegin-prod-db-init-mysql` を RunTask する（ログの最後が `db-init-<engine>: done`）。スクリプトはロググループ `/comegin/prod/tasks` を、今の本番スタックの作成の後に絞って読み、見つけたら状態に残す（ログは 30 日で消えるため。スタックを作り直すとパスワードが変わるので確かめ直す）。同じ段階で、global の 2 回目・SNS の購読（`--authenticate-on-unsubscribe` 付きか）・SES の本番アクセスと DKIM・MAIL FROM・`comegin.com` の DMARC（無い・厳しい照合）・WireGuard の AMI の固定・オンプレの IAM ユーザーのキー・SMTP の Secret を読み、済んでいなければ警告する（止めない） |
+| `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
+
+### 7.2 本番の admin-auth
+
+`admin-auth` は、本番の discovery（`https://auth.comegin.com/.well-known/openid-configuration`。ほかのホストなら `prod.conf` の `AUTH_HOST`）を読んで確かめるだけで、AWS には書き込まない。DB の移行と ALB のクライアント登録は、表示された手順のとおり、人が自分の端末で運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` と `{"action":"register-alb-client"}` を送る（`cloud/README.md` の 4.19）。管理画面に Google でログインできたら `ADMIN_AUTH_PROD_READY=yes` を書く（移行の有無は DB の中にあり、外から読み取りだけでは確かめられないため申告制）。
+
+### 7.3 本番の Chatwoot（`chatwoot-prod`）
+
+開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`）に向けて行う。本番は `rails runner` を使わないので、最初の 2 人は画面で作る。画面の操作・コマンド・止まったときの見方の詳細は `cloud/README.md` の 4.17 の 1〜3。
+
+1. `cloud/README.md` の 4.17 の「前提」のとおり、`db:chatwoot_prepare` を済ませ、chatwoot-web → chatwoot-worker の順に起動しておく（4.10・4.11）
+2. `https://chat.comegin.com` を開き（admin-auth の Google ログインの内側）、onboarding で最初の管理者とアカウントを作る。管理者のプロフィール設定のアクセストークンを `CHATWOOT_ADMIN_TOKEN=`、URL の `/app/accounts/<数字>/` を `CHATWOOT_ACCOUNT_ID=` に書く
+3. 設定 → 担当者（英語の画面では Settings → Agents）の「担当者を追加」で、エージェント専用ユーザー（担当者の権限）を招待し、招待メールからパスワードを決めてログインする。そのユーザーのトークンを `CHATWOOT_AGENT_TOKEN=` に書く（`mcp-prod` と共用。ADR-17）
+4. 親スタックの出力 `FaqBotFunctionUrl` の末尾に `webhook` を付けた URL を `FAQ_BOT_WEBHOOK_URL=`、本番の公開サイトの URL を `PUBLIC_SITE_URL=` に書いて、`node setup/setup.mjs --target prod --only chatwoot-prod` を実行する
+5. 止まったら、表示されたコマンドで FAQ ボットの access_token と secret を Secrets Manager に入れ（値は画面に出さず、パイプで渡す）、案内に出るトークンの指紋（SHA-256 の先頭 8 文字。秘密値ではない）を `FAQ_BOT_SECRETS_STORED=<指紋>` に書いて実行し直す。ボットが作り直されてトークンが変わると指紋が合わなくなり、もう一度入れるよう案内される
+
+管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）は `prod.conf` だけに置き、状態ファイルには写さない。初期設定が終わったら `prod.conf` から消してよい（その後の `chatwoot-prod` は止まって案内する）。
+
+ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（本人のトークンでしか変えられない。`cloud/README.md` の 4.17 の 5）。
+
+### 7.4 本番の Mautic（`mautic-prod`）
+
+開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
+
+- インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
+- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら画面で消してよい）
+- 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
+
+画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`setup/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。
+API 認証情報は、歯車 → API Credentials → New で Authorization Protocol `OAuth 2`・Redirect URI `https://localhost`（必須の欄だが client_credentials では使わない）。一覧の Public Key がクライアント ID、Secret Key がシークレット。`prod.conf` は `chmod 600` にする。
+
+Mautic と Chatwoot から n8n（I-11・I-12）への Webhook は、オンプレの本番の n8n の provision が作る（`middleware/n8n/provision`。宛先は `http://10.99.0.2:5680/webhook/...`）。

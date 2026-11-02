@@ -6,6 +6,7 @@
 //   node setup/frontend.mjs --target dev --only verdant-virgo
 //   node setup/frontend.mjs --target prod              # 段階 apps: 本番のビルド用の .env.production（測定 ID は空。ビルド・配信はしない）
 //   node setup/frontend.mjs --target prod --phase google  # 公開サイトが Route 53 から配信された後（測定 ID を入れ、Search Console の所有権を確かめる）
+//   node setup/frontend.mjs --target prod --phase operate # google の後。監視アプリを本番の値で常駐させる（setup.mjs の --phase operate と同じモジュール）
 //
 // 設定（~/.config/comegin/setup/<target>.conf）と状態（<target>.state.json）はバックエンド全体の setup.mjs と共通。
 // 公開サイトの環境変数は、バックエンドのモジュールが状態に置いた値（Strapi のビルド用トークン・Chatwoot の website_token・
@@ -14,11 +15,13 @@
 
 import { runSetup } from "./lib/runner.mjs";
 
-// 呼ぶ順番（依存の順）。ga4・next-js はバックエンドの setup.mjs にもある（どちらから実行しても同じ結果になる）
+// 呼ぶ順番（依存の順）。ga4・next-js・next-js-prod はバックエンドの setup.mjs にもある（どちらから実行しても同じ結果になる）
 const MODULES = [
   "middleware/ga4/setup/index.mjs",
   "frontend/verdant-virgo/setup/index.mjs",
   "frontend/next-js/setup/index.mjs",
+  // prod だけ（段階 operate）。監視アプリを本番の値で常駐させる（改善ループの起動元。setup/00-setup-overview.md の P14）
+  "frontend/next-js/setup/prod/index.mjs",
 ];
 
 runSetup({ title: "フロントエンド全体の設定スクリプト", script: "setup/frontend.mjs", modules: MODULES });
