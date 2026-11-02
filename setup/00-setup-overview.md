@@ -4,7 +4,9 @@
 **どの順で、だれが、何をするか**が 1 か所で見えなかった。この文書はその**順番と分担の地図**で、細かい手順は各 README（正本）に任せる。
 各手順の「詳細」の列から、正本の節に飛ぶ。
 
-パスはリポジトリのルートからの相対。`cloud/README.md` の節は「cloud 4.8」のように、`setup/manual-steps.md` の節は「manual 8.3」のように書く。
+**置き場所の決まり（2026-11-02。ユーザーの決定）**: 全体の設定スクリプトとこの地図・開発環境の手順は `setup/`、クラウド（AWS）の設定の手順は `cloud/`、オンプレの本番の設定の手順は `onprem/` に置く。以前は `docs/runbooks/` にこの文書が、`setup/manual-steps.md` の 8 節に本番の手順があった。
+
+パスはリポジトリのルートからの相対。節は次のように書く: `cloud/README.md` の節は「cloud 4.8」、`setup/manual-steps.md` の節は「manual 7.2」、`onprem/README.md` の節は「onprem「本番の n8n」」（見出しの名前）。
 
 ## 0. 読み方
 
@@ -30,20 +32,20 @@ node setup/setup.mjs --target <dev|prod> [--phase <段階>] [--check]
 ```
 
 - 止まったら（終了コード 3）、表示された手順を行い、**同じコマンドを実行し直す**。済んだ手順は飛ばす。
-- 止まったときの表示の id（例 `cloud:secrets`）は、[`setup/manual-steps.md`](../../setup/manual-steps.md) の 0 節の早見表で引ける。
+- 止まったときの表示の id（例 `cloud:secrets`）は、[`setup/manual-steps.md`](manual-steps.md) の 0 節の早見表で引ける（本番の id は、そこから `cloud/README.md` の 7 節・`onprem/README.md` に飛ぶ）。
 - 人が書く値は `~/.config/comegin/setup/<dev|prod>.conf`（600）。スクリプトが作った値は `<dev|prod>.state.json` に入り、`--show <KEY>` で見る。
 
 ## 1. 文書の地図（どれが何の正本か）
 
 | 文書 | 正本としての中身 | いつ読むか |
 |---|---|---|
-| **この文書** | 全体の順番・分担・見落としやすい手順 | 最初と、迷ったとき |
-| [`setup/README.md`](../../setup/README.md) | 設定スクリプトの使い方・モジュールの一覧・本番の 5 段階 | スクリプトを実行するとき |
-| [`setup/manual-steps.md`](../../setup/manual-steps.md) | スクリプトが止まったときの画面・端末の操作（id で引く） | スクリプトが止まったとき |
-| [`cloud/README.md`](../../cloud/README.md) | AWS の構成・費用・デプロイと運用のコマンド（4.1〜4.19） | 本番の AWS を触るとき |
-| [`onprem/README.md`](../../onprem/README.md)・[`onprem/wireguard/README.md`](../../onprem/wireguard/README.md) | オンプレの本番の Strapi・n8n・WireGuard の立ち上げ | 本番のオンプレを上げるとき |
-| [`middleware/n8n/provision/README.md`](../../middleware/n8n/provision/README.md) | n8n の資格情報・ワークフロー・Webhook の作成（**本番は設定スクリプトに入っていない**） | 本番の n8n を設定するとき |
-| [`docs/runbooks/01-onprem-verification.md`](01-onprem-verification.md) | 開発環境での動作確認（Wave 4） | 開発環境を確かめるとき |
+| **この文書**（`setup/`） | 全体の順番・分担・見落としやすい手順 | 最初と、迷ったとき |
+| [`setup/README.md`](README.md) | 設定スクリプトの使い方・モジュールの一覧・本番の 6 段階 | スクリプトを実行するとき |
+| [`setup/manual-steps.md`](manual-steps.md) | スクリプトが止まったときの操作の早見表（全部の id）と、開発環境・Google（GA4・OpenSEO）の操作 | スクリプトが止まったとき |
+| [`cloud/README.md`](../cloud/README.md) | AWS の構成・費用・デプロイと運用のコマンド（4.1〜4.19）、**本番のクラウドで止まったときの操作（7 節。AWS のデプロイ・admin-auth・Chatwoot・Mautic）** | 本番の AWS を触るとき |
+| [`onprem/README.md`](../onprem/README.md)・[`onprem/wireguard/README.md`](../onprem/wireguard/README.md) | オンプレの本番の Strapi・n8n・WireGuard の立ち上げ、**監視アプリ（改善ループ）の本番、本番のオンプレで止まったときの操作（本番の MCP・MCP の dist・本番の n8n）** | 本番のオンプレを上げるとき |
+| [`middleware/n8n/provision/README.md`](../middleware/n8n/provision/README.md) | n8n の資格情報・ワークフロー・Webhook の作成（本番は設定スクリプトの `n8n-prod` が呼ぶ） | n8n の取り込みの中身を知りたいとき |
+| [`docs/runbooks/01-onprem-verification.md`](../docs/runbooks/01-onprem-verification.md) | 開発環境での動作確認（Wave 4） | 開発環境を確かめるとき |
 
 ## 2. 開発環境（`--target dev`）
 
@@ -64,8 +66,8 @@ AWS は使わない。ほとんど自動で、人の作業は次の表だけ。
 
 ## 3. 本番（`--target prod`）
 
-設定スクリプトの段階は `env → deploy → images → apps → google` の 5 つ（setup「本番の段階」）。
-2026-10-28 から、段階 `apps` の前提（DB の作成・ECS の台数）と本番の n8n の provision もスクリプトが確かめる・行う。残る〔未検査〕は配信と運用開始の仕上げが中心。
+設定スクリプトの段階は `env → deploy → images → apps → google → operate` の 6 つ（setup「本番の段階」）。`google` と `operate` は `--phase` で明示したときだけ動く。
+2026-10-28 から、段階 `apps` の前提（DB の作成・ECS の台数）と本番の n8n の provision もスクリプトが確かめる・行う。2026-11-02 から、改善ループ（監視アプリ）の常駐と運用開始の仕上げも段階 `operate` が確かめる・行う。残る〔未検査〕は配信が中心。
 
 ```
 P1 env ─ P2 deploy ─ P3 images ─┬─ P4 データ層の仕上げ（cloud）
@@ -74,7 +76,7 @@ P1 env ─ P2 deploy ─ P3 images ─┬─ P4 データ層の仕上げ（cloud
                                 ├─ P7 Chatwoot ─┐
                                 ├─ P8 Mautic   ─┼─ P9 本番の n8n（n8n-prod）
                                 └───────────────┴─ P10 本番の MCP ─ P11 公開サイトの値
-P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 改善ループを本番で動かす〔未検査〕 ─ P15 運用開始の仕上げ〔未検査〕
+P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ループ（next-js-prod） ─ P15 operate: 運用開始の仕上げ（cloud。警告）
 ```
 
 `P4`〜`P10` は 1 回の `node setup/setup.mjs --target prod --phase apps` の中で、止まるたびに 1 つずつ進む（モジュールの順は cloud → admin-auth → onprem → chatwoot-prod → mautic-prod → n8n-prod → mcp-prod）。`P11` は `node setup/frontend.mjs --target prod`。
@@ -127,7 +129,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 改善ループを�
 
 止まる id は `admin-auth:prod-migrate`。**これが済むまで、Chatwoot・Mautic の管理画面に誰も入れない**（P7・P8 の画面の操作の前提）。
 
-- [ ] **人・端末** 運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` → `{"action":"register-alb-client","authMethod":"client_secret_post"}`（どちらも `{"ok":true}`。**ALB は post を使う**。既定の basic のままだと管理画面が `561 Authentication Error`）— cloud 4.19・manual 8.1
+- [ ] **人・端末** 運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` → `{"action":"register-alb-client","authMethod":"client_secret_post"}`（どちらも `{"ok":true}`。**ALB は post を使う**。既定の basic のままだと管理画面が `561 Authentication Error`）— cloud 4.19・cloud 7.2
 - [ ] **人・画面** 管理画面（`https://chat.comegin.com/app/` など）を開き、Google でログインして戻ってこられることを確かめる（Chatwoot が 0 台のあいだは戻った先が 503 でよい）
   - ログインの後に `https://auth.comegin.com/` の `not found` に落ちたら、2026-10-29 の admin-auth の修正（`src/pages.ts`）が入っていない版。管理画面を開き直せば通る（セッションはできている）。`sam build` → `sam deploy` で直る — cloud 4.19
 - [ ] **〔申告〕** `prod.conf` に `ADMIN_AUTH_PROD_READY=yes`
@@ -143,8 +145,8 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 改善ループを�
 - [ ] **人・端末** Strapi: `./dev/init-env.sh` → `.env` に値 → `docker compose build && up -d` → `/_health` が 204 — onprem 2
 - [ ] **人・端末** n8n: `./dev/init-env.sh`（**`N8N_ENCRYPTION_KEY` を別の場所に控える**）→ `.env` に値 → `docker compose build && up -d` → `/healthz` — onprem 3
 - [ ] **人・端末** systemd のユニットを置く（`CHANGE_ME` を書き換えてから `/etc/systemd/system/` に）— onprem「常駐させる」
-- [ ] 〔未検査〕**人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）で最初の管理者を作り、トークンを 2 つ発行する: 公開サイトのビルド用の読み取り専用（article・category・author の find / findOne だけ → `SITE_STRAPI_API_TOKEN`）と、MCP 用の Admin トークン（**下書きまで** → `STRAPI_PROD_TOKEN`）— manual 8.2・setup.conf.example
-- 本番の n8n のオーナー・公開 API のキー・MCP のトークンは、P9 の `n8n-prod` が作る（画面で作らない。先に作ってしまったなら manual 8.6）
+- [ ] 〔未検査〕**人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）で最初の管理者を作り、トークンを 2 つ発行する: 公開サイトのビルド用の読み取り専用（article・category・author の find / findOne だけ → `SITE_STRAPI_API_TOKEN`）と、MCP 用の Admin トークン（**下書きまで** → `STRAPI_PROD_TOKEN`）— onprem「本番の MCP」・setup.conf.example
+- 本番の n8n のオーナー・公開 API のキー・MCP のトークンは、P9 の `n8n-prod` が作る（画面で作らない。先に作ってしまったなら onprem「本番の n8n」）
 
 ### P7. Chatwoot（`chatwoot-prod`）
 
@@ -152,10 +154,10 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 改善ループを�
 
 - [ ] 〔未検査〕**人・端末** `db:chatwoot_prepare` を RunTask で実行する（**初回とイメージの更新のたび**。exitCode が 0。スクリプトは移行の有無を読めないが、`chatwoot-prod:ecs` の案内に手順が出る）— cloud 4.10
 - [ ] **人・端末** `samconfig.toml` に `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` を書いて `sam deploy`（P4 の SMTP の Secret の後。0 のままなら `chatwoot-prod:ecs` で止まる）— cloud 4.11
-- [ ] **人・画面** `https://chat.comegin.com` の onboarding で最初の管理者とアカウントを作る → 管理者のトークンを `CHATWOOT_ADMIN_TOKEN`、アカウント ID を `CHATWOOT_ACCOUNT_ID` に — manual 8.3
-- [ ] **人・画面** エージェント専用ユーザー（担当者の権限）を招待してログインし、トークンを `CHATWOOT_AGENT_TOKEN` に（P10 と共用。ADR-17）— manual 8.3
+- [ ] **人・画面** `https://chat.comegin.com` の onboarding で最初の管理者とアカウントを作る → 管理者のトークンを `CHATWOOT_ADMIN_TOKEN`、アカウント ID を `CHATWOOT_ACCOUNT_ID` に — cloud 7.3
+- [ ] **人・画面** エージェント専用ユーザー（担当者の権限）を招待してログインし、トークンを `CHATWOOT_AGENT_TOKEN` に（P10 と共用。ADR-17）— cloud 7.3
 - [ ] **人・端末** 出力 `FaqBotFunctionUrl` ＋ `webhook` を `FAQ_BOT_WEBHOOK_URL`、本番の公開サイトの URL を `PUBLIC_SITE_URL` に書いて再実行 → **自動**（受信箱・ラベル・FAQ ボット・マクロ・通知）
-- [ ] **人・端末** FAQ ボットの access_token と secret を Secrets Manager に入れる（表示されたコマンド）→ **〔申告〕** `FAQ_BOT_SECRETS_STORED=<指紋>` — manual 8.3・cloud 4.17
+- [ ] **人・端末** FAQ ボットの access_token と secret を Secrets Manager に入れる（表示されたコマンド）→ **〔申告〕** `FAQ_BOT_SECRETS_STORED=<指紋>` — cloud 7.3・4.17
 
 ### P8. Mautic（`mautic-prod`）
 
@@ -169,13 +171,13 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 改善ループを�
   2. データベース: Driver `MySQL PDO`・Host は Aurora MySQL のエンドポイント・Port `3306`・Name `mautic`・User `mautic`・Prefix は空（どれも環境変数から入っている）。**パスワード欄の扱いに注意**（上流 7.2 の不具合。下の 3）
   3. パスワード欄を空のまま送ると、接続の確認は通るが `config/local.php` に空のパスワードが保存され、次のテーブルの作成で `[1045] Access denied … (using password: NO)` になる。そうなったら、**DB の画面をもう送らずに**（送るたびに空で上書きされる）、ECS Exec で `local.php` の `db_password` を環境変数の値に直し、`https://mkt.comegin.com/installer/step/1.1` を新しいタブで直接開く（下のコマンド）。テーブルの作成 → データの投入と進み、管理者の画面になる
   4. 管理者: ユーザー名・パスワード・氏名・メール（`@comegin.com`）。**パスワードは Secrets Manager に置かない**ので、自分で決めてパスワード管理ソフトに控える
-- [ ] **人・画面** 管理者でログインし、右上の歯車 → Configuration で設定する — cloud 4.10・4.9.5・manual 8.4
+- [ ] **人・画面** 管理者でログインし、右上の歯車 → Configuration で設定する — cloud 4.10・4.9.5・cloud 7.4
   - System Settings: **Site URL** が `https://mkt.comegin.com`（`http://` なら信頼するプロキシが効いていない）。CORS は「ドメインを制限する」を Yes のまま、許可は本番の公開サイトのオリジンだけ（`SiteHost` の既定は `https://comegin.com`）
   - API Settings: **API enabled?** を Yes
   - Webhook Settings: キューモード `command_process`・私設アドレスの許可は **`10.99.0.2` だけ**（範囲では書かない）・失敗での自動停止は無効にしない
   - Email Settings: Email DSN を Scheme `smtp`・Host `email-smtp.ap-northeast-1.amazonaws.com`・Port `587`・User と Password は Secret `comegin/prod/mautic/SMTP_*` の値（cloud 4.9.5 のコマンドで取り出し、入れたら端末を閉じる）。送信元は `@comegin.com` のアドレスと名前 → Save → Send test email
   - **SES が本番アクセスの前（サンドボックス）のあいだは、宛先も検証済みの ID だけ**。ドメイン `comegin.com` を検証済みなので `@comegin.com` 宛てなら届き、外部の宛先は SES が拒否する（上限は 24 時間で 200 通・毎秒 1 通）。本番アクセスの申請は P12
-- [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — manual 8.4
+- [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — cloud 7.4
   - `prod.conf` は `chmod 600`（ほかのユーザーが読めるとスクリプトが警告する）
 - [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・セグメント mql。作り済みのものは名前で見つけて飛ばす）
 - [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `sam deploy`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
@@ -210,9 +212,9 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 
 本番の n8n のオーナー・公開 API のキー・MCP のトークンを作り、provision（資格情報・ワークフロー・Mautic と Chatwoot の Webhook。送り先 `http://10.99.0.2:5680/webhook/...`）を行う。止まる id は `n8n-prod:mautic-api-credentials`・`n8n-prod:chatwoot-admin-token`・`n8n-prod:aws-key`。
 
-- [ ] **人・画面** 本番の Mautic で **n8n 用の** API 認証情報を作り、`N8N_MAUTIC_CLIENT_*` に（ほかの用途と同じ値は失敗にする）— manual 8.6
-- [ ] **人・端末** `CHATWOOT_ADMIN_TOKEN`（P7 と同じ）と、任意で棚卸し専用の `CHATWOOT_N8N_API_TOKEN` を書く — manual 8.6
-- [ ] **人・端末** P6 で発行した `onprem-n8n-sns` のキーを `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に（スクリプトがそのユーザーのキーかを確かめる）— manual 8.6
+- [ ] **人・画面** 本番の Mautic で **n8n 用の** API 認証情報を作り、`N8N_MAUTIC_CLIENT_*` に（ほかの用途と同じ値は失敗にする）— onprem「本番の n8n」
+- [ ] **人・端末** `CHATWOOT_ADMIN_TOKEN`（P7 と同じ）と、任意で棚卸し専用の `CHATWOOT_N8N_API_TOKEN` を書く — onprem「本番の n8n」
+- [ ] **人・端末** P6 で発行した `onprem-n8n-sns` のキーを `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に（スクリプトがそのユーザーのキーかを確かめる）— onprem「本番の n8n」
 - 再実行で **自動**（オーナー・API キー・MCP のトークン・provision。SNS のトピックはスタックの出力から。子だけ公開）
 - [ ] **判断** 親（I-11・I-12）の公開は R1 が決める（`N8N_PUBLISH_PARENTS=true` を書いて再実行）
 - [ ] 〔警告〕**人・画面** ハートビートを有効にする: n8n の `ops_settings` の `heartbeatEnabled` を `true` にしてワークフローを公開 → アラーム `onprem-n8n-schedule-heartbeat` が OK に戻るのを確かめる — cloud 4.10「ハートビート」
@@ -222,9 +224,9 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 
 止まる id は `mcp-prod:prod-values`・`mcp-prod:finish`。
 
-- [ ] **人・画面** エージェント専用のアカウントでトークンを発行して `prod.conf` に書く: `CHATWOOT_AGENT_TOKEN`（P7）・`MAUTIC_CLIENT_*` と `MAUTIC_RO_CLIENT_*`（別々に 2 つ）・`STRAPI_PROD_TOKEN`・`POSTHOG_PROD_API_KEY`（`phx_`）と `POSTHOG_PROD_PROJECT_ID`（`N8N_PROD_TOKEN` は P9 が状態に置くので書かなくてよい）— manual 8.2
-- [ ] **人・端末** 承認済みの `main` のチェックアウトを `checkout --detach origin/main` で合わせ、`backend/chatwoot-mcp` と `backend/mautic-mcp` で**それぞれ** `pnpm install && pnpm build`（本番の MCP はそこの `dist` で動く。2 つは別のプロジェクトで、片方の install ではもう片方が入らない）— manual 6.1
-- [ ] **人・GitHub** 「修正がまだ origin/main に入っていない」と出たら、ビルドより先に修正を含むブランチを PR で main にマージする（ADR-18。作業ブランチの修正は本番の MCP に効かない）— manual 6.1
+- [ ] **人・画面** エージェント専用のアカウントでトークンを発行して `prod.conf` に書く: `CHATWOOT_AGENT_TOKEN`（P7）・`MAUTIC_CLIENT_*` と `MAUTIC_RO_CLIENT_*`（別々に 2 つ）・`STRAPI_PROD_TOKEN`・`POSTHOG_PROD_API_KEY`（`phx_`）と `POSTHOG_PROD_PROJECT_ID`（`N8N_PROD_TOKEN` は P9 が状態に置くので書かなくてよい）— onprem「本番の MCP」
+- [ ] **人・端末** 承認済みの `main` のチェックアウトを `checkout --detach origin/main` で合わせ、`backend/chatwoot-mcp` と `backend/mautic-mcp` で**それぞれ** `pnpm install && pnpm build`（本番の MCP はそこの `dist` で動く。2 つは別のプロジェクトで、片方の install ではもう片方が入らない）— onprem「MCP の dist」
+- [ ] **人・GitHub** 「修正がまだ origin/main に入っていない」と出たら、ビルドより先に修正を含むブランチを PR で main にマージする（ADR-18。作業ブランチの修正は本番の MCP に効かない）— onprem「MCP の dist」
 - 再実行で **自動**（env ファイル 6 つ・読み取りだけの確認）
 
 ### P11. 公開サイトの値（`node setup/frontend.mjs --target prod`）
@@ -263,62 +265,44 @@ node setup/frontend.mjs --target prod --phase google
 - [ ] **人・画面** 配信の後、同意の前に `googletagmanager.com` へのリクエストが無く、同意の後に GA4 の**リアルタイム**に閲覧が出ることを確かめる。GA4 の設定画面の「ウェブサイトをテスト」は「Google タグは検出されませんでした」になるが、同意の後にだけタグを読む設計のためで、正しい（「後で設定」で閉じる）— `middleware/ga4/README.md` の 5.1
 - [ ] **人・画面** Search Console（`sc-domain:comegin.com`）の **サイトマップ** に `https://comegin.com/sitemap-index.xml` を送信し、ステータスが「成功しました」になり、検出された URL の数が `sitemap-0.xml` の件数と合うことを確かめる — manual 7.4
 
-### P14. 改善ループ（監視アプリ）を本番で動かす〔未検査〕
+### P14. 段階 `operate`: 改善ループ（監視アプリ）を本番で動かす
 
-再帰的自己改善の起動元は、オンプレの監視アプリ（`frontend/next-js` ＋ `backend/control-plane`。127.0.0.1:3200）だけ（TA-07 の 3.5。本番の n8n はローカルのエージェントを起動できない）。監視アプリは開発と本番の区別が無い 1 つのインスタンスで、**エージェントが書き込む先が本番（`*-prod` の MCP）なので、このインスタンスの設定を本番の値にして常駐させる**。設定スクリプトは監視アプリを `--target dev` でしか扱わないので、この節はすべて人が行う（2026-11-02 の監査で、監視アプリが起動しておらず、アラーム `comegin-prod-onprem-heartbeat` が ALARM、E-15 の写しが 0 件だった）。
+```bash
+node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phase operate でも同じモジュール（next-js-prod）が動く
+```
 
-**守ること**
+再帰的自己改善の起動元は、オンプレの監視アプリ（`frontend/next-js` ＋ `backend/control-plane`。127.0.0.1:3200）だけ（TA-07 の 3.5）。`next-js-prod` が、承認済みの main のチェックアウトの `frontend/next-js/.env` を本番の値で書き、主体・ビルド・常駐・応答を確かめる。止まる id と、人が行うことは次のとおり（手順の正本と背景は onprem「監視アプリ（改善ループ）を本番で動かす」）。
 
-- 動かすのは**承認済みの main のチェックアウト**（`CONTROL_MAIN_CHECKOUT`）の `frontend/next-js`。作業ツリーで `pnpm dev` したものを本番の起動元にしない（ADR-18。作業ツリーの未承認の変更が管制のコードに効いてしまう。定期実行の定義とエージェント定義をそのチェックアウトから読むのと同じ考え方）
-- 秘密値（AWS のキー・`GITHUB_TOKEN`・`MISWRITE_*`・`CONTROL_N8N_EXPORT_API_KEY`）は監視アプリのサーバー側だけに置き、エージェントの子プロセスには渡らない（許可リストの `env`。control-plane の README）。**Claude Code に `.env` や資格情報ファイルを書かせない・読ませない**
-- `ops/schedules/*.yaml` は**すべて `enabled: false`** で、`CONTROL_SCHEDULER_ENABLED=true` にしただけでは定期実行は 1 本も動かない。有効にするのは人が PR で行う（下の 5。ops README）
+- [ ] **人・端末** `next-js-prod:checkout` チェックアウトを `checkout --detach origin/main` で合わせる — manual 6
+- [ ] **人・端末** `next-js-prod:build` チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（チェックアウトを動かした後のビルドかを日時で見る）
+- [ ] **人・端末** `next-js-prod:principal` IAM ユーザー `comegin-prod-control-plane`（管理ポリシー `comegin-prod-control-plane` だけ）を作り、キーを `~/.config/comegin/control-plane/aws-credentials`（600）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる — cloud 4.5.2
+- [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票）を書く。Google のクライアント・開く URL・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_PUBLIC_URL`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット）
+- [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
+- [ ] 〔警告〕アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（起動から 15 分ほど）— cloud 4.13
+- [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告）
+- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面で `success`・`skipped` の理由を見る
 
-**手順**
+### P15. 段階 `operate`: 運用開始の仕上げ
 
-- [ ] **人・端末** 1. 監視アプリの主体を作り、キーを監視アプリ専用の資格情報ファイル（`~/.config/comegin/control-plane/aws-credentials`。600）に直接書く（IAM ユーザー `comegin-prod-control-plane` ＋ 管理ポリシー `comegin-prod-control-plane`。`RunLogAdminPrincipalArns` には入れない）— cloud 4.5.2
-- [ ] **人・端末** 2. チェックアウトを `checkout --detach origin/main` で合わせ、`backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（next-js は control-plane の `dist` を読む。チェックアウトを更新するたびに、変更のあったほうをビルドし直す）— manual 6
-- [ ] **人・端末** 3. チェックアウトの `frontend/next-js/.env` を、`.env.example` から作って本番の値にする（エディタで書く。開発の値が入った作業ツリーの `.env` を写さない）
+同じ `--phase operate` の最初（`cloud`）が読み取りで確かめ、**止めずに警告だけ出す**（2026-11-02 から）。
 
-  | 変数 | 本番の値 | 出どころ |
-  |---|---|---|
-  | `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`・`BETTER_AUTH_SECRET` | `http://127.0.0.1:3200`（ngrok で開くならその URL）。クライアントの Authorized redirect URIs に `<この URL>/api/auth/callback/google` があること | manual 7.2 |
-  | `CONTROL_MAIN_CHECKOUT`・`CONTROL_WORKTREE`・`CONTROL_DATA_DIR` | チェックアウト・作業ツリーの絶対パス・作業ツリーの外のデータの置き場（既定 `~/.local/share/comegin-control`） | manual 6 |
-  | `CONTROL_SCHEDULER_ENABLED` | `true`（手順 5 の PR より前に `true` にしてよい。`enabled: false` のジョブは登録されない） | — |
-  | `ANTHROPIC_API_KEY` | 本番の運用に使う API キー（費用はここに付く） | manual 7.3 |
-  | `SITE_URL` | `https://comegin.com`（`weekly-lighthouse` の計測対象） | — |
-  | `AWS_REGION`・`AWS_PROFILE`・`AWS_SHARED_CREDENTIALS_FILE`・`RUNLOG_BUCKET` | `ap-northeast-1`・`comegin-prod-control-plane`・手順 1 のファイルの絶対パス・`comegin-prod-runlog-archive-798560359429` | cloud 4.5.2 |
-  | `MISWRITE_CHATWOOT_BASE_URL`・`..._ACCOUNT_ID`・`..._API_TOKEN`・`MISWRITE_AGENT_USER_ID` | `https://chat.comegin.com`・本番のアカウント ID・`CHATWOOT_AGENT_TOKEN`（P7）・本番のエージェント専用ユーザーの ID（**開発の `127.0.0.1:3100` の値のままにしない**。開発の設定スクリプトはこの値を開発の Chatwoot から書く） | manual 8.3 |
-  | `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER` | fine-grained PAT（このリポジトリだけ。Contents と Pull requests を Read and write）・`kamegin4-aws/systematization-of-the-business-foundation`・起票をまとめる Issue の番号・レビュアーの GitHub のユーザー名 | control-plane の README の I-13 |
-  | `CONTROL_N8N_EXPORT_URL`・`CONTROL_N8N_EXPORT_API_KEY` | **判断の後で**。`http://127.0.0.1:5679` と本番の n8n の API キー（コミュニティ版は全権限になる） | control-plane の README の n8n-export |
-
-- [ ] **人・端末** 4. 常駐させる: `onprem/systemd/comegin-control.service` の User・WorkingDirectory・PATH を書き換えて置き、起動する（`sudo install -m 644 … /etc/systemd/system/` → `daemon-reload` → `enable --now comegin-control.service`）。作業ツリーで監視アプリを開発するときは、このユニットを止めてから `pnpm dev` する（どちらも 3200 を使う）— onprem「常駐させる」
-- [ ] **人・端末** 起動を確かめる: `journalctl -u comegin-control -n 50` に `開始 scheduler=on heartbeat=on`。`heartbeat=off(AWS 未設定)` なら手順 3 の AWS の 4 変数が足りない。ブラウザで `http://127.0.0.1:3200/login` から Google でログインできる
-- [ ] **人・端末** 15 分ほど後に、アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（ハートビートは定義の `heartbeat.yaml` に関係なく、AWS の設定があれば起動時から 5 分ごとに送られる。**`heartbeat.yaml` は `enabled: false` のままにする**。有効にすると二重に送り、E-15 に 1 日 288 件の記録が増える）— cloud 4.13
-- [ ] **人・GitHub** 5. 定期実行を段階的に有効にする（`ops/schedules/<id>.yaml` の `enabled: true` を PR で main にマージ → チェックアウトを `checkout --detach origin/main` で合わせる。定義は 1 時間ごとに読み直される。すぐ効かせるなら `sudo systemctl restart comegin-control`）。順の目安:
-  1. 費用の出ない builtin: `runlog-flush`・`daily-silence-check`・`daily-miswrite-check`
-  2. 観測のエージェント 4 本（`daily-observe-*`）→ 数日 `success` が続いたら `daily-propose`・`daily-i13-file`（起票の PR が出始める）
-  3. Lighthouse・a11y（`weekly-lighthouse`・`weekly-observe-lighthouse`・`weekly-a11y`・`weekly-observe-a11y`。a11y はチェックアウトで `pnpm exec playwright install chromium` の後。DD-09 の 7 節）、`weekly-observe-serp-audit`・`published-article-check`
-  4. 費用が出る・本番の正本に書くもの（`weekly-keyword-research`〈OpenSEO のクレジット〉・`weekly-content-plan`・`weekly-content-draft`〈本番の Strapi に下書き〉・`monthly-analysis`）
-  5. `daily-n8n-export` は、本番の n8n の API キーのスコープを判断してから（6 節）
-- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面で `success`・`skipped` の理由を見る（`skipped` の理由は足りない変数名だけを出す）。`s3://comegin-prod-runlog-archive-798560359429/runs/` にオブジェクトが増えていること — control-plane の README の「S3 への写し」
-
-### P15. 運用開始の仕上げ〔未検査〕
-
-- [ ] **人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする — cloud 4.17 の 5
-- [ ] **人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — manual 8.3・8.4
-- [ ] **人・端末** IAM ユーザー `comegin-prod-onprem-n8n-sns` の有効なキーが 1 つだけであること（入れ替えた後の古いキーが残っていたら、n8n のハートビートが届いているのを確かめてから止めて消す。2026-11-02 の監査で 2 つ有効だった）— cloud 4.5
+- [ ] 〔警告〕**人・端末** 配信用の主体（許可セット `ComeginProdDeploy`）がある — cloud 4.5.1
+- [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っているほうが動くのを確かめてから止めて消す）— cloud 4.5
+- [ ] 〔警告〕**人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — cloud 7.3・7.4
+- [ ] 〔警告〕**人・画面** SES の本番アクセス（P12 で申請したもの）が承認されている — cloud 4.9.2
+- [ ] 〔未検査〕**人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする — cloud 4.17 の 5
 - [ ] **判断** [6 節](#6-判断が残っている項目r1)の項目
 
 ## 4. 設定スクリプトが確かめる範囲
 
-以前はどれもスクリプトが確かめず、抜けると後の段階で別の名前のエラーとして現れていた（右の列）。2026-10-28 から、読み取りで確かめられるものは確かめる。
+以前はどれもスクリプトが確かめず、抜けると後の段階で別の名前のエラーとして現れていた（右の列）。2026-10-28 から、読み取りで確かめられるものは確かめる（2026-11-02 に段階 `operate` を足した）。
 
 | 手順 | 今のスクリプト | 抜けたときの見え方 | 詳細 |
 |---|---|---|---|
 | DB とアプリ用ユーザーの作成（db-init） | **止める**（`cloud:db-init`。タスクのログ） | admin-auth の migrate の失敗・Strapi の `password authentication failed`・Chatwoot の移行の失敗 | cloud 4.8 |
 | Chatwoot の DesiredCount | **止める**（`chatwoot-prod:ecs`） | `chatwoot-prod` が本番の Chatwoot に届かない | cloud 4.11 |
 | Mautic の DesiredCount（web → インストール → cron） | **止める**（`mautic-prod:ecs-web`・`ecs-cron`） | `/installer` が開かない／キャンペーンとメールが動かない | cloud 4.10・4.11 |
-| 本番の n8n の provision | **行う**（`n8n-prod`） | Webhook が n8n に届かない | manual 8.6 |
+| 本番の n8n の provision | **行う**（`n8n-prod`） | Webhook が n8n に届かない | onprem「本番の n8n」 |
 | SNS 用の IAM のキーがそのユーザーのものか | **止める**（`n8n-prod:aws-key`） | 通知とハートビートが失敗する／強い権限のキーが n8n に入る | cloud 4.5 |
 | global の 2 回目（フラットレートプラン） | 警告（`cloud`） | 何も起きない（CloudFront が従量課金のまま。月 約 $9 増える） | cloud 4.3 |
 | SNS の購読（`--authenticate-on-unsubscribe` 付きか） | 警告（`cloud`） | アラームが誰にも届かない／誰でも購読を解除できる | cloud 4.4 |
@@ -326,13 +310,14 @@ node setup/frontend.mjs --target prod --phase google
 | バウンス・苦情の Mautic への反映（ADR-30） | 未実装（実装まで SES の抑制リストが送信を止める） | Mautic のコンタクトの状態が実際と食い違う | cloud 4.9.2 |
 | SMTP の Secret | 警告（`cloud`） | Chatwoot・Mautic のタスクが起動しない | cloud 4.6 |
 | WireGuard の AMI の固定 | 警告（`cloud`） | 後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる | cloud 4.2.1 |
-| オンプレの IAM ユーザーのアクセスキー | 警告（`cloud`） | Strapi のメディアのアップロードと n8n の通知が失敗する | cloud 4.5 |
+| オンプレの IAM ユーザーのアクセスキー | 警告（`cloud`。無いのは段階 `apps`、古いキーの残りは段階 `operate`） | Strapi のメディアのアップロードと n8n の通知が失敗する | cloud 4.5 |
 | n8n のハートビート | 警告（`n8n-prod`。アラームの状態） | n8n が止まっても気づけない | cloud 4.10 |
 | `db:chatwoot_prepare` | 確かめない（`chatwoot-prod:ecs` の案内に出る） | Chatwoot が 500 を返す | cloud 4.10 |
-| Strapi の最初の管理者とトークン | 確かめない（足りないと `mcp-prod:prod-values`・`verdant-virgo:prod-values` で止まる） | 同左 | manual 8.2 |
+| 初期設定にだけ使う値（`CHATWOOT_ADMIN_TOKEN`・`MAUTIC_SETUP_CLIENT_*`）の残り | 警告（`cloud` の段階 `operate`） | 漏れたときの影響が大きい管理者の値が残り続ける | cloud 7.3・7.4 |
+| Strapi の最初の管理者とトークン | 確かめない（足りないと `mcp-prod:prod-values`・`verdant-virgo:prod-values` で止まる） | 同左 | onprem「本番の MCP」 |
 | Webhook の試し送信 | 確かめない | Mautic・Chatwoot のイベントが欠ける | onprem「疎通の確かめ方」 |
-| 管理ポリシー 2 本（`comegin-prod-deploy`・`comegin-prod-control-plane`）の付与先 | 確かめない | 配信の手順 3 で切り替える主体が無い／監視アプリが 403 でハートビートと写しを送れない | cloud 4.5.1・4.5.2 |
-| 監視アプリの本番の設定・常駐・定期実行の有効化 | 確かめない（設定スクリプトは監視アプリを `--target dev` でしか扱わない） | アラーム `onprem-heartbeat` が ALARM のまま・E-15 の写しが 0 件・改善の提案が 1 件も出ない | P14 |
+| 管理ポリシー 2 本（`comegin-prod-deploy`・`comegin-prod-control-plane`）の付与先 | 配信用は警告（`cloud` の段階 `apps`・`operate`）、監視アプリ用は**止める**（`next-js-prod:principal`。キーの主体まで確かめる） | 配信の手順 3 で切り替える主体が無い／監視アプリが 403 でハートビートと写しを送れない | cloud 4.5.1・4.5.2 |
+| 監視アプリの本番の設定・常駐・定期実行の有効化 | **止める・行う**（`next-js-prod`。段階 `operate`。定期実行の有効化とハートビートのアラームは警告） | アラーム `onprem-heartbeat` が ALARM のまま・E-15 の写しが 0 件・改善の提案が 1 件も出ない | P14 |
 | 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
 
 ## 5. 申告制のフラグ（`prod.conf`）
@@ -341,9 +326,9 @@ node setup/frontend.mjs --target prod --phase google
 
 | フラグ | 書いてよい状態 | 詳細 |
 |---|---|---|
-| `ADMIN_AUTH_PROD_READY=yes` | migrate と register-alb-client が `{"ok":true}` で、Google でログインして戻れた | manual 8.1 |
-| `FAQ_BOT_SECRETS_STORED=<指紋>` | FAQ ボットの 2 つの値を Secrets Manager に入れた（ボットを作り直したら入れ直す） | manual 8.3 |
-| `MAUTIC_PROD_SETTINGS_DONE=yes` | インストールと画面の設定（API・Webhook・CORS・メール）が済んだ | manual 8.4 |
+| `ADMIN_AUTH_PROD_READY=yes` | migrate と register-alb-client が `{"ok":true}` で、Google でログインして戻れた | cloud 7.2 |
+| `FAQ_BOT_SECRETS_STORED=<指紋>` | FAQ ボットの 2 つの値を Secrets Manager に入れた（ボットを作り直したら入れ直す） | cloud 7.3 |
+| `MAUTIC_PROD_SETTINGS_DONE=yes` | インストールと画面の設定（API・Webhook・CORS・メール）が済んだ | cloud 7.4 |
 | `OPENSEO_GSC_CONNECTED=yes` | OpenSEO で Search Console に接続し、プロパティを選んだ | manual 7.4 |
 | `OPENSEO_GA4_CONNECTED=yes` | OpenSEO で本番の GA4 プロパティに接続した | manual 7.5 |
 

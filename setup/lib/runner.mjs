@@ -14,15 +14,19 @@ import { pathToFileURL } from "node:url";
 import { ManualStepRequired, State, W, createContext, loadConfig, mask } from "./core.mjs";
 
 // 本番の段階（ユーザーの決定。2026-10-27）。ECR のリポジトリは sam deploy が作るので、イメージのプッシュはデプロイの後。
-// google は公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く（--phase を付けないと env〜apps まで）
+// google は公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く（--phase を付けないと env〜apps まで）。
+// operate（2026-11-02 に追加）は google の後に --phase operate で明示したときだけ動く（改善ループ〈監視アプリ〉の常駐と運用開始の仕上げ）
 export const PROD_PHASES = [
   { id: "env", title: "本番用の環境変数の設定" },
   { id: "deploy", title: "sam build → sam deploy（1 回目。ECR・Lambda・データストアができる。サービスは 0 台）" },
   { id: "images", title: "イメージのビルドと ECR へのプッシュ（タグを変えたら sam deploy をもう 1 回）" },
   { id: "apps", title: "本番のアプリの設定" },
   { id: "google", title: "GA4・OpenSEO（公開サイトが Route 53 から配信された後）" },
+  { id: "operate", title: "運用開始（改善ループ〈監視アプリ〉の常駐と仕上げ。google の後）" },
 ];
-const DEFAULT_PHASES = PROD_PHASES.filter((p) => p.id !== "google").map((p) => p.id);
+// --phase を付けないときに進める段階。google と operate は、それぞれの前提（配信・google）の後に明示して行う
+const EXPLICIT_PHASES = new Set(["google", "operate"]);
+const DEFAULT_PHASES = PROD_PHASES.filter((p) => !EXPLICIT_PHASES.has(p.id)).map((p) => p.id);
 
 function helpText(title, script) {
   return `${title}
@@ -32,8 +36,9 @@ function helpText(title, script) {
 
   --target  dev（オンプレの開発環境）か prod（本番。画面の操作と AWS への書き込み〈デプロイ・プッシュ〉は案内して止まる）
   --phase   prod だけ。その段階だけを実行する。段階は次の順（省略すると env から apps までを順に進める）:
-${PROD_PHASES.map((p, i) => `              ${i + 1}. ${p.id.padEnd(7)} ${p.title}`).join("\n")}
-            google は公開サイトが Route 53 から配信された後に --phase google で行う
+${PROD_PHASES.map((p, i) => `              ${i + 1}. ${p.id.padEnd(8)} ${p.title}`).join("\n")}
+            google は公開サイトが Route 53 から配信された後に --phase google で、
+            operate は google の後に --phase operate で行う
   --check   何も変えずに、各モジュールの用意の状態を表示する
   --only    指定したモジュールだけを実行する（--list の id。カンマ区切り）
   --from    指定したモジュールから後ろを実行する
@@ -203,6 +208,7 @@ async function main({ title, script, modules: moduleList }) {
   if (args.target !== "prod") return;
   const next = args.phase ? PROD_PHASES[PROD_PHASES.findIndex((p) => p.id === args.phase) + 1] : PROD_PHASES.find((p) => p.id === "google");
   if (next?.id === "google") console.log(`  公開サイトを配信し（cloud/README.md の 4.14）、Route 53 で届くようになったら: node ${script} --target prod --phase google`);
+  else if (next?.id === "operate") console.log(`  測定 ID 入りで配信し直したら（setup/00-setup-overview.md の P13）、改善ループを動かす: node setup/setup.mjs --target prod --phase operate`);
   else if (next) console.log(`  次の段階: node ${script} --target prod --phase ${next.id}（${next.title}）`);
 }
 

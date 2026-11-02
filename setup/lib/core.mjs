@@ -7,7 +7,7 @@
 //   export async function apply(ctx)  // 何度実行しても同じ結果になる。終わったら何も返さない
 //
 // ctx.phase: 今の本番の段階の id（dev では null）。phases を 2 つ以上持つモジュールは、これで中身を切り替える
-// ctx.siteRouted: 公開サイト（Astro）が本番のドメインで Route 53 から配信されているか。段階 google のときだけ true
+// ctx.siteRouted: 公開サイト（Astro）が本番のドメインで Route 53 から配信されているか。段階 google・operate のときだけ true
 //   （google は配信の後に --phase google で明示したときだけ動く）。公開サイトに届かないと進められない手順（公開サイトの測定 ID と
 //   Search Console の所有権）は、これが false なら飛ばす（dev は公開サイトが AWS に無いので常に false）
 //
@@ -261,7 +261,7 @@ export async function waitForHttp(url, { timeoutMs = 180_000, intervalMs = 3_000
 // ctx（モジュールに渡すもの）
 // ---------------------------------------------------------------------------
 
-export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" }) {
+export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" || phase === "operate" }) {
   const prefix = `  [${moduleId}]`;
   return {
     target,
