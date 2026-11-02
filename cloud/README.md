@@ -353,12 +353,105 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 
 ### 4.5 IAM の管理ポリシーを付ける・オンプレの IAM ユーザーのキーを発行する
 
-`iam.yaml` は、管理ポリシー 2 本と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つを作る。**アクセスキーは作らない**（キーを CloudFormation の出力や状態に残さないため）。管理ポリシーの付与先の IAM ユーザー（またはロール）も、人間が作る。
+`iam.yaml` は、管理ポリシー 2 本と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つを作る。**アクセスキーは作らない**（キーを CloudFormation の出力や状態に残さないため）。管理ポリシーの付与先の主体も、人間が作る（手順は 4.5.1・4.5.2。**作るまで、どちらのポリシーもどの主体にも付いていない**。2026-11-02 の監査で、2 本とも付与先が無く、配信の手順〈4.14〉の `comegin-prod-deploy` の主体と、監視アプリのハートビートの送り手が存在しなかった）。
 
-| ポリシー（出力） | 付ける先 | 許すこと |
-|---|---|---|
-| `ControlPlanePolicyArn` | 監視アプリ（ローカル）の写し用の主体。**Claude Code の実行環境には渡さない** | E-15 の写しへの追記（`runs/` の `s3:PutObject` だけ）、名前空間 `ComeGin/Onprem` への `cloudwatch:PutMetricData` だけ。削除・読み取り・設定変更・アラームの操作は不可 |
-| `DeployPolicyArn` | Astro の配信を承認して実行する人間の主体。**Claude Code の実行環境に置かない** | Astro バケットへの Put / Delete / List と、そのディストリビューションの `cloudfront:CreateInvalidation` だけ |
+| ポリシー（出力） | 付ける先 | 許すこと | 作り方 |
+|---|---|---|---|
+| `ControlPlanePolicyArn` | 監視アプリ（ローカル）の写し用の主体。**Claude Code の実行環境には渡さない** | E-15 の写しへの追記（`runs/` の `s3:PutObject` だけ）、名前空間 `ComeGin/Onprem` への `cloudwatch:PutMetricData` だけ。削除・読み取り・設定変更・アラームの操作は不可 | 4.5.2（IAM ユーザー。常駐するプロセスが使うのでアクセスキー） |
+| `DeployPolicyArn` | Astro の配信を承認して実行する人間の主体。**Claude Code の実行環境に置かない** | Astro バケットへの Put / Delete / List と、そのディストリビューションの `cloudfront:CreateInvalidation` だけ | 4.5.1（IAM Identity Center の許可セット。人が都度ログインするので長期のキーを作らない） |
+
+**どちらの主体も `RunLogAdminPrincipalArns`（4.2・E-15 のバケットの拒否を免除する主体）に入れない。** 入れると、監視アプリや配信の主体が写しを消せるようになる（2026-11-02 時点の値は `comegin-iam` だけで正しい）。
+
+#### 4.5.1 配信用の主体（`DeployPolicyArn`）を作る（IAM Identity Center。1 回だけ）
+
+このアカウント（`798560359429`）は組織の管理アカウントで、IAM Identity Center のインスタンスを `ap-northeast-1` に持つ（許可セットは `AdministratorAccess` だけ。2026-11-02 に確認）。配信用には、管理ポリシー `comegin-prod-deploy` **だけ**を参照する許可セットを足し、配信を行う人に割り当てる。**IAM ユーザーとアクセスキーは作らない**（配信は人が承認して都度行うので、ログインのたびに短い期限の資格情報が出る SSO で足りる。長期のキーを端末に置かない）。
+
+**人が自分の端末で、管理者（`AdministratorAccess` の SSO、または `comegin-iam`）で実行する。Claude Code の実行環境では実行しない。**
+
+```bash
+export AWS_PROFILE=comegin-prod-admin    # 管理者のプロファイル（4.14 の表）
+REGION=ap-northeast-1                    # Identity Center のリージョン
+ACCOUNT=798560359429
+INSTANCE=$(aws sso-admin list-instances --region "$REGION" --query 'Instances[0].InstanceArn' --output text)
+STORE=$(aws sso-admin list-instances --region "$REGION" --query 'Instances[0].IdentityStoreId' --output text)
+echo "INSTANCE=$INSTANCE STORE=$STORE"   # どちらも空でないこと
+
+# 1. 許可セットを作る（セッションは 1 時間。配信は数分で終わる）
+#    description は ASCII と Latin-1 の文字だけ（日本語は ValidationException になる。2026-11-02 に起きた）
+PS=$(aws sso-admin create-permission-set --region "$REGION" --instance-arn "$INSTANCE" \
+  --name ComeginProdDeploy --session-duration PT1H \
+  --description 'Astro deploy only: S3 sync and CloudFront invalidation (managed policy comegin-prod-deploy)' \
+  --query 'PermissionSet.PermissionSetArn' --output text)
+echo "PS=$PS"   # arn:aws:sso:::permissionSet/... であること。空なら次へ進まない
+
+# 2. 管理ポリシー comegin-prod-deploy を参照させる（カスタマー管理ポリシーの参照。名前とパスがアカウントの実物と一致すること）
+aws sso-admin attach-customer-managed-policy-reference-to-permission-set --region "$REGION" \
+  --instance-arn "$INSTANCE" --permission-set-arn "$PS" \
+  --customer-managed-policy-reference Name=comegin-prod-deploy,Path=/
+
+# 3. 配信を行う人（Identity Center のユーザー）に、このアカウントで割り当てる
+USER_ID=$(aws identitystore get-user-id --region "$REGION" --identity-store-id "$STORE" \
+  --alternate-identifier '{"UniqueAttribute":{"AttributePath":"userName","AttributeValue":"<Identity Center のユーザー名>"}}' \
+  --query UserId --output text)
+aws sso-admin create-account-assignment --region "$REGION" --instance-arn "$INSTANCE" \
+  --target-id "$ACCOUNT" --target-type AWS_ACCOUNT \
+  --permission-set-arn "$PS" --principal-type USER --principal-id "$USER_ID"
+#  → 返る RequestId の状態を describe-account-assignment-creation-status で見て、SUCCEEDED になれば済み
+
+# 4. 付いたことを確かめる（ポリシーの付与先に AWSReservedSSO_ComeginProdDeploy_… のロールが 1 つ出る）
+aws iam list-entities-for-policy --policy-arn "arn:aws:iam::$ACCOUNT:policy/comegin-prod-deploy" \
+  --query 'PolicyRoles[].RoleName' --output text
+```
+
+`~/.aws/config` に配信用のプロファイルを足す（4.14 の `comegin-prod-deploy`）。`sso_start_url` は管理者のプロファイルと同じ値を使う。
+
+```ini
+[profile comegin-prod-deploy]
+sso_session = comegin
+sso_account_id = 798560359429
+sso_role_name = ComeginProdDeploy
+region = ap-northeast-1
+
+# 既に管理者のプロファイルで同じ sso-session を使っているなら、この節は足さなくてよい
+[sso-session comegin]
+sso_start_url = <IAM Identity Center の AWS アクセスポータルの URL>
+sso_region = ap-northeast-1
+sso_registration_scopes = sso:account:access
+```
+
+- 配信のたびに `aws sso login --profile comegin-prod-deploy` でログインし、4.14 の手順 3 の `aws sts get-caller-identity` で `…:assumed-role/AWSReservedSSO_ComeginProdDeploy_…/<ユーザー名>` になることを確かめる。終わったら `aws sso logout`。
+- 許可セットの権限を確かめる: このプロファイルで `aws cloudformation describe-stacks --stack-name comegin-prod` が **AccessDenied になるのが正しい**（4.14 の手順 1 を管理者で行う理由）。
+- 管理ポリシー `comegin-prod-deploy` はスタックが持つ。スタックがポリシーを作り直すと（名前の変更など）参照が切れるので、そのときは手順 2 をやり直して `provision-permission-set` する。
+- SSO を使えない人に配信を任せるときだけ、代わりに IAM ユーザー `comegin-prod-deploy` を作ってポリシーを付け、キーを 4.5.2 と同じやり方で発行する（キーはその人の端末の `~/.aws/credentials` だけに置く）。
+
+#### 4.5.2 監視アプリの主体（`ControlPlanePolicyArn`）を作り、キーを発行する（1 回だけ）
+
+監視アプリ（オンプレで常駐。`docs/runbooks/00-setup-overview.md` の P14）は、5 分ごとのハートビートと E-15 の写しを、人がいなくても送り続ける。SSO の資格情報は期限で切れて止まるので、**IAM ユーザーとアクセスキー**を使う。権限はハートビートと写しの追記だけ（上の表）なので、漏れても消せる・読めるものは無い。
+
+```bash
+# 人が自分の端末で、管理者で実行する（Claude Code の実行環境では実行しない）
+export AWS_PROFILE=comegin-prod-admin
+ACCOUNT=798560359429
+aws iam create-user --user-name comegin-prod-control-plane \
+  --tags Key=purpose,Value=onprem-control-plane-heartbeat-and-runlog
+aws iam attach-user-policy --user-name comegin-prod-control-plane \
+  --policy-arn "arn:aws:iam::$ACCOUNT:policy/comegin-prod-control-plane"
+aws iam list-attached-user-policies --user-name comegin-prod-control-plane   # comegin-prod-control-plane の 1 つだけ
+
+# キーは、監視アプリだけが読む資格情報ファイルに直接書く（画面に出さない）。
+# ~/.aws/credentials には入れない（管理者のプロファイルと混ざり、Claude Code やほかのツールが既定で読む場所のため）。
+# 作業ツリーの中にも置かない（エージェントは作業ツリーを cwd にして動く）
+( umask 077
+  mkdir -p ~/.config/comegin/control-plane
+  aws iam create-access-key --user-name comegin-prod-control-plane \
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text \
+  | awk -F'\t' '{print "[comegin-prod-control-plane]"; print "aws_access_key_id = " $1; print "aws_secret_access_key = " $2}' \
+    > ~/.config/comegin/control-plane/aws-credentials )
+```
+
+- 監視アプリの `.env`（P14 のチェックアウトの `frontend/next-js/.env`）に、`AWS_PROFILE=comegin-prod-control-plane` と `AWS_SHARED_CREDENTIALS_FILE=/home/<ユーザー>/.config/comegin/control-plane/aws-credentials`（絶対パス）を書く。AWS SDK はこの 2 つで上のファイルの節を読む（`backend/control-plane/src/integrations/aws.ts` の `fromIni`）。値（キー）は `.env` に書かない。
+- このファイルは `shred` しない（監視アプリが読み続ける）。ローテーションは上の「キーは 1 ユーザーあたり 2 つまで」と同じで、新しいキーをこのファイルに書いて監視アプリを起動し直し、ハートビートが届き続けることを確かめてから古いキーを止めて消す。
+- 確かめ方: 監視アプリの起動のログに `heartbeat=on`、5〜15 分後にアラーム `comegin-prod-onprem-heartbeat` が OK（4.13）、最初の実行の後に `s3://comegin-prod-runlog-archive-<アカウント ID>/runs/` にオブジェクトが増える。403 で `permission_denied` が出たら、ポリシーが付いていないか、`RUNLOG_BUCKET`・`AWS_REGION` が違う。
 
 **オンプレの IAM ユーザー（ADR-21）**: 次の 2 つは、スタックが作る（ポリシーも付いている）。アクセスキーは人が発行する。
 
@@ -937,7 +1030,7 @@ dig +short stats.comegin.com
 
 | アラーム | 名前空間・メトリクス | 送り手 | 見るもの |
 |---|---|---|---|
-| `comegin-<env>-onprem-heartbeat` | `ComeGin/Onprem`・`Heartbeat` | 監視アプリ（`ControlPlanePolicy` のキー） | 監視アプリ（改善ループ）の停止、オンプレの全滅 |
+| `comegin-<env>-onprem-heartbeat` | `ComeGin/Onprem`・`Heartbeat` | 監視アプリ（IAM ユーザー `comegin-prod-control-plane` のキー。4.5.2。常駐は runbook の P14） | 監視アプリ（改善ループ）の停止、オンプレの全滅 |
 | `comegin-<env>-onprem-n8n-schedule-heartbeat` | `ComeGin/OnpremN8n`・`ScheduleHeartbeat` | オンプレの n8n（`onprem-n8n-sns` のキー。4.10） | n8n のスケジュール実行の停止（問い合わせの棚卸しなど） |
 
 ブラウザで: 管理画面（`chat.`・`mkt.`）の URL を開くと Google のログインに転送され、許可リストに載っているアカウントだけが入れること、ALB のセッションが 12 時間であること。
@@ -958,8 +1051,8 @@ dig +short stats.comegin.com
 
 | プロファイル | 主体 | ここで使う操作 |
 |---|---|---|
-| `comegin-prod-admin` | スタックをデプロイした主体（`sam deploy` を実行する人） | `cloudformation:DescribeStacks`（バケット名とディストリビューション ID を取るだけ） |
-| `comegin-prod-deploy` | 管理ポリシー `comegin-prod-deploy`（`DeployPolicyArn`。4.5）だけを付けた主体 | S3 への同期と CloudFront の無効化。`DescribeStacks` は持たないので `OUT` は使えない |
+| `comegin-prod-admin` | スタックをデプロイした主体（`sam deploy` を実行する人。SSO の `AdministratorAccess` か `comegin-iam`） | `cloudformation:DescribeStacks`（バケット名とディストリビューション ID を取るだけ） |
+| `comegin-prod-deploy` | 管理ポリシー `comegin-prod-deploy`（`DeployPolicyArn`）だけを参照する SSO の許可セット `ComeginProdDeploy`（**初回は 4.5.1 で作る**。作るまでこのプロファイルは使えない） | S3 への同期と CloudFront の無効化。`DescribeStacks` は持たないので `OUT` は使えない。手順 3 の前に `aws sso login --profile comegin-prod-deploy` |
 
 ```bash
 # 1. バケット名とディストリビューション ID を取る（4.8 と同じ関数。関数の定義と変数の設定は行を分ける。端末を開き直したら、ここからやり直す）
@@ -1003,7 +1096,8 @@ rg -l -F "$GA4_MEASUREMENT_ID" "$SITE_DIST/_astro"
 
 # 3. 配信用の主体（DeployPolicyArn を付けた主体）に切り替える。BUCKET・DIST・SITE_DIST はシェル変数なので切り替えても残る
 export AWS_PROFILE=comegin-prod-deploy
-aws sts get-caller-identity --query Arn --output text   # 配信用の主体の ARN であること
+aws sso login --profile comegin-prod-deploy             # 許可セット ComeginProdDeploy（4.5.1）。セッションは 1 時間
+aws sts get-caller-identity --query Arn --output text   # …:assumed-role/AWSReservedSSO_ComeginProdDeploy_…/<ユーザー名> であること
 
 # 4. 同期 → 無効化
 # ハッシュ付きの資産は長期キャッシュ（immutable）

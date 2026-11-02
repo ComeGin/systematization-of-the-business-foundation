@@ -74,7 +74,7 @@ P1 env ─ P2 deploy ─ P3 images ─┬─ P4 データ層の仕上げ（cloud
                                 ├─ P7 Chatwoot ─┐
                                 ├─ P8 Mautic   ─┼─ P9 本番の n8n（n8n-prod）
                                 └───────────────┴─ P10 本番の MCP ─ P11 公開サイトの値
-P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 運用開始の仕上げ〔未検査〕
+P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 改善ループを本番で動かす〔未検査〕 ─ P15 運用開始の仕上げ〔未検査〕
 ```
 
 `P4`〜`P10` は 1 回の `node setup/setup.mjs --target prod --phase apps` の中で、止まるたびに 1 つずつ進む（モジュールの順は cloud → admin-auth → onprem → chatwoot-prod → mautic-prod → n8n-prod → mcp-prod）。`P11` は `node setup/frontend.mjs --target prod`。
@@ -240,6 +240,7 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 - [ ] **人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）に、カテゴリ 3 つ（slug は `know-the-issues`・`compare-methods`・`consider-adoption`）があり、**公開済みの記事が 1 本以上ある**ことを確かめる。無ければ `R2` が記事を公開する（0 件だとビルドは「公開済みの記事が 0 件です」で意図して止まる。DD-05 の 1.2。エージェントは下書きまで）— cloud 4.14「ビルドの前提」
 - [ ] **人・端末** **承認済みの main のチェックアウト**（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）の `frontend/verdant-virgo` で `pnpm install && pnpm build` する。**作業ツリーでビルドしない**（開発の `.env` の値で焼かれ、ビルドは成功してしまう。2026-11-02 に、この経路で開発の値のサイトが本番に配信された）。`SITE_URL` 未設定のビルドは意図して止まる — cloud 4.14
 - [ ] **人・端末** 同期の前に、`dist` に開発の接続先（ngrok・ポート付きの localhost）が無いこと、sitemap と canonical のホストが `PUBLIC_SITE_URL` だけであること、`chat.`・`mkt.`・`consent.comegin.com` と Cal.com のイベント（`CALCOM_LINK`）が焼き込まれていることを確かめる — cloud 4.14 の手順 2
+- [ ] **人・端末** 初回だけ: 配信用の主体を作る。IAM Identity Center に管理ポリシー `comegin-prod-deploy` だけを参照する許可セット `ComeginProdDeploy` を作って自分に割り当て、`~/.aws/config` にプロファイル `comegin-prod-deploy` を足す（**作るまで次の手順の配信用の主体は存在しない**。2026-11-02 の監査で、ポリシーがどの主体にも付いていなかった。確認は `aws iam list-entities-for-policy` に `AWSReservedSSO_ComeginProdDeploy_…` が出ること）— cloud 4.5.1
 - [ ] **人・端末** スタックをデプロイした主体（`comegin-prod-admin`）でバケット名とディストリビューション ID を取り、`DeployPolicyArn` を付けた主体（`comegin-prod-deploy`）に切り替えて、**`dist` の絶対パス（`SITE_DIST`）から** S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**。配信用の主体は `DescribeStacks` を持たないので、名前の取得には使えない。相対パスの `frontend/verdant-virgo/dist/` を作業ツリーのルートで使うと、開発用の `dist` が上がる）— cloud 4.14
 - [ ] **人・端末** デプロイ後の確認（訪問者向けは 200、管理画面は 302 で `auth.`、許可リストの外は 404、`cms.`・`n8n.`・`stats.` は引けない）— cloud 4.13
 - [ ] **人・画面** FAQ ボットの確認（`/faq.json` が返る・「料金は税込ですか？」で回答・担当者への引き継ぎのメール）— cloud 4.17 の 6
@@ -262,11 +263,50 @@ node setup/frontend.mjs --target prod --phase google
 - [ ] **人・画面** 配信の後、同意の前に `googletagmanager.com` へのリクエストが無く、同意の後に GA4 の**リアルタイム**に閲覧が出ることを確かめる。GA4 の設定画面の「ウェブサイトをテスト」は「Google タグは検出されませんでした」になるが、同意の後にだけタグを読む設計のためで、正しい（「後で設定」で閉じる）— `middleware/ga4/README.md` の 5.1
 - [ ] **人・画面** Search Console（`sc-domain:comegin.com`）の **サイトマップ** に `https://comegin.com/sitemap-index.xml` を送信し、ステータスが「成功しました」になり、検出された URL の数が `sitemap-0.xml` の件数と合うことを確かめる — manual 7.4
 
-### P14. 運用開始の仕上げ〔未検査〕
+### P14. 改善ループ（監視アプリ）を本番で動かす〔未検査〕
+
+再帰的自己改善の起動元は、オンプレの監視アプリ（`frontend/next-js` ＋ `backend/control-plane`。127.0.0.1:3200）だけ（TA-07 の 3.5。本番の n8n はローカルのエージェントを起動できない）。監視アプリは開発と本番の区別が無い 1 つのインスタンスで、**エージェントが書き込む先が本番（`*-prod` の MCP）なので、このインスタンスの設定を本番の値にして常駐させる**。設定スクリプトは監視アプリを `--target dev` でしか扱わないので、この節はすべて人が行う（2026-11-02 の監査で、監視アプリが起動しておらず、アラーム `comegin-prod-onprem-heartbeat` が ALARM、E-15 の写しが 0 件だった）。
+
+**守ること**
+
+- 動かすのは**承認済みの main のチェックアウト**（`CONTROL_MAIN_CHECKOUT`）の `frontend/next-js`。作業ツリーで `pnpm dev` したものを本番の起動元にしない（ADR-18。作業ツリーの未承認の変更が管制のコードに効いてしまう。定期実行の定義とエージェント定義をそのチェックアウトから読むのと同じ考え方）
+- 秘密値（AWS のキー・`GITHUB_TOKEN`・`MISWRITE_*`・`CONTROL_N8N_EXPORT_API_KEY`）は監視アプリのサーバー側だけに置き、エージェントの子プロセスには渡らない（許可リストの `env`。control-plane の README）。**Claude Code に `.env` や資格情報ファイルを書かせない・読ませない**
+- `ops/schedules/*.yaml` は**すべて `enabled: false`** で、`CONTROL_SCHEDULER_ENABLED=true` にしただけでは定期実行は 1 本も動かない。有効にするのは人が PR で行う（下の 5。ops README）
+
+**手順**
+
+- [ ] **人・端末** 1. 監視アプリの主体を作り、キーを監視アプリ専用の資格情報ファイル（`~/.config/comegin/control-plane/aws-credentials`。600）に直接書く（IAM ユーザー `comegin-prod-control-plane` ＋ 管理ポリシー `comegin-prod-control-plane`。`RunLogAdminPrincipalArns` には入れない）— cloud 4.5.2
+- [ ] **人・端末** 2. チェックアウトを `checkout --detach origin/main` で合わせ、`backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（next-js は control-plane の `dist` を読む。チェックアウトを更新するたびに、変更のあったほうをビルドし直す）— manual 6
+- [ ] **人・端末** 3. チェックアウトの `frontend/next-js/.env` を、`.env.example` から作って本番の値にする（エディタで書く。開発の値が入った作業ツリーの `.env` を写さない）
+
+  | 変数 | 本番の値 | 出どころ |
+  |---|---|---|
+  | `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`・`BETTER_AUTH_SECRET` | `http://127.0.0.1:3200`（ngrok で開くならその URL）。クライアントの Authorized redirect URIs に `<この URL>/api/auth/callback/google` があること | manual 7.2 |
+  | `CONTROL_MAIN_CHECKOUT`・`CONTROL_WORKTREE`・`CONTROL_DATA_DIR` | チェックアウト・作業ツリーの絶対パス・作業ツリーの外のデータの置き場（既定 `~/.local/share/comegin-control`） | manual 6 |
+  | `CONTROL_SCHEDULER_ENABLED` | `true`（手順 5 の PR より前に `true` にしてよい。`enabled: false` のジョブは登録されない） | — |
+  | `ANTHROPIC_API_KEY` | 本番の運用に使う API キー（費用はここに付く） | manual 7.3 |
+  | `SITE_URL` | `https://comegin.com`（`weekly-lighthouse` の計測対象） | — |
+  | `AWS_REGION`・`AWS_PROFILE`・`AWS_SHARED_CREDENTIALS_FILE`・`RUNLOG_BUCKET` | `ap-northeast-1`・`comegin-prod-control-plane`・手順 1 のファイルの絶対パス・`comegin-prod-runlog-archive-798560359429` | cloud 4.5.2 |
+  | `MISWRITE_CHATWOOT_BASE_URL`・`..._ACCOUNT_ID`・`..._API_TOKEN`・`MISWRITE_AGENT_USER_ID` | `https://chat.comegin.com`・本番のアカウント ID・`CHATWOOT_AGENT_TOKEN`（P7）・本番のエージェント専用ユーザーの ID（**開発の `127.0.0.1:3100` の値のままにしない**。開発の設定スクリプトはこの値を開発の Chatwoot から書く） | manual 8.3 |
+  | `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER` | fine-grained PAT（このリポジトリだけ。Contents と Pull requests を Read and write）・`kamegin4-aws/systematization-of-the-business-foundation`・起票をまとめる Issue の番号・レビュアーの GitHub のユーザー名 | control-plane の README の I-13 |
+  | `CONTROL_N8N_EXPORT_URL`・`CONTROL_N8N_EXPORT_API_KEY` | **判断の後で**。`http://127.0.0.1:5679` と本番の n8n の API キー（コミュニティ版は全権限になる） | control-plane の README の n8n-export |
+
+- [ ] **人・端末** 4. 常駐させる: `onprem/systemd/comegin-control.service` の User・WorkingDirectory・PATH を書き換えて置き、起動する（`sudo install -m 644 … /etc/systemd/system/` → `daemon-reload` → `enable --now comegin-control.service`）。作業ツリーで監視アプリを開発するときは、このユニットを止めてから `pnpm dev` する（どちらも 3200 を使う）— onprem「常駐させる」
+- [ ] **人・端末** 起動を確かめる: `journalctl -u comegin-control -n 50` に `開始 scheduler=on heartbeat=on`。`heartbeat=off(AWS 未設定)` なら手順 3 の AWS の 4 変数が足りない。ブラウザで `http://127.0.0.1:3200/login` から Google でログインできる
+- [ ] **人・端末** 15 分ほど後に、アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（ハートビートは定義の `heartbeat.yaml` に関係なく、AWS の設定があれば起動時から 5 分ごとに送られる。**`heartbeat.yaml` は `enabled: false` のままにする**。有効にすると二重に送り、E-15 に 1 日 288 件の記録が増える）— cloud 4.13
+- [ ] **人・GitHub** 5. 定期実行を段階的に有効にする（`ops/schedules/<id>.yaml` の `enabled: true` を PR で main にマージ → チェックアウトを `checkout --detach origin/main` で合わせる。定義は 1 時間ごとに読み直される。すぐ効かせるなら `sudo systemctl restart comegin-control`）。順の目安:
+  1. 費用の出ない builtin: `runlog-flush`・`daily-silence-check`・`daily-miswrite-check`
+  2. 観測のエージェント 4 本（`daily-observe-*`）→ 数日 `success` が続いたら `daily-propose`・`daily-i13-file`（起票の PR が出始める）
+  3. Lighthouse・a11y（`weekly-lighthouse`・`weekly-observe-lighthouse`・`weekly-a11y`・`weekly-observe-a11y`。a11y はチェックアウトで `pnpm exec playwright install chromium` の後。DD-09 の 7 節）、`weekly-observe-serp-audit`・`published-article-check`
+  4. 費用が出る・本番の正本に書くもの（`weekly-keyword-research`〈OpenSEO のクレジット〉・`weekly-content-plan`・`weekly-content-draft`〈本番の Strapi に下書き〉・`monthly-analysis`）
+  5. `daily-n8n-export` は、本番の n8n の API キーのスコープを判断してから（6 節）
+- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面で `success`・`skipped` の理由を見る（`skipped` の理由は足りない変数名だけを出す）。`s3://comegin-prod-runlog-archive-798560359429/runs/` にオブジェクトが増えていること — control-plane の README の「S3 への写し」
+
+### P15. 運用開始の仕上げ〔未検査〕
 
 - [ ] **人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする — cloud 4.17 の 5
 - [ ] **人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — manual 8.3・8.4
-- [ ] **人・端末** 監視アプリのハートビート（`onprem-heartbeat`）が OK であることを確かめる — cloud 4.13
+- [ ] **人・端末** IAM ユーザー `comegin-prod-onprem-n8n-sns` の有効なキーが 1 つだけであること（入れ替えた後の古いキーが残っていたら、n8n のハートビートが届いているのを確かめてから止めて消す。2026-11-02 の監査で 2 つ有効だった）— cloud 4.5
 - [ ] **判断** [6 節](#6-判断が残っている項目r1)の項目
 
 ## 4. 設定スクリプトが確かめる範囲
@@ -291,6 +331,8 @@ node setup/frontend.mjs --target prod --phase google
 | `db:chatwoot_prepare` | 確かめない（`chatwoot-prod:ecs` の案内に出る） | Chatwoot が 500 を返す | cloud 4.10 |
 | Strapi の最初の管理者とトークン | 確かめない（足りないと `mcp-prod:prod-values`・`verdant-virgo:prod-values` で止まる） | 同左 | manual 8.2 |
 | Webhook の試し送信 | 確かめない | Mautic・Chatwoot のイベントが欠ける | onprem「疎通の確かめ方」 |
+| 管理ポリシー 2 本（`comegin-prod-deploy`・`comegin-prod-control-plane`）の付与先 | 確かめない | 配信の手順 3 で切り替える主体が無い／監視アプリが 403 でハートビートと写しを送れない | cloud 4.5.1・4.5.2 |
+| 監視アプリの本番の設定・常駐・定期実行の有効化 | 確かめない（設定スクリプトは監視アプリを `--target dev` でしか扱わない） | アラーム `onprem-heartbeat` が ALARM のまま・E-15 の写しが 0 件・改善の提案が 1 件も出ない | P14 |
 | 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
 
 ## 5. 申告制のフラグ（`prod.conf`）

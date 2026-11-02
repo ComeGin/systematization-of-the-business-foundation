@@ -113,6 +113,8 @@ curl -s http://127.0.0.1:5679/healthz                                           
 
 `systemd/` の雛形は、`wg-quick@wg0.service` のあとに Strapi・n8n を上げる。`Requires=` なので、`wg-quick@wg0` を止める・再起動すると Strapi・n8n も止まる・再起動される（アドレスが消えるとバインドが無効になるため）。**インストールは人が行う**（`/etc` への書き込みは Claude Code では行わない）。
 
+監視アプリ（改善ループの起動元）の雛形 `systemd/comegin-control.service` も同じ場所にある。こちらは承認済みの main のチェックアウトの `frontend/next-js` で `pnpm start` を常駐させるもので、本番の値の `.env` とビルドを済ませてから置く（`docs/runbooks/00-setup-overview.md` の P14）。
+
 ```bash
 # CHANGE_ME / CHANGE/ME を自分の環境に合わせて書き換えてから置く
 sudo install -m 644 systemd/comegin-strapi.service systemd/comegin-n8n.service /etc/systemd/system/
