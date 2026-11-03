@@ -21,8 +21,9 @@
 //
 // 設定のキー（~/.config/comegin/setup/prod.conf）:
 //   必須: CONTROL_MAIN_CHECKOUT（空なら SITE_BUILD_CHECKOUT）・ANTHROPIC_API_KEY・CHATWOOT_ACCOUNT_ID・CHATWOOT_AGENT_TOKEN（P7）
-//   任意: CONTROL_WORKTREE（既定は作業ツリー）・CONTROL_DATA_DIR・CONTROL_AGENT_HOME・CONTROL_PUBLIC_URL・CONTROL_ADMIN_EMAILS・
-//         CONTROL_GOOGLE_CLIENT_ID/SECRET（無ければ、今の監視アプリ〈作業ツリーの .env〉の値を引き継ぐ）・
+//   任意: CONTROL_WORKTREE（既定は作業ツリー）・CONTROL_DATA_DIR・CONTROL_AGENT_HOME・
+//         CONTROL_PUBLIC_URL（ブラウザで開く URL。既定 http://127.0.0.1:3200。作業ツリーの .env からは引き継がない。手元以外なら警告）・
+//         CONTROL_ADMIN_EMAILS・CONTROL_GOOGLE_CLIENT_ID/SECRET（無ければ、今の監視アプリ〈作業ツリーの .env〉の値を引き継ぐ）・
 //         CONTROL_AWS_CREDENTIALS_FILE（既定 ~/.config/comegin/control-plane/aws-credentials）・CHATWOOT_BASE_URL・
 //         GITHUB_TOKEN・GITHUB_REPOSITORY（既定は origin の URL から）・GITHUB_BASE_BRANCH・I13_ISSUE_NUMBER・I13_REVIEWER・
 //         CONTROL_N8N_EXPORT_URL・CONTROL_N8N_EXPORT_API_KEY（キーのスコープを人が判断してから）
@@ -45,6 +46,38 @@ const MANUAL = "onprem/README.md の「監視アプリ（改善ループ）を�
 const checkoutOf = (ctx) => ctx.conf.CONTROL_MAIN_CHECKOUT || ctx.conf.SITE_BUILD_CHECKOUT;
 const appDirOf = (main) => join(main, "frontend/next-js");
 const credentialsOf = (ctx) => ctx.conf.CONTROL_AWS_CREDENTIALS_FILE || DEFAULT_CREDENTIALS;
+const OPEN_MANUAL = "onprem/README.md の「開く（監視アプリ）」";
+
+/**
+ * ブラウザで開く URL（= BETTER_AUTH_URL）。prod.conf の CONTROL_PUBLIC_URL だけを見て、無ければ 127.0.0.1:3200。
+ * 作業ツリー（開発）の .env からは引き継がない。2026-11-03 に、開発の ngrok の URL が本番のチェックアウトに写り、
+ * 127.0.0.1:3200 で開くと Invalid origin（Origin が BETTER_AUTH_URL と違う）、ngrok はトンネルが無く 404 で、どちらからも入れなかった。
+ */
+const publicUrlConfOf = (ctx) => String(ctx.conf.CONTROL_PUBLIC_URL || LOCAL_URL).replace(/\/+$/, "");
+
+/** URL の形の問題（http(s) の URL でない）。問題が無ければ undefined */
+function publicUrlProblem(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return `CONTROL_PUBLIC_URL（${url}）が http(s) の URL ではない`;
+    if (u.pathname !== "/" || u.search || u.hash) return `CONTROL_PUBLIC_URL（${url}）にパスやクエリが付いている（オリジンだけを書く。例: ${LOCAL_URL}）`;
+  } catch {
+    return `CONTROL_PUBLIC_URL（${url}）が URL として読めない（例: ${LOCAL_URL}）`;
+  }
+  return undefined;
+}
+
+/** 手元（ループバック）以外で開く URL なら警告文を返す。本番は ngrok などで外に出さない（ADR-23 の見直しの条件〈定期実行の有効化〉に当たる） */
+function exposureWarning(url) {
+  let host;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return undefined; // 形の問題は publicUrlProblem が扱う
+  }
+  if (host === "127.0.0.1" || host === "localhost") return undefined;
+  return `BETTER_AUTH_URL が手元以外（${url}）。本番の監視アプリは本番の資格情報を持ち、エージェントを起動できるので、ngrok などで外に出さない。${LOCAL_URL} で開き、別の端末からは ssh -L 3200:127.0.0.1:3200 で入る（${OPEN_MANUAL}）`;
+}
 
 async function git(ctx, args) {
   return (await ctx.run("git", args, { timeoutMs: 30_000 })).trim();
@@ -136,10 +169,13 @@ function principalSteps(problem, file) {
   ];
 }
 
-/** 作業ツリーの今の監視アプリ（開発のモジュールが書いた .env）から引き継ぐ値。Google のクライアントと開く URL と許可リスト */
+/**
+ * 作業ツリーの今の監視アプリ（開発のモジュールが書いた .env）から引き継ぐ値。Google のクライアントと許可リストだけ。
+ * 開く URL（BETTER_AUTH_URL）は環境ごとに違う値なので引き継がない（publicUrlConfOf）
+ */
 function inherited(ctx) {
   const env = ctx.readEnvFile(join(ctx.conf.CONTROL_WORKTREE || ctx.REPO, "frontend/next-js/.env"));
-  return { GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET, BETTER_AUTH_URL: env.BETTER_AUTH_URL, CONTROL_ADMIN_EMAILS: env.CONTROL_ADMIN_EMAILS };
+  return { GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET, CONTROL_ADMIN_EMAILS: env.CONTROL_ADMIN_EMAILS };
 }
 
 async function repositoryFromOrigin(ctx) {
@@ -160,6 +196,9 @@ async function prodValues(ctx, main, file) {
     return v;
   };
   const prev = inherited(ctx);
+  const publicUrl = publicUrlConfOf(ctx);
+  const urlProblem = publicUrlProblem(publicUrl);
+  if (urlProblem) missing.push(`${urlProblem}。空にすれば ${LOCAL_URL}（${OPEN_MANUAL}）`);
   const googleId = ctx.conf.CONTROL_GOOGLE_CLIENT_ID || prev.GOOGLE_CLIENT_ID;
   const googleSecret = ctx.conf.CONTROL_GOOGLE_CLIENT_SECRET || prev.GOOGLE_CLIENT_SECRET;
   if (!googleId || !googleSecret) missing.push("CONTROL_GOOGLE_CLIENT_ID・CONTROL_GOOGLE_CLIENT_SECRET（監視アプリの Google ログイン。setup/manual-steps.md の 7.2。今の監視アプリの .env にも無い）");
@@ -170,7 +209,7 @@ async function prodValues(ctx, main, file) {
   if (!bucket) missing.push(`スタック ${STACK} の出力 RunLogBucketName（E-15 の写しのバケット）`);
 
   const values = {
-    BETTER_AUTH_URL: String(ctx.conf.CONTROL_PUBLIC_URL || prev.BETTER_AUTH_URL || LOCAL_URL).replace(/\/+$/, ""),
+    BETTER_AUTH_URL: publicUrl,
     GOOGLE_CLIENT_ID: googleId,
     GOOGLE_CLIENT_SECRET: googleSecret,
     CONTROL_ADMIN_EMAILS: ctx.conf.CONTROL_ADMIN_EMAILS || prev.CONTROL_ADMIN_EMAILS || req("ADMIN_EMAIL", "ログインを許すメール。CONTROL_ADMIN_EMAILS でもよい"),
@@ -297,6 +336,13 @@ export async function check(ctx) {
     if (env.CONTROL_SCHEDULER_ENABLED !== "true") bad("チェックアウトの .env の CONTROL_SCHEDULER_ENABLED が true ではない");
     if (/127\.0\.0\.1:3100|localhost:3100/.test(env.MISWRITE_CHATWOOT_BASE_URL ?? "")) bad("MISWRITE_CHATWOOT_BASE_URL が開発の Chatwoot のまま");
     if (env.AWS_PROFILE !== IAM_USER || !env.RUNLOG_BUCKET) bad("チェックアウトの .env の AWS の設定（AWS_PROFILE・RUNLOG_BUCKET）が本番の値ではない");
+    // 開く URL。.env に書かれた値が、apply が書く値（prod.conf の CONTROL_PUBLIC_URL、無ければ 127.0.0.1:3200）と同じか
+    const written = publicUrlOf(env);
+    const expected = publicUrlConfOf(ctx);
+    if (written !== expected) bad(`チェックアウトの .env の BETTER_AUTH_URL が ${written}（期待: ${expected}。prod.conf の CONTROL_PUBLIC_URL、無ければ既定）。ブラウザで開く URL と違うと Invalid origin になる。apply で書き直して restart する（${OPEN_MANUAL}）`);
+    else notes.push(`ブラウザで開く URL（BETTER_AUTH_URL）: ${written}`);
+    const exposed = exposureWarning(written);
+    if (exposed) notes.push(`! ${exposed}`);
   }
   const unit = await unitState(ctx);
   if (!unit.installed) bad(`systemd のユニット ${UNIT} が無い`);
@@ -381,6 +427,8 @@ export async function apply(ctx) {
   const google = await verifyGoogle(ctx, publicUrl, domain);
   if (!google.ok) throw new Error(`監視アプリの Google ログインを始められない: ${google.reason}`);
   ctx.log(`Google ログインを始められる（リダイレクト URI ${google.redirect}。Google のクライアントにこの URI が登録されていること）`);
+  const exposed = exposureWarning(publicUrl);
+  if (exposed) ctx.warn(exposed);
 
   // 8. 警告
   const { warnings, enabled } = await operateWarnings(ctx, main);

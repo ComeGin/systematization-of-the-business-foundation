@@ -225,6 +225,8 @@ Google の OAuth クライアントは、Google Workspace（comegin.com）の管
    ```
 
    7.1 と同じクライアントを使ってもよい。その場合は、そのクライアントの Authorized redirect URIs に監視アプリの URI も足し、`CONTROL_GOOGLE_*` は空のままにする（スクリプトが `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET` を使う）
+
+   **本番（`next-js-prod`）は、同じクライアントに `http://127.0.0.1:3200/api/auth/callback/google` も足す。** 本番の監視アプリは `http://127.0.0.1:3200` で開き（`prod.conf` の `CONTROL_PUBLIC_URL` が空なら、この値になる）、ngrok で外に出さない（`onprem/README.md` の「開く（監視アプリ）」）
 3. 同じコマンドを実行し直す。スクリプトが監視アプリの環境変数ファイルに書き、`next-js:restart-app` で止まったら監視アプリを起動し直す（環境変数は起動したときに読まれる）。最後にスクリプトが、Google の認可 URL の `hd`（`comegin.com`）とリダイレクト URI を確かめる
 4. ブラウザで `<BETTER_AUTH_URL>/login` を開き、**Google でログイン**。通るのは次の 3 つを満たすアカウントだけ（どれかが欠けると `/login` に戻り、「ログインできませんでした」と出る。理由の種類は `pnpm dev` の端末に `[auth] login refused: …` で出る）
    - `comegin.com` の Google Workspace のアカウント（ID トークンの `hd`）
@@ -301,7 +303,7 @@ OAuth の同意画面が「テスト中」のままだと、更新トークン�
 | Mautic | http://127.0.0.1:8000/s/login | `admin` | `--show MAUTIC_ADMIN_PASSWORD`（スクリプトがインストールした場合だけ） |
 | Strapi | http://127.0.0.1:1337/admin | `ADMIN_EMAIL` | `--show STRAPI_ADMIN_PASSWORD`（スクリプトが作った場合だけ） |
 | n8n | http://127.0.0.1:5678 | `ADMIN_EMAIL` | `--show N8N_OWNER_PASSWORD`（スクリプトが作った場合だけ） |
-| 監視アプリ | `<BETTER_AUTH_URL>/login`（いまの開発は https://comegin-next-js-dev.ngrok.app/login） | Google（`CONTROL_ADMIN_EMAILS` のアカウント） | なし（Google でログイン。7.2） |
+| 監視アプリ | `<BETTER_AUTH_URL>/login`（いまの開発は https://comegin-next-js-dev.ngrok.app/login。本番の常駐は http://127.0.0.1:3200/login） | Google（`CONTROL_ADMIN_EMAILS` のアカウント） | なし（Google でログイン。7.2） |
 | MailHog（開発のメール） | http://127.0.0.1:8025 | なし | なし |
 
 手で作った管理者のパスワードを `dev.conf` に書いた場合は、そちらを使う（状態には入らない）。

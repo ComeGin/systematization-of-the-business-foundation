@@ -158,7 +158,7 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 
 | 変数 | 本番の値 | 出どころ |
 |---|---|---|
-| `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` | `prod.conf` の `CONTROL_PUBLIC_URL`・`CONTROL_GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`。無ければ、今の監視アプリ（作業ツリーの `.env`）の値を引き継ぐ（開く URL が `http://127.0.0.1:3200` 以外なら、Google のクライアントの Authorized redirect URIs に `<その URL>/api/auth/callback/google` があること） | `setup/manual-steps.md` の 7.2 |
+| `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` | `BETTER_AUTH_URL` は `prod.conf` の `CONTROL_PUBLIC_URL`、**無ければ `http://127.0.0.1:3200`**（作業ツリーの `.env` からは引き継がない。手元以外の URL なら警告。下の「開く（監視アプリ）」）。`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` は `prod.conf` の `CONTROL_GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`、無ければ今の監視アプリ（作業ツリーの `.env`）の値を引き継ぐ。Google のクライアントの Authorized redirect URIs に `<BETTER_AUTH_URL>/api/auth/callback/google` があること | `setup/manual-steps.md` の 7.2 |
 | `CONTROL_MAIN_CHECKOUT`・`CONTROL_WORKTREE` | チェックアウト・作業ツリーの絶対パス（`CONTROL_DATA_DIR`・`CONTROL_AGENT_HOME` は `prod.conf` にあれば） | `setup/manual-steps.md` の 6 節 |
 | `CONTROL_SCHEDULER_ENABLED` | `true`（`enabled: false` のジョブは登録されないので、手順 5 の PR より前に `true` でよい） | — |
 | `ANTHROPIC_API_KEY` | **必須**。本番の運用に使う API キー（費用はここに付く） | `setup/manual-steps.md` の 7.3 |
@@ -181,6 +181,49 @@ journalctl -u comegin-control -n 50   # 「開始 scheduler=on heartbeat=on」�
 
 - 作業ツリーで監視アプリを開発するときは、このユニットを止めてから `pnpm dev` する（どちらも 3200 を使う）
 - ハートビートは定義の `heartbeat.yaml` に関係なく、AWS の設定があれば起動時から 5 分ごとに送られる。15 分ほどでアラーム `comegin-prod-onprem-heartbeat` が OK に戻る（`cloud/README.md` の 4.13）。**`heartbeat.yaml` は `enabled: false` のままにする**（有効にすると二重に送り、E-15 に 1 日 288 件の記録が増える。`next-js-prod` が警告する）
+
+### 開く（監視アプリ）
+
+本番の監視アプリは **`http://127.0.0.1:3200`** で開く（`127.0.0.1` にだけバインドしている）。ログインは Google（Workspace）だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る。
+
+- **オンプレの機械の上**: ブラウザで `http://127.0.0.1:3200` を開く。
+- **別の端末から**: `ssh -L 3200:127.0.0.1:3200 <オンプレの機械>` でトンネルを張り、手元のブラウザで同じ `http://127.0.0.1:3200` を開く（ブラウザが送る `Origin` が `BETTER_AUTH_URL` と一致するので通る）。
+- **本番は ngrok で外に出さない。** ADR-23 は開発の監視アプリだけを ngrok で公開するリスクを受け入れたもので、「定期実行を有効にするとき」を見直す条件にしている（2026-11-02 に有効にした）。本番の監視アプリは本番の資格情報を持ち、エージェントを起動できる。
+- **auth.comegin.com（admin-auth）は使わない。** ALB の `authenticate-oidc` は ALB の後ろのターゲット（クラウドの Mautic・Chatwoot）にだけ効き、オンプレの監視アプリは ALB の後ろにいない。ALB からオンプレへ転送させると、WireGuard で `10.99.0.2:5680` だけに絞っている閉じ方が崩れる（2026-11-03 に検討して見送った）。
+
+**ブラウザで開く URL と `BETTER_AUTH_URL` は 1 文字も違えない。** Better Auth は、Cookie を持つ要求の `Origin` が `BETTER_AUTH_URL` と違うと `403 Invalid origin` を返す（`127.0.0.1` と `localhost` は同じものとして扱う）。Google でログインした後の戻り先（リダイレクト URI）も `BETTER_AUTH_URL` から作られる。
+
+開く URL を変えるとき（直すとき）の手順:
+
+1. `prod.conf` の `CONTROL_PUBLIC_URL` を `http://127.0.0.1:3200` にする（空でも同じ。`next-js-prod` の既定）。`--check` は、チェックアウトの `.env` の `BETTER_AUTH_URL` がこの値と違えば ✗ を出し、手元以外の URL なら `!` で警告する。
+2. Google Cloud で、監視アプリが使う OAuth クライアント（`CONTROL_GOOGLE_CLIENT_ID`）の Authorized redirect URIs に `http://127.0.0.1:3200/api/auth/callback/google` があることを確かめる（無ければ足す。`setup/manual-steps.md` の 7.2）。
+3. `next-js-prod` だけを実行し直して、チェックアウトの `.env` を書き直す。**`next-js-prod` は段階 `operate` にあるので、`--phase operate` を付ける**（付けないと既定の段階 env〜apps の中だけを探し、「`--only の next-js-prod が見つからない`」で止まる）。
+
+   ```bash
+   node setup/setup.mjs --target prod --phase operate --only next-js-prod
+   sudo systemctl restart comegin-control   # .env は起動したときに読まれる
+   ```
+
+4. ブラウザで `http://127.0.0.1:3200` を開き、Google でログインできることを確かめる。
+
+| 症状 | 原因 | 直し方 |
+|---|---|---|
+| `Invalid origin`（403） | 開いた URL と `BETTER_AUTH_URL` が違う | 上の手順 1〜3 |
+| Google が `redirect_uri_mismatch` で止める | Google のクライアントに `<BETTER_AUTH_URL>/api/auth/callback/google` が無い | 上の手順 2 |
+| ngrok の URL を開くと 404 | 開発の ngrok のトンネルが張られていない（本番では使わない） | 本番は `http://127.0.0.1:3200` で開く |
+| 「ログインできませんでした」で `/login` に戻る | `hd`・`email_verified`・`CONTROL_ADMIN_EMAILS` のどれかで拒否された | `journalctl -u comegin-control -n 50` の `[auth] login refused: …` で理由の種類を見る |
+
+`BETTER_AUTH_URL` の今の値は、`.env` を開かずに確かめられる。`Origin` を付けて `sign-in/social` に投げ、返る Google の認可 URL の `redirect_uri` を見る（ログインはしない）。`Cookie` を付けないとオリジンの検査が飛ばされて 200 になるので、ダミーの `Cookie` を付ける。
+
+```bash
+curl -s -X POST http://127.0.0.1:3200/api/auth/sign-in/social \
+  -H 'Origin: http://127.0.0.1:3200' -H 'Cookie: x=1' -H 'content-type: application/json' \
+  -d '{"provider":"google","callbackURL":"/"}'
+# 403 {"code":"INVALID_ORIGIN"} … BETTER_AUTH_URL が http://127.0.0.1:3200 ではない
+# 200 {"url":"https://accounts.google.com/...&redirect_uri=http%3A%2F%2F127.0.0.1%3A3200%2Fapi%2Fauth%2Fcallback%2Fgoogle..."} … そろっている
+```
+
+**2026-11-03 の例**: `prod.conf` に `CONTROL_PUBLIC_URL` が無かった。そのため、作業ツリーの `.env` にあった開発の ngrok の URL（`https://comegin-next-js-dev.ngrok.app`）が、本番のチェックアウトの `BETTER_AUTH_URL` に引き継がれていた。`http://127.0.0.1:3200` で開くと `Invalid origin`、ngrok はトンネルが無く 404 で、どちらからも入れなかった。上の手順 1〜3 で `http://127.0.0.1:3200` にそろえ、ログインできた。同じ日に `next-js-prod` を直し、開く URL を作業ツリーから引き継がない（既定 `http://127.0.0.1:3200`）ようにして、`--check` に食い違いの検査と、手元以外の URL の警告を足した。
 
 ### 5. 定期実行を段階的に有効にする
 
