@@ -106,7 +106,10 @@ export async function loadCatalog(mainCheckout: string): Promise<Catalog> {
 
   let mod: Record<string, unknown>;
   try {
-    mod = (await import(`${pathToFileURL(file).href}?mtime=${mtimeMs}`)) as Record<string, unknown>;
+    // webpackIgnore: 監視アプリ（next-js）のビルドでは control-plane が Turbopack にバンドルされ（link: の依存は
+    // serverExternalPackages が効かない）、実行時に決まる import() が「Cannot find module 'unknown'」を投げる処理に置き換わる。
+    // この指定で import() をバンドルせずに Node にそのまま任せる（Turbopack も対応。2026-11-03 に本番で起きた）
+    mod = (await import(/* webpackIgnore: true */ `${pathToFileURL(file).href}?mtime=${mtimeMs}`)) as Record<string, unknown>;
   } catch (error) {
     const name = error instanceof Error ? error.name : "Error";
     throw new CatalogError(`カタログ（${CATALOG_FILE}）を読み込めない（${name}）`);
