@@ -281,7 +281,8 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
 - [ ] 〔警告〕アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（起動から 15 分ほど）— cloud 4.13
 - [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告。2026-11-02 に、まとめて有効にした中に入っていて、PR #58 で戻した）。`daily-n8n-export` は [6 節](#6-判断が残っている項目r1)の判断の後に有効にする
-- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面（または `journalctl -u comegin-control`）で `success`・`skipped` の理由を見る。いつ何が動くかは onprem「監視アプリ…」の 5 の表
+- [ ] **人・画面** 最初の定期実行の後、監視アプリの画面（または `journalctl -u comegin-control`）で `success`・`skipped` の理由を見る。いつ何が動くかは onprem「監視アプリ…」の 5 の表（**2026-11-03 からすべて 0〜8 時〈JST〉に起動し、06:25 までに終わる**。`ops/README.md` の「時刻の決め方」）
+- [ ] **人・端末** 本番の n8n のスケジュール（週次の棚卸しは月曜 07:00）をリポジトリの JSON に合わせる: `node setup/setup.mjs --target prod --only n8n-prod` → 公開済みなら画面で公開し直す — onprem「監視アプリ…」の 5
 
 ### P15. 段階 `operate`: 運用開始の仕上げ
 

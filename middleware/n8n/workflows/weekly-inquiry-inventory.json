@@ -7,13 +7,13 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 9 * * 1"
+              "expression": "0 7 * * 1"
             }
           ]
         }
       },
       "id": "1310f33e-9ac6-53e9-a2e9-e4b236780dd9",
-      "name": "毎週月曜 09:00",
+      "name": "毎週月曜 07:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.4,
       "position": [
@@ -444,7 +444,7 @@
     },
     {
       "parameters": {
-        "content": "### 週次 問い合わせの棚卸し（TA-03 の週次）\n毎週月曜 09:00（JST）。Chatwoot の open の会話のうち「未割り当て」（担当者がいない）だけを数え、lead（R3 宛て）に通知する。pending（ボットの対応中）・snoozed・resolved と、担当者がいる会話は数えない（R3 の決定。2026-10-06）。\n0 件なら通知しない。取得の失敗は ops に通知する。顧客への返信・社内メモの作成はしない（読み取りだけ）。",
+        "content": "### 週次 問い合わせの棚卸し（TA-03 の週次）\n毎週月曜 07:00（JST）。Chatwoot の open の会話のうち「未割り当て」（担当者がいない）だけを数え、lead（R3 宛て）に通知する。pending（ボットの対応中）・snoozed・resolved と、担当者がいる会話は数えない（R3 の決定。2026-10-06）。\n0 件なら通知しない。取得の失敗は ops に通知する。顧客への返信・社内メモの作成はしない（読み取りだけ）。",
         "height": 160,
         "width": 520,
         "color": 4
@@ -460,7 +460,7 @@
     }
   ],
   "connections": {
-    "毎週月曜 09:00": {
+    "毎週月曜 07:00": {
       "main": [
         [
           {
@@ -547,6 +547,6 @@
   },
   "pinData": {},
   "meta": {
-    "description": "毎週月曜 09:00 に Chatwoot の未割り当ての会話（open で担当者がいない）を数え、0 件でなければ件数と display_id だけを I-21（lead）で通知する。取得の失敗は ops に通知。ops_settings の inventoryEnabled が true のときだけ動く。読み取りだけで、顧客への返信や社内メモは作らない。"
+    "description": "毎週月曜 07:00 に Chatwoot の未割り当ての会話（open で担当者がいない）を数え、0 件でなければ件数と display_id だけを I-21（lead）で通知する。取得の失敗は ops に通知。ops_settings の inventoryEnabled が true のときだけ動く。読み取りだけで、顧客への返信や社内メモは作らない。"
   }
 }

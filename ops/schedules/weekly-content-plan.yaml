@@ -1,7 +1,7 @@
 id: weekly-content-plan
 description: "採用済みの E-01 から記事の構成案を作り、E-03（plan_state: drafted）として起案する。企画の採否は R2 が決める"
 enabled: true
-cron: "0 10 * * 3"
+cron: "30 2 * * 3"
 kind: agent
 agent: content-planner
 builtin: null

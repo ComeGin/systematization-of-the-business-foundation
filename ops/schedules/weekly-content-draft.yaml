@@ -1,7 +1,7 @@
 id: weekly-content-draft
 description: "承認済みの企画から記事の下書きを 1 本作る。本番の Strapi には下書きまで。公開は R2 が管理画面で行う"
 enabled: true
-cron: "0 10 * * 2"
+cron: "30 2 * * 2"
 kind: agent
 agent: content-writer
 builtin: null

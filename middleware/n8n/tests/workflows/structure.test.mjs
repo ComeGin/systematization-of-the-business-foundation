@@ -536,10 +536,10 @@ describe("番号の無い定期実行のワークフロー（README の一覧の
 
     it.each(scheduled.map((s) => [s.file, s]))("%s: ops_settings のスイッチの行が 'true' のときだけ先へ進む（既定で止まっている）", (_file, { spec, wf }) => checkSwitchGate(wf, spec));
 
-    it("棚卸しは毎週月曜 09:00 に、Chatwoot の会話を読む（GET）だけで、顧客には何も送らない", () => {
+    it("棚卸しは毎週月曜 07:00 に、Chatwoot の会話を読む（GET）だけで、顧客には何も送らない", () => {
       const wf = loadWorkflow("weekly-inquiry-inventory.json");
       const trigger = wf.nodes.find((n) => n.type === "n8n-nodes-base.scheduleTrigger");
-      expect(trigger.parameters.rule.interval[0]).toEqual({ field: "cronExpression", expression: "0 9 * * 1" });
+      expect(trigger.parameters.rule.interval[0]).toEqual({ field: "cronExpression", expression: "0 7 * * 1" });
       const http = wf.nodes.filter((n) => n.type === "n8n-nodes-base.httpRequest");
       expect(http.length).toBeGreaterThan(0);
       for (const node of http) {

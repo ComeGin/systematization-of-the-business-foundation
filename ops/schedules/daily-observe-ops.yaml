@@ -1,7 +1,7 @@
 id: daily-observe-ops
 description: "本番の PostHog の Error Tracking（直近 24 時間の例外）を E-12（source: ops）に変換する（日次の観測 4 本のうちの 1 本）"
 enabled: true
-cron: "0 6 * * *"
+cron: "0 4 * * *"
 kind: agent
 agent: ops-watcher
 builtin: null

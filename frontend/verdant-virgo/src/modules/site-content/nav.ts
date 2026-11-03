@@ -137,5 +137,5 @@ export const footerColumns: readonly FooterColumn[] = [
   },
 ];
 
-/** フッター下段（§1.4） */
-export const copyright = "© 2026 ComeGin";
+/** フッター下段（§1.4）。全画面に出るので、読み（カメギン）を添える（2026-11-03。§7.2） */
+export const copyright = "© 2026 ComeGin（カメギン）";

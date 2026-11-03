@@ -1,7 +1,7 @@
 id: daily-observe-seo
 description: "OpenSEO 経由の GSC の実績を E-12（source: gsc）に正規化する（日次の観測 4 本のうちの 1 本）"
 enabled: true
-cron: "0 6 * * *"
+cron: "0 4 * * *"
 kind: agent
 agent: seo-auditor
 builtin: null

@@ -120,7 +120,8 @@ export const about = {
     heading: "会社情報",
     columns: ["項目", "内容"],
     rows: [
-      { label: "会社名", value: "ComeGin" },
+      // 読み（カメギン）を添える（2026-11-03。§7.2。organization.ts の SITE_NAME_WITH_KANA と同じ）
+      { label: "会社名", value: "ComeGin（カメギン）" },
       { label: "代表者", value: "亀谷 銀大" },
       // 原文のまま（番地と建物名の間は半角スペース 1 個）
       {
@@ -136,7 +137,10 @@ export const about = {
       { label: "電話番号", value: "080-5257-9787" },
       { label: "メールアドレス", value: "kamegin4@comegin.com" },
       // CTA ではないページ間のリンク（§6.3 の cta_id を持たない）。?from= はフォームの page_url に渡す（DD-02 5.3。2026-10-09 リード判断）
-      { label: "お問い合わせ", value: [link("無料相談フォーム", "/contact?from=/about")] },
+      {
+        label: "お問い合わせ",
+        value: [link("無料相談フォーム", "/contact?from=/about")],
+      },
       // 「法人番号」の行は置かない（10.1 の U11。法人成りは未定のため。2026-10-14 ユーザー判断）
       { label: "適格請求書発行事業者の登録番号", value: "【要記入】" },
     ] satisfies readonly TableRowCopy[],

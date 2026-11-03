@@ -31,37 +31,60 @@ ops/
 
 前回の実行が終わっていなければ、起動を見送って `skipped` を理由つきで記録する。
 
-### 一覧（すべて `enabled: false`）
+### 一覧（初期値は `enabled: false`。2026-11-02 に `heartbeat` 以外を有効にした）
 
 | id | 種類 | 実行 | 内容 |
 |---|---|---|---|
-| `daily-observe-seo` | agent | 毎日 06:00 | `seo-auditor`。GSC の実績（`source: gsc`） |
-| `daily-observe-analytics` | agent | 毎日 06:00 | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
-| `daily-observe-conversations` | agent | 毎日 06:00 | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
-| `daily-observe-ops` | agent | 毎日 06:00 | `ops-watcher`。直近 24 時間の例外 |
-| `daily-propose` | agent | 毎日 07:00 | `proposal-writer`。**観測 4 本を `after` で待つ**。起票前チェック 15 項目を通したものだけ起票 |
-| `monthly-analysis` | agent | 毎月 1 日 08:00 | `proposal-writer`。順位・流入・CVR の月次の判断 |
-| `weekly-lighthouse` | builtin | 毎週月曜 05:00 | `pnpm lh`（`lighthouse`） |
-| `weekly-observe-lighthouse` | agent | 毎週月曜 06:15 | `seo-auditor`。計測の完了を `after` で待ち、`source: lighthouse` に正規化 |
-| `weekly-a11y` | builtin | 毎週月曜 05:45 | `pnpm a11y:ci`（`a11y`。`astro build` から axe の検査まで）。結果の `.a11y/*.json` を作業ツリーに写す。**`after` を持たない**（Lighthouse の揺れで止めない・古い `dist` を測らない）。`weekly-lighthouse`（05:30 までに終わる）とは時刻で重ねない。**UI を変える提案を自動で起票する前提**（下の注記） |
-| `weekly-observe-a11y` | agent | 毎週月曜 06:30 | `quality-checker` の項目 6 だけ。検査の完了を `after` で待ち、`QC-a11y-*` を `source: quality` に正規化。**UI を変える提案を自動で起票する前提**（下の注記） |
-| `weekly-observe-serp-audit` | agent | 毎週月曜 06:30 | `seo-auditor`。ランク追跡とサイト監査の保存済みの結果（`serp` `site_audit`） |
-| `weekly-keyword-research` | agent | 毎週月曜 09:00 | `keyword-researcher`。**費用が発生する**（1 回 2,000 クレジットまで） |
-| `weekly-content-draft` | agent | 毎週火曜 10:00 | `content-writer`。承認済みの企画から下書きを 1 本（公開は `R2`） |
-| `weekly-content-plan` | agent | 毎週水曜 10:00 | `content-planner`。採用済みのキーワードから企画を起案 |
+| `daily-observe-seo` | agent | 毎日 04:00 | `seo-auditor`。GSC の実績（`source: gsc`） |
+| `daily-observe-analytics` | agent | 毎日 04:00 | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
+| `daily-observe-conversations` | agent | 毎日 04:00 | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
+| `daily-observe-ops` | agent | 毎日 04:00 | `ops-watcher`。直近 24 時間の例外 |
+| `daily-propose` | agent | 毎日 04:30 | `proposal-writer`。**観測 4 本を `after` で待つ**。起票前チェック 15 項目を通したものだけ起票 |
+| `monthly-analysis` | agent | 毎月 1 日 05:00 | `proposal-writer`。順位・流入・CVR の月次の判断 |
+| `weekly-lighthouse` | builtin | 毎週月曜 00:30 | `pnpm lh`（`lighthouse`） |
+| `weekly-observe-lighthouse` | agent | 毎週月曜 01:45 | `seo-auditor`。計測の完了を `after` で待ち、`source: lighthouse` に正規化 |
+| `weekly-a11y` | builtin | 毎週月曜 01:15 | `pnpm a11y:ci`（`a11y`。`astro build` から axe の検査まで）。結果の `.a11y/*.json` を作業ツリーに写す。**`after` を持たない**（Lighthouse の揺れで止めない・古い `dist` を測らない）。`weekly-lighthouse`（01:00 までに終わる）とは時刻で重ねない。**UI を変える提案を自動で起票する前提**（下の注記） |
+| `weekly-observe-a11y` | agent | 毎週月曜 02:00 | `quality-checker` の項目 6 だけ。検査の完了を `after` で待ち、`QC-a11y-*` を `source: quality` に正規化。**UI を変える提案を自動で起票する前提**（下の注記） |
+| `weekly-observe-serp-audit` | agent | 毎週月曜 02:00 | `seo-auditor`。ランク追跡とサイト監査の保存済みの結果（`serp` `site_audit`） |
+| `weekly-keyword-research` | agent | 毎週月曜 02:30 | `keyword-researcher`。**費用が発生する**（1 回 2,000 クレジットまで） |
+| `weekly-content-draft` | agent | 毎週火曜 02:30 | `content-writer`。承認済みの企画から下書きを 1 本（公開は `R2`） |
+| `weekly-content-plan` | agent | 毎週水曜 02:30 | `content-planner`。採用済みのキーワードから企画を起案 |
 | `heartbeat` | builtin | 5 分ごと | ハートビート（CloudWatch）。途絶えたら改善ループが止まっている |
-| `runlog-flush` | builtin | 15 分ごと | `E-15` の写しを S3 に追記（送れていない分を送り直す） |
-| `daily-i13-file` | builtin | 毎日 08:00 | `I-13`。`draft` の `E-13` から GitHub に PR を作る |
-| `daily-miswrite-check` | builtin | 毎日 08:15 | 誤った書き込みの突き合わせ |
-| `daily-silence-check` | builtin | 毎日 08:30 | 沈黙の検出 |
-| `daily-n8n-export` | builtin | 毎日 08:45 | 本番の n8n のワークフローを Public API で読み、差分があれば GitHub に PR（`chore/n8n-export-YYYYMMDD`）。作業ツリーには書かない。**有効化の前に、API キーのスコープ（Enterprise のみ）を人が判断する**（`backend/control-plane/README.md` の n8n-export） |
-| `published-article-check` | builtin | 6 時間ごと（暫定） | 公開された記事の確認。あればビルドと計測を起こす |
+| `runlog-flush` | builtin | 0〜8 時の 15 分ごと（最後は 07:45） | `E-15` の写しを S3 に追記（送れていない分を送り直す） |
+| `daily-i13-file` | builtin | 毎日 05:30 | `I-13`。`draft` の `E-13` から GitHub に PR を作る |
+| `daily-miswrite-check` | builtin | 毎日 05:45 | 誤った書き込みの突き合わせ |
+| `daily-silence-check` | builtin | 毎日 06:00 | 沈黙の検出 |
+| `daily-n8n-export` | builtin | 毎日 06:15 | 本番の n8n のワークフローを Public API で読み、差分があれば GitHub に PR（`chore/n8n-export-YYYYMMDD`）。作業ツリーには書かない。**有効化の前に、API キーのスコープ（Enterprise のみ）を人が判断する**（`backend/control-plane/README.md` の n8n-export） |
+| `published-article-check` | builtin | 毎日 00:00（暫定） | 公開された記事の確認。あればビルドと計測を起こす |
 
 - **`weekly-a11y` を有効にする前に、人が `CONTROL_MAIN_CHECKOUT` の `frontend/verdant-virgo` で `pnpm install` と `pnpm exec playwright install chromium` を済ませておく**（Chromium は実ホームの `~/.cache/ms-playwright` に入り、builtin が `PLAYWRIGHT_BROWSERS_PATH` で渡す。無ければ `skipped`）。**a11y の 2 本（`weekly-a11y`・`weekly-observe-a11y`）を有効にすることが、UI を変える提案（`technical_seo`・`cta_swap`・`experiment_start`）を自動で起票する前提である。** 起票前チェック 15 は、最新の `QC-a11y-serious` が確認できない（`E-12` が無い・`ok` でない・14 日を超えた）ときも 0 ではない扱いにする（検査 8 の `LH-seo` と同じ安全側。AA-04 の 3.8）。有効にした後も、`QC-a11y-serious` が 0 でない間は UI を変える提案が `accessibility` だけになる。有効にする時期は DD-09 の 7 節
 - **観測 4 本は並列で走り、`proposal-writer` だけが `after` で 4 本を待つ。** 並列に走らせると同じ観測から複数の提案が同時に起票されて `proposal_id` の採番が衝突する
 - `seo-auditor` は 3 つの job で動くが、**処理する `source` を job ごとに分けてある**（1 つの `source` のディレクトリに書くエージェントは 1 本だけ。採番が衝突しない）
 - `E-13` の起票（`I-13`）は**エージェントではなく builtin** である。エージェントが PR を作れると承認機構（PR のレビュー）に到達できてしまうため
 - 時刻と間隔は暫定である。見直すときも PR を通す
+
+### 時刻の決め方（2026-11-03。0〜8 時〈JST〉に収める）
+
+**再帰的自己改善の処理（定期実行）は、日本時間の 0 時から 8 時のあいだに起動し、`timeout_sec` で打ち切られても 8 時までに終わるように置く**（2026-11-03 のユーザーの指示。n8n だけでなく、改善ループの処理すべて）。重い処理（Lighthouse・`astro build`・エージェント）が昼の作業と機械の資源を取り合わなくなる。Lighthouse は機械の負荷で performance が 0.3 以上ぶれるので、静かな時間帯のほうが計測もそろう。
+
+| 時刻（JST） | 動くもの | 終わりの上限（起動 + `timeout_sec`） |
+|---|---|---|
+| 毎日 00:00 | `published-article-check` | 00:10 |
+| 月曜 00:30 → 01:15 | `weekly-lighthouse` → `weekly-a11y`（時刻で重ねない） | 01:00 → 01:45 |
+| 月曜 01:45・02:00 | `weekly-observe-lighthouse`・`weekly-observe-a11y`・`weekly-observe-serp-audit` | 02:15 |
+| 月・火・水 02:30 | `weekly-keyword-research`（月）・`weekly-content-draft`（火）・`weekly-content-plan`（水） | 02:50 |
+| 毎日 04:00 | 観測 4 本（`daily-observe-*`。並列） | 04:20 |
+| 毎日 04:30 | `daily-propose`（観測 4 本を `after` で待つ） | 04:45 |
+| 毎月 1 日 05:00 | `monthly-analysis`（`daily-propose` と同じ `proposal-writer` なので重ねない。採番の衝突を避ける） | 05:15 |
+| 毎日 05:30〜06:15 | `daily-i13-file` → `daily-miswrite-check` → `daily-silence-check` → `daily-n8n-export` | 06:25 |
+| 0〜8 時の 15 分ごと | `runlog-flush`（E-15 の写しの送り直し。最後は 07:45） | 07:50 |
+
+- **改善ループの本体はすべて 06:25 までに終わる**（最長の上限）。8 時までの残り 1 時間半は、機械の遅れや手動の再実行のための余白。`runlog-flush` も 07:50 までに終わる
+- **03:00〜03:30 を空けてある。** RDS の保守の窓（`cloud/stacks/data.yaml` の `DbMaintenanceWindow`。日曜 18:00 UTC＝**月曜 03:00 JST**）と重ねない。日次バックアップ（02:00〜02:30 JST）は書き込みを止めないので重なってもよいが、週次の書き込み（02:30〜）はその後に置いた
+- 順序は以前と同じ（月曜の計測 → 週次の観測 → 日次の観測 → 提案 → 起票・突き合わせ）。`after` は「当日（JST の 0 時から）`success`」なので、0 時より後に並べれば崩れない。`monthly-analysis` は以前は `daily-i13-file` と同時刻（08:00）で起票が翌日に回っていたが、i13 の前に置いたので当日に PR になる
+- 観測の取得範囲は「3 日前まで」「直近 24 時間」の相対指定なので、起動を早めても範囲は変わらない
+- **定期実行の定義に無い常駐の処理は、昼も動く**: 監視アプリのハートビート（内部タイマーで 5 分ごとに CloudWatch へ 1 点。止めるとアラーム `comegin-prod-onprem-heartbeat` が鳴る）と、写しの再送（起動時・10 分ごと・各実行の終わり。未送が無ければ何もしない）。どちらも改善の処理ではなく、生存の確認と記録の保全。`heartbeat.yaml` は無効のまま。昼に人が手で起こした実行は、その場で動く（時刻の制限は定期実行だけ）
+- 本番の n8n のスケジュールも同じ方針（`weekly-inquiry-inventory` は月曜 07:00、I-11・I-12 の掃除は毎日 03:00・03:05〈月曜は RDS の保守の窓と重なりうるが、保守が入る週はまれで、失敗しても翌日の掃除で取り戻せる。重複排除の行の保持は 7 日〉。5 分ごとのハートビートは例外）。`middleware/n8n/workflows/README.md`
 
 ### 定期実行に載せていないエージェント
 

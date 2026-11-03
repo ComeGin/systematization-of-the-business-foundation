@@ -197,16 +197,23 @@ journalctl -u comegin-control -n 50   # 「開始 scheduler=on heartbeat=on」�
 
 **2026-11-02 の例**: PR #56 で 21 本を一度に `enabled: true` にした。その中に `heartbeat.yaml` も入っていて、`next-js-prod` が二重送信を警告した。PR #58 で `heartbeat.yaml` だけを `false` に戻し、チェックアウトを合わせてビルドし直し、restart した。これで段階 `operate` はすべて ✓ になった。残りの 20 本は有効のままなので、最初の実行は時刻ごとに分けて見る。
 
-| 最初の実行（JST） | 動くもの | 見ること |
+**2026-11-03 に、定期実行をすべて 0〜8 時（JST）に移した**（ユーザーの指示。時刻の決め方と終わりの上限は `ops/README.md` の「時刻の決め方」）。**PR が main に入ったら、上と同じくチェックアウトを合わせ、ビルドし直して restart する**（スケジューラは定義を読み直すが、`next-js-prod:build` の日時の比べで「まだ」と出るため）。
+
+| 実行（JST） | 動くもの | 見ること |
 |---|---|---|
-| 0・6・12・18 時 | `published-article-check` | 最初の builtin。`success` か |
-| 毎日 06:00 | 観測のエージェント 4 本（`daily-observe-*`） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
-| 毎日 07:00 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |
-| 毎日 08:00〜08:45 | `daily-i13-file`・`daily-miswrite-check`・`daily-silence-check`・`daily-n8n-export` | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
-| 火曜 10:00 | `weekly-content-draft` | **本番の Strapi に下書きを書く**。承認済みの企画（E-03）が無ければ `skipped` |
-| 水曜 10:00 | `weekly-content-plan` | 採用済みの E-01 が無ければ `skipped` |
-| 月曜 05:00〜09:00 | Lighthouse・a11y・SERP 監査・`weekly-keyword-research` | keyword-research は **OpenSEO の費用が出る**（1 回の見積もりの上限は 2,000 クレジット） |
-| 毎月 1 日 08:00 | `monthly-analysis` | — |
+| 毎日 00:00 | `published-article-check` | 最初の builtin。`success` か（未実装の間は `skipped`） |
+| 月曜 00:30〜02:15 | Lighthouse → a11y → 観測 3 本（lighthouse・a11y・SERP 監査） | Lighthouse と a11y は時刻で重ねない。観測は `after` で計測の成功を待つ |
+| 月曜 02:30 | `weekly-keyword-research` | **OpenSEO の費用が出る**（1 回の見積もりの上限は 2,000 クレジット） |
+| 火曜 02:30 | `weekly-content-draft` | **本番の Strapi に下書きを書く**。承認済みの企画（E-03）が無ければ `skipped` |
+| 水曜 02:30 | `weekly-content-plan` | 採用済みの E-01 が無ければ `skipped` |
+| 毎日 04:00 | 観測のエージェント 4 本（`daily-observe-*`） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
+| 毎日 04:30 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |
+| 毎月 1 日 05:00 | `monthly-analysis` | — |
+| 毎日 05:30〜06:15 | `daily-i13-file`・`daily-miswrite-check`・`daily-silence-check`・`daily-n8n-export` | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
+
+改善ループの本体はすべて 06:25 までに終わる（`timeout_sec` で打ち切られた場合も）。`runlog-flush`（写しの送り直し）も 0〜8 時の 15 分ごとで、07:50 までに終わる。昼に動くのは、監視アプリのハートビート（5 分ごと）と写しの再送だけ（どちらも改善の処理ではない）。朝 8 時以降に監視アプリの画面か `journalctl -u comegin-control --since today` で、その夜の結果をまとめて見る。
+
+**本番の n8n の 2 本（`weekly-inquiry-inventory` を月曜 09:00 → 07:00、開発だけの `ops-monitor` の証明書の確認を 09:10 → 07:10）は、リポジトリの JSON を直しただけでは本番に入らない。** main に入った後、`node setup/setup.mjs --target prod --only n8n-prod`（provision が同名のワークフローを更新する）を実行する。provision は棚卸しを公開しない（`publish: never`）ので、**本番で公開済みなら n8n の画面で開き直して公開し直す**（公開中の版は、公開し直すまで古い時刻のまま動く）。反映しないと、`daily-n8n-export` が本番の 09:00 の版との差分を PR にして、リポジトリを古い時刻へ戻そうとする。
 
 最初の定期実行の後、監視アプリの画面で `success`・`skipped` の理由を見る（`skipped` の理由は足りない変数名だけを出す）。`s3://comegin-prod-runlog-archive-<アカウント ID>/runs/` にオブジェクトが増えていること（`backend/control-plane/README.md` の「S3 への写し」）。
 
