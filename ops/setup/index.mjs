@@ -249,6 +249,21 @@ function originMainFile(main, rel) {
 }
 
 /**
+ * チェックアウトの HEAD までで、パス（リポジトリのルートからの相対）の変更が main に入った時刻（秒）。読めなければ null。
+ * --first-parent を付ける: 付けないと git log はパスを絞るときにマージコミットを飛ばし、ブランチ側のコミットの時刻（マージより前）を返す。
+ * それだと、マージより前の main のチェックアウトで作った dist を「新しい」と誤って判定する
+ * （例: backend/chatwoot-mcp の変更は 10-27 のコミットで、main に入ったのは 11-02 のマージ）
+ */
+function lastCommitTime(main, rel) {
+  try {
+    const t = execFileSync("git", ["-C", main, "log", "-1", "--first-parent", "--format=%ct", "HEAD", "--", rel], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return t ? Number(t) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 登録表の stdio の args は CONTROL_MAIN_CHECKOUT から解決される。そこの dist が無い・古いと chatwoot-prod・mautic-prod* は動かない。
  * 古い版のときは、直し方が 3 通りに分かれるので見分ける: dist だけが古い（ビルドし直す）／チェックアウトが origin/main より古い（合わせてからビルド）／
  * 修正がまだ main に入っていない（PR のマージが先。ビルドし直しても直らない）。
@@ -260,6 +275,11 @@ function distProblems(ctx) {
   for (const pkg of ["backend/chatwoot-mcp", "backend/mautic-mcp"]) {
     const entry = join(main, pkg, "dist/index.js");
     if (!existsSync(entry)) p.push(`${entry} が無い。承認済みの main のチェックアウトの ${pkg} で、人が pnpm install && pnpm build する`);
+    else {
+      // チェックアウトを動かした後に、ビルドし直していない（dist が、そのパッケージの変更が main に入った時刻より古い）
+      const committed = lastCommitTime(main, pkg);
+      if (committed !== null && statSync(entry).mtimeMs / 1000 < committed) p.push(`${entry} が、${pkg} の変更が main に入った時刻（チェックアウトの HEAD まで）より古い。チェックアウトを動かした後にビルドし直していない。${join(main, pkg)} で、人が pnpm install && pnpm build する`);
+    }
   }
   const client = join(main, CHATWOOT_MCP_CLIENT);
   if (existsSync(client) && !readFileSync(client, "utf8").includes("api-access-token")) {
@@ -280,6 +300,9 @@ function distProblems(ctx) {
 // 契約
 // ---------------------------------------------------------------------------
 
+// 監視アプリの「設定の状況」が読む項目（key は mcp-prod.<名前>。どちらも P10）
+const ITEM_STEP = "P10";
+
 export async function check(ctx) {
   const { files, missing } = plan(ctx);
   const notes = [];
@@ -288,25 +311,46 @@ export async function check(ctx) {
     notes.push(cond ? good : bad);
     if (!cond) ok = false;
   };
-  mark(missing.length === 0, "prod.conf に本番の MCP の値がそろっている", `prod.conf に無いキー: ${missing.join("・")}`);
-  for (const p of shapeProblems(ctx, files)) mark(false, "", p);
+  // mcp-prod.values: prod.conf の値・env ファイル・各 MCP への読み取りの確認。届かないだけなら unknown、それ以外の問題は action
+  const valueProblems = [];
+  const unreachableAll = [];
+  const markValue = (cond, good, bad) => {
+    mark(cond, good, bad);
+    if (!cond) valueProblems.push(bad);
+  };
+  markValue(missing.length === 0, "prod.conf に本番の MCP の値がそろっている", `prod.conf に無いキー: ${missing.join("・")}`);
+  for (const p of shapeProblems(ctx, files)) markValue(false, "", p);
   for (const name of Object.keys(files)) {
     const path = envPath(ctx, name);
-    if (!existsSync(path)) mark(false, "", `${path} がまだ無い`);
-    else mark((statSync(path).mode & 0o077) === 0, `${name}.env あり（600 系）`, `${path} がほかのユーザーにも読める（chmod 600）`);
+    if (!existsSync(path)) markValue(false, "", `${path} がまだ無い`);
+    else markValue((statSync(path).mode & 0o077) === 0, `${name}.env あり（600 系）`, `${path} がほかのユーザーにも読める（chmod 600）`);
   }
   if (Object.keys(files).some((name) => existsSync(envPath(ctx, name)))) {
     const stale = staleKeys(ctx, files);
-    mark(stale.length === 0, "env ファイルの中身は prod.conf と一致", `env ファイルの中身が prod.conf と違う（apply で書き直す）: ${stale.join("、")}`);
+    markValue(stale.length === 0, "env ファイルの中身は prod.conf と一致", `env ファイルの中身が prod.conf と違う（apply で書き直す）: ${stale.join("、")}`);
   }
-  for (const m of distProblems(ctx)) mark(false, "", m);
+  // mcp-prod.dist: 承認済みの main のチェックアウトの dist（登録表の args の相対パス）
+  const dist = distProblems(ctx);
+  for (const m of dist) mark(false, "", m);
   if (missing.length === 0) {
     const { results, unreachable, failures } = await verifyAll(ctx, files);
     notes.push(...results);
-    for (const u of unreachable) mark(false, "", `届かない: ${u}`);
-    for (const f of failures) mark(false, "", f);
+    for (const u of unreachable) {
+      mark(false, "", `届かない: ${u}`);
+      unreachableAll.push(`届かない: ${u}`);
+    }
+    for (const f of failures) markValue(false, "", f);
   }
-  return { ok, notes };
+  const items = [
+    dist.length
+      ? { key: "mcp-prod.dist", step: ITEM_STEP, level: "action", title: "本番の MCP の dist（chatwoot-mcp・mautic-mcp）が、チェックアウトの最新のコードをビルドしたもの", evidence: dist.join("／"), stopId: "mcp-prod:finish" }
+      : { key: "mcp-prod.dist", step: ITEM_STEP, level: "ok", title: "本番の MCP の dist（chatwoot-mcp・mautic-mcp）が、チェックアウトの最新のコードをビルドしたもの", evidence: "backend/chatwoot-mcp・backend/mautic-mcp の dist は、そのパッケージの変更が main に入った時刻（マージを含む）より新しく、chatwoot-mcp はハイフンのヘッダーで送る版" },
+  ];
+  const valuesTitle = "本番の MCP の値（prod.conf・env ファイル・各 MCP への読み取り）";
+  if (valueProblems.length) items.push({ key: "mcp-prod.values", step: ITEM_STEP, level: "action", title: valuesTitle, evidence: valueProblems.join("／"), ...(missing.length ? { stopId: "mcp-prod:prod-values" } : {}) });
+  else if (unreachableAll.length) items.push({ key: "mcp-prod.values", step: ITEM_STEP, level: "unknown", title: valuesTitle, evidence: unreachableAll.join("／") });
+  else items.push({ key: "mcp-prod.values", step: ITEM_STEP, level: "ok", title: valuesTitle, evidence: "prod.conf に 6 つの MCP の値がそろい、env ファイルは prod.conf と一致し、各 MCP に読み取りで届いた" });
+  return { ok, notes, items };
 }
 
 export async function apply(ctx) {

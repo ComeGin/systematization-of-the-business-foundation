@@ -97,10 +97,10 @@ await provision({ target: "dev", conf: buildConf("dev", values), publish: false,
 | `管理者（Administrator）のアクセストークンが要る` | Chatwoot のトークンが管理者のものでない |
 | `シークレットを取得できなかった（Chatwoot が 4.12 より古い…）` | Chatwoot の版を確かめる（開発は `v4.18.0` に固定済み） |
 | `資格情報 … の作成: HTTP 400（…）` | n8n が入力の形を受け付けなかった。括弧の中の説明を Claude に伝える |
-| `呼び出し先「…」が見つからない` | JSON の子のワークフローの名前が変わった。`provision.mjs` の `WORKFLOWS` を確かめる |
+| `呼び出し先「…」が見つからない` | JSON の子のワークフローの名前が変わった。`workflows.json`（`provision.mjs` の `WORKFLOWS`）を確かめる |
 
 ## 注意
 
 - 資格情報が既にあると、**値を入れ直す**（Webhook のシークレットを Mautic・Chatwoot の現在の値にそろえる）。n8n の画面で手で変えた値は上書きされる。
 - Mautic・Chatwoot の Webhook は、**送り先の URL が同じもの**を同じ Webhook とみなす。送り先を変えた場合は新しい Webhook ができるので、古いものは各製品の画面で消す。
-- `provision.mjs` の `DATA_TABLES`・`WORKFLOWS`・`MAUTIC_TRIGGERS`・`CHATWOOT_SUBSCRIPTIONS` は、[README.md](../workflows/README.md) と [GUIDE.md](../workflows/GUIDE.md) の表と同じにしておく（片方だけ直さない）。
+- `provision.mjs` の `DATA_TABLES`・`workflows.json`（`WORKFLOWS`。監視アプリが origin/main のこのファイルを読み、本番に取り込むもの〈targets に prod〉だけを n8n と比べる）・`provision.mjs` の `MAUTIC_TRIGGERS`・`CHATWOOT_SUBSCRIPTIONS` は、[README.md](../workflows/README.md) と [GUIDE.md](../workflows/GUIDE.md) の表と同じにしておく（片方だけ直さない）。

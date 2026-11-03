@@ -8,6 +8,17 @@ const JOBS = { text: "定期実行のジョブ", href: "/jobs" };
 
 describe("resolveRoute", () => {
   describe("正常系", () => {
+    it("/setup-status は設定の状況（既定の画面）。下の階層があっても同じ画面として扱う", () => {
+      const expected = {
+        breadcrumbs: [ROOT, { text: "設定の状況", href: "/setup-status" }],
+        activeHref: "/setup-status",
+        help: "setup-status",
+        contentType: "default",
+      };
+      expect(resolveRoute("/setup-status")).toEqual(expected);
+      expect(resolveRoute("/setup-status/x")).toEqual(expected);
+    });
+
     it("/runs は実行記録の一覧（表）", () => {
       expect(resolveRoute("/runs")).toEqual({
         breadcrumbs: [ROOT, RUNS],
@@ -96,8 +107,8 @@ describe("resolveRoute", () => {
 
 describe("NAVIGATION_ITEMS", () => {
   describe("正常系", () => {
-    it("サイドのナビゲーションは実行記録・手動の起動・ジョブ・候補の順で、すべてアプリ内のパス", () => {
-      expect(NAVIGATION_ITEMS.map((item) => item.href)).toEqual(["/runs", "/runs/new", "/jobs", "/miswrite-candidates"]);
+    it("サイドのナビゲーションは設定の状況・実行記録・手動の起動・ジョブ・候補の順で、すべてアプリ内のパス", () => {
+      expect(NAVIGATION_ITEMS.map((item) => item.href)).toEqual(["/setup-status", "/runs", "/runs/new", "/jobs", "/miswrite-candidates"]);
       for (const item of NAVIGATION_ITEMS) expect(item.text).not.toBe("");
     });
 

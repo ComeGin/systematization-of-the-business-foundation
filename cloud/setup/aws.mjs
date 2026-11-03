@@ -62,9 +62,10 @@ export async function secretHasValue(ctx, name) {
  * DB 作成のタスク（engine は postgres か mysql）が、今の本番スタックを作った後に成功したか。
  * ロググループの保持期間（既定 30 日）を過ぎるとログは消えるので、一度確かめたら状態にスタックの作成時刻を残す
  * （スタックを作り直すと Secret のパスワードが変わり、DB 作成をやり直す必要があるため、作成時刻が変わったら確かめ直す）。
- * record が false（check。読むだけの契約）のときは状態に書かない
+ * record が false のときは状態に書かない。既定は ctx.checkOnly の反対（--check は読むだけの契約なので書かない。
+ * 書こうとしても ctx.state.set が例外を投げるが、その前にここで止める）
  */
-export async function dbInitDone(ctx, main, engine, { record = true } = {}) {
+export async function dbInitDone(ctx, main, engine, { record = !ctx.checkOnly } = {}) {
   const key = `DB_INIT_${engine.toUpperCase()}_STACK_CREATED`;
   if (ctx.state.get(key) === main.CreationTime) return true;
   const r = await awsJson(ctx, [

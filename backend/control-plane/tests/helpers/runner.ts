@@ -55,6 +55,8 @@ export function makeConfig(overrides: Partial<ControlPlaneConfig> = {}): Control
     aws: null,
     miswrite: null,
     n8nExport: null,
+    status: null,
+    statusConfigError: null,
     ...overrides,
   };
 }

@@ -353,14 +353,15 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 
 ### 4.5 IAM の管理ポリシーを付ける・オンプレの IAM ユーザーのキーを発行する
 
-`iam.yaml` は、管理ポリシー 2 本と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つを作る。**アクセスキーは作らない**（キーを CloudFormation の出力や状態に残さないため）。管理ポリシーの付与先の主体も、人間が作る（手順は 4.5.1・4.5.2。**作るまで、どちらのポリシーもどの主体にも付いていない**。2026-11-02 の監査で、2 本とも付与先が無く、配信の手順〈4.14〉の `comegin-prod-deploy` の主体と、監視アプリのハートビートの送り手が存在しなかった）。
+`iam.yaml` は、管理ポリシー 3 本（3 本目は設定の状況用。4.5.3）と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つを作る。**アクセスキーは作らない**（キーを CloudFormation の出力や状態に残さないため）。管理ポリシーの付与先の主体も、人間が作る（手順は 4.5.1〜4.5.3。**作るまで、どのポリシーもどの主体にも付いていない**。2026-11-02 の監査で、2 本とも付与先が無く、配信の手順〈4.14〉の `comegin-prod-deploy` の主体と、監視アプリのハートビートの送り手が存在しなかった）。
 
 | ポリシー（出力） | 付ける先 | 許すこと | 作り方 |
 |---|---|---|---|
 | `ControlPlanePolicyArn` | 監視アプリ（ローカル）の写し用の主体。**Claude Code の実行環境には渡さない** | E-15 の写しへの追記（`runs/` の `s3:PutObject` だけ）、名前空間 `ComeGin/Onprem` への `cloudwatch:PutMetricData` だけ。削除・読み取り・設定変更・アラームの操作は不可 | 4.5.2（IAM ユーザー。常駐するプロセスが使うのでアクセスキー） |
 | `DeployPolicyArn` | Astro の配信を承認して実行する人間の主体。**Claude Code の実行環境に置かない** | Astro バケットへの Put / Delete / List と、そのディストリビューションの `cloudfront:CreateInvalidation` だけ | 4.5.1（IAM Identity Center の許可セット。人が都度ログインするので長期のキーを作らない） |
+| `StatusReaderPolicyArn` | 監視アプリの「設定の状況」（設定スクリプトの `--check` を 10 分ごとに子プロセスで実行）専用の主体。**監視アプリの主体（`ControlPlanePolicyArn`）とは別のユーザー**。Claude Code の実行環境には渡さない | `--check` が読む本番の設定の読み取りだけ（スタック・ECS・ECR・ログ・SES・SNS の購読・IAM のキーの一覧・アラーム。Secret は `DescribeSecret` まで）と、`comegin-ops-alert` への `sns:Publish` だけ。書き込み・Secret の値の読み取り・購読やアラームの変更は不可 | 4.5.3（IAM ユーザー。常駐するプロセスが使うのでアクセスキー） |
 
-**どちらの主体も `RunLogAdminPrincipalArns`（4.2・E-15 のバケットの拒否を免除する主体）に入れない。** 入れると、監視アプリや配信の主体が写しを消せるようになる（2026-11-02 時点の値は `comegin-iam` だけで正しい）。
+**どの主体も `RunLogAdminPrincipalArns`（4.2・E-15 のバケットの拒否を免除する主体）に入れない。** 入れると、監視アプリや配信の主体が写しを消せるようになる（2026-11-02 時点の値は `comegin-iam` だけで正しい）。
 
 #### 4.5.1 配信用の主体（`DeployPolicyArn`）を作る（IAM Identity Center。1 回だけ）
 
@@ -534,6 +535,58 @@ node setup/setup.mjs --target prod --phase operate --only cloud --check
 - **2026-11-02 の例**: `onprem-n8n-sns` に、10-28 と 11-01 に作ったキーが 2 つ有効で残っていた。10-28 のキーは一度も使われておらず（`N/A`）、11-01 のキーがハートビート（cloudwatch）で使われていた。10-28 のキーを止めてから消し、段階 `operate` の警告が消えたことを確かめた。
 - **キーを Claude Code の環境変数に引き継がない**（監視アプリの許可リスト方式の `env` のとおり）。キーが漏れた疑いがあれば、すぐに `delete-access-key` する（権限は上の 1 バケットか 2 トピックだけ）。
 - スタックは、ユーザーとポリシーを作るだけで、キーの有無を知らない。キーを作っても、CloudFormation の状態にも出力にも残らない。
+
+#### 4.5.3 設定の状況の主体（`StatusReaderPolicyArn`）を作り、キーを発行する（1 回だけ）
+
+監視アプリの「設定の状況」（`/setup-status`）は、設定スクリプトの読み取り専用の確認（`node setup/setup.mjs --target prod --check`）を 10 分ごとに子プロセスで実行し、ずれがあればメール（SNS `comegin-ops-alert`）で知らせる。その子プロセスと知らせに使う、**専用の IAM ユーザー `comegin-prod-status-reader`** を作る。`comegin-prod-control-plane`（4.5.2）の権限は広げない（ハートビートと写しの送り手に、スタックや IAM の読み取りを持たせないため）。
+
+許すこと（`iam.yaml` の `StatusReaderPolicy`。リソースは `comegin-prod` の範囲に絞ってある）:
+
+- 読み取り: `cloudformation:DescribeStacks`（`comegin-prod`・`comegin-global-prod`）、`secretsmanager:DescribeSecret`（`comegin/prod/*`。値は読めない）、`ecs:DescribeServices`、`logs:FilterLogEvents`（`/comegin/prod/tasks` だけ）、`ecr:DescribeImages`、`ses:GetEmailIdentity`・`ses:GetAccount`、`sns:ListSubscriptionsByTopic`・`sns:GetSubscriptionAttributes`（ops・lead の 2 トピック）、`iam:ListAccessKeys`・`iam:GetUser`・`iam:ListAttachedUserPolicies`・`iam:ListEntitiesForPolicy`（`comegin-prod` のユーザーとポリシーだけ）、`cloudwatch:DescribeAlarms`（ハートビートのアラーム 2 つ）
+- 発行: `sns:Publish` を `comegin-ops-alert` の 1 トピックだけ
+- 与えない: 書き込み全般、Secret の値の読み取り、`sns:Subscribe`・`SetTopicAttributes` などの購読・トピックの変更、アラームの変更、S3 のオブジェクトの読み取り。**`RunLogAdminPrincipalArns`（4.2）には入れない**
+
+```bash
+# 先に cd cloud && sam build && sam deploy でポリシーを作る（人が自分の端末で行う）。
+# 以降も人が自分の端末で、管理者で実行する（Claude Code の実行環境では実行しない）
+export AWS_PROFILE=comegin-prod-admin
+ACCOUNT=798560359429
+aws iam create-user --user-name comegin-prod-status-reader \
+  --tags Key=purpose,Value=onprem-setup-status-reader
+aws iam attach-user-policy --user-name comegin-prod-status-reader \
+  --policy-arn "arn:aws:iam::$ACCOUNT:policy/comegin-prod-status-reader"
+aws iam list-attached-user-policies --user-name comegin-prod-status-reader   # comegin-prod-status-reader の 1 つだけ
+
+# キーは、監視アプリのサーバーだけが読む資格情報ファイルに直接書く（画面に出さない。一時ファイルを作らない）。
+# プロファイル名は default（子プロセスは AWS_SHARED_CREDENTIALS_FILE とこのプロファイルでキーを解決する）。
+# ~/.aws/credentials にも作業ツリーの中にも置かない（4.5.2 と同じ理由）
+# 失敗したとき（create-access-key が落ちたとき）に、今ある資格情報ファイルを空にしないよう、いったん .new に書いて、成功したときだけ置き換える
+( umask 077
+  set -o pipefail
+  D=~/.config/comegin/status-reader
+  mkdir -p "$D"
+  aws iam create-access-key --user-name comegin-prod-status-reader \
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text \
+  | awk -F'\t' '{print "[default]"; print "aws_access_key_id = " $1; print "aws_secret_access_key = " $2}' \
+    > "$D/aws-credentials.new" \
+  && mv "$D/aws-credentials.new" "$D/aws-credentials" \
+  || { rm -f "$D/aws-credentials.new"; echo 'キーの発行に失敗した（既存の資格情報ファイルはそのまま）' >&2; } )
+stat -c '%a %U' ~/.config/comegin/status-reader/aws-credentials   # 600 と自分のユーザー名
+```
+
+- 確かめ方（シークレットは出ない。人が自分の端末で、管理者のプロファイルを引き継がないようにして行う）:
+
+  ```bash
+  env -u AWS_PROFILE -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/comegin/status-reader/aws-credentials" AWS_CONFIG_FILE=/dev/null AWS_REGION=ap-northeast-1 \
+    sh -c 'aws sts get-caller-identity --query Arn --output text                       # .../user/comegin-prod-status-reader
+            aws cloudformation describe-stacks --stack-name comegin-prod --query "Stacks[0].StackStatus" --output text   # 読める
+            aws s3 ls                                                                  # AccessDenied になる（読み取り専用の確認）'
+  ```
+
+- 一時ファイル（`~/status-reader.key` など）にキーを写してしまったときは、`shred -u` で消す（`shred` の限界は 4.5 と同じ。漏れた疑いがあれば `aws iam delete-access-key` で消して作り直す）。
+- ローテーションは 4.5.2 と同じ（新しいキーをこのファイルに書く → 次の確認が通ることを確かめる → 古いキーを `update-access-key --status Inactive` → 確かめてから `delete-access-key`。キーは 1 ユーザーに 2 つまで）。有効なキーが 2 つ残っていないかは、段階 `operate` の `cloud` が警告する（`comegin-prod-status-reader` も対象。ユーザーがまだ無いときは何も出さない）。確認の主体と GitHub のトークンは、設定スクリプトの `next-js-prod` が `next-js-prod:status-principal`・`next-js-prod:status-github` で止めて確かめる（onprem/README.md の「設定の状況を有効にする」）。
+- このキーの置き場（`~/.config/comegin/status-reader/aws-credentials`）は、監視アプリが起動するエージェントの環境に渡さない（子プロセスの環境にだけ渡す。設計は `docs/superpowers/specs/2026-11-03-setup-status-design.md` の 6・6.1）。
 
 ### 4.6 Secrets の値を入れる（プレースホルダ 7 個）
 
@@ -1103,6 +1156,7 @@ dig +short stats.comegin.com
 - **チェックアウトを `origin/main` に合わせてから、ビルドし直す（PR をマージするたび）。** ビルドがマージより先だと、`dist` には修正が入らない。チェックアウトを後から進めても `dist` は作り直されない。2026-11-02 には、`robots.txt` と同意 Cookie の修正（PR #52）のマージとほぼ同時（06:38）にビルドした `dist` が配信された。そのため `robots.txt` が 404 のままで、同意 Cookie の修正も本番に入っていなかった。合わせてビルドし直し、16:29 に配信し直して解消した。下の手順 2-0 で確かめる。
 - **本番の Strapi に、公開済みの記事が 1 本以上ある。** 0 件ならビルドは意図して止まる（DD-05 の 1.2。「公開済みの記事が 0 件です」）。記事の公開は `R2` が本番の管理画面（`http://127.0.0.1:1338/admin`）で行う（エージェントは下書きまで。ADR-17）。カテゴリは `know-the-issues`・`compare-methods`・`consider-adoption` の 3 つの slug で作る（`frontend/verdant-virgo/src/modules/blog/lib/categories.ts`。ほかの slug の記事は警告を出して「課題を知る」として扱われる）。
 - **`prod.conf` の `UPLOAD_S3_BUCKET` は Strapi のメディアのバケット（`comegin-prod-strapi-media-<アカウント ID>`）にする。** 下の手順 1 の `AstroBucketName`（`comegin-prod-astro-…`。同期先）と取り違えない。親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 `StrapiMediaBucketName`）。ビルドは記事の画像を、Strapi が返す署名付き URL で取り込む。取り込みの許可（`image.remotePatterns`）と `dist` の検査は、このバケット名から作る（`src/modules/blog/integration.ts`）。取り違えると、画像が取り込まれずに署名付き URL のまま HTML に出る。そのためビルドは最後に「dist/ に Strapi・S3 の URL が残っています（… `X-Amz-Signature` …）」で止まる（2026-11-02 に起きた。止まらなければ 1 時間で切れる URL が公開されていた）。直したら `node setup/frontend.mjs --target prod --only verdant-virgo` で `.env.production` を書き直してから、ビルドし直す。形が違えば設定スクリプトが止める。
+- **同期の前に `dist/build-info.json` があること**（下の手順 2-0。ビルドのとき `frontend/verdant-virgo/src/modules/build-info` が書く。コミットとビルドの日時だけで、秘密値は無い）。同期すると `https://<SiteHost>/build-info.json` で公開され、監視アプリの `/setup-status` が「配信中のビルドより後に、公開サイトの変更が `origin/main` に入っていないか」を見て、入っていれば「再配信が必要」と知らせる（PR をマージした後に再配信を忘れる事故の検知。2026-11-03 の PR #60 で起きた）。
 - 同期元は、下の手順で **`dist` の絶対パス（`SITE_DIST`）** を使う。`frontend/verdant-virgo/dist/` のような相対パスにしない（作業ツリーのルートで実行すると、作業ツリーにある開発用の `dist` が上がる）。
 
 使う AWS CLI のプロファイルは 2 つ（名前はこの手順での呼び方。`~/.aws/config` に作る。SSO でもアクセスキーでもよい）。
@@ -1140,6 +1194,8 @@ git -C "$CHECKOUT" fetch -q origin main
 [ "$(git -C "$CHECKOUT" rev-parse HEAD)" = "$(git -C "$CHECKOUT" rev-parse origin/main)" ] && echo 同じ || echo 'チェックアウトが origin/main と違う。checkout --detach origin/main で合わせてビルドし直す'
 [ "$(stat -c %Y "$SITE_DIST/index.html")" -gt "$(git -C "$CHECKOUT" log -1 --format=%ct)" ] && echo 新しい || echo 'dist がコミットより古い。ビルドし直す'
 test -f "$SITE_DIST/robots.txt" || echo 'dist に robots.txt が無い（804863e2 より前のビルド）'
+test -f "$SITE_DIST/build-info.json" || echo 'dist に build-info.json が無い。監視アプリが再配信の要否を判定できない（この機能より前のビルド）。ビルドし直す'
+#      build-info.json は { "commit": <ビルドしたときの HEAD>, "builtAt": <日時> }。commit が null なら git を読めなかったビルド（判定できない）。2-0 の HEAD と同じ commit であること
 # 2-1. 開発の接続先（ngrok・ポート付きの localhost／127.0.0.1）が 1 つも無いこと。出力が空なら通過
 #      （ポートを付けずに localhost だけで探すと、ライブラリの中の判定の文字列に当たるので、ポート付きで探す）
 rg -l -e 'ngrok' -e 'localhost:[0-9]' -e '127\.0\.0\.1:[0-9]' "$SITE_DIST"
@@ -1573,14 +1629,16 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 
 管理者のトークン（`CHATWOOT_ADMIN_TOKEN`）は `prod.conf` だけに置き、状態ファイルには写さない。初期設定が終わったら `prod.conf` から消してよい（その後の `chatwoot-prod` は止まって案内する）。
 
-ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（本人のトークンでしか変えられない。`cloud/README.md` の 4.17 の 5）。
+ほかの担当者は、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（本人のトークンでしか変えられない。`cloud/README.md` の 4.17 の 5）。2026-11-03 の時点で、本番のユーザーは管理者とエージェント専用ユーザーの 2 人だけ（どちらも受信箱のメンバー）。担当者を足したときに、この手順を行う。
+
+本番の Chatwoot の API を手で叩くときは、ヘッダーを **`api-access-token`（ハイフン）**にする。`api_access_token`（アンダースコア）は ALB を通る間に捨てられ、正しいトークンでも `401`（「続行するにはサインイン…」）になる（2026-11-03 に確かめた。設定スクリプトはハイフンで送っている）。
 
 ### 7.4 本番の Mautic（`mautic-prod`）
 
 開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
 
 - インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
-- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら画面で消してよい）
+- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉だけ、作り直して書く）
 - 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
 
 画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`setup/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。

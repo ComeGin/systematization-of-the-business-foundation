@@ -1024,6 +1024,7 @@ Resources:
         StrapiMediaBucketArn: !GetAtt DataStack.Outputs.StrapiMediaBucketArn
         OpsAlertTopicArn: !GetAtt ObservabilityStack.Outputs.OpsAlertTopicArn
         LeadAlertTopicArn: !GetAtt ObservabilityStack.Outputs.LeadAlertTopicArn
+        DomainName: !Ref DomainName
 
   # ---- オンプレとの WireGuard（ADR-21）。EC2 1 台。SG は network.yaml、経路は private サブネットの経路表。
   WireguardStack:
@@ -1274,6 +1275,9 @@ Outputs:
   DeployPolicyArn:
     Description: 配信用の管理ポリシー。配信を実行する人間の主体に付ける（README）。
     Value: !GetAtt IamStack.Outputs.DeployPolicyArn
+  StatusReaderPolicyArn:
+    Description: 設定の状況用の管理ポリシー。専用の IAM ユーザー comegin-<env>-status-reader に付ける（README の 4.5.3）。
+    Value: !GetAtt IamStack.Outputs.StatusReaderPolicyArn
 
   # 運用者が README の手順で使う値（RunTask の指定など）。
   ClusterName:

@@ -88,9 +88,18 @@ export async function check(ctx) {
     notes.push(cond ? good : bad);
     if (!cond) ok = false;
   };
+  // Chatwoot の管理者のトークンが要る確認（監視アプリの「設定の状況」が読む項目。P9）。トークンは P15 で消すのが正しい運用なので、
+  // 無いのは失敗にしない（確かめない、と項目で知らせる）
+  const hasAdmin = Boolean(ctx.conf.CHATWOOT_ADMIN_TOKEN);
+  const adminItem = {
+    key: "n8n-prod.admin-token-checks",
+    step: "P9",
+    title: "管理者のトークンで確かめる項目（Chatwoot の Webhook の作成に使う CHATWOOT_ADMIN_TOKEN）",
+    ...(hasAdmin ? { level: "ok", evidence: "CHATWOOT_ADMIN_TOKEN がある（Webhook の作成に使う）" } : { level: "manual", evidence: "初期設定用の値（CHATWOOT_ADMIN_TOKEN）を消した後なので確かめない（P15）" }),
+  };
   const up = await healthy(ctx, BASE);
   mark(up, `本番の n8n（${BASE}/healthz）が応答している`, `本番の n8n（${BASE}/healthz）が応答しない（onprem の手順で WireGuard → Strapi → n8n の順に上げる。onprem/README.md）`);
-  if (!up) return { ok, notes };
+  if (!up) return { ok, notes, items: [adminItem] };
   const settings = await ctx.http("本番の n8n", `${BASE}/rest/settings`).catch(() => null);
   mark(settings?.data?.userManagement?.showSetupOnFirstLoad === false, "オーナー: 作成済み", "オーナー: まだ（apply で作る）");
   const apiKey = ctx.value("N8N_API_KEY");
@@ -104,7 +113,7 @@ export async function check(ctx) {
     mark(lack.length === 0, `ワークフロー: ${PROD_WORKFLOWS.length} 本が取り込み済み`, `ワークフロー: ${lack.join("・")} が無い（apply で provision する）`);
   }
   for (const p of mauticProblems(ctx)) mark(false, "", p);
-  mark(Boolean(ctx.conf.CHATWOOT_ADMIN_TOKEN), "CHATWOOT_ADMIN_TOKEN がある（Webhook の作成に使う）", "CHATWOOT_ADMIN_TOKEN が prod.conf に無い（provision が Chatwoot の Webhook を作る・そろえるのに要る）");
+  notes.push(hasAdmin ? "CHATWOOT_ADMIN_TOKEN がある（Webhook の作成に使う）" : "CHATWOOT_ADMIN_TOKEN が prod.conf に無い。初期設定用の値を消した後なので、Webhook の作成・そろえるための値の確認はしない（P15。apply でやり直すときだけ書く）");
   if (!ctx.conf.CHATWOOT_N8N_API_TOKEN) notes.push("! CHATWOOT_N8N_API_TOKEN が空（週次の棚卸しに管理者のトークンが入る。会話を読むだけのユーザーのトークンを勧める）");
   try {
     const main = await requireMainStack(ctx);
@@ -116,7 +125,7 @@ export async function check(ctx) {
     mark(false, "", `AWS を確かめられない（${e.message.split("\n")[0]}）`);
   }
   if (ctx.conf.N8N_PUBLISH_PARENTS !== "true") notes.push("親（I-11・I-12）は未公開のまま取り込む（公開は R1 の判断。prod.conf の N8N_PUBLISH_PARENTS=true）");
-  return { ok, notes };
+  return { ok, notes, items: [adminItem] };
 }
 
 export async function apply(ctx) {

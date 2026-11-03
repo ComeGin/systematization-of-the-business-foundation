@@ -59,6 +59,14 @@ const RawSchema = z.object({
   // 本番の n8n のワークフローの書き出し（builtin n8n-export）。2 つ揃ったときだけ有効（片方だけなら skipped）
   CONTROL_N8N_EXPORT_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   CONTROL_N8N_EXPORT_API_KEY: optionalString,
+  // 設定の状況（設定の状況の画面）。CONTROL_SETUP_STATUS_ENABLED=true のときだけ、残りと AWS_REGION・SITE_URL が必須。
+  // ここでは文字列として受けるだけにし、形の検査は transform で行う（誤りがあっても ConfigError にせず、この機能だけを止める。spec 7）
+  CONTROL_SETUP_STATUS_ENABLED: optionalString,
+  CONTROL_STATUS_AWS_CREDENTIALS_FILE: optionalString,
+  CONTROL_STATUS_AWS_PROFILE: optionalString,
+  CONTROL_STATUS_GITHUB_TOKEN_FILE: optionalString,
+  CONTROL_STATUS_ALERT_TOPIC_ARN: optionalString,
+  CONTROL_STATUS_LINK_BASE: optionalString,
 });
 
 type Raw = z.infer<typeof RawSchema>;
@@ -81,6 +89,26 @@ export interface ControlPlaneConfig {
   miswrite: { baseUrl: string; accountId: number; apiToken: string; agentUserId: number } | null;
   /** 本番の n8n の Public API（読み取り）。どちらかが未設定なら null（n8n-export は skipped）。キーはエージェントに渡さない */
   n8nExport: { baseUrl: string; apiKey: string } | null;
+  /**
+   * 設定の状況（setup/status）。CONTROL_SETUP_STATUS_ENABLED=true のときだけ非 null。
+   * 資格情報・トークンは「ファイルの場所」だけを持つ（値は確認のたびにファイルから読む。ここには置かない）。
+   */
+  status: {
+    awsCredentialsFile: string;
+    awsProfile: string;
+    githubTokenFile: string;
+    alertTopicArn: string;
+    /** 知らせのメールに載せる、監視アプリの画面の URL の根（末尾の / なし） */
+    linkBase: string;
+    region: string;
+    repository: string;
+    siteUrl: string;
+  } | null;
+  /**
+   * 設定の状況を有効にした（CONTROL_SETUP_STATUS_ENABLED=true）のに、その変数に誤りがあって動かせない理由。
+   * 変数名と理由だけ（値は入れない）。このときも他の機能は動かす（status は null。画面に理由を出す。spec 7）。誤りが無ければ null
+   */
+  statusConfigError: string | null;
 }
 
 /** 同じグループの変数は、全部未設定（そのグループは無効）か、全部設定のどちらか。全部設定なら true。 */
@@ -94,6 +122,60 @@ function groupIssues(
   if (unset.length === names.length) return false;
   for (const name of unset) addIssue(name, `${group} の他の変数が設定されているため必須です`);
   return unset.length === 0;
+}
+
+/**
+ * 設定の状況のグループ。無効（未設定・false）なら他の変数は見ない。
+ * 有効なのに誤りがあれば zod の issue にはせず（他の機能まで止めない）、status=null と理由（変数名と理由だけ。値は入れない）を返す。
+ */
+function statusGroup(env: Raw): { status: ControlPlaneConfig["status"]; statusConfigError: string | null } {
+  const enabled = env.CONTROL_SETUP_STATUS_ENABLED;
+  if (enabled === undefined || enabled === "false") return { status: null, statusConfigError: null };
+  const problems: string[] = [];
+  const problem = (name: string, message: string) => problems.push(`${name}: ${message}`);
+  if (enabled !== "true") {
+    problem("CONTROL_SETUP_STATUS_ENABLED", "true か false にしてください");
+  } else {
+    const required: readonly (keyof Raw)[] = [
+      "CONTROL_STATUS_AWS_CREDENTIALS_FILE",
+      "CONTROL_STATUS_GITHUB_TOKEN_FILE",
+      "CONTROL_STATUS_ALERT_TOPIC_ARN",
+      "AWS_REGION",
+      "SITE_URL",
+    ];
+    for (const name of required) {
+      if (env[name] === undefined) problem(name, "CONTROL_SETUP_STATUS_ENABLED=true のため必須です");
+    }
+    for (const name of ["CONTROL_STATUS_AWS_CREDENTIALS_FILE", "CONTROL_STATUS_GITHUB_TOKEN_FILE"] as const) {
+      const value = env[name];
+      if (value !== undefined && !isAbsolute(expandHome(value))) problem(name, "絶対パスにしてください");
+    }
+    const arn = env.CONTROL_STATUS_ALERT_TOPIC_ARN;
+    if (arn !== undefined && !arn.startsWith("arn:aws:sns:")) {
+      problem("CONTROL_STATUS_ALERT_TOPIC_ARN", "arn:aws:sns: で始まる SNS トピックの ARN にしてください");
+    }
+    const linkBase = env.CONTROL_STATUS_LINK_BASE;
+    if (linkBase !== undefined && !z.url().safeParse(linkBase).success) problem("CONTROL_STATUS_LINK_BASE", "URL の形にしてください");
+  }
+  if (problems.length > 0) {
+    return {
+      status: null,
+      statusConfigError: `設定の状況の環境変数が不正なため、この機能だけを止めている: ${problems.join("／")}`,
+    };
+  }
+  return {
+    status: {
+      awsCredentialsFile: expandHome(env.CONTROL_STATUS_AWS_CREDENTIALS_FILE!),
+      awsProfile: env.CONTROL_STATUS_AWS_PROFILE ?? "default",
+      githubTokenFile: expandHome(env.CONTROL_STATUS_GITHUB_TOKEN_FILE!),
+      alertTopicArn: env.CONTROL_STATUS_ALERT_TOPIC_ARN!,
+      linkBase: (env.CONTROL_STATUS_LINK_BASE ?? "http://127.0.0.1:3200").replace(/\/+$/, ""),
+      region: env.AWS_REGION!,
+      repository: env.GITHUB_REPOSITORY ?? "ComeGin/systematization-of-the-business-foundation",
+      siteUrl: env.SITE_URL!,
+    },
+    statusConfigError: null,
+  };
 }
 
 const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
@@ -124,6 +206,8 @@ const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
     addIssue("AWS_REGION", "AWS_PROFILE が設定されているため必須です");
     addIssue("RUNLOG_BUCKET", "AWS_PROFILE が設定されているため必須です");
   }
+
+  const { status, statusConfigError } = statusGroup(env);
 
   return {
     dataDir: env.CONTROL_DATA_DIR ?? resolveDataDir({}),
@@ -163,6 +247,8 @@ const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
       env.CONTROL_N8N_EXPORT_URL !== undefined && env.CONTROL_N8N_EXPORT_API_KEY !== undefined
         ? { baseUrl: env.CONTROL_N8N_EXPORT_URL.replace(/\/+$/, ""), apiKey: env.CONTROL_N8N_EXPORT_API_KEY }
         : null,
+    status,
+    statusConfigError,
   };
 });
 
@@ -185,5 +271,6 @@ export function loadControlPlaneConfig(env: NodeJS.ProcessEnv = process.env): Co
     logLine("ERROR", "config", message);
     throw new ConfigError(message);
   }
+  if (result.data.statusConfigError !== null) logLine("WARN", "config", result.data.statusConfigError);
   return result.data;
 }

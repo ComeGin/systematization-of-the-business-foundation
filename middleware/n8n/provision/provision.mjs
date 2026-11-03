@@ -43,17 +43,10 @@ const DATA_TABLES = [
 // targets は取り込む環境。ops-monitor は開発環境の OpenSEO と sandbox-tls を見るので開発だけ（本番には OpenSEO も sandbox-tls も無い）。
 // 定期実行の 3 本（週次の棚卸し・ハートビート・運用監視）は、--publish を付けても公開しない。
 // 公開は人が確かめてから行う（ops_settings の inventoryEnabled・heartbeatEnabled・opsMonitorEnabled も既定は false）
-const BOTH = ["dev", "prod"];
-const WORKFLOWS = [
-  { file: "I-21-sns-notify.json", publish: "always", tags: ["subworkflow", "notification"], targets: BOTH },
-  { file: "I-19-email-match.json", publish: "always", tags: ["subworkflow", "matching"], targets: BOTH },
-  { file: "I-11-mautic-webhook-dedup.json", publish: "flag", tags: ["webhook"], targets: BOTH },
-  { file: "I-12-chatwoot-webhook-dedup.json", publish: "flag", tags: ["webhook"], targets: BOTH },
-  { file: "I-18-posthog-writeback.json", publish: "never", tags: ["blocked"], targets: BOTH },
-  { file: "weekly-inquiry-inventory.json", publish: "never", tags: ["schedule"], targets: BOTH },
-  { file: "n8n-schedule-heartbeat.json", publish: "never", tags: ["schedule", "monitoring"], targets: BOTH },
-  { file: "ops-monitor.json", publish: "never", tags: ["schedule", "monitoring"], targets: ["dev"] },
-];
+// 表の本体は workflows.json（{ file, publish, tags, targets }）。監視アプリ（backend/control-plane の status/drift.ts）が
+// origin/main の同じファイルを読み、本番に取り込むワークフローだけを n8n と比べる。コードを実行せずに読めるよう JSON にしてある。
+// 変えるときは README.md・GUIDE.md の表と、ここのコメント（取り込む順・publish・targets の意味）を合わせる
+const WORKFLOWS = JSON.parse(readFileSync(join(HERE, "workflows.json"), "utf8"));
 
 const CRED = {
   mauticSig: "Mautic Webhook 署名鍵（Crypto）",

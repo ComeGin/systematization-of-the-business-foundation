@@ -46,6 +46,7 @@ node setup/setup.mjs --target <dev|prod> [--phase <段階>] [--check]
 | [`onprem/README.md`](../onprem/README.md)・[`onprem/wireguard/README.md`](../onprem/wireguard/README.md) | オンプレの本番の Strapi・n8n・WireGuard の立ち上げ、**監視アプリ（改善ループ）の本番、本番のオンプレで止まったときの操作（本番の MCP・MCP の dist・本番の n8n）** | 本番のオンプレを上げるとき |
 | [`middleware/n8n/provision/README.md`](../middleware/n8n/provision/README.md) | n8n の資格情報・ワークフロー・Webhook の作成（本番は設定スクリプトの `n8n-prod` が呼ぶ） | n8n の取り込みの中身を知りたいとき |
 | [`docs/runbooks/01-onprem-verification.md`](../docs/runbooks/01-onprem-verification.md) | 開発環境での動作確認（Wave 4） | 開発環境を確かめるとき |
+| **状況は監視アプリの `/setup-status` で見る**（本番。`http://127.0.0.1:3200/setup-status`） | 3 節（P1〜P15）と 6 節（R1）の各項目が今どうなっているか（更新が必要なもの・根拠・人が確かめるもの）。手順の一覧は [`setup/status/steps.mjs`](status/steps.mjs)。**この文書の P1〜P15・6 節を直したら `steps.mjs` も直し、`node setup/status/verify-steps.mjs` を通す** | どこまで済んでいて、何がずれているかを知りたいとき（[`setup/README.md`](README.md) の「設定の状況のカタログ」） |
 
 ## 2. 開発環境（`--target dev`）
 
@@ -216,9 +217,9 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 - [ ] **人・端末** `CHATWOOT_ADMIN_TOKEN`（P7 と同じ）と、任意で棚卸し専用の `CHATWOOT_N8N_API_TOKEN` を書く — onprem「本番の n8n」
 - [ ] **人・端末** P6 で発行した `onprem-n8n-sns` のキーを `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` に（スクリプトがそのユーザーのキーかを確かめる）— onprem「本番の n8n」
 - 再実行で **自動**（オーナー・API キー・MCP のトークン・provision。SNS のトピックはスタックの出力から。子だけ公開）
-- [ ] **判断** 親（I-11・I-12）の公開は R1 が決める（`N8N_PUBLISH_PARENTS=true` を書いて再実行）
+- [ ] **判断** 親（I-11・I-12）の公開は R1 が決める（`N8N_PUBLISH_PARENTS=true` を書いて再実行）。**2026-11-03 に公開した**（未公開のあいだに届いた Webhook は n8n が `404` を返し、Chatwoot の分は送り直されないので欠けている。onprem「止まったときの影響」）
 - [ ] 〔警告〕**人・画面** ハートビートを有効にする: n8n の `ops_settings` の `heartbeatEnabled` を `true`（小文字だけ。文字列で厳密に比べる）にし、公開の前に **Execute workflow** で 1 回試してから **Publish** → 5〜15 分でアラーム `onprem-n8n-schedule-heartbeat` が OK に戻るのを確かめる（成功した実行は Executions に残らないので、確かめるのは CloudWatch で）— cloud 4.10「③ と ④ の画面での操作」
-- [ ] 〔未検査〕**人・画面** Mautic・Chatwoot の管理画面から Webhook を試し送信し、オンプレの n8n に届くことを確かめる — cloud 4.13「WireGuard」・onprem「疎通の確かめ方」
+- [ ] 〔未検査〕**人・画面** 公開サイトのフォームの送信とチャットで本物のイベントを起こし、オンプレの n8n に届くことを、`webhook-proxy` のログの `POST /webhook/mautic-event`・`chatwoot-event` が `200` であることと、`comegin-lead-alert` の通知メールで確かめる（本番の n8n は成功した実行を Executions に残さない。ログは `--tail` で末尾から読む）。親の公開と `comegin-lead-alert` の購読の後に行う。2026-11-03 に両方 `200` を確かめた — onprem「本番の Webhook の試し送信（I-11・I-12）」・cloud 4.13「WireGuard」
 
 ### P10. 本番の MCP（`mcp-prod`）
 
@@ -246,7 +247,7 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 - [ ] **人・端末** 初回だけ: 配信用の主体を作る。IAM Identity Center に管理ポリシー `comegin-prod-deploy` だけを参照する許可セット `ComeginProdDeploy` を作って自分に割り当て、`~/.aws/config` にプロファイル `comegin-prod-deploy` を足す（**作るまで次の手順の配信用の主体は存在しない**。2026-11-02 の監査で、ポリシーがどの主体にも付いていなかった。確認は `aws iam list-entities-for-policy` に `AWSReservedSSO_ComeginProdDeploy_…` が出ること）— cloud 4.5.1
 - [ ] **人・端末** スタックをデプロイした主体（`comegin-prod-admin`）でバケット名とディストリビューション ID を取り、`DeployPolicyArn` を付けた主体（`comegin-prod-deploy`）に切り替えて、**`dist` の絶対パス（`SITE_DIST`）から** S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**。配信用の主体は `DescribeStacks` を持たないので、名前の取得には使えない。相対パスの `frontend/verdant-virgo/dist/` を作業ツリーのルートで使うと、開発用の `dist` が上がる）— cloud 4.14
 - [ ] **人・端末** デプロイ後の確認（訪問者向けは 200、管理画面は 302 で `auth.`、許可リストの外は 404、`cms.`・`n8n.`・`stats.` は引けない）— cloud 4.13
-- [ ] **人・画面** FAQ ボットの確認（`/faq.json` が返る・「料金は税込ですか？」で回答・担当者への引き継ぎのメール）— cloud 4.17 の 6
+- [ ] **人・画面** FAQ ボットの確認（`/faq.json` が返る・「料金は税込ですか？」で回答・担当者への引き継ぎのメール）— cloud 4.17 の 6。引き継ぎは、FAQ に無い質問を送って `faq-unmatched` が付くことで見る。P9 の Webhook の試し送信（Chatwoot）と一緒にできる（onprem「本番の Webhook の試し送信」の 2）
 - [ ] 〔警告〕**人・画面** 配信したらすぐ、SES の**本番アクセスを申請する**（メールの種類は **Transactional**、言語は日本語。2026-10-28 のユーザーの決定。最初の応答まで最大 96 時間で、承認までは検証済みの宛先にしか送れない）— cloud 4.9.2
 
 ### P13. 段階 `google`（公開サイトが Route 53 から配信された後）
@@ -277,12 +278,15 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] **人・端末** `next-js-prod:checkout` チェックアウトを `checkout --detach origin/main` で合わせる — manual 6
 - [ ] **人・端末** `next-js-prod:build` チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（チェックアウトを動かした後のビルドかを日時で見る。**定義の yaml だけの PR でも、チェックアウトを動かしたらビルドし直して restart する**）
 - [ ] **人・端末** `next-js-prod:principal` IAM ユーザー `comegin-prod-control-plane`（管理ポリシー `comegin-prod-control-plane` だけ）を作り、キーを `~/.config/comegin/control-plane/aws-credentials`（600）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる — cloud 4.5.2
-- [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票）を書く。Google のクライアント・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ。**開く URL は `CONTROL_PUBLIC_URL`、無ければ `http://127.0.0.1:3200`**（作業ツリーからは引き継がない。以前は引き継いで開発の ngrok の URL が入り、`127.0.0.1:3200` で開くと `Invalid origin` だった。2026-11-03。手元以外の URL は警告。onprem「開く（監視アプリ）」） → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット）
+- [ ] **人・端末** `next-js-prod:status-principal` IAM ユーザー `comegin-prod-status-reader`（管理ポリシー `comegin-prod-status-reader` だけ。`comegin-prod-control-plane` とは別のユーザー）を作り、キーを `~/.config/comegin/status-reader/aws-credentials`（600。プロファイル名 `default`）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる。先に `sam deploy` で管理ポリシーを作る — cloud 4.5.3
+- [ ] **人・端末** `next-js-prod:status-github` 参照専用の GitHub のトークン（fine-grained PAT。このリポジトリだけ、Contents と Pull requests の Read だけ。I-13 の `GITHUB_TOKEN` とは別）を `~/.config/comegin/status-reader/github-token`（600）に直接書く。スクリプトは fine-grained PAT（`github_pat_` で始まる）で `GET /repos/<リポジトリ>` が 200 で、classic の印（`X-OAuth-Scopes`）が無いことを確かめる。**Contents と Pull requests が Read-only かは機械で確かめられない**ので、人が作るときに選ぶ（トークンは表示しない）— onprem「設定の状況を有効にする」
+- [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票）を書く。Google のクライアント・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ。**開く URL は `CONTROL_PUBLIC_URL`、無ければ `http://127.0.0.1:3200`**（作業ツリーからは引き継がない。以前は引き継いで開発の ngrok の URL が入り、`127.0.0.1:3200` で開くと `Invalid origin` だった。2026-11-03。手元以外の URL は警告。onprem「開く（監視アプリ）」） → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット・設定の状況の `CONTROL_SETUP_STATUS_ENABLED=true` と `CONTROL_STATUS_*`〈主体のキーとトークンのファイルの場所・知らせのトピック `OpsAlertTopicArn`・リンクの根は `BETTER_AUTH_URL` と同じ〉）
 - [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
 - [ ] **人・ブラウザ** `http://127.0.0.1:3200` を開き、Google でログインできる（別の端末からは `ssh -L 3200:127.0.0.1:3200`。本番は ngrok で外に出さない）。`next-js-prod` だけを実行し直すときは `node setup/setup.mjs --target prod --phase operate --only next-js-prod`（`--phase operate` が要る）— onprem「開く（監視アプリ）」
 - [ ] 〔警告〕アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（起動から 15 分ほど）— cloud 4.13
 - [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告。2026-11-02 に、まとめて有効にした中に入っていて、PR #58 で戻した）。`daily-n8n-export` は [6 節](#6-判断が残っている項目r1)の判断の後に有効にする
 - [ ] **人・画面** 最初の定期実行の後、監視アプリの画面（または `journalctl -u comegin-control`）で `success`・`skipped` の理由を見る。いつ何が動くかは onprem「監視アプリ…」の 5 の表（**2026-11-03 からすべて 0〜8 時〈JST〉に起動し、06:25 までに終わる**。`ops/README.md` の「時刻の決め方」）
+- [ ] 〔未検査〕**人・端末** オンプレのマシン（VM ならホストも）が夜（0〜8 時）も動いている。止まっていた時刻の実行は、起動した後に取り戻されない（2026-11-03 は VM が 11:28 に起動し、最初の夜の実行が 1 本も動かなかった）。翌朝に `journalctl -u comegin-control --since "<その日> 00:00" | grep -a 'engine 起動'` で確かめる — onprem「監視アプリ…」の 5
 - [ ] **人・端末** 本番の n8n のスケジュール（週次の棚卸しは月曜 07:00）をリポジトリの JSON に合わせる: `node setup/setup.mjs --target prod --only n8n-prod` → 公開済みなら画面で公開し直す — onprem「監視アプリ…」の 5
 
 ### P15. 段階 `operate`: 運用開始の仕上げ
@@ -293,8 +297,9 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」
 - [ ] 〔警告〕**人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — cloud 7.3・7.4
   - 〔未検査〕スクリプトが確かめるのは `prod.conf` から消えたことだけ。Mautic の画面（歯車 → API Credentials）から消したかは確かめない（消した後は、その値で読み取りを試せない）。一覧に `comegin-prod-n8n`・エージェント用・参照専用だけが残っていることを、目で見て確かめる。`CHATWOOT_ADMIN_TOKEN` は、`chatwoot-prod`・`n8n-prod` を再実行するときだけ一時的に戻す
+  - `MAUTIC_SETUP_CLIENT_*` を消した後も、`mautic-prod` は止まらない（フォーム consult・自動返信・セグメント mql の ID が状態にそろっていれば、初期設定を飛ばして cron の台数だけを確かめる。2026-11-03 に直した。以前は「`prod.conf` に無い」で `mautic-prod:settings` に止まり、この手順と矛盾していた）。初期設定をやり直すときだけ、認証情報を作り直して書く — cloud 7.4
 - [ ] 〔警告〕**人・画面** SES の本番アクセス（P12 で申請したもの）が承認されている — cloud 4.9.2
-- [ ] 〔未検査〕**人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする — cloud 4.17 の 5
+- [ ] 〔未検査〕**人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（2026-11-03 の時点で、ユーザーは管理者とエージェント専用ユーザーの 2 人だけ。担当者を足したときに行う）— cloud 4.17 の 5・cloud 7.3
 - [ ] **判断** [6 節](#6-判断が残っている項目r1)の項目
 
 ## 4. 設定スクリプトが確かめる範囲
@@ -319,9 +324,12 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | `db:chatwoot_prepare` | 確かめない（`chatwoot-prod:ecs` の案内に出る） | Chatwoot が 500 を返す | cloud 4.10 |
 | 初期設定にだけ使う値（`CHATWOOT_ADMIN_TOKEN`・`MAUTIC_SETUP_CLIENT_*`）の残り | 警告（`cloud` の段階 `operate`） | 漏れたときの影響が大きい管理者の値が残り続ける | cloud 7.3・7.4 |
 | Strapi の最初の管理者とトークン | 確かめない（足りないと `mcp-prod:prod-values`・`verdant-virgo:prod-values` で止まる） | 同左 | onprem「本番の MCP」 |
-| Webhook の試し送信 | 確かめない | Mautic・Chatwoot のイベントが欠ける | onprem「疎通の確かめ方」 |
+| Webhook の試し送信 | 確かめない | Mautic・Chatwoot のイベントが欠ける | onprem「本番の Webhook の試し送信」 |
+| オンプレのマシンの夜間の稼働 | 確かめない | 0〜8 時の定期実行が動かず、改善の提案が出ない（取り戻しもしない） | onprem「監視アプリ…」の 5 |
 | 管理ポリシー 2 本（`comegin-prod-deploy`・`comegin-prod-control-plane`）の付与先 | 配信用は警告（`cloud` の段階 `apps`・`operate`）、監視アプリ用は**止める**（`next-js-prod:principal`。キーの主体まで確かめる） | 配信の手順 3 で切り替える主体が無い／監視アプリが 403 でハートビートと写しを送れない | cloud 4.5.1・4.5.2 |
 | 監視アプリの本番の設定・常駐・定期実行の有効化 | **止める・行う**（`next-js-prod`。段階 `operate`。定期実行の有効化とハートビートのアラームは警告） | アラーム `onprem-heartbeat` が ALARM のまま・E-15 の写しが 0 件・改善の提案が 1 件も出ない | P14 |
+| 設定の状況の主体（`comegin-prod-status-reader`）と、参照専用の GitHub のトークン | **止める**（`next-js-prod:status-principal`・`status-github`。キーの主体・付いているポリシーまで確かめる。トークンは fine-grained PAT で読めることまで。Read-only かは確かめられない）。有効なキーの数は警告（`cloud` の段階 `operate`） | 監視アプリの「設定の状況」が 403 で確認できない（画面が `?`）／知らせのメールが届かない／書き込みできるトークンが渡る（Read-only かは人が選ぶ。機械では確かめられない） | cloud 4.5.3・P14 |
+| 本番の設定の状況（`/setup-status`）が常に確かめること | **監視アプリが 10 分ごとに確かめる**（`--check` の `items` とカタログ〈`setup/status/steps.mjs`〉。製品の API は 1 時間に 1 回）。5.3 のずれ（チェックアウトが `origin/main` より遅れている・ビルドが古い・本番の n8n が JSON と違う・公開サイトの再配信が要る）も「更新が必要」で出す。記事の公開と再配信のずれは確かめず、◇ で出す | 人が `git fetch` や `--check` を実行しないとずれに気づけない（PR のマージ・再配信・n8n の公開し直しの忘れ） | 仕様 5.3・P12・P14 |
 | 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
 
 ## 5. 申告制のフラグ（`prod.conf`）
@@ -344,7 +352,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 |---|---|---|---|
 | **DB をサーバーレスのままにするか、クラスター（プロビジョンド）にするか** | Aurora Serverless v2（MySQL・PostgreSQL とも。最小 0.5・最大 2 ACU） | 下の「DB のコストの比較」 | cloud 6 |
 | WAF の Common ルールを Count から Block に | Count | WAF のログで管理画面の保存・アップロードが Count に入っていないか | cloud 4.16 |
-| n8n の親（I-11・I-12）の公開 | 未公開 | 受け口の疎通と署名の検証を確かめたか | provision README |
+| n8n の親（I-11・I-12）の公開 | **公開**（2026-11-03 に決定。同じ日に試し送信で `200` を確認） | 受け口の疎通と署名の検証を確かめたか（確かめ方は onprem「本番の Webhook の試し送信」） | provision README |
 | `daily-n8n-export`（本番の n8n のワークフローの書き出し）の API キー | **有効**（2026-11-02 に PR #56 でほかの定期実行とまとめて有効にした。判断の記録は無い）。コミュニティ版の n8n はキーにスコープを付けられないので、監視アプリの env に全権限のキーがある | 全権限のキーを監視アプリの env に置き続けてよいか（エージェントの env には渡らない）。受け入れないなら `enabled: false` に戻す PR を出す | `backend/control-plane/README.md` の n8n-export・`ops/README.md` |
 | SES の TLS を必須のままにするか | `REQUIRE` | TLS で受けられない宛先が業務に要るか | cloud 4.9 |
 | バウンス・苦情を Mautic に返す Lambda（ADR-30）をいつ作るか | 設計だけ決定済み・未実装 | 顧客へのキャンペーンの送信を始める時期（その前が望ましい） | AA-05 の ADR-30 |

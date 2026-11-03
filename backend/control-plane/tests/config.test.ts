@@ -59,6 +59,8 @@ describe("loadControlPlaneConfig: 中核", () => {
         aws: null,
         miswrite: null,
         n8nExport: null,
+        status: null,
+        statusConfigError: null,
       });
     });
 
@@ -307,6 +309,176 @@ describe("loadControlPlaneConfig: n8n の書き出し（CONTROL_N8N_EXPORT_*）"
         expect(message).not.toContain(value);
         expect(logged).not.toContain(value);
       }
+    });
+  });
+});
+
+describe("loadControlPlaneConfig: 設定の状況（CONTROL_SETUP_STATUS_ENABLED）", () => {
+  const STATUS = {
+    CONTROL_SETUP_STATUS_ENABLED: "true",
+    CONTROL_STATUS_AWS_CREDENTIALS_FILE: "/home/tester/.config/comegin/control-plane/aws-credentials",
+    CONTROL_STATUS_GITHUB_TOKEN_FILE: "/home/tester/.config/comegin/control-plane/github-token",
+    CONTROL_STATUS_ALERT_TOPIC_ARN: "arn:aws:sns:ap-northeast-1:123456789012:comegin-prod-alerts",
+    AWS_REGION: "ap-northeast-1",
+    // AWS_REGION を設定すると、既存の AWS グループ（写しとハートビート）の規則で RUNLOG_BUCKET も必須になる
+    RUNLOG_BUCKET: "comegin-prod-runlog-archive-123456789012",
+    SITE_URL: "https://comegin.com",
+  };
+
+  describe("正常系", () => {
+    it("空入力: すべて未設定なら無効（status は null）", () => {
+      expect(loadControlPlaneConfig(BASE).status).toBeNull();
+    });
+
+    it("空入力: CONTROL_SETUP_STATUS_ENABLED が空文字・false なら、他の変数が空でも無効", () => {
+      expect(loadControlPlaneConfig({ ...BASE, CONTROL_SETUP_STATUS_ENABLED: "" }).status).toBeNull();
+      expect(loadControlPlaneConfig({ ...BASE, CONTROL_SETUP_STATUS_ENABLED: "false" }).status).toBeNull();
+    });
+
+    it("入力: 有効で必須がそろえば、既定（プロファイル default・リンクの根・リポジトリ）を補って有効になる", () => {
+      expect(loadControlPlaneConfig({ ...BASE, ...STATUS }).status).toEqual({
+        awsCredentialsFile: STATUS.CONTROL_STATUS_AWS_CREDENTIALS_FILE,
+        awsProfile: "default",
+        githubTokenFile: STATUS.CONTROL_STATUS_GITHUB_TOKEN_FILE,
+        alertTopicArn: STATUS.CONTROL_STATUS_ALERT_TOPIC_ARN,
+        linkBase: "http://127.0.0.1:3200",
+        region: "ap-northeast-1",
+        repository: "ComeGin/systematization-of-the-business-foundation",
+        siteUrl: "https://comegin.com",
+      });
+    });
+
+    it("入力: プロファイル・リンクの根・GITHUB_REPOSITORY を設定すればそれを使い、リンクの根の末尾の / は落とす", () => {
+      const status = loadControlPlaneConfig({
+        ...BASE,
+        ...STATUS,
+        CONTROL_STATUS_AWS_PROFILE: "comegin-prod-control-plane",
+        CONTROL_STATUS_LINK_BASE: "https://comegin-next-js-dev.ngrok.app//",
+        GITHUB_REPOSITORY: "owner/repo.name",
+        // GITHUB_REPOSITORY だけでは I-13 のグループは有効にならない（残りが無いので例外になる）ため、4 つそろえる
+        GITHUB_TOKEN: "ghp_x",
+        I13_ISSUE_NUMBER: "13",
+        I13_REVIEWER: "reviewer",
+      }).status;
+      expect(status).toMatchObject({
+        awsProfile: "comegin-prod-control-plane",
+        linkBase: "https://comegin-next-js-dev.ngrok.app",
+        repository: "owner/repo.name",
+      });
+    });
+
+    it("入力: ~/ のパスはホームに展開する", () => {
+      const status = loadControlPlaneConfig({
+        ...BASE,
+        ...STATUS,
+        CONTROL_STATUS_AWS_CREDENTIALS_FILE: "~/aws-credentials",
+        CONTROL_STATUS_GITHUB_TOKEN_FILE: "~/github-token",
+      }).status;
+      expect(status).toMatchObject({ awsCredentialsFile: `${HOME}/aws-credentials`, githubTokenFile: `${HOME}/github-token` });
+    });
+
+    it("空入力: 任意の変数（プロファイル・リンクの根）が空文字なら既定を使う", () => {
+      const status = loadControlPlaneConfig({ ...BASE, ...STATUS, CONTROL_STATUS_AWS_PROFILE: "", CONTROL_STATUS_LINK_BASE: " " }).status;
+      expect(status).toMatchObject({ awsProfile: "default", linkBase: "http://127.0.0.1:3200" });
+    });
+
+    it("入力: 無効のときは、ほかの CONTROL_STATUS_* が設定されていても status は null（既存の SITE_URL はそのまま使える）", () => {
+      const config = loadControlPlaneConfig({ ...BASE, ...STATUS, CONTROL_SETUP_STATUS_ENABLED: "false" });
+      expect(config.status).toBeNull();
+      expect(config.siteUrl).toBe("https://comegin.com");
+    });
+  });
+
+  describe("異常系", () => {
+    /** 設定の状況の誤りは ConfigError にしない（他の機能を止めない。spec 7）。status は null、理由は statusConfigError に入る */
+    function statusErrorOf(env: NodeJS.ProcessEnv): string {
+      const config = loadControlPlaneConfig(env);
+      expect(config.status).toBeNull();
+      expect(config.statusConfigError).not.toBeNull();
+      return config.statusConfigError!;
+    }
+
+    it.each([
+      "CONTROL_STATUS_AWS_CREDENTIALS_FILE",
+      "CONTROL_STATUS_GITHUB_TOKEN_FILE",
+      "CONTROL_STATUS_ALERT_TOPIC_ARN",
+      "SITE_URL",
+    ] as const)("空入力: 有効なのに %s が未設定なら、例外にせず、その変数名を statusConfigError に挙げる", (name) => {
+      const env: NodeJS.ProcessEnv = { ...BASE, ...STATUS };
+      delete env[name];
+      expect(statusErrorOf(env)).toMatch(new RegExp(`${name}: CONTROL_SETUP_STATUS_ENABLED=true のため必須です`));
+    });
+
+    it("空入力: 有効なのに AWS_REGION が未設定（RUNLOG_BUCKET も無い）なら、例外にせず statusConfigError に挙げる", () => {
+      const env: NodeJS.ProcessEnv = { ...BASE, ...STATUS };
+      delete env.AWS_REGION;
+      delete env.RUNLOG_BUCKET;
+      expect(statusErrorOf(env)).toMatch(/AWS_REGION: CONTROL_SETUP_STATUS_ENABLED=true のため必須です/);
+    });
+
+    it("空入力: 有効なのに必須が空文字なら、未設定と同じに扱う", () => {
+      const reason = statusErrorOf({ ...BASE, ...STATUS, CONTROL_STATUS_ALERT_TOPIC_ARN: "", SITE_URL: " " });
+      expect(reason).toMatch(/CONTROL_STATUS_ALERT_TOPIC_ARN: /);
+      expect(reason).toMatch(/SITE_URL: /);
+    });
+
+    it("空入力: 有効なのに必須が何も無ければ、5 つすべてを挙げ、他の機能の設定は読める", () => {
+      const config = loadControlPlaneConfig({ ...BASE, CONTROL_SETUP_STATUS_ENABLED: "true" });
+      expect(config.status).toBeNull();
+      expect(config.mainCheckout).toBe("/srv/main");
+      for (const name of ["CONTROL_STATUS_AWS_CREDENTIALS_FILE", "CONTROL_STATUS_GITHUB_TOKEN_FILE", "CONTROL_STATUS_ALERT_TOPIC_ARN", "AWS_REGION", "SITE_URL"]) {
+        expect(config.statusConfigError).toMatch(new RegExp(`${name}: `));
+      }
+    });
+
+    it.each(["CONTROL_STATUS_AWS_CREDENTIALS_FILE", "CONTROL_STATUS_GITHUB_TOKEN_FILE"])(
+      "入力: 有効で %s が相対パスなら statusConfigError（無効のときは見ない）",
+      (name) => {
+        expect(statusErrorOf({ ...BASE, ...STATUS, [name]: "keys/file" })).toMatch(new RegExp(`${name}: 絶対パス`));
+        const disabled = loadControlPlaneConfig({ ...BASE, [name]: "./file" });
+        expect(disabled).toMatchObject({ status: null, statusConfigError: null });
+      },
+    );
+
+    it.each(["sns:ap-northeast-1:123456789012:t", "arn:aws:s3:::bucket", "arn:aws:sqs:ap-northeast-1:123456789012:q", "topic"])(
+      "入力: CONTROL_STATUS_ALERT_TOPIC_ARN が arn:aws:sns: で始まらない（%s）なら statusConfigError",
+      (arn) => {
+        expect(statusErrorOf({ ...BASE, ...STATUS, CONTROL_STATUS_ALERT_TOPIC_ARN: arn })).toMatch(/CONTROL_STATUS_ALERT_TOPIC_ARN: .*arn:aws:sns:/);
+      },
+    );
+
+    it("入力: CONTROL_STATUS_LINK_BASE が URL の形でなければ statusConfigError", () => {
+      expect(statusErrorOf({ ...BASE, ...STATUS, CONTROL_STATUS_LINK_BASE: "127.0.0.1:3200" })).toMatch(/CONTROL_STATUS_LINK_BASE: /);
+    });
+
+    it("入力: CONTROL_SETUP_STATUS_ENABLED が true / false 以外なら statusConfigError", () => {
+      expect(statusErrorOf({ ...BASE, CONTROL_SETUP_STATUS_ENABLED: "yes" })).toMatch(/CONTROL_SETUP_STATUS_ENABLED: true か false/);
+    });
+
+    it("入力: 誤りは WARN のログにも変数名と理由だけを出す", () => {
+      loadControlPlaneConfig({ ...BASE, CONTROL_SETUP_STATUS_ENABLED: "true" });
+      const logged = stderr.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toMatch(/WARN config 設定の状況の環境変数が不正なため、この機能だけを止めている: .*CONTROL_STATUS_ALERT_TOPIC_ARN/);
+    });
+
+    it("入力: 不正な値（トピックの ARN・パス）は、理由にもログにも出さない", () => {
+      const reason = statusErrorOf({
+        ...BASE,
+        ...STATUS,
+        CONTROL_STATUS_ALERT_TOPIC_ARN: "secret-not-an-arn-123456789012",
+        CONTROL_STATUS_GITHUB_TOKEN_FILE: "relative/secret-token-path",
+      });
+      const logged = stderr.mock.calls.map((call) => String(call[0])).join("\n");
+      for (const value of ["secret-not-an-arn-123456789012", "relative/secret-token-path"]) {
+        expect(reason).not.toContain(value);
+        expect(logged).not.toContain(value);
+      }
+    });
+
+    it("入力: 他のグループの誤りは、これまでどおり ConfigError（設定の状況の誤りと混ざっても）", () => {
+      const { message } = failWith({ ...BASE, CONTROL_SETUP_STATUS_ENABLED: "true", GITHUB_TOKEN: "x" });
+      expect(message).toMatch(/GITHUB_REPOSITORY: /);
+      expect(message).not.toMatch(/CONTROL_STATUS_/);
     });
   });
 });

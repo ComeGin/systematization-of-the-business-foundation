@@ -12,6 +12,8 @@ import type {
   ManualRunRequest,
   MiswriteCandidate,
   RunRecord,
+  SetupDocSection,
+  SetupStatusView,
   Ulid,
 } from "./contract.js";
 import { AGENT_NAME_PATTERN } from "./definitions/agent-def.js";
@@ -21,6 +23,7 @@ import { createCloudWatchClient, putHeartbeat } from "./integrations/aws.js";
 import { RunLogCopier } from "./integrations/runlog.js";
 import { logLine } from "./log.js";
 import { Scheduler, nextRunAt } from "./scheduler.js";
+import { SetupStatusService } from "./status/service.js";
 import { openE15Database } from "./store/db.js";
 import { KvStore } from "./store/kv.js";
 import { LeaseStore } from "./store/leases.js";
@@ -51,6 +54,7 @@ class ControlPlaneImpl implements ControlPlane {
   private readonly ctx: EngineContext;
   private readonly engine: Engine;
   private readonly scheduler: Scheduler;
+  private readonly setupStatus: SetupStatusService;
   private readonly timers: NodeJS.Timeout[] = [];
   private started = false;
   private schedulesCache: { at: number; value: LoadedSchedules } | null = null;
@@ -69,6 +73,7 @@ class ControlPlaneImpl implements ControlPlane {
     };
     this.engine = new Engine(this.ctx);
     this.scheduler = new Scheduler(this.ctx, this.engine);
+    this.setupStatus = new SetupStatusService(config);
   }
 
   private async loadSchedules(fresh = false): Promise<LoadedSchedules> {
@@ -110,11 +115,14 @@ class ControlPlaneImpl implements ControlPlane {
     }
     for (const timer of this.timers) timer.unref();
 
+    // 設定の状況は監視（改善ループの処理ではない）なので、CONTROL_SCHEDULER_ENABLED とも 0〜8 時の窓とも無関係に動かす
+    if (this.config.status) this.setupStatus.start();
+
     if (this.config.schedulerEnabled) await this.scheduler.start();
     logLine(
       "INFO",
       "control-plane",
-      `開始 scheduler=${this.config.schedulerEnabled ? "on" : "off"} heartbeat=${aws ? "on" : "off(AWS 未設定)"}`,
+      `開始 scheduler=${this.config.schedulerEnabled ? "on" : "off"} heartbeat=${aws ? "on" : "off(AWS 未設定)"} setup-status=${this.config.status ? "on" : "off"}`,
     );
   }
 
@@ -124,6 +132,7 @@ class ControlPlaneImpl implements ControlPlane {
     this.started = false;
     for (const timer of this.timers.splice(0)) clearInterval(timer);
     this.scheduler.stop();
+    this.setupStatus.stop();
     await this.engine.stopAll();
     if (wasStarted) logLine("INFO", "control-plane", "停止");
   }
@@ -183,6 +192,18 @@ class ControlPlaneImpl implements ControlPlane {
 
   async listMiswriteCandidates(): Promise<MiswriteCandidate[]> {
     return this.ctx.miswrite.list();
+  }
+
+  async getSetupStatus(): Promise<SetupStatusView> {
+    return this.setupStatus.view();
+  }
+
+  async refreshSetupStatus(): Promise<{ accepted: boolean }> {
+    return this.setupStatus.refresh();
+  }
+
+  async readSetupDoc(file: string, heading: string): Promise<SetupDocSection | null> {
+    return this.setupStatus.readDoc(file, heading);
   }
 }
 

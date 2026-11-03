@@ -1,0 +1,10 @@
+[
+  { "file": "I-21-sns-notify.json", "publish": "always", "tags": ["subworkflow", "notification"], "targets": ["dev", "prod"] },
+  { "file": "I-19-email-match.json", "publish": "always", "tags": ["subworkflow", "matching"], "targets": ["dev", "prod"] },
+  { "file": "I-11-mautic-webhook-dedup.json", "publish": "flag", "tags": ["webhook"], "targets": ["dev", "prod"] },
+  { "file": "I-12-chatwoot-webhook-dedup.json", "publish": "flag", "tags": ["webhook"], "targets": ["dev", "prod"] },
+  { "file": "I-18-posthog-writeback.json", "publish": "never", "tags": ["blocked"], "targets": ["dev", "prod"] },
+  { "file": "weekly-inquiry-inventory.json", "publish": "never", "tags": ["schedule"], "targets": ["dev", "prod"] },
+  { "file": "n8n-schedule-heartbeat.json", "publish": "never", "tags": ["schedule", "monitoring"], "targets": ["dev", "prod"] },
+  { "file": "ops-monitor.json", "publish": "never", "tags": ["schedule", "monitoring"], "targets": ["dev"] }
+]

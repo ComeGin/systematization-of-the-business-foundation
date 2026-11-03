@@ -13,6 +13,18 @@ export function createFakePlane() {
     getRun: vi.fn<ControlPlane["getRun"]>(async () => null),
     listJobs: vi.fn<ControlPlane["listJobs"]>(async () => []),
     listMiswriteCandidates: vi.fn<ControlPlane["listMiswriteCandidates"]>(async () => []),
+    getSetupStatus: vi.fn<ControlPlane["getSetupStatus"]>(async () => ({
+      enabled: false,
+      reason: "本番の監視アプリだけで動く（CONTROL_SETUP_STATUS_ENABLED が true ではない）",
+      checkedAt: null,
+      nextCheckAt: null,
+      running: false,
+      counts: { ok: 0, action: 0, warn: 0, manual: 0, unknown: 0 },
+      notifyError: null,
+      steps: [],
+    })),
+    refreshSetupStatus: vi.fn<ControlPlane["refreshSetupStatus"]>(async () => ({ accepted: false })),
+    readSetupDoc: vi.fn<ControlPlane["readSetupDoc"]>(async () => null),
   } satisfies ControlPlane;
 }
 

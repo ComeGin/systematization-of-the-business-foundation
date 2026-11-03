@@ -29,8 +29,12 @@ const secretsStored = (ctx) => {
   return Boolean(token) && String(ctx.value("FAQ_BOT_SECRETS_STORED") ?? "").trim() === fingerprint(token);
 };
 
-/** prod.conf の値。足りないキーは missing に入れる */
-function values(ctx) {
+/**
+ * prod.conf の値。足りないキーは missing に入れる。
+ * adminOptional が true（check）なら、管理者のトークンが無くても missing に入れない
+ * （P15 で初期設定用の値を消した後は無いのが正しい。そのトークンが要る確認は、check が飛ばして項目で知らせる）
+ */
+function values(ctx, { adminOptional = false } = {}) {
   const missing = [];
   const req = (key, hint) => {
     const v = ctx.conf[key];
@@ -39,7 +43,7 @@ function values(ctx) {
   };
   return {
     base: String(ctx.conf.CHATWOOT_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ""),
-    adminToken: req("CHATWOOT_ADMIN_TOKEN", "本番の Chatwoot の管理者のアクセストークン〈プロフィール設定〉"),
+    adminToken: adminOptional ? ctx.conf.CHATWOOT_ADMIN_TOKEN : req("CHATWOOT_ADMIN_TOKEN", "本番の Chatwoot の管理者のアクセストークン〈プロフィール設定〉"),
     accountId: req("CHATWOOT_ACCOUNT_ID", "本番の Chatwoot のアカウントの数値 ID"),
     agentToken: req("CHATWOOT_AGENT_TOKEN", "エージェント専用ユーザー〈担当者の権限〉のアクセストークン。mcp-prod と同じ値"),
     siteUrl: req("PUBLIC_SITE_URL", "本番の公開サイトの URL。受信箱の website_url になる"),
@@ -121,13 +125,49 @@ function secretsSteps(ctx) {
   ];
 }
 
+// 管理者のトークンが要る確認の項目（監視アプリの「設定の状況」が読む。P7）
+const ADMIN_ITEM = { key: "chatwoot-prod.admin-token-checks", step: "P7", title: "管理者のトークンで確かめる項目（受信箱・FAQ ボットの接続・メンバー・ラベル・マクロ・メール通知）" };
+// 管理者のトークンで確かめる確認のまとまり（項目の根拠には、実際に確かめたものだけを書く）
+const G_TOKEN = "管理者のトークンの有効性";
+const G_INBOX = "受信箱の設定・FAQ ボットの接続・受信箱のメンバー";
+const G_LABELS = "FAQ のラベル";
+const G_MACRO = "マクロ";
+const G_NOTIFY = "引き継ぎのメール通知";
+const ADMIN_GROUPS = [G_TOKEN, G_INBOX, G_LABELS, G_MACRO, G_NOTIFY];
+
 export async function check(ctx) {
-  const v = values(ctx);
+  const v = values(ctx, { adminOptional: true });
+  const hasAdmin = Boolean(v.adminToken);
   const notes = [];
   let ok = true;
   const mark = (cond, good, bad) => {
     notes.push(cond ? good : bad);
     if (!cond) ok = false;
+  };
+  // 管理者のトークンが要る確認の記録（トークンが無ければ、そもそも呼ばれない）
+  const adminFailures = []; // 確かめて、通らなかったもの、または管理者のトークンが要る確認の中で起きた例外 → action
+  const adminUnreachable = []; // 本番の Chatwoot に届かず確かめられなかったもの → unknown
+  const performed = []; // 実際に確かめたまとまり
+  const skipped = []; // 確かめなかったまとまりと、その理由
+  const adminMark = (cond, good, bad) => {
+    mark(cond, good, bad);
+    if (!cond) adminFailures.push(bad);
+  };
+  let inAdmin = false; // 今、管理者のトークンが要る呼び出しの途中か（例外がどちらの確認で起きたかを見分ける）
+  let aborted = false; // 例外で確認が途中で終わった
+  const adminItem = () => {
+    if (!hasAdmin) return { ...ADMIN_ITEM, level: "manual", evidence: "初期設定用の値（CHATWOOT_ADMIN_TOKEN）を消した後なので確かめない（P15）" };
+    const done = performed.length ? `確かめた: ${performed.join("・")}` : "";
+    const notDone = [...skipped.map(([g, why]) => `${g}（${why}）`)];
+    if (aborted) {
+      const left = ADMIN_GROUPS.filter((g) => !performed.includes(g) && !skipped.some(([s]) => s === g));
+      if (left.length) notDone.push(`${left.join("・")}（前の確認が例外で終わったため）`);
+    }
+    if (adminFailures.length) return { ...ADMIN_ITEM, level: "action", evidence: [adminFailures.join("／"), done].filter(Boolean).join("。") };
+    if (adminUnreachable.length || notDone.length) {
+      return { ...ADMIN_ITEM, level: "unknown", evidence: [adminUnreachable.join("／"), done, notDone.length ? `確かめていない: ${notDone.join("・")}` : ""].filter(Boolean).join("。") };
+    }
+    return { ...ADMIN_ITEM, level: "ok", evidence: `管理者のトークンで確かめた: ${performed.join("・")}` };
   };
   try {
     for (const c of await ecsCounts(ctx)) {
@@ -139,43 +179,71 @@ export async function check(ctx) {
   }
   mark(v.missing.length === 0, "prod.conf に本番の Chatwoot の値がそろっている", `prod.conf に無いキー: ${v.missing.join("・")}`);
   for (const p of problems(v)) mark(false, "", p);
-  if (!ok) return { ok, notes };
+  if (!ok) return { ok, notes, items: [hasAdmin ? { ...ADMIN_ITEM, level: "unknown", evidence: "前の確認が通らないので確かめていない" } : adminItem()] };
+  if (!hasAdmin) notes.push("管理者のトークン（CHATWOOT_ADMIN_TOKEN）が prod.conf に無い。初期設定用の値を消した後なので、受信箱・FAQ ボットの接続・メンバー・ラベル・マクロ・メール通知は確かめない（P15。やり直すときだけ書く）");
 
   const c = { ...ctx, chatwootBase: v.base };
   const headers = { headers: { "api-access-token": v.adminToken } };
   const base = `${v.base}/api/v1/accounts/${v.accountId}`;
   try {
-    const admin = await profile(c, v.adminToken);
-    mark(Boolean(admin), "管理者のトークンは有効", "管理者のトークンが無効（401）");
+    let admin = null;
+    if (hasAdmin) {
+      inAdmin = true;
+      admin = await profile(c, v.adminToken);
+      inAdmin = false;
+      adminMark(Boolean(admin), "管理者のトークンは有効", "管理者のトークンが無効（401）");
+      performed.push(G_TOKEN);
+    }
     // エージェント専用ユーザーは担当者の権限で、受信箱のメンバー（担当者の権限は、所属した受信箱の会話しか見えない）
     const agent = await profile(c, v.agentToken);
     const agentRole = (agent?.accounts ?? []).find((a) => String(a.id) === String(v.accountId))?.role;
     mark(agentRole === "agent", "エージェント専用ユーザーは担当者（agent）の権限", `エージェント専用ユーザーのトークンが無効か、担当者の権限でない（role=${agentRole ?? "不明"}。ADR-17）`);
     const inboxId = ctx.state.get("CHATWOOT_INBOX_ID");
     mark(Boolean(inboxId && ctx.state.has("CHATWOOT_WEBSITE_TOKEN")), `受信箱「Web サイト」がある（ID ${inboxId}）`, "受信箱「Web サイト」がまだ状態に無い（apply で作る）");
-    if (inboxId) {
+    if (hasAdmin && inboxId) {
+      inAdmin = true;
       const inbox = await ctx.http("本番の Chatwoot 受信箱", `${base}/inboxes/${inboxId}`, headers).catch(() => null);
-      mark(inbox?.allow_messages_after_resolved === false, "解決後の書き込みは新しいチャットになる", "allow_messages_after_resolved が false でない");
+      adminMark(inbox?.allow_messages_after_resolved === false, "解決後の書き込みは新しいチャットになる", "allow_messages_after_resolved が false でない");
       const bot = await ctx.http("本番の Chatwoot 受信箱のボット", `${base}/inboxes/${inboxId}/agent_bot`, headers).catch(() => null);
-      mark(String(bot?.agent_bot?.id ?? "") === String(ctx.state.get("CHATWOOT_FAQ_BOT_ID") ?? "-"), "FAQ ボットは受信箱に接続済み", "FAQ ボットが受信箱に接続されていない");
-      mark(bot?.agent_bot?.outgoing_url === v.faqBotUrl, "FAQ ボットの送り先は本番の faq-bot", `FAQ ボットの送り先が FAQ_BOT_WEBHOOK_URL と違う（${bot?.agent_bot?.outgoing_url ?? "不明"}）`);
+      adminMark(String(bot?.agent_bot?.id ?? "") === String(ctx.state.get("CHATWOOT_FAQ_BOT_ID") ?? "-"), "FAQ ボットは受信箱に接続済み", "FAQ ボットが受信箱に接続されていない");
+      adminMark(bot?.agent_bot?.outgoing_url === v.faqBotUrl, "FAQ ボットの送り先は本番の faq-bot", `FAQ ボットの送り先が FAQ_BOT_WEBHOOK_URL と違う（${bot?.agent_bot?.outgoing_url ?? "不明"}）`);
       const members = await ctx.http("本番の Chatwoot 受信箱のメンバー", `${base}/inbox_members/${inboxId}`, headers).catch(() => null);
       const memberIds = (members?.payload ?? members ?? []).map((m) => m.id);
-      mark(Boolean(agent?.id) && memberIds.includes(agent.id) && Boolean(admin?.id) && memberIds.includes(admin.id), "管理者とエージェント専用ユーザーは受信箱のメンバー", "管理者かエージェント専用ユーザーが受信箱のメンバーでない（apply で足す）");
+      adminMark(Boolean(agent?.id) && memberIds.includes(agent.id) && Boolean(admin?.id) && memberIds.includes(admin.id), "管理者とエージェント専用ユーザーは受信箱のメンバー", "管理者かエージェント専用ユーザーが受信箱のメンバーでない（apply で足す）");
+      inAdmin = false;
+      performed.push(G_INBOX);
+    } else if (hasAdmin) {
+      skipped.push([G_INBOX, "状態に CHATWOOT_INBOX_ID が無く、受信箱がまだ作られていない"]);
     }
-    const labels = await ctx.http("本番の Chatwoot ラベル一覧", `${base}/labels`, headers).catch(() => null);
-    const titles = new Set((labels?.payload ?? []).map((l) => l.title));
-    const missingLabels = FAQ_LABELS.map((l) => l.title).filter((t) => !titles.has(t));
-    mark(missingLabels.length === 0, `FAQ のラベル ${FAQ_LABELS.length} つがある`, `FAQ のラベルが無い: ${missingLabels.join("・")}`);
-    const macros = await ctx.http("本番の Chatwoot マクロ一覧", `${base}/macros`, headers).catch(() => null);
-    mark((macros?.payload ?? []).some((m) => m.name === ASK_RESOLVED_MACRO.name), `マクロ「${ASK_RESOLVED_MACRO.name}」がある`, `マクロ「${ASK_RESOLVED_MACRO.name}」が無い`);
-    const settings = await ctx.http("本番の Chatwoot 通知設定", `${base}/notification_settings`, headers).catch(() => null);
-    mark((settings?.selected_email_flags ?? []).includes(HANDOFF_EMAIL_FLAG), "引き継ぎのメール通知は管理者に有効", "管理者の「新しい会話」のメール通知が無効（ほかの担当者は各自のプロフィールで有効にする）");
+    if (hasAdmin) {
+      inAdmin = true;
+      const labels = await ctx.http("本番の Chatwoot ラベル一覧", `${base}/labels`, headers).catch(() => null);
+      const titles = new Set((labels?.payload ?? []).map((l) => l.title));
+      const missingLabels = FAQ_LABELS.map((l) => l.title).filter((t) => !titles.has(t));
+      adminMark(missingLabels.length === 0, `FAQ のラベル ${FAQ_LABELS.length} つがある`, `FAQ のラベルが無い: ${missingLabels.join("・")}`);
+      performed.push(G_LABELS);
+      const macros = await ctx.http("本番の Chatwoot マクロ一覧", `${base}/macros`, headers).catch(() => null);
+      adminMark((macros?.payload ?? []).some((m) => m.name === ASK_RESOLVED_MACRO.name), `マクロ「${ASK_RESOLVED_MACRO.name}」がある`, `マクロ「${ASK_RESOLVED_MACRO.name}」が無い`);
+      performed.push(G_MACRO);
+      const settings = await ctx.http("本番の Chatwoot 通知設定", `${base}/notification_settings`, headers).catch(() => null);
+      adminMark((settings?.selected_email_flags ?? []).includes(HANDOFF_EMAIL_FLAG), "引き継ぎのメール通知は管理者に有効", "管理者の「新しい会話」のメール通知が無効（ほかの担当者は各自のプロフィールで有効にする）");
+      performed.push(G_NOTIFY);
+      inAdmin = false;
+    }
   } catch (e) {
-    mark(false, "", e.status === 0 ? `本番の Chatwoot に届かない（${e.message}）` : e.message);
+    const unreachable = e.status === 0;
+    const msg = unreachable ? `本番の Chatwoot に届かない（${e.message}）` : e.message;
+    mark(false, "", msg);
+    aborted = true;
+    if (hasAdmin) {
+      // 届かないのは確かめられなかっただけ（unknown）。届いたうえで管理者のトークンが要る確認の中で起きた例外だけが action。
+      // 管理者のトークンと関係のない確認（エージェント専用ユーザーのプロフィールなど）の例外は、この項目の失敗にしない（残りが確かめられなかっただけ）
+      if (unreachable) adminUnreachable.push(msg);
+      else if (inAdmin) adminFailures.push(msg);
+    }
   }
   mark(secretsStored(ctx), "FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている（今のボットの指紋と一致）", "FAQ ボットのトークンと secret を Secrets Manager に入れたと申告されていないか、ボットが作り直されて指紋が合わない（apply の案内のとおり入れ直し、FAQ_BOT_SECRETS_STORED を書き直す）");
-  return { ok, notes };
+  return { ok, notes, items: [adminItem()] };
 }
 
 export async function apply(ctx) {
