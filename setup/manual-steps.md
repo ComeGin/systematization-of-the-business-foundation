@@ -19,8 +19,11 @@
 | `chatwoot:admin-password` | 以前に手で作った管理者がいる | パスワードを設定に書く／作り直しを許す | [3.1](#31-chatwoot) |
 | （mautic の失敗） | Mautic の管理者のパスワードが分からない | 画面の「Forgot your password?」 | [3.2](#32-mautic) |
 | `openseo:dataforseo-key` | OpenSEO の health で DataForSEO が ok でない | DataForSEO の Base64 の認証情報を設定に書く | [7.4](#74-openseodataforseo-と-search-console) |
-| `openseo:google-oauth-client`／`openseo:gsc-connect`（`--target prod` だけ） | Search Console と GA4 用の OAuth クライアントが無い／接続を申告していない | Google Cloud Console でクライアントを作る／OpenSEO の画面で接続する（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
-| `openseo:ga4-connect`（`--target prod` だけ） | GA4 の接続を申告していない | 2 つの API の有効化・リダイレクト URI の追加・OpenSEO の画面で本番の GA4 プロパティに接続（使わないなら `OPENSEO_SKIP_GA4=yes`） | [7.5](#75-ga4adr-25) |
+| `openseo:google-oauth-client`（`--target prod` だけ） | Search Console と GA4 用の OAuth クライアントが無い | Google Cloud Console でクライアントを作る | [7.4](#74-openseodataforseo-と-search-console) |
+| `openseo:project`（`--target prod` だけ） | OpenSEO に Domain が `comegin.com` のプロジェクトが無い（または 2 つ以上ある） | OpenSEO の画面でプロジェクトの Domain を `comegin.com` にする（エージェントはこれで対象を決める） | [7.4](#74-openseodataforseo-と-search-console) |
+| `openseo:gsc-connect`（`--target prod` だけ） | そのプロジェクトで Search Console に接続していない（MCP で確かめる） | OpenSEO の画面で接続する（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
+| `openseo:ga4-connect`（`--target prod` だけ） | そのプロジェクトで GA4 に接続していない（MCP で確かめる） | 2 つの API の有効化・リダイレクト URI の追加・OpenSEO の画面で本番の GA4 プロパティに接続（使わないなら `OPENSEO_SKIP_GA4=yes`） | [7.5](#75-ga4adr-25) |
+| （`--phase operate` の `openseo` の警告） | OpenSEO が常駐していない・プロジェクトや接続が欠けた | 止まらない。表示に従って直す | [7.6](#76-openseo-の設定の通し常駐と確かめ方) |
 | `ga4:property`（`--target prod` だけ） | GA4 のプロパティ ID・測定 ID が設定に無い | 本番の GA4 プロパティを作って設定し、2 つの値を設定に書く | [7.5](#75-ga4adr-25) |
 | （ga4 の失敗）`PUBLIC_GA4_MEASUREMENT_ID` がある | 開発の Astro の環境変数ファイルに測定 ID が書かれている | その行を消して `--from ga4` で再実行（開発ではタグを出さない） | [7.5](#75-ga4adr-25) |
 | `strapi:admin-password`／`strapi:admin-login` | 以前に手で作った管理者がいる | パスワードを設定に書く | [3.4](#34-strapi) |
@@ -245,13 +248,16 @@ OpenSEO（`middleware/open-seo-main`、`http://127.0.0.1:3001`。認証なし・
 
 **`--target dev` では Google（OAuth クライアント・Search Console・GA4）の手順を飛ばす**（2026-10-06）。開発の時点では公開サイトが AWS に展開されておらず、Search Console にも GA4 にもデータが無いため。dev で案内するのは DataForSEO だけで、check も Google の接続を求めない。OpenSEO はオンプレのローカルに 1 つだけで、開発と本番のエージェントが同じものを使うので、**公開サイトが Route 53 から配信された後に `node setup/setup.mjs --target prod --phase google` で Google の手順を行う**（値は `~/.config/comegin/setup/prod.conf` に書く）。dev の実行は Google の OAuth クライアントを OpenSEO の環境変数ファイルに書かない（prod で設定したクライアントを `dev.conf` の `GOOGLE_CLIENT_ID`〈admin-auth 用〉で上書きしないため）。
 
-**prod の `ga4`・`openseo` は段階 `google` だけで動く**（2026-10-27。`setup/README.md` の「本番の段階」）。AWS に展開しても、公開サイト（Astro）が Route 53 から配信されるまでは Search Console にも GA4 にもデータが無いため、`--phase` を付けない実行（`env`〜`apps`）には入らない。
+**prod の `ga4`・`openseo` は段階 `google` で動く**（2026-10-27。`setup/README.md` の「本番の段階」）。AWS に展開しても、公開サイト（Astro）が Route 53 から配信されるまでは Search Console にも GA4 にもデータが無いため、`--phase` を付けない実行（`env`〜`apps`）には入らない。**`openseo` は段階 `operate` でも動き、常駐しているかを警告だけで確かめる**（2026-11-04。7.6）。
+
+**接続は申告ではなく、スクリプトが確かめる**（2026-11-04）。OpenSEO 自身の MCP（`127.0.0.1:3001/mcp`）の、費用の出ないツール 3 本（`list_projects`・`get_search_console_performance`・`get_google_analytics_measurement_health`）を呼ぶ。以前の `OPENSEO_GSC_CONNECTED=yes`・`OPENSEO_GA4_CONNECTED=yes` は要らない（書いてあっても使わない）。止まる順は `google-oauth-client` → `project` → `gsc-connect` → `ga4-connect` で、1 つ済ませるたびに同じコマンドを実行し直す。
 
 | 表示の id | すること |
 |---|---|
 | `openseo:dataforseo-key` | https://app.dataforseo.com/api-access で認証情報を取り寄せ、「Base64」と書かれた長いほうの値（`login:password` を base64 にしたもの。ダッシュボードの API キーではない）を `DATAFORSEO_API_KEY=` に書く |
 | `openseo:google-oauth-client`（prod） | Google Cloud Console で「Google Search Console API」を有効にし、種類 Web application の OAuth クライアントを作る。リダイレクト URI は `http://localhost:3001/api/gsc/oauth/callback`（完全一致。末尾にスラッシュを付けない）。値は `prod.conf` の `OPENSEO_GOOGLE_CLIENT_ID=`・`OPENSEO_GOOGLE_CLIENT_SECRET=` に書く（admin-auth と同じクライアントを使うなら `prod.conf` の `GOOGLE_CLIENT_ID=`・`GOOGLE_CLIENT_SECRET=` に書き、クライアントに上のリダイレクト URI も足す） |
-| `openseo:gsc-connect`（prod） | ブラウザで `http://localhost:3001`（127.0.0.1 ではなく localhost）を開き、Integrations の「Connect with Google」で同意し、プロパティを選ぶ。済んだら `prod.conf` に `OPENSEO_GSC_CONNECTED=yes` を書く（接続の有無は OpenSEO の DB の中にあり、スクリプトからは確かめられないため申告制） |
+| `openseo:project`（prod） | ブラウザで `http://localhost:3001`（127.0.0.1 ではなく localhost）を開く。初回に自動でできる **Default** プロジェクトを使うなら、左上のプロジェクト名の横の歯車（Project settings）→ **General** の **Domain** に `comegin.com` を入れて保存する（`https://` と `www.` は付けない）。新しく作るなら、プロジェクトの一覧の **New project** で Name（例 `ComeGin`）と Domain `comegin.com` を入れる。**Domain が `comegin.com` のプロジェクトは 1 つだけにする**（エージェントの `seo-auditor`・`analytics-reporter` は `list_projects` でこのドメインを探し、0 件でも 2 件以上でも止まる。2026-11-04 の夜の観測は、Default の Domain が開発の ngrok の URL のままで、GSC も GA4 も読めなかった）。市場は日本・日本語（`market:2392/ja`）。ドメインは設定の `GSC_DOMAIN` で変えられる（既定 `comegin.com`） |
+| `openseo:gsc-connect`（prod） | 上のプロジェクトを選び、Project settings → **Integrations** の Search Console の「Connect with Google」で同意し、ドメインプロパティ `sc-domain:comegin.com` を選ぶ。**接続はプロジェクトごと**（別のプロジェクトで接続しても、エージェントは読めない）。済んだら同じコマンドを実行し直す（スクリプトが `get_search_console_performance` で確かめる。選んだのが `sc-domain:comegin.com` でなければ警告） |
 
 **接続しても「No properties available」と出るとき**は、接続した Google アカウントに Search Console の確認済みのプロパティが無い（OpenSEO の不具合ではない）。設計（ADR-09）どおり**ドメインプロパティ `sc-domain:comegin.com`** を登録する: Search Console で「プロパティを追加 → ドメイン」に `comegin.com` → 表示された TXT レコード（`google-site-verification=…`）を Route 53 のホストゾーン `comegin.com` に追加 → 確認 → OpenSEO で接続し直す。公開サイトが無くても登録できる。
 
@@ -270,13 +276,109 @@ Search Console を使わないと決めたなら `prod.conf` に `OPENSEO_SKIP_G
 | 表示の id | すること |
 |---|---|
 | `ga4:property`（prod） | Google アナリティクスで本番のプロパティを作る（タイムゾーン `Asia/Tokyo`・通貨 `JPY`・データ保持 14 か月・Google シグナル オフ・ユーザー提供データの収集 オフ・広告のリンクなし。詳しくは `middleware/ga4/README.md`）→ Web ストリーム（`https://comegin.com`）を作る → プロパティ ID（数字）を `GA4_PROPERTY_ID=`、測定 ID（`G-` で始まる）を `GA4_MEASUREMENT_ID=` に書く |
-| `openseo:ga4-connect`（prod） | Google Cloud Console で（Search Console と同じ OAuth クライアントのプロジェクトで）「Google Analytics Admin API」と「Google Analytics Data API」を有効にする → OAuth クライアントのリダイレクト URI に `http://localhost:3001/api/ga4/oauth/callback` を足す（GSC の URI は残す）→ `http://localhost:3001` のプロジェクトの設定（Analytics）で「Connect with Google」→ 読み取り専用の権限に同意し、**本番のプロパティ**を選ぶ → `OPENSEO_GA4_CONNECTED=yes` を書く。GA4 を使わないなら `OPENSEO_SKIP_GA4=yes` |
+| `openseo:ga4-connect`（prod） | Google Cloud Console で（Search Console と同じ OAuth クライアントのプロジェクトで）「Google Analytics Admin API」と「Google Analytics Data API」を有効にする → OAuth クライアントのリダイレクト URI に `http://localhost:3001/api/ga4/oauth/callback` を足す（GSC の URI は残す）→ `http://localhost:3001` の、Domain が `comegin.com` のプロジェクト（7.4 の `openseo:project`）の Project settings → **Integrations**（またはダッシュボード）の GA4 の「Connect with Google」→ 読み取り専用の権限に同意し、**本番のプロパティ**（`561857847`）を選ぶ → 同じコマンドを実行し直す（スクリプトが `get_google_analytics_measurement_health` で確かめ、プロパティが `GA4_PROPERTY_ID` と違えば警告し、`--check` は失敗にする）。GA4 を使わないなら `OPENSEO_SKIP_GA4=yes` |
 
 開発の Astro（`frontend/verdant-virgo`）の環境変数ファイルに `PUBLIC_GA4_MEASUREMENT_ID` があると、`ga4` は**失敗として止まる**（画面の操作ではなく設定の誤りのため）。その行を消して `--from ga4` で再実行する（本番のビルドだけが測定 ID を持つ）。
 
 **接続の後に「Couldn't load properties」と出るとき**（2026-11-02 に起きた）は、OpenSEO のログ（`docker logs open-seo-main-open-seo-1`）の `ga4.property_discovery_failed` の `status` を見る。`403` なら Analytics Admin API が、OAuth クライアントの Google Cloud プロジェクト（クライアント ID の先頭の数字がプロジェクト番号）で有効になっていない。同意画面で Analytics のチェックを外した場合も 403 になるが、それは OpenSEO の DB の `account` テーブル（`provider_id` が `google-analytics`）の `scope` に `analytics.readonly` が無いことで見分けられる。API を有効にしたら数分待ってページを読み直す（接続し直さなくてよい）。Google アカウントにプロパティの権限が無い場合は 403 にならず、一覧が空になる。
 
 OAuth の同意画面が「テスト中」のままだと、更新トークンの期限が短く、接続が切れることがある（出典 `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`）。切れたら画面で接続し直す。
+
+### 7.6 OpenSEO の設定の通し（常駐と確かめ方）
+
+7.4・7.5 は止まったときの id ごとの操作。ここは、OpenSEO を最初から使える状態にして常駐させるまでの順番と、確かめ方をまとめる（2026-11-04 に追加）。
+
+#### 何のためにあるか・なぜ常駐させるか
+
+OpenSEO は**オンプレの道具**（TA-07 の 3.7。正本のデータは持たない）。改善ループのエージェントが、夜の定期実行（JST 0〜8 時。`ops/README.md`）の中で MCP の `openseo` で呼ぶ。止まっていると、その夜の観測が `fetch.outcome` 付きの空の E-12 になり、提案の根拠が欠ける。
+
+| エージェント | 定期実行（`ops/schedules/`） | OpenSEO で読む・するもの | 費用 |
+|---|---|---|---|
+| `seo-auditor` | `daily-observe-seo`（毎日 04:00）・`weekly-observe-serp-audit`（月曜 02:00） | Search Console の実績・URL 検査・保存済みの順位計測とサイト監査 | 出ない |
+| `analytics-reporter` | `daily-observe-analytics`（毎日 04:00） | GA4（本番のプロパティ。5 本だけ） | 出ない |
+| `keyword-researcher` | `weekly-keyword-research`（月曜 02:30） | キーワード調査（DataForSEO） | **出る**（1 回の見積もり 2,000 クレジットまで） |
+| `knowledge-scout` | — | 競合ドメインの市場データ（DataForSEO） | **出る**（同じ上限） |
+
+どのツールを使えるかは、エージェント定義（`.claude/agents/*.md`）の `tools` の許可リストで決まる（`openseo` の登録には `ACCESS_LEVEL` が無い。`ops/README.md` の MCP の表）。
+
+#### 構成
+
+| 項目 | 値 |
+|---|---|
+| 置き場 | `middleware/open-seo-main`（上流の取り込み。`compose.yaml` は変えない。独自の追加は `dev/setup/` だけ） |
+| 待ち受け | `127.0.0.1:3001`（画面と MCP の `/mcp`）。`AUTH_MODE=local_noauth` で認証が無いので、**トンネルを張らない・ngrok で出さない** |
+| 開発と本番 | **1 つを共用**（開発用・本番用に分けない）。Google に接続するのは本番のプロパティだけ |
+| イメージ | `ghcr.io/every-app/open-seo:0.1.8`（ダイジェストで固定。モジュールの `PINNED_IMAGE`。版を上げるときはこの定数を変えて `--only openseo` を実行し直す） |
+| データ | Docker のボリューム `open-seo-main_open_seo_data`。プロジェクト・保存したキーワード・Search Console と GA4 の OAuth のトークン（`BETTER_AUTH_SECRET` で暗号化）が入る |
+| 環境変数ファイル | `middleware/open-seo-main` の環境変数ファイル（権限 600。スクリプトが設定〈`<target>.conf`〉から書く。手で書き換えない） |
+| 常駐のしかた | Docker の再起動の設定 `restart: unless-stopped`（上流の `compose.yaml`）＋ `docker.service` が enabled。systemd のユニットは置かない（onprem「常駐させる（OpenSEO）」） |
+
+#### 順番
+
+1. **起動と DataForSEO**（開発の一式の中でも、単独でもよい）
+
+   ```bash
+   node setup/setup.mjs --target dev --only openseo
+   ```
+
+   環境変数ファイルを作り（`BETTER_AUTH_SECRET` を生成。既にあれば変えない）、`docker compose up -d` で上げ、`/api/health` を確かめる。`openseo:dataforseo-key` で止まったら 7.4 の表のとおり `DATAFORSEO_API_KEY` を書いて再実行する。
+
+2. **Google（公開サイトが Route 53 から配信された後。段階 `google`）**
+
+   ```bash
+   node setup/setup.mjs --target prod --phase google --only openseo
+   ```
+
+   止まる順に 1 つずつ済ませ、そのたびに同じコマンドを実行し直す。
+
+   | 順 | 止まる id | すること | 節 |
+   |---|---|---|---|
+   | 1 | `openseo:google-oauth-client` | Google Cloud で 3 つの API を有効にし、OAuth クライアント（リダイレクト URI 2 つ）を作って `prod.conf` に書く | 7.4・7.5 |
+   | 2 | `openseo:project` | Domain が `comegin.com` のプロジェクトを 1 つだけにする | 7.4 |
+   | 3 | `openseo:gsc-connect` | そのプロジェクトで Search Console（`sc-domain:comegin.com`）に接続する | 7.4 |
+   | 4 | `openseo:ga4-connect` | そのプロジェクトで GA4（本番のプロパティ `561857847`）に接続する | 7.5 |
+
+   最後まで通ると「終わった」と出る。Search Console のドメインプロパティの登録（`verdant-virgo:gsc-domain`）と GA4 のプロパティの作成（`ga4:property`）は、別のモジュール（`setup.mjs` の `ga4`・`frontend.mjs` の `verdant-virgo`）が案内する（`setup/00-setup-overview.md` の P13）。
+
+3. **常駐の確認（段階 `operate`）**
+
+   ```bash
+   node setup/setup.mjs --target prod --phase operate --only openseo
+   ```
+
+   止めずに警告だけ出す。コンテナが止まっていれば `docker compose up -d` で上げ直す（環境変数ファイルは変えない）。それ以外の欠け（再起動の設定・`docker.service`・プロジェクト・接続）は表示に従って直す。`--phase operate` を丸ごと実行したときも、同じ確認が入る（`setup/00-setup-overview.md` の P14）。
+
+#### スクリプトが確かめること
+
+| 確かめること | 段階 | 使うもの |
+|---|---|---|
+| 応答する・DB が使える・`authMode` が `local_noauth`・DataForSEO が設定済み | dev・google・operate | `GET /api/health`（無料） |
+| Domain が `comegin.com` のプロジェクトがちょうど 1 つ | google・operate | MCP の `list_projects`（無料） |
+| Search Console に接続し、プロパティが `sc-domain:comegin.com` | google・operate | MCP の `get_search_console_performance`（無料。Google の API を 1 行だけ読む） |
+| GA4 に接続し、プロパティが `GA4_PROPERTY_ID` と同じ | google・operate | MCP の `get_google_analytics_measurement_health`（無料。GA4 の Admin API を読む） |
+| コンテナが running・再起動の設定が `unless-stopped` か `always`・`docker.service` が enabled | operate | `docker compose ps`・`docker inspect`・`systemctl is-enabled` |
+
+スクリプトが呼ぶ MCP のツールは、この 3 本だけに限ってある（モジュールの `FREE_TOOLS`）。DataForSEO を呼ぶツールは呼ばない。設定の状況の画面（監視アプリの `/setup-status`）も、1 時間に 1 回まで同じ確認をする。
+
+手で確かめるとき（無料のツールだけ）:
+
+```bash
+curl -s http://127.0.0.1:3001/api/health
+curl -s -X POST http://127.0.0.1:3001/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_projects","arguments":{}}}'
+docker inspect -f '{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}' open-seo-main-open-seo-1
+```
+
+#### 困ったとき
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| 夜の観測（`docs/audits/gsc/`・`analytics/`）の `fetch.note` に「`domain` が `comegin.com` のプロジェクトが 0 件」 | プロジェクトの Domain が `comegin.com` でない（2026-11-04 に起きた。Default の Domain が開発の ngrok の URL だった） | 7.4 の `openseo:project` |
+| マシンを再起動したら OpenSEO が上がらない | `docker compose stop` で止めたまま（`unless-stopped` は、止めたコンテナを再起動の後に上げない）か、`docker.service` が disabled | `docker compose up -d`（`middleware/open-seo-main` で）。`sudo systemctl enable docker.service`。一時的に止めたら、作業の後に必ず `up -d` で戻す |
+| 接続していたのに `gsc-connect`・`ga4-connect` で止まる | OAuth の同意画面が「テスト中」で更新トークンが切れた・Google 側で権限を外した | 画面で接続し直す（7.5 の最後） |
+| すべての接続が一度に切れた | 環境変数ファイルの `BETTER_AUTH_SECRET` が変わった（保存済みのトークンを復号できない） | **変えない**。変わってしまったら、手順 2 の 3・4 で接続し直す |
+| プロジェクトも接続も消えた | ボリューム `open-seo-main_open_seo_data` を消した（`docker compose down -v` など） | **`-v` を付けない**。消えたら手順 2 の 2〜4 をやり直す（保存したキーワード・順位計測の履歴は戻らない） |
+| `--force-recreate` の後に応答しない | 初回はコンテナの中でビルドしてから待ち受ける（1〜2 分） | 待つ。5 分たっても応答しなければ `docker compose logs open-seo` |
 
 ## 8. 本番（`--target prod`）
 

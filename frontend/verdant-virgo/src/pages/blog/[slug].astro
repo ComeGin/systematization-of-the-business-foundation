@@ -27,6 +27,7 @@ import { CTABanner, CTAButton, IconCard, ImagePlaceholder, Section, SectionHeadi
 import { Photo } from '@/modules/media';
 import { MotionBlobs, ReadingProgress, Reveal, TocTracker } from '@/modules/motion';
 import { VT, vtStyle } from '@/modules/page-transition';
+import { articleOgImage, blogPostingJsonLd, JsonLd } from '@/modules/seo';
 import { SourceDlBlock } from '@/modules/source-dl';
 import { MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +54,20 @@ const tocItems = body.toc.map((item) => ({ id: item.id, label: item.text }));
 const { meta, inlineCta, endCta } = blogArticle;
 // パンくず「ホーム / ブログ / 記事タイトル」（ホームは部品が先頭に足す。Mobile は 1 行で省略）
 const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ ...crumb })), { label: article.title }];
+// 構造化データ（BlogPosting）と OGP（2026-11-04）。著者・公開日・更新日・アイキャッチは画面に出している値と同じものを渡す（seo モジュール）
+const site = Astro.site ?? Astro.url;
+const canonical = new URL(Astro.url.pathname, site).href;
+const ogImage = await articleOgImage(article.cover);
+const ogImageAlt = article.cover?.alternativeText?.trim() || article.title;
+const jsonLd = blogPostingJsonLd(site, {
+  url: canonical,
+  headline: article.title,
+  description: article.description,
+  datePublished: article.publishedAt,
+  dateModified: article.updatedAt,
+  image: ogImage && new URL(ogImage, site).href,
+  section: article.category?.name,
+});
 ---
 
 <BaseLayout
@@ -60,11 +75,15 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
   description={seo.description}
   noindex={seo.noindex}
   ogType="article"
+  ogImage={ogImage}
+  ogImageAlt={ogImageAlt}
+  articleTimes={{ published: article.publishedAt, modified: article.updatedAt }}
   breadcrumb={breadcrumb}
   breadcrumbTone="surface"
   headerCta="outline"
   sourceDlOnPage
 >
+  <JsonLd slot="head" data={jsonLd} />
   <div class="site-container flex items-start gap-12 pt-8 pb-16 md:pb-24">
     <article class="flex w-full max-w-[720px] min-w-0 flex-col gap-8 md:gap-12">
       <ReadingProgress />
@@ -75,7 +94,8 @@ const breadcrumb = [...blogArticle.breadcrumbParents.slice(1).map((crumb) => ({ 
         <p class="type-small flex flex-wrap gap-x-4 text-text-muted">
           <span>{meta.published} <time datetime={article.publishedAt}>{formatJstDate(article.publishedAt)}</time></span>
           <span>{meta.updated} <time datetime={article.updatedAt}>{formatJstDate(article.updatedAt)}</time></span>
-          <span>{meta.author} {author.name}</span>
+          {/* 著者名は会社概要（本人の紹介。経歴・運営方針）へつなぐ（E-E-A-T。構造化データの author.url と同じ） */}
+          <span>{meta.author} <a href="/about/" rel="author" class="text-text-link underline hover:text-text-link-hover">{author.name}</a></span>
         </p>
       </header>
       <div style={vtStyle(VT.articleMedia)}>

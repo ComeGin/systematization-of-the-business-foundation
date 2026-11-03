@@ -1,0 +1,13 @@
+---
+// 構造化データ（JSON-LD）を 1 つの <script type="application/ld+json"> で出す。ページからは BaseLayout の slot="head" に置く。
+// 中身の `<` は < にする（記事の題名などに `</script>` があっても要素が閉じない。lib/jsonld.ts の serializeJsonLd）。
+import { serializeJsonLd } from '../lib/jsonld';
+
+interface Props {
+  data: unknown;
+}
+
+const { data } = Astro.props;
+---
+
+<script type="application/ld+json" set:html={serializeJsonLd(data)} />

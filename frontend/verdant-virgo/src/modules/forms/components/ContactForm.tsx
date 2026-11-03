@@ -214,7 +214,7 @@ export default function ContactForm({
     if (outcome.ok) {
       events.submitted();
       dispatchFormSuccess("consult");
-      window.location.assign("/contact/thanks");
+      window.location.assign("/contact/thanks/");
       return;
     }
     unmarkSent(formId, normalizedEmail);

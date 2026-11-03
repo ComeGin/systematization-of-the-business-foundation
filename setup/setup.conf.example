@@ -78,13 +78,11 @@ DATAFORSEO_API_KEY=
 # リダイレクト URI は http://localhost:3001/api/gsc/oauth/callback と、GA4 も使うなら http://localhost:3001/api/ga4/oauth/callback（同じクライアントに両方を足す）
 OPENSEO_GOOGLE_CLIENT_ID=
 OPENSEO_GOOGLE_CLIENT_SECRET=
-# 画面で Google の接続を済ませたら yes（接続の有無は OpenSEO の DB の中で、health には出ないため申告制）
-OPENSEO_GSC_CONNECTED=
+# Search Console・GA4 の接続は、スクリプトが OpenSEO の MCP（無料のツール）で確かめる（2026-11-04。setup/manual-steps.md の 7.6）。
+# 以前の OPENSEO_GSC_CONNECTED・OPENSEO_GA4_CONNECTED（申告）は使わない。書いてあっても無視する。
+# 接続するのは、Domain が GSC_DOMAIN（既定 comegin.com）のプロジェクト。GA4 は先に Google Cloud で Analytics Admin API と Data API を有効にする
 # Search Console を使わないなら yes（接続の案内をしない。check も通る）
 OPENSEO_SKIP_GSC=
-# 画面で GA4（本番のプロパティだけ）の接続を済ませたら yes（ADR-25。GSC と同じく申告制）。
-# 先に Google Cloud で Google Analytics Admin API と Data API を有効にする
-OPENSEO_GA4_CONNECTED=
 # GA4 を OpenSEO に接続しないなら yes（接続の案内をしない。analytics-reporter は GA4 を読めなくなる）
 OPENSEO_SKIP_GA4=
 

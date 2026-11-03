@@ -7,7 +7,7 @@ ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い
 | `wireguard/` | オンプレと AWS の VPC をつなぐ WireGuard のオンプレ側。設定の雛形・鍵の生成・手順（[README](wireguard/README.md)） |
 | `strapi/` | 本番の Strapi の compose。`backend/strapi-system` の Dockerfile でビルドし、RDS の `strapi` と S3 のメディアのバケットを使う |
 | `n8n/` | 本番の n8n の compose（本体・runners・Webhook の受け口のリバースプロキシ）。RDS の `n8n` を使う |
-| `systemd/` | 起動時に WireGuard のあとで Strapi・n8n を上げるユニットと、監視アプリ（`comegin-control`）を常駐させるユニットの雛形（インストールは人が行う） |
+| `systemd/` | 起動時に WireGuard のあとで Strapi・n8n を上げるユニットと、監視アプリ（`comegin-control`）を常駐させるユニットの雛形（インストールは人が行う）。OpenSEO はユニットを持たず、Docker の再起動の設定で常駐させる（「常駐させる（OpenSEO）」） |
 
 ## 構成
 
@@ -121,6 +121,27 @@ sudo install -m 644 systemd/comegin-strapi.service systemd/comegin-n8n.service /
 sudo systemctl daemon-reload
 sudo systemctl enable --now comegin-strapi.service comegin-n8n.service
 ```
+
+### 常駐させる（OpenSEO）
+
+OpenSEO（`middleware/open-seo-main`。`127.0.0.1:3001`）も、オンプレで常駐させる道具（2026-11-04 に、この節を追加）。改善ループのエージェント（`seo-auditor`・`analytics-reporter`・`keyword-researcher`・`knowledge-scout`）が、夜の定期実行の中で MCP の `openseo` で Search Console・GA4・DataForSEO を読むため、止まっているとその夜の観測が欠ける。開発と本番で 1 つを共用するので、`onprem/` には置かず `middleware/` のまま動かす（TA-07 の 3.7）。設定の全体の順番は `setup/manual-steps.md` の 7.6。
+
+**systemd のユニットは置かない。Docker の再起動の設定で常駐させる。** 上流の `compose.yaml` が `restart: unless-stopped` なので、`docker.service` が enabled なら、マシンの起動のときに Docker が上げ直す。Strapi・n8n と違って WireGuard にも RDS にも依存しない（Google と DataForSEO にインターネット越しにつなぐだけ）ので、起動の順番を systemd で決める必要が無い。監視アプリのユニット（`comegin-control`）も、OpenSEO を `Wants=` に入れない（OpenSEO が止まっても、監視アプリと他の定期実行は動かし続ける）。
+
+```bash
+# 一度だけ（初回は setup/setup.mjs が docker compose up -d する）
+sudo systemctl enable docker.service
+# 確かめる（止めずに警告だけ出す。止まっていれば docker compose up -d で上げ直す）
+node setup/setup.mjs --target prod --phase operate --only openseo
+```
+
+守ること:
+
+- **`docker compose stop` で止めたままにしない。** `unless-stopped` は、人が止めたコンテナを、マシンを再起動した後も上げない。作業で止めたら `docker compose up -d`（`middleware/open-seo-main` で）で戻す。
+- **`docker compose down -v` をしない。** ボリューム `open-seo-main_open_seo_data` に、プロジェクトと Search Console・GA4 の OAuth のトークンが入っている。消すと、プロジェクトの作成と接続をやり直すことになる（`setup/manual-steps.md` の 7.6）。
+- **環境変数ファイルの `BETTER_AUTH_SECRET` を変えない**（保存済みのトークンの暗号鍵。変えると接続が全部切れる）。
+- **トンネルを張らない**（`local_noauth` で認証が無い。費用の出るツールも同じ `/mcp` にある）。別の端末から画面を開くときは `ssh -L 3001:127.0.0.1:3001` を使い、ブラウザでは `http://localhost:3001` を開く（Google の OAuth のリダイレクト URI に合わせる）。
+- 夜（JST 0〜8 時）もマシンが動いていること（監視アプリと同じ。「監視アプリ（改善ループ）を本番で動かす」の 5）。
 
 ## 監視アプリ（改善ループ）を本番で動かす
 
@@ -443,6 +464,7 @@ docker compose logs --tail 3000 --no-log-prefix webhook-proxy | grep -a -v _prox
 
 - **オンプレのマシン・回線・WireGuard・`webhook-proxy`・n8n のどれかが止まると、クラウドの Mautic・Chatwoot からの Webhook が届かず欠落する**（`I-11` `I-12`）。Mautic の Webhook の再送の有無は未確認（縮退運転は DD-07 で扱う）。2026-11-03 に、マシンの起動の直後（n8n が起動する前）に Mautic のキューの送信が `502`、I-11・I-12 が未公開のあいだに Chatwoot と Mautic の送信が `404` になったのを、`webhook-proxy` のログで見た。**Chatwoot は送り直さない**ので、この間の会話の開始の通知は欠けている。マシンを起動するときは、WireGuard → Strapi → n8n が上がってから Mautic・Chatwoot のイベントが来る順になるとは限らない。
 - 訪問者に届くサービス（Astro・Mautic・Chatwoot・`consent-api`・`admin-auth`・`faq-bot`）は止まらない（Cal.com は ADR-24 で SaaS になり、クラウドに置かないので、この一覧に入らない）。
+- OpenSEO が止まると、SEO と GA4 の夜の観測（`daily-observe-seo`・`daily-observe-analytics`・`weekly-observe-serp-audit`）とキーワード調査が、その回の分だけ欠ける（取り戻さない）。公開サイトと訪問者には影響しない。OpenSEO の中のデータ（プロジェクト・接続）はオンプレの Docker のボリュームにだけあり、マシンを失うと作り直しになる（「常駐させる（OpenSEO）」）。
 - Strapi が止まると、記事の制作・ビルドが止まる（公開済みのページは Astro に焼き込み済みなので止まらない）。データは RDS・S3 にあるので、マシンを失っても消えない（暗号化キー・鍵類を控えてあれば復旧できる）。
 
 ## 秘匿ファイルとキー

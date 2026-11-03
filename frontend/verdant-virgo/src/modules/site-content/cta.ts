@@ -129,5 +129,5 @@ export function contactHref({ cta, from, service }: { cta: CtaId; from: string; 
   if (service) params.set('service', service);
   params.set('cta', cta);
   params.set('from', from);
-  return `/contact?${params.toString()}`;
+  return `/contact/?${params.toString()}`;
 }

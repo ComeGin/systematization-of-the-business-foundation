@@ -1,11 +1,16 @@
-// OpenSEO の設定。環境変数ファイルの作成 → 起動 → /api/health の確認 → （--target prod だけ）Google Search Console と GA4 の接続（画面）。
+// OpenSEO の設定。環境変数ファイルの作成 → 起動 → /api/health の確認 → （--target prod だけ）本番のプロジェクト・Google Search Console と GA4 の接続（画面）
+// → （--target prod の段階 operate）常駐しているかの確認（警告だけ）。
 //
 // target ごとの違い:
 //   - OpenSEO はオンプレのローカルに 1 つだけあり（127.0.0.1:3001）、開発と本番のエージェントが同じものを使う（TA-07 の 3.7）
 //   - --target dev: 起動と DataForSEO まで。Google（OAuth クライアント・Search Console・GA4）の手順は飛ばし、check でも求めない。
 //     開発の時点では公開サイトが AWS に展開されておらず、Search Console のプロパティにも GA4 の本番のプロパティにもデータが無いため
 //   - --target prod（段階 google。公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く）:
-//     dev の内容に加えて、Google の OAuth クライアント・Search Console の接続・GA4 の接続を案内する
+//     dev の内容に加えて、Google の OAuth クライアント・本番のドメイン（GSC_DOMAIN。既定 comegin.com）のプロジェクト・
+//     Search Console の接続・GA4 の接続を案内する
+//   - --target prod の段階 operate（2026-11-04 に追加）: 改善ループのエージェントが夜に MCP で呼ぶので、常駐しているか
+//     （コンテナが running・再起動の設定が unless-stopped か always・docker.service が enabled）と、プロジェクトと接続が揃っているかを
+//     確かめる。止めずに警告だけ出す（コンテナが止まっていれば docker compose up -d で上げ直す。それ以外は変えない）
 //
 // 方針（setup/lib/core.mjs の契約）:
 //   - open-seo-main は上流の取り込み。独自の追加は dev/setup/ の中だけ。上流の compose.yaml は変えずに、そのまま docker compose up -d する
@@ -15,21 +20,26 @@
 //   - 認証は AUTH_MODE=local_noauth（Docker の自前運用の上流の既定。127.0.0.1 だけにバインドされ、画面にも MCP にも認証が無い）。トンネルを張らない
 //   - OpenSEO の費用が出るツール（DataForSEO を呼ぶもの）はここでは呼ばない。確かめるのは /api/health だけ（無認証・無料・値を返さない）
 //   - Google Search Console の接続は、Google の同意画面を通るので画面の操作（ctx.manual）。接続の有無はアプリの DB の中にあり、
-//     /api/health には出ない（health の gsc は「環境変数が揃っているか」だけ）。済んだことは設定の OPENSEO_GSC_CONNECTED=yes で知らせる
+//     /api/health には出ない（health の gsc は「環境変数が揃っているか」だけ）
 //   - GA4 の接続（ADR-25。本番のプロパティだけ）も GSC と同じ形。同じ OAuth クライアントに GA4 のリダイレクト URI を足し、
 //     Google Analytics Admin API と Data API を有効にして、画面で Connect with Google を押す（同意は GSC とは別に 1 回要る）。
 //     health には ga4 の項目が無い（check のキーは auth・dataforseo・gsc・ai・runtime と database だけ）。GA4 が要る環境変数は
-//     GSC と同じ GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET・BETTER_AUTH_SECRET なので、health の gsc が Configured なら GA4 の環境変数も揃っている。
-//     済んだことは OPENSEO_GA4_CONNECTED=yes で知らせる
+//     GSC と同じ GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET・BETTER_AUTH_SECRET なので、health の gsc が Configured なら GA4 の環境変数も揃っている
+//   - 接続は OpenSEO 自身の MCP（127.0.0.1:3001/mcp）の無料のツールで確かめる（2026-11-04。以前は OPENSEO_GSC_CONNECTED・
+//     OPENSEO_GA4_CONNECTED=yes の申告だけだった）。呼ぶのは FREE_TOOLS の 3 本だけ（どれも DataForSEO を呼ばず、OpenSEO のクレジットを使わない。
+//     Google の API を読むだけ）。エージェント（seo-auditor・analytics-reporter）は domain が comegin.com のプロジェクトを list_projects で
+//     探すので、そのプロジェクトが 1 つだけあることも確かめる（2026-11-04 の夜の観測は、それが無くて GSC も GA4 も読めなかった）。
+//     申告のキーは要らなくなった（書いてあっても使わない）
 //
 // 設定のキー（~/.config/comegin/setup/<target>.conf。雛形は setup/setup.conf.example）:
 //   DATAFORSEO_API_KEY            DataForSEO の login:password を base64 にした値（ダッシュボードの API キーそのものではない）
 //   OPENSEO_GOOGLE_CLIENT_ID / OPENSEO_GOOGLE_CLIENT_SECRET   Search Console 用の OAuth クライアント。無ければ GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET（admin-auth と共用）
 //   OPENROUTER_API_KEY            任意。アプリ内の AI エージェント（SAM）を使うときだけ
-//   OPENSEO_GSC_CONNECTED=yes     画面で Google の接続を済ませたら書く
 //   OPENSEO_SKIP_GSC=yes          Search Console を使わないと決めたら書く（接続の案内をしない）
-//   OPENSEO_GA4_CONNECTED=yes     画面で GA4（本番のプロパティ）の接続を済ませたら書く
 //   OPENSEO_SKIP_GA4=yes          GA4 を OpenSEO に接続しないと決めたら書く（接続の案内をしない。analytics-reporter は GA4 を読めなくなる）
+//   GSC_DOMAIN                    任意。本番のドメイン（既定 comegin.com）。OpenSEO のプロジェクトの Domain と Search Console のドメインプロパティ
+//   GA4_PROPERTY_ID               ga4 モジュールと共通。あれば、接続しているプロパティがこれと同じかを確かめる
+//   （OPENSEO_GSC_CONNECTED・OPENSEO_GA4_CONNECTED は 2026-11-04 から使わない。接続は MCP で確かめる）
 //   OPEN_SEO_IMAGE                任意。イメージの上書き（既定は下の PINNED_IMAGE。版を上げるときは定数を変えるのが正）
 //
 // 確かめた出典（middleware/open-seo-main のソース。動いているコンテナは health の version が 0.1.8）:
@@ -45,14 +55,24 @@
 //     リダイレクト URI は http://localhost:3001/api/ga4/oauth/callback。接続はプロジェクトのダッシュボードか Project settings → Analytics の Connect with Google）
 //   src/shared/ga4.ts（スコープは openid・email・profile・analytics.readonly だけ）、src/server/features/google/selfHostedOAuth.ts（callbackPath /api/ga4/oauth/callback）
 //   src/lib/selfhost-preflight.ts（check のキーは auth・dataforseo・gsc・ai・runtime。ga4 は無い）、src/server/lib/setup-status.ts（これに database を足す）
+//   src/server/mcp/tools/list-projects.ts（"Uses no credits"。structuredContent.projects[] に id・name・domain）、
+//   src/server/mcp/tools/search-console-tools.ts（get_search_console_performance は "uses no credits"。未接続なら structuredContent.ok が false で reason）、
+//   src/server/mcp/tools/google-analytics-tools.ts（get_google_analytics_measurement_health は GA4 の Admin API を読むだけ。接続済みなら structuredContent.source.propertyId）
+//   /mcp は local_noauth で認証が無く、initialize を送らずに tools/call 1 回で応答する（2026-11-04 に 0.1.8 で curl して確かめた。応答は JSON）
+//   画面: プロジェクトの Domain は Project settings → General、Google の接続は Project settings → Integrations（src/routes/_project/p/$projectId/settings*）
 import { join } from "node:path";
 
-export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ。Search Console と GA4 の接続は prod だけ）", targets: ["dev", "prod"], phases: ["google"], after: [] };
+export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ。Search Console と GA4 の接続は prod の google、常駐の確認は prod の operate）", targets: ["dev", "prod"], phases: ["google", "operate"], after: [] };
 
 const DIR = "middleware/open-seo-main";
 const BASE_URL = "http://127.0.0.1:3001";
 const GSC_REDIRECT_URI = "http://localhost:3001/api/gsc/oauth/callback";
 const GA4_REDIRECT_URI = "http://localhost:3001/api/ga4/oauth/callback";
+const MCP_URL = `${BASE_URL}/mcp`;
+// setup から呼んでよい OpenSEO の MCP のツール（費用が出ない・書き込まないものだけ。ここに無い名前は callTool が断る）
+const FREE_TOOLS = new Set(["list_projects", "get_search_console_performance", "get_google_analytics_measurement_health"]);
+// 常駐とみなす再起動の設定（上流の compose.yaml は unless-stopped）
+const RESIDENT_POLICIES = new Set(["unless-stopped", "always"]);
 // イメージは版とダイジェストで固定する（上流の compose の既定は :latest。compose.yaml の image は ${OPEN_SEO_IMAGE:-...} なので、環境変数ファイルで差し替える）。
 // 出典: docker buildx imagetools inspect ghcr.io/every-app/open-seo:0.1.8（:v0.1.8・2026-10-06 時点の :latest と同じダイジェスト）
 const PINNED_IMAGE = "ghcr.io/every-app/open-seo:0.1.8@sha256:79f19fb7100e71133effa43898a2ba1ad4702075f3127e6ca91cd076e1101538";
@@ -63,6 +83,9 @@ const templatePath = (ctx) => join(root(ctx), ".env.example");
 const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
 /** Google（Search Console・GA4）の手順を扱う target か。dev は AWS に展開されていないので扱わない */
 const handlesGoogle = (ctx) => ctx.target === "prod";
+/** 本番のドメイン（OpenSEO のプロジェクトの Domain・Search Console のドメインプロパティ） */
+const prodDomain = (ctx) => normalizeDomain(ctx.value("GSC_DOMAIN") || "comegin.com");
+const normalizeDomain = (d) => String(d ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
 const GOOGLE_SKIPPED_IN_DEV = "Search Console と GA4 の接続は開発では飛ばす（公開サイトが AWS に無い）。公開サイトが Route 53 から配信された後に node setup/setup.mjs --target prod --phase google で行う";
 
 // ---------------------------------------------------------------------------
@@ -123,6 +146,123 @@ function describeChecks(health) {
 const googleConfigured = (health) => String(health.checks?.gsc?.detail ?? "").startsWith("Configured");
 
 // ---------------------------------------------------------------------------
+// OpenSEO の MCP（無料のツールだけ）
+// ---------------------------------------------------------------------------
+
+/** MCP のツールを 1 回呼び、{ structured, text, isError } を返す。費用の出るツールは呼ばない（FREE_TOOLS） */
+async function callTool(ctx, name, args = {}) {
+  if (!FREE_TOOLS.has(name)) throw new Error(`setup から呼ばない OpenSEO のツール: ${name}（FREE_TOOLS に無い）`);
+  const body = await ctx.http(`OpenSEO MCP ${name}`, MCP_URL, {
+    method: "POST",
+    headers: { Accept: "application/json, text/event-stream" },
+    json: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+    timeoutMs: 60_000,
+  });
+  if (!body) throw new Error(`OpenSEO MCP ${name}: 応答を JSON として読めない（SSE で返っている場合がある。上流の版が変わっていないか確かめる）`);
+  if (body.error) throw new Error(`OpenSEO MCP ${name}: ${String(body.error.message ?? "エラー").slice(0, 300)}`);
+  const result = body.result ?? {};
+  const text = (result.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  return { structured: result.structuredContent ?? null, text, isError: result.isError === true };
+}
+
+/** 本番のドメインのプロジェクト。{ project, count, domains } */
+async function findProject(ctx) {
+  const domain = prodDomain(ctx);
+  const { structured } = await callTool(ctx, "list_projects");
+  const projects = structured?.projects ?? [];
+  const matched = projects.filter((p) => normalizeDomain(p.domain) === domain);
+  return { domain, project: matched.length === 1 ? matched[0] : null, count: matched.length, domains: projects.map((p) => `${p.name}（${p.domain || "Domain なし"}）`) };
+}
+
+/** Search Console の接続。{ connected, detail } */
+async function probeGsc(ctx, project) {
+  const r = await callTool(ctx, "get_search_console_performance", { projectId: project.id, rowLimit: 1 });
+  if (r.structured?.ok === true) {
+    const expected = `sc-domain:${prodDomain(ctx)}`;
+    const site = r.structured.siteUrl ?? "?";
+    return { connected: true, detail: site === expected ? site : `${site}。設計は ${expected}（ADR-09 のドメインプロパティ）なので選び直す`, mismatch: site !== expected };
+  }
+  return { connected: false, detail: (r.structured?.reason ?? r.text ?? "").slice(0, 200) || "未接続" };
+}
+
+/** GA4 の接続。{ connected, detail, mismatch } */
+async function probeGa4(ctx, project) {
+  const r = await callTool(ctx, "get_google_analytics_measurement_health", { projectId: project.id });
+  const property = r.structured?.source?.propertyId;
+  if (!r.isError && property) {
+    const want = ctx.value("GA4_PROPERTY_ID");
+    const mismatch = Boolean(want) && property !== `properties/${want}`;
+    return { connected: true, detail: `${property}${mismatch ? `。設定の GA4_PROPERTY_ID は ${want} なので、本番のプロパティを選び直す` : ""}`, mismatch };
+  }
+  return { connected: false, detail: (r.structured?.reason ?? r.text ?? "").slice(0, 200) || "未接続" };
+}
+
+/** プロジェクトと Google の接続をまとめて確かめる。{ ok, notes, missing: { project, gsc, ga4 } } */
+async function inspectProduction(ctx) {
+  const notes = [];
+  const missing = { project: false, gsc: false, ga4: false };
+  const found = await findProject(ctx);
+  if (!found.project) {
+    missing.project = true;
+    notes.push(found.count === 0
+      ? `Domain が ${found.domain} のプロジェクトが無い（あるのは ${found.domains.join("・") || "無し"}）。エージェントが対象を決められず、GSC と GA4 を読めない`
+      : `Domain が ${found.domain} のプロジェクトが ${found.count} 個ある（エージェントが 1 つに決められない。1 つにする）`);
+    return { ok: false, notes, missing };
+  }
+  notes.push(`プロジェクト: ${found.project.name}（${found.domain}。${found.project.id}）`);
+  let ok = true;
+  for (const [key, label, skipKey, probe] of [["gsc", "Search Console", "OPENSEO_SKIP_GSC", probeGsc], ["ga4", "GA4", "OPENSEO_SKIP_GA4", probeGa4]]) {
+    if (yes(ctx.value(skipKey))) {
+      notes.push(`${label} は使わない（${skipKey}）`);
+      continue;
+    }
+    const r = await probe(ctx, found.project);
+    if (r.connected) notes.push(`${label}: 接続を確かめた（${r.detail}）`);
+    else {
+      notes.push(`${label}: 接続していない（${r.detail}）`);
+      missing[key] = true;
+      ok = false;
+    }
+    if (r.mismatch) ok = false;
+  }
+  return { ok, notes, missing };
+}
+
+// ---------------------------------------------------------------------------
+// 常駐（Docker の再起動の設定。systemd のユニットは置かない〈WireGuard に依存しないので起動の順番を制御しなくてよい〉）
+// ---------------------------------------------------------------------------
+
+/** { ok, notes, running } */
+async function inspectResidency(ctx) {
+  const notes = [];
+  let id = "";
+  try {
+    id = (await ctx.run("docker", ["compose", "ps", "-a", "-q", "open-seo"], { cwd: root(ctx), timeoutMs: 30_000 })).trim().split("\n")[0] ?? "";
+  } catch (e) {
+    return { ok: false, running: false, notes: [`docker compose ps が失敗した（${String(e.message).split("\n")[0]}）`] };
+  }
+  if (!id) return { ok: false, running: false, notes: ["コンテナが無い（docker compose up -d で作る）"] };
+  const [status, policy] = (await ctx.run("docker", ["inspect", "-f", "{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}", id], { timeoutMs: 30_000 })).trim().split(/\s+/);
+  const running = status === "running";
+  let ok = running && RESIDENT_POLICIES.has(policy);
+  notes.push(`コンテナ: ${status}、再起動の設定: ${policy || "?"}`);
+  if (!running) notes.push("動いていない。docker compose stop で止めたままだと、マシンを再起動しても上がらない（unless-stopped）");
+  if (!RESIDENT_POLICIES.has(policy)) notes.push("再起動の設定が unless-stopped でも always でもない（上流の compose.yaml の restart を確かめる）");
+  let enabled = "?";
+  try {
+    enabled = (await ctx.run("systemctl", ["is-enabled", "docker.service"], { timeoutMs: 15_000 })).trim();
+  } catch (e) {
+    enabled = String(e.message).split("\n").pop()?.trim() || "不明";
+  }
+  notes.push(`docker.service: ${enabled}`);
+  if (enabled !== "enabled") {
+    ok = false;
+    notes.push("docker.service が enabled でない。マシンを再起動すると OpenSEO が上がらない（sudo systemctl enable docker.service）");
+  }
+  return { ok, running, notes };
+}
+
+// ---------------------------------------------------------------------------
 // 起動
 // ---------------------------------------------------------------------------
 
@@ -163,12 +303,24 @@ function googleClientSteps(ctx) {
   ];
 }
 
-function gscConnectSteps() {
+function projectSteps(ctx, found) {
+  const domain = prodDomain(ctx);
   return [
     "ブラウザで http://localhost:3001 を開く（127.0.0.1 ではなく localhost。リダイレクト URI と合わせる）",
-    "Integrations を開き、「Connect with Google」を押して、Search Console で認証済みのプロパティを持つ Google アカウントで同意する",
-    "プロジェクトに紐付けるプロパティを選ぶ",
-    "~/.config/comegin/setup/prod.conf に OPENSEO_GSC_CONNECTED=yes を書く（接続の有無は OpenSEO の DB の中にあり、このスクリプトからは確かめられない）",
+    found?.count > 1
+      ? `Domain が ${domain} のプロジェクトが ${found.count} 個ある。使うものを 1 つ決め、残りの Domain を消す（Project settings → General の Domain を空にして保存。プロジェクトを消すと保存済みの結果も消える）`
+      : `本番のプロジェクトを 1 つ用意する。既にあるプロジェクト（初回に自動でできる Default）を使うなら、左上のプロジェクト名の歯車（Project settings）→ General の Domain に ${domain} を入れて保存する。新しく作るなら、プロジェクトの一覧の「New project」で Name（例 ComeGin）と Domain ${domain} を入れる（https:// と www. は付けない）`,
+    "市場（location・language）は日本・日本語にする（list_projects の market が 2392/ja。キーワード調査の既定になる）",
+    "このプロジェクトで、続けて Search Console と GA4 に接続する（接続はプロジェクトごと。別のプロジェクトで接続しても、エージェントは読めない）",
+  ];
+}
+
+function gscConnectSteps() {
+  return [
+    "ブラウザで http://localhost:3001 を開き（127.0.0.1 ではなく localhost。リダイレクト URI と合わせる）、本番のドメインのプロジェクトを選ぶ",
+    "Project settings → Integrations の Search Console の「Connect with Google」を押して、Search Console で確認済みのプロパティを持つ Google アカウントで同意する",
+    "ドメインプロパティ sc-domain:comegin.com を選ぶ（「No properties available」なら setup/manual-steps.md の 7.4 のとおり、先にドメインプロパティを登録する）",
+    "同じコマンドを実行し直す（接続は OpenSEO の MCP で確かめる。設定に OPENSEO_GSC_CONNECTED を書く必要は無い）",
   ];
 }
 
@@ -177,10 +329,10 @@ function ga4ConnectSteps() {
     "本番の GA4 プロパティがまだ無ければ、先に middleware/ga4/README.md の 5 節のとおり作る（OpenSEO に接続するのは本番のプロパティだけ。開発用のプロパティは作らない）",
     "Google Cloud Console（https://console.cloud.google.com/）の Search Console と同じプロジェクトで「Google Analytics Admin API」と「Google Analytics Data API」を有効にする（済んでいれば飛ばす。Admin API が無効だと接続の画面にプロパティが出ない）",
     `同じ OAuth クライアント（Credentials の Web application）の Authorized redirect URI に ${GA4_REDIRECT_URI} を足す（${GSC_REDIRECT_URI} は残す。済んでいれば飛ばす）`,
-    "ブラウザで http://localhost:3001 を開き（127.0.0.1 ではなく localhost）、プロジェクトのダッシュボードか Project settings → Analytics の「Connect with Google」を押す",
+    "ブラウザで http://localhost:3001 を開き（127.0.0.1 ではなく localhost）、本番のドメインのプロジェクトの Project settings → Integrations（またはダッシュボード）の GA4 の「Connect with Google」を押す",
     "本番のプロパティを読める Google アカウントで、読み取りだけ（analytics.readonly）の同意をする（GSC の接続とは別に 1 回要る）。External のまま Testing なら、そのアカウントを Test users に足しておく",
     "本番のプロパティを選ぶ",
-    "~/.config/comegin/setup/prod.conf に OPENSEO_GA4_CONNECTED=yes を書く（接続の有無は OpenSEO の DB の中にあり、health にも出ないので、このスクリプトからは確かめられない）",
+    "同じコマンドを実行し直す（接続と、選んだプロパティが GA4_PROPERTY_ID と同じかを OpenSEO の MCP で確かめる。設定に OPENSEO_GA4_CONNECTED を書く必要は無い）",
   ];
 }
 
@@ -188,52 +340,85 @@ function ga4ConnectSteps() {
 // 契約
 // ---------------------------------------------------------------------------
 
-export async function check(ctx) {
-  const health = await readHealth(ctx);
-  if (!health) return { ok: false, notes: [`OpenSEO が ${BASE_URL} で応答しない`] };
-
+/** health の基本（起動・DB・認証なし・DataForSEO）。{ ok, notes } */
+function healthBasics(health) {
   const notes = [`OpenSEO ${health.version ?? "?"}（status: ${health.status}、authMode: ${health.authMode}）`, ...describeChecks(health).map((l) => `  ${l}`)];
   let ok = health.status === "ok" && health.authMode === "local_noauth" && health.checks?.database?.status === "ok";
   if (health.authMode !== "local_noauth") notes.push("authMode が local_noauth ではない（トンネルを張らない前提が崩れる）");
-
   if (health.checks?.dataforseo?.status !== "ok") ok = false;
+  return { ok, notes };
+}
+
+/** Google の環境変数（OAuth クライアントと BETTER_AUTH_SECRET）が要るのに揃っていないか */
+const googleClientMissing = (ctx, health) => !(yes(ctx.value("OPENSEO_SKIP_GSC")) && yes(ctx.value("OPENSEO_SKIP_GA4"))) && !googleConfigured(health);
+
+/** 段階 operate の確かめ（常駐・プロジェクト・接続）。{ ok, notes } */
+async function inspectOperate(ctx, health) {
+  const basics = healthBasics(health);
+  const residency = await inspectResidency(ctx);
+  const notes = [...basics.notes, ...residency.notes];
+  let ok = basics.ok && residency.ok;
+  if (googleClientMissing(ctx, health)) {
+    notes.push("Google の OAuth クライアントが OpenSEO の環境変数に無い（段階 google を先に済ませる）");
+    return { ok: false, notes };
+  }
+  const prod = await inspectProduction(ctx);
+  notes.push(...prod.notes);
+  ok &&= prod.ok;
+  if (!prod.ok) notes.push("足りないものは node setup/setup.mjs --target prod --phase google --only openseo が案内する（setup/manual-steps.md の 7.4〜7.6）");
+  return { ok, notes };
+}
+
+export async function check(ctx) {
+  const health = await readHealth(ctx);
+  if (!health) {
+    const notes = [`OpenSEO が ${BASE_URL} で応答しない`];
+    if (ctx.phase === "operate") notes.push(...(await inspectResidency(ctx)).notes);
+    return { ok: false, notes };
+  }
+  if (ctx.phase === "operate") return inspectOperate(ctx, health);
+
+  const { ok, notes } = healthBasics(health);
 
   if (!handlesGoogle(ctx)) {
     notes.push(GOOGLE_SKIPPED_IN_DEV);
     return { ok, notes };
   }
 
-  if (yes(ctx.value("OPENSEO_SKIP_GSC"))) {
-    notes.push("Search Console は使わない（OPENSEO_SKIP_GSC）");
-  } else if (!googleConfigured(health)) {
-    notes.push("Search Console の環境変数（Google の OAuth クライアントと BETTER_AUTH_SECRET）が揃っていない");
-    ok = false;
-  } else if (yes(ctx.value("OPENSEO_GSC_CONNECTED"))) {
-    notes.push("Search Console の接続は済みと申告されている（OPENSEO_GSC_CONNECTED。アプリの DB の中なので、ここからは確かめられない）");
-  } else {
-    notes.push("Search Console の接続（画面の操作）が済んだと申告されていない（OPENSEO_GSC_CONNECTED=yes）");
-    ok = false;
+  if (googleClientMissing(ctx, health)) {
+    notes.push("Search Console・GA4 の環境変数（Google の OAuth クライアントと BETTER_AUTH_SECRET）が揃っていない");
+    return { ok: false, notes };
   }
+  const prod = await inspectProduction(ctx);
+  notes.push(...prod.notes);
+  return { ok: ok && prod.ok, notes };
+}
 
-  if (yes(ctx.value("OPENSEO_SKIP_GA4"))) {
-    notes.push("GA4 は接続しない（OPENSEO_SKIP_GA4。analytics-reporter は GA4 を読めない）");
-  } else if (!googleConfigured(health)) {
-    notes.push("GA4 の環境変数（Search Console と同じ Google の OAuth クライアントと BETTER_AUTH_SECRET）が揃っていない");
-    ok = false;
-  } else if (yes(ctx.value("OPENSEO_GA4_CONNECTED"))) {
-    notes.push("GA4 の接続は済みと申告されている（OPENSEO_GA4_CONNECTED。health に ga4 の項目は無く、ここからは確かめられない）");
-  } else {
-    notes.push("GA4 の接続（画面の操作）が済んだと申告されていない（OPENSEO_GA4_CONNECTED=yes）");
-    ok = false;
+/** 段階 operate: 止まっていれば上げ直し、残りは警告だけ（止めない） */
+async function applyOperate(ctx) {
+  if (!(await ctx.commandExists("docker"))) throw new Error("docker が無い。Docker Engine（と Compose）を入れてから実行し直す");
+  const residency = await inspectResidency(ctx);
+  if (!residency.running) {
+    ctx.warn("OpenSEO のコンテナが動いていないので docker compose up -d で上げ直す（環境変数ファイルは変えない）");
+    await ensureStack(ctx, false);
   }
-  return { ok, notes };
+  const health = await readHealth(ctx);
+  if (!health) {
+    ctx.warn(`OpenSEO が ${BASE_URL} で応答しない。docker compose logs open-seo を見る（${DIR}）`);
+    return;
+  }
+  const r = await inspectOperate(ctx, health);
+  for (const n of r.notes) (r.ok ? ctx.log : ctx.warn)(n);
+  if (r.ok) ctx.log("常駐している（Docker の再起動の設定で上がる）。本番のプロジェクトと Google の接続も揃っている");
+  else ctx.warn("OpenSEO に足りないものがある（止めずに続ける）。onprem/README.md の「常駐させる（OpenSEO）」と setup/manual-steps.md の 7.4〜7.6");
 }
 
 export async function apply(ctx) {
+  if (ctx.phase === "operate") return applyOperate(ctx);
   if (!(await ctx.commandExists("docker"))) throw new Error("docker が無い。Docker Engine（と Compose）を入れてから実行し直す");
 
   const changed = [...syncFromConf(ctx), ...ensureGenerated(ctx)];
-  if (changed.length) ctx.log(`環境変数ファイルに書いた: ${changed.join(", ")}（${DIR}/.env。権限 600）`);
+  if (changed.length) ctx.log(`環境変数ファイルに書いた: ${changed.join(", ")}（${DIR} の環境変数ファイル。権限 600）`);
 
   await ensureStack(ctx, changed.length > 0);
   const health = await readHealth(ctx);
@@ -250,19 +435,18 @@ export async function apply(ctx) {
     return;
   }
 
-  const skipGsc = yes(ctx.value("OPENSEO_SKIP_GSC"));
-  const skipGa4 = yes(ctx.value("OPENSEO_SKIP_GA4"));
-  if (!(skipGsc && skipGa4) && !googleConfigured(health)) {
+  if (googleClientMissing(ctx, health)) {
     ctx.manual("google-oauth-client", "Search Console と GA4 用の Google の OAuth クライアントを作って設定に書く", googleClientSteps(ctx));
   }
 
-  if (skipGsc) ctx.log("Search Console は使わない設定（OPENSEO_SKIP_GSC）。接続は案内しない");
-  else if (!yes(ctx.value("OPENSEO_GSC_CONNECTED"))) ctx.manual("gsc-connect", "OpenSEO の画面で Google Search Console に接続する", gscConnectSteps());
-  else ctx.log("Search Console は接続済みと申告されている（OPENSEO_GSC_CONNECTED）");
+  const found = await findProject(ctx);
+  if (!found.project) ctx.manual("project", `OpenSEO に本番のドメイン（${found.domain}）のプロジェクトを 1 つだけ用意する`, projectSteps(ctx, found));
 
-  if (skipGa4) ctx.log("GA4 は接続しない設定（OPENSEO_SKIP_GA4）。接続は案内しない（analytics-reporter は GA4 を読めない）");
-  else if (!yes(ctx.value("OPENSEO_GA4_CONNECTED"))) ctx.manual("ga4-connect", "OpenSEO の画面で GA4（本番のプロパティ）に接続する", ga4ConnectSteps());
-  else ctx.log("GA4 は接続済みと申告されている（OPENSEO_GA4_CONNECTED）");
+  const prod = await inspectProduction(ctx);
+  for (const n of prod.notes) ctx.log(n);
+  if (prod.missing.gsc) ctx.manual("gsc-connect", "OpenSEO の画面で Google Search Console に接続する", gscConnectSteps());
+  if (prod.missing.ga4) ctx.manual("ga4-connect", "OpenSEO の画面で GA4（本番のプロパティ）に接続する", ga4ConnectSteps());
+  if (!prod.ok) ctx.warn("接続しているプロパティが設計と違う（上の行）。OpenSEO の Project settings → Integrations で選び直す");
 
-  ctx.log(`終わった。画面: ${BASE_URL}（認証なし。ループバックだけ）`);
+  ctx.log(`終わった。画面: ${BASE_URL}（認証なし。ループバックだけ）。常駐の確認は --phase operate で行う`);
 }

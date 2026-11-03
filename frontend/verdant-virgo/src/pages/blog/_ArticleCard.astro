@@ -16,7 +16,7 @@ interface Props {
 
 const { article, context, level = 'h3' } = Astro.props;
 const card = {
-  href: `/blog/${article.slug}`,
+  href: `/blog/${article.slug}/`,
   title: article.title,
   excerpt: article.description,
   date: formatJstDate(article.publishedAt),

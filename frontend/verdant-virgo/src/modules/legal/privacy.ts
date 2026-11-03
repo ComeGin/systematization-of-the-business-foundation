@@ -8,7 +8,7 @@ import type { SectionedLegalPage } from './types';
 
 export const privacyPolicy: SectionedLegalPage = {
   kind: 'sectioned',
-  path: '/legal/privacy',
+  path: '/legal/privacy/',
   breadcrumb: [{ label: 'ホーム', href: '/' }, { label: 'プライバシーポリシー' }],
   title: 'プライバシーポリシー',
   dates: ['制定日 【要記入】', '最終改定日 【要記入】'],

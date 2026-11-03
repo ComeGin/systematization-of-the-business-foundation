@@ -10,6 +10,6 @@ export const notFound = {
   // Mobile は全幅で縦積み
   buttons: [
     { label: 'トップページへ戻る', href: '/', variant: 'primary' },
-    { label: 'ブログを見る', href: '/blog', variant: 'outline' },
+    { label: 'ブログを見る', href: '/blog/', variant: 'outline' },
   ],
 } as const;

@@ -8,5 +8,5 @@ export const BOOKING_TEXT = {
     '予約の受付は、米国の事業者が提供する外部の予約サービスで行います。',
     'ご予約が成立すると、面談の予定をお知らせするために、お名前・メールアドレス・日時を Google カレンダーに送ります。',
   ],
-  privacyNote: { before: 'くわしくは', linkText: 'プライバシーポリシー', after: 'をご覧ください。', href: '/legal/privacy' },
+  privacyNote: { before: 'くわしくは', linkText: 'プライバシーポリシー', after: 'をご覧ください。', href: '/legal/privacy/' },
 } as const;

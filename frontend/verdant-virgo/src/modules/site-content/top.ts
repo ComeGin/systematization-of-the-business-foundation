@@ -312,7 +312,7 @@ export const TOP = {
     /** セクション末尾のリンク（CTA ではない） */
     pricingLink: {
       label: "料金の一覧を見る",
-      href: "/pricing",
+      href: "/pricing/",
     } satisfies LinkCopy,
   },
 

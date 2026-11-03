@@ -29,7 +29,7 @@ const careerSentences = [
 ] as const;
 
 export const about = {
-  path: "/about",
+  path: "/about/",
 
   // 5-2 パンくず
   breadcrumb: [{ label: "ホーム", href: "/" }, { label: "会社概要" }],
@@ -139,7 +139,7 @@ export const about = {
       // CTA ではないページ間のリンク（§6.3 の cta_id を持たない）。?from= はフォームの page_url に渡す（DD-02 5.3。2026-10-09 リード判断）
       {
         label: "お問い合わせ",
-        value: [link("無料相談フォーム", "/contact?from=/about")],
+        value: [link("無料相談フォーム", "/contact/?from=/about/")],
       },
       // 「法人番号」の行は置かない（10.1 の U11。法人成りは未定のため。2026-10-14 ユーザー判断）
       { label: "適格請求書発行事業者の登録番号", value: "【要記入】" },

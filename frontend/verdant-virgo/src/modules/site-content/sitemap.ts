@@ -26,7 +26,7 @@ const linksOf = (heading: string): NavLink[] => {
 };
 
 // 規約・ポリシーの列から、このページ自身を除く（Cookie 設定はページではないので linksOf が除く）
-const SELF = "/sitemap";
+const SELF = "/sitemap/";
 
 export const sitemapPage = {
   breadcrumb: [{ label: "ホーム", href: "/" }, { label: "サイトマップ" }],
@@ -37,7 +37,7 @@ export const sitemapPage = {
     {
       heading: "サービス",
       links: [
-        { label: "サービス一覧", href: "/services" },
+        { label: "サービス一覧", href: "/services/" },
         ...linksOf("サービス"),
       ],
     },
@@ -46,18 +46,18 @@ export const sitemapPage = {
       heading: "ComeGin について",
       links: [
         { label: "トップページ", href: "/" },
-        { label: "会社概要", href: "/about" },
-        { label: "無料相談", href: "/contact" },
+        { label: "会社概要", href: "/about/" },
+        { label: "無料相談", href: "/contact/" },
       ],
     },
     // 記事は 1 本ずつ並べない（一覧から辿れる）
     {
       heading: "ブログ",
       links: [
-        { label: "ブログ一覧", href: "/blog" },
+        { label: "ブログ一覧", href: "/blog/" },
         ...BLOG_CATEGORIES.map((category) => ({
           label: category.label,
-          href: `/blog/category/${category.slug}`,
+          href: `/blog/category/${category.slug}/`,
         })),
       ],
     },

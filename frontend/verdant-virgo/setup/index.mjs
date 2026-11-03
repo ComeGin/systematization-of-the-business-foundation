@@ -657,7 +657,7 @@ function gscSteps(domain) {
     "表示された TXT レコード（google-site-verification=…）を控える",
     `Route 53 のホストゾーン ${domain} に、名前は空（apex）、種類 TXT、値に控えた文字列（ダブルクォートで囲む）のレコードを足す。既に TXT がある場合は同じレコードに 1 行足す`,
     "数分待ってから Search Console の「確認」を押す",
-    "同じコマンドを実行し直す（DNS の TXT を読んで確かめる）。OpenSEO からの接続は openseo モジュール（OPENSEO_GSC_CONNECTED）",
+    "同じコマンドを実行し直す（DNS の TXT を読んで確かめる）。OpenSEO からの接続は openseo モジュール（OpenSEO の MCP で確かめる）",
   ];
 }
 

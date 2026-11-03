@@ -36,8 +36,7 @@ Parameters:
     Type: String
     Default: /404.html
     Description: >-
-      403 と 404 を割り当てる Astro の 404 ページ。TODO: frontend/verdant-virgo に 404 ページ（src/pages/404.astro）がまだ無い。
-      ビルドに含めるまでは、存在しないパスで 404 ページが返らない。
+      403 と 404 を割り当てる Astro の 404 ページ（frontend/verdant-virgo/src/pages/404.astro がビルドで 404.html になる）。
 
 Resources:
   # CloudFront から S3 への署名付きアクセス（SigV4）。バケットポリシーでこの OAC だけを許す。OAI は使わない。
@@ -54,13 +53,20 @@ Resources:
   # Astro はディレクトリ形式（既定。/about/ → about/index.html）でビルドされる。S3 の REST エンドポイントは
   # ディレクトリの index.html を補わないため、ビューアーのリクエストで URI に index.html を補う。
   # 既定ルートオブジェクト（/ → index.html）はディストリビューション側に設定する。
+  #
+  # URL の正規化（2026-11-04）: 正規の URL は末尾スラッシュ付き（canonical・sitemap・内部リンクと同じ。
+  # Astro の Astro.url.pathname が directory 形式で /foo/ になるため）。拡張子の無いスラッシュ無しの URL（/services など）は、
+  # それまで index.html を補って 200 を返しており、同じ内容が 2 つの URL で 200 になっていた（Google の重複 URL）。
+  # 301 でスラッシュ付きへ寄せる。クエリ（?cta=…&from=… など）はそのまま引き継ぐ（AWS の querystring の例と同じ連結）。
+  # 出典: https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls
+  #      https://developers.google.com/search/blog/2010/04/to-slash-or-not-to-slash
   RewriteIndexFunction:
     Type: AWS::CloudFront::Function
     Properties:
       Name: !Sub 'comegin-${EnvName}-rewrite-index'
       AutoPublish: true
       FunctionConfig:
-        Comment: Append index.html to directory-style URIs (Astro build.format = directory)
+        Comment: Append index.html to directory URIs and 301 slashless page URIs to the trailing-slash form
         Runtime: cloudfront-js-2.0
       FunctionCode: |
         function handler(event) {
@@ -68,8 +74,30 @@ Resources:
           var uri = request.uri;
           if (uri.endsWith('/')) {
             request.uri = uri + 'index.html';
-          } else if (uri.indexOf('.', uri.lastIndexOf('/')) === -1) {
-            request.uri = uri + '/index.html';
+            return request;
+          }
+          if (uri.indexOf('.', uri.lastIndexOf('/')) === -1) {
+            // オープンリダイレクトの防止: //host や /\host のまま Location に入れると、ブラウザが別ホストへの
+            // プロトコル相対 URL と読む（例 //2130706433 → //2130706433/）。続くスラッシュ・バックスラッシュを 1 つの / にまとめ、
+            // Location が必ず「/ ＋ スラッシュ以外の字」で始まるようにする
+            var path = '/' + uri.replace(/[\/\\]+/g, '/').replace(/^\/+/, '');
+            var qs = [];
+            for (var key in request.querystring) {
+              var item = request.querystring[key];
+              if (item.multiValue) {
+                item.multiValue.forEach(function (mv) { qs.push(key + '=' + mv.value); });
+              } else {
+                qs.push(key + '=' + item.value);
+              }
+            }
+            return {
+              statusCode: 301,
+              statusDescription: 'Moved Permanently',
+              headers: {
+                location: { value: path + '/' + (qs.length ? '?' + qs.join('&') : '') },
+                'cache-control': { value: 'public, max-age=3600' }
+              }
+            };
           }
           return request;
         }
