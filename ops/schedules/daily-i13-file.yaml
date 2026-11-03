@@ -1,7 +1,7 @@
 id: daily-i13-file
 description: "I-13。docs/proposals/ の draft の E-13 から GitHub にブランチ・コミット・PR を作る（エージェントは使わない。起票は決定論的な処理）"
 enabled: true
-cron: "0 8 * * *"
+cron: "30 5 * * *"
 kind: builtin
 agent: null
 builtin: i13-file

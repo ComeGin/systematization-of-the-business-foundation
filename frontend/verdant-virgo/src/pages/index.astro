@@ -49,11 +49,14 @@ import {
   TestimonialCard,
 } from '@/modules/marketing-ui';
 import { TAX_NOTE } from '@/modules/site-content/pricing';
+import { homeJsonLd } from '@/modules/site-content/organization';
 import { SEO } from '@/modules/site-content/seo';
 import { ctaHref, SERVICE_CARDS, SERVICE_ORDER, serviceCardPrices, type CtaCopy } from '@/modules/site-content/services';
 import { TOP } from '@/modules/site-content/top';
 
 const seo = SEO.top;
+// 会社名と和名（カメギン）を Google に伝える WebSite・Organization の構造化データ。トップだけに置く（§7.2）
+const jsonLd = homeJsonLd(Astro.site ?? Astro.url);
 const from = Astro.url.pathname;
 
 const hrefOf = (cta: CtaCopy) => ctaHref(cta, from);
@@ -93,6 +96,7 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} sourceDlOnPage motionZone="vivid">
+  <script slot="head" type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   {/* 1-1 告知バナー */}
   <AnnouncementBanner slot="announcement" badge={announcement.badge} text={announcement.desktopBody} shortText={announcement.mobileBody}>
     <CTAButton

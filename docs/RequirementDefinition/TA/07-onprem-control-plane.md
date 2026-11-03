@@ -136,7 +136,7 @@ flowchart LR
 - **取得の範囲はスケジュールの定義に固定して書く。** 期間と件数をエージェントに判断させない（ADR-05 の理由。実行のたびに範囲が変わると `E-13` の `evidence` が比較できなくなる）。
 - **同じ定期処理を重ねて起動しない。** 前回の実行が終わっていなければ次の起動を見送り、見送ったことを記録する。
 - **エージェントを使わない定期処理は、これまでどおり本番の n8n が行う**（ADR-05 の「決定論的な処理は n8n」は変わらない）。
-- **（2026-10-06）エージェントを使わず、監視アプリ自身が実行する定期処理もある（`kind: builtin`。`ops/schedules/*.yaml`）。** 実装済みは `heartbeat`（8 節）・`daily-silence-check`・`runlog-flush`（`E-15` の S3 への写し）・`daily-i13-file`（`I-13`）・`daily-miswrite-check`・`published-article-check`・`weekly-lighthouse`、そして **`n8n-export`**（`daily-n8n-export.yaml`。毎日 08:45。**`enabled: false`**）。
+- **（2026-10-06）エージェントを使わず、監視アプリ自身が実行する定期処理もある（`kind: builtin`。`ops/schedules/*.yaml`）。** 実装済みは `heartbeat`（8 節）・`daily-silence-check`・`runlog-flush`（`E-15` の S3 への写し）・`daily-i13-file`（`I-13`）・`daily-miswrite-check`・`published-article-check`・`weekly-lighthouse`、そして **`n8n-export`**（`daily-n8n-export.yaml`。毎日 06:15。**`enabled: false`**）。
 - **`n8n-export`（2026-10-06。TA-03 の 6 節の決着）。** 監視アプリのサーバー側が、**オンプレの本番の n8n の Public API**（`CONTROL_N8N_EXPORT_URL`。例 `http://127.0.0.1:5679`）でワークフローを読み、正規化して承認済み `main` のチェックアウトの JSON と比べ、差分があれば GitHub に PR を作る（`I-13` と同じ GitHub の資格情報。**作業ツリーには書かない**）。**API キー（`CONTROL_N8N_EXPORT_API_KEY`）は監視アプリのサーバー側の環境変数だけに置き、Claude Code（エージェント）の実行環境には渡さない**（許可リスト方式の `env` に入れない。エージェントに書き出しを担わせると、書き出しが作用の経路になる）。どちらかの変数が未設定ならジョブは `skipped` になる。**コミュニティ版の n8n ではキーのスコープを絞れず全権限になる**ため、有効化の前にユーザーが判断する（TA-04 の 9 節）。n8n の `workflow:read` で読むだけで、n8n には書かない（Git → n8n の自動インポートは行わない）。
 - **スケジュールの仕組み**（監視アプリのプロセスの中に持つか、OS のタイマーから監視アプリを呼ぶか）は実装時に決める（9 節）。前者は監視アプリが止まると定期実行も止まり、後者は OS の設定が監視アプリの外に増える。
 - **開発機が止まると、定期実行も止まる。** 止まったことはハートビートで知る（8 節）。止まっていた間の分を取り戻すかは、処理ごとに決める（観測の日次バッチは取得の範囲が固定されているため、欠けた日の分を後から実行できる）。

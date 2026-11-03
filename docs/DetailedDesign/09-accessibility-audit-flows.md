@@ -11,7 +11,7 @@
 
 ```mermaid
 flowchart LR
-    A["weekly-a11y<br/>builtin a11y<br/>月曜 05:45"] -->|".a11y/*.json を写す"| B[".a11y/<br/>作業ツリー"]
+    A["weekly-a11y<br/>builtin a11y<br/>月曜 01:15"] -->|".a11y/*.json を写す"| B[".a11y/<br/>作業ツリー"]
     B --> C["weekly-observe-a11y<br/>quality-checker 項目 6"]
     C -->|"QC-a11y-*"| D["E-12<br/>docs/audits/quality/"]
     D --> E["daily-propose<br/>proposal-writer"]
@@ -22,7 +22,7 @@ flowchart LR
 | 段 | 実行するもの | 入力 | 出力 | 定義 |
 |---|---|---|---|---|
 | 1 | 監視アプリの builtin `a11y`（エージェントを使わない） | 承認済みの `main` のチェックアウトの `frontend/verdant-virgo` | `.a11y/` 直下の `*.json`（作業ツリーへ写す） | `ops/schedules/weekly-a11y.yaml`、`backend/control-plane/src/builtin/a11y.ts` |
-| 2 | `agent/quality-checker` の項目 6「WCAG の機械検査」 | `.a11y/summary.json` | `E-12`（`source: quality`） | `ops/schedules/weekly-observe-a11y.yaml`（毎週月曜 06:30）、`.claude/agents/quality-checker.md` |
+| 2 | `agent/quality-checker` の項目 6「WCAG の機械検査」 | `.a11y/summary.json` | `E-12`（`source: quality`） | `ops/schedules/weekly-observe-a11y.yaml`（毎週月曜 02:00）、`.claude/agents/quality-checker.md` |
 | 3 | `agent/proposal-writer` | `E-12` の `QC-a11y-*` | `E-13`（`change.kind: accessibility` など） | `ops/schedules/daily-propose.yaml`、DD-06 の 1.2 |
 | 4 | 人（`R1`・`R2`） | `E-13` の PR | `E-14`、修正のマージと配信 | BA-04 の 3b、AA-04 の 2.2 |
 
@@ -30,7 +30,7 @@ flowchart LR
 
 | 項目 | 値 |
 |---|---|
-| 起動 | 毎週月曜 05:45（cron `45 5 * * 1`）。`enabled: false` で始める |
+| 起動 | 毎週月曜 01:15（cron `15 1 * * 1`。2026-11-03 に 05:45 から改めた）。`enabled: false` で始める |
 | `after` | **持たない**（2026-10-18 にリードが決定。計画の案 `after: [weekly-lighthouse]` から変えた） |
 | 実行するコマンド | `pnpm a11y:ci`（`astro build && playwright test`）。ビルドから検査までを 1 本で行う |
 | 実行元 | 承認済みの `main` のチェックアウト（`CONTROL_MAIN_CHECKOUT`）の `frontend/verdant-virgo`（ADR-18） |
@@ -43,7 +43,7 @@ flowchart LR
 1. Lighthouse のしきい値割れや揺れで `weekly-lighthouse` が `failure` になると、`after` で結んだ a11y の検査まで止まる。a11y の観測は Lighthouse の成否と関係が無い。
 2. `dist` を配信して測るだけにすると、Lighthouse のビルドが失敗した週に、**古い `dist` を黙って測る**。`pnpm a11y:ci` が自分でビルドすれば、測るのは常にその時点の `main` である。
 
-**重ならないことは cron の時刻で保つ。** `weekly-lighthouse` は 05:00 に始まり、`timeout_sec` 1800 で 05:30 までに終わる。`weekly-a11y` は 05:45 に始まる。同時に走らせると機械の負荷で Lighthouse の performance が 0.3 以上ぶれる（`docs/BasicDesign/DesignSpec/website/03-handoff.md` の 11.7、TA-05 の 7 節）。
+**重ならないことは cron の時刻で保つ。** `weekly-lighthouse` は 00:30 に始まり、`timeout_sec` 1800 で 01:00 までに終わる。`weekly-a11y` は 01:15 に始まる（2026-11-03 に 05:00・05:45 から改めた。定期実行は 0〜8 時に収める）。同時に走らせると機械の負荷で Lighthouse の performance が 0.3 以上ぶれる（`docs/BasicDesign/DesignSpec/website/03-handoff.md` の 11.7、TA-05 の 7 節）。
 
 ### 2.1 結果の当てはめ
 
@@ -66,7 +66,7 @@ DD-01 の 4.2 の失敗分類の語彙で、builtin の結果を次のとおり�
 
 | 項目 | 値 |
 |---|---|
-| 起動 | 毎週月曜 06:30（`ops/schedules/weekly-observe-a11y.yaml`。`after: [weekly-a11y]`、`enabled: false`） |
+| 起動 | 毎週月曜 02:00（`ops/schedules/weekly-observe-a11y.yaml`。`after: [weekly-a11y]`、`enabled: false`） |
 | エージェント | `agent/quality-checker`。**項目 6 だけを行う**（プロンプトで指定する） |
 | 読むもの | **`frontend/verdant-virgo/.a11y/summary.json` だけ**（version 1。形の正本は `frontend/verdant-virgo/e2e/a11y/merge.ts` の冒頭のコメント）。Bash が無いので Read で読む。`.a11y/` の直下に写るのは `results.json` と `summary.json` だけで、ページごとの結果（`pages/`）は作業ツリーに写らない |
 | `E-12` の単位 | サイト全体で 1 ファイル（`target_ref: "E-05 url_path=*"`）。**項目 6 はほかの項目と同じ `E-12` に混ぜない**（`fetch.outcome` がファイル単位のため）。本文に違反のあったページ（ルート × 端末）とルールの一覧を書く |

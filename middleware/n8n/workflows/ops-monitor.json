@@ -258,14 +258,14 @@
             {
               "field": "days",
               "daysInterval": 1,
-              "triggerAtHour": 9,
+              "triggerAtHour": 7,
               "triggerAtMinute": 10
             }
           ]
         }
       },
       "id": "67f72138-fcea-5e8b-a5f5-b25720f2eeb8",
-      "name": "毎日 09:10",
+      "name": "毎日 07:10",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.4,
       "position": [
@@ -605,7 +605,7 @@
         ]
       ]
     },
-    "毎日 09:10": {
+    "毎日 07:10": {
       "main": [
         [
           {

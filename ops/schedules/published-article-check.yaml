@@ -1,7 +1,7 @@
 id: published-article-check
-description: "公開された記事の確認。本番の Strapi を読み、前回から公開された記事があればビルドと計測を起こす（TA-07 の 3.5・7 節）。確認の間隔は暫定"
+description: "公開された記事の確認。本番の Strapi を読み、前回から公開された記事があればビルドと計測を起こす（TA-07 の 3.5・7 節）。確認の間隔は暫定。夜間〈0〜8 時〉に 1 回だけ（2026-11-03）"
 enabled: true
-cron: "0 */6 * * *"
+cron: "0 0 * * *"
 kind: builtin
 agent: null
 builtin: published-article-check

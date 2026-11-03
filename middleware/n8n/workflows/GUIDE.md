@@ -33,7 +33,7 @@ Chatwoot ──(Webhook)──▶  I-12  ──(顧客の最初の発言)──�
 I-18 … 将来用の骨格（何もしない。公開しない）
 
 定期実行の 3 本（スケジュール。どれも ops_settings のスイッチが true のときだけ動く。**公開は人が確かめてから**）
-週次 問い合わせの棚卸し ─(月曜 09:00)─▶ Chatwoot の API を読む ─▶ I-21 通知（lead。取得の失敗は ops）
+週次 問い合わせの棚卸し ─(月曜 07:00)─▶ Chatwoot の API を読む ─▶ I-21 通知（lead。取得の失敗は ops）
 n8n スケジュール実行のハートビート ─(5 分ごと)─▶ CloudWatch に PutMetricData（本番だけ有効にする）
 運用監視（開発だけ）─(5 分ごと・毎日)─▶ OpenSEO の health・sandbox-tls の期限 ─▶ I-21 通知（ops。状態が変わったときだけ）
 ```
@@ -221,7 +221,7 @@ JSON の中の「呼び出し先」は、書き出し元の n8n のワークフ�
 | I-11・I-12・I-19 | **Save successful production executions** が **Do not save** | 実行履歴にメールアドレスが残らないようにするため |
 | I-21 | **Timeout Workflow** がオンで 10 秒 | 通知が詰まっても顧客対応を止めないため |
 | 定期実行の 3 本 | **Save successful production executions** が **Do not save** | 5 分ごとの実行が履歴を埋めないため。棚卸しは Chatwoot の会話の抜粋が履歴に残らないようにするため |
-| すべて | **Timezone** が `Asia/Tokyo` | 時刻の表示と自動削除の時刻（03:00）・棚卸しの月曜 09:00 のため |
+| すべて | **Timezone** が `Asia/Tokyo` | 時刻の表示と自動削除の時刻（03:00）・棚卸しの月曜 07:00 のため |
 
 > 確認の間は、成功した実行の記録が残らないので、成功を画面で見られない。**確かめるときだけ** I-11・I-12 を **Save** にし、**終わったら Do not save に戻す**（戻し忘れると、実行履歴にメールアドレスが残る）。
 
@@ -340,7 +340,7 @@ provision・この手順書のどちらでも、**定期実行の 3 本は公開
 
 | ワークフロー | 動かす前に | 動いたことの確かめ方 |
 |---|---|---|
-| 週次 問い合わせの棚卸し | `inventoryEnabled=true`、資格情報 `Chatwoot API`、開発は中継（3100）。**月曜 09:00 を待たず**、ワークフローを開いて **Execute workflow**（手動実行）で試せる | 件数と `#番号` が MailHog のメールの「内訳」に出る。**氏名・メール・本文が無いこと**。0 件なら何も届かない（意図どおり） |
+| 週次 問い合わせの棚卸し | `inventoryEnabled=true`、資格情報 `Chatwoot API`、開発は中継（3100）。**月曜 07:00 を待たず**、ワークフローを開いて **Execute workflow**（手動実行）で試せる | 件数と `#番号` が MailHog のメールの「内訳」に出る。**氏名・メール・本文が無いこと**。0 件なら何も届かない（意図どおり） |
 | 運用監視 | `opsMonitorEnabled=true`。開発の OpenSEO と中継（3001）が動いていること | OpenSEO を止めて 5 分待つと `[comegin] ops: ops-monitor:9 ng` が **1 通だけ**届く。戻すと `ok` が 1 通 |
 | n8n スケジュール実行のハートビート | `heartbeatEnabled=true`（**本番だけ**。開発は動かさない。値は小文字の `true` だけ。文字列で大文字小文字を区別して厳密に比べるので、`True` や空白入りは無効）、IAM ユーザーに `PutMetricData` の権限（`cloud/` のデプロイ後）、名前空間・メトリクス名の綴りが IAM の条件と同じ。公開の前に **Execute workflow** で 1 回試す | CloudWatch の `ComeGin/OnpremN8n` の `ScheduleHeartbeat` が 5 分ごとに 1 件。止めると 15 分でアラーム。**成功した実行は Executions に残らない**（`saveDataSuccessExecution: none`）ので、一覧が空でも正常。手で動かしたときの結果の見分け方は `cloud/README.md` の 4.10 |
 

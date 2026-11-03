@@ -17,9 +17,9 @@
 | `I-19-email-match.json` | `I-19` Chatwoot と Mautic の email 突合 | サブワークフロー（`I-12` から呼ばれる） | 動作確認済み（Mautic の応答はピン留め）・未公開 |
 | `I-21-sns-notify.json` | `I-21` n8n → Amazon SNS（開発は MailHog） | サブワークフロー（`I-11` `I-12` と監視から呼ばれる） | 動作確認済み（配信ノードはピン留め）・未公開 |
 | `I-18-posthog-writeback.json` | `I-18` Mautic → PostHog の書き戻し | Webhook の骨格 | **前提待ち。何も送信しない骨格で、有効化しない**（下の「I-18」） |
-| `weekly-inquiry-inventory.json` | 週次 問い合わせの棚卸し（TA-03 の週次。連携点の番号なし） | スケジュール（毎週月曜 09:00） | 動作確認済み（Chatwoot の応答はピン留め）・未公開。`inventoryEnabled` が `true` のときだけ動く |
+| `weekly-inquiry-inventory.json` | 週次 問い合わせの棚卸し（TA-03 の週次。連携点の番号なし） | スケジュール（毎週月曜 07:00。2026-11-03 に 09:00 から改めた） | 動作確認済み（Chatwoot の応答はピン留め）・未公開。`inventoryEnabled` が `true` のときだけ動く |
 | `n8n-schedule-heartbeat.json` | n8n のスケジュール実行のハートビート（TA-05 の項目 3） | スケジュール（5 分ごと） | 動作確認済み（AWS への送信は未実施・署名と本文はローカルで確認）・未公開。`heartbeatEnabled` が `true` のときだけ動く（**本番だけ**） |
-| `ops-monitor.json` | 運用監視（TA-05 の項目 9・5。**開発環境だけ**） | スケジュール（5 分ごと・毎日 09:10） | 動作確認済み・未公開。`opsMonitorEnabled` が `true` のときだけ動く |
+| `ops-monitor.json` | 運用監視（TA-05 の項目 9・5。**開発環境だけ**） | スケジュール（5 分ごと・毎日 07:10） | 動作確認済み・未公開。`opsMonitorEnabled` が `true` のときだけ動く |
 
 呼び出しの関係:
 
@@ -27,7 +27,7 @@
 Mautic ──Webhook──▶ I-11 ──(顧客からの要求だけ)──────────▶ I-21 ──▶ SNS（開発は MailHog）
 Chatwoot ─Webhook─▶ I-12 ──(会話の開始＝顧客の最初の公開メッセージ)─▶ I-21
                        └──(email があるとき)────────────▶ I-19 ──▶ Mautic の API ／ contact_link
-週次の棚卸し ─(月曜 09:00)─▶ Chatwoot の API ─▶ I-21（lead。取得の失敗・回復は ops）
+週次の棚卸し ─(月曜 07:00)─▶ Chatwoot の API ─▶ I-21（lead。取得の失敗・回復は ops）
 運用監視（開発）─(5 分・毎日)─▶ OpenSEO の health・sandbox-tls の期限 ─▶ I-21（ops。状態が変わったときだけ）
 ハートビート ─(5 分ごと)─▶ CloudWatch の PutMetricData（I-21 は通らない。判定は CloudWatch のアラーム）
 ```
@@ -153,7 +153,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 ### 週次 問い合わせの棚卸し（`weekly-inquiry-inventory.json`）
 
 - **目的**: Chatwoot の「未割り当て」（`open` で担当者がいない）会話を毎週数え、`R3` に知らせる（TA-03 の週次、BA-04 の PDCA の週次）。**エージェントを使わない決定論的な処理として本番の n8n に残す**（ADR-17）。**読み取りだけ**で、顧客への返信・社内メモの作成はしない。
-- **トリガー**: 毎週月曜 09:00（JST。cron `0 9 * * 1`）。
+- **トリガー**: 毎週月曜 07:00（JST。cron `0 7 * * 1`）。**2026-11-03 に 09:00 から改めた**（定期実行は 0〜8 時〈JST〉に収めるというユーザーの指示。業務の始まる前に通知が届く）。
 - **「未対応」の定義（`R3` の決定。2026-10-06）**: `status=open` で担当者のいない会話だけ。担当者がいる会話（返信待ちを含む）、`pending`（ボットの対応中）・`snoozed`・`resolved` は数えない。0 件のときは通知しない。
 - **条件**: `ops_settings` の `inventoryEnabled` が `true`。行が無い・それ以外なら何もしない。
 - **中身**: Chatwoot の `GET /api/v1/accounts/{id}/conversations`（`status=open`・`assignee_type=unassigned`・`sort_by=waiting_since_asc` の 1 回）。件数は応答の `meta.unassigned_count`（全ページの総数）、最も長い待ちは 1 ページ目（25 件）の `waiting_since` の最小値、`display_id` は応答の `id`（先頭 10 件）。ページは進めない（`R3` の決定）。
@@ -178,7 +178,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$N8N/webhook/chatwoot-event" 
 - **目的**: 開発環境のサービスのうち、止まっても誰も困らないまま改善ループを止めるものを見張る（TA-05 の項目 9・5）。**本番には取り込まない**（OpenSEO も `sandbox-tls` も本番に無い）。
 - **条件**: `ops_settings` の `opsMonitorEnabled` が `true`。状態が変わったとき（`ok ↔ ng`）だけ `I-21` の `ops` が 1 通出す（無料枠を守る。DD-04 の 8.5）。
 - **項目 9（5 分ごと）**: `GET http://host.docker.internal:3001/api/health`（中継は `GET /api/health` だけを通す）。`ng` は、つながらない・HTTP エラー・`status` が `ok` 以外。`kind=ops-monitor:9`。通知の「内訳」には `checks` のうち `error` の項目名（`dataforseo`・`database` など）だけを載せる。**GSC の未接続は見ない**（項目 10 はエージェントの `E-12`）。
-- **項目 5（毎日 09:10）: `sandbox-tls` の証明書の期限。** `middleware/n8n/compose.yml` が、`sandbox-certs` の作った証明書のうち**公開部分（`*.crt`）だけ**を `/tls/public` にコピーし、n8n には **`public/` だけを読み取り専用で `/home/node/.n8n-files/sandbox-tls` にマウント**する（秘密鍵は渡さない）。n8n 2.0 以降 `Read/Write Files from Disk` は既定で `~/.n8n-files` の下しか読めないため。ワークフローはそれを読み、**Code ノード（外部ランナー。`require` を使わず `Buffer` だけ）で X.509 の `notAfter`（DER の連続する 2 つの UTCTime の 2 つ目）を取り出し**、4 つの葉の証明書の最短の残り日数を出す。**残り 30 日未満、または 1 つも読めないときは `ng`**（`kind=ops-monitor:5`）。30 日は案。実機で 4 つとも読めて、`2028-12-19`（残り 804 日）と出ることを確認した。`ng` のときは `sandbox-tls` ボリュームを作り直す（`middleware/n8n/README.md` の「証明書の更新」）。
+- **項目 5（毎日 07:10。2026-11-03 に 09:10 から改めた）: `sandbox-tls` の証明書の期限。** `middleware/n8n/compose.yml` が、`sandbox-certs` の作った証明書のうち**公開部分（`*.crt`）だけ**を `/tls/public` にコピーし、n8n には **`public/` だけを読み取り専用で `/home/node/.n8n-files/sandbox-tls` にマウント**する（秘密鍵は渡さない）。n8n 2.0 以降 `Read/Write Files from Disk` は既定で `~/.n8n-files` の下しか読めないため。ワークフローはそれを読み、**Code ノード（外部ランナー。`require` を使わず `Buffer` だけ）で X.509 の `notAfter`（DER の連続する 2 つの UTCTime の 2 つ目）を取り出し**、4 つの葉の証明書の最短の残り日数を出す。**残り 30 日未満、または 1 つも読めないときは `ng`**（`kind=ops-monitor:5`）。30 日は案。実機で 4 つとも読めて、`2028-12-19`（残り 804 日）と出ることを確認した。`ng` のときは `sandbox-tls` ボリュームを作り直す（`middleware/n8n/README.md` の「証明書の更新」）。
 - **確認したこと**: 項目 9 は、n8n のコンテナから中継経由で OpenSEO の health に実際に届き、応答の形（`status`・`checks`）が想定どおりであること、`ng`（`dataforseo` が `error`）で 1 通・`ok` に戻して 1 通出ることを確認した。項目 5 は実機の証明書で `ok` を確認した。
 
 ### I-18 Mautic から PostHog への書き戻し（**前提待ち**）

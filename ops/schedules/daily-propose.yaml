@@ -1,7 +1,7 @@
 id: daily-propose
 description: "観測 4 本の完了を待ち、起票前チェック 15 項目を通した改善提案だけを E-13（draft）として起票する"
 enabled: true
-cron: "0 7 * * *"
+cron: "30 4 * * *"
 kind: agent
 agent: proposal-writer
 builtin: null

@@ -1,7 +1,7 @@
 id: daily-observe-conversations
 description: "本番の Chatwoot の未解決の会話を一次切り分けし、社内メモと集計（E-12 の source: conversations）を残す（日次の観測 4 本のうちの 1 本。顧客への送信は許可しない）"
 enabled: true
-cron: "0 6 * * *"
+cron: "0 4 * * *"
 kind: agent
 agent: conversation-triage
 builtin: null
