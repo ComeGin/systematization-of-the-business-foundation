@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useFollow } from "@/components/common/navigation";
 import { JobDetailHelp, JobsListHelp } from "@/components/jobs/help";
 import { MiswriteCandidatesHelp } from "@/components/miswrite-candidates/help";
+import { SetupStatusHelp } from "@/components/setup-status/help";
 import { RunDetailHelp, RunsListHelp, RunsNewHelp } from "@/components/runs/help";
 import { authClient } from "@/lib/auth-client";
 import { APP_LAYOUT_LABELS } from "./labels";
@@ -22,6 +23,7 @@ const HELP: Record<HelpId, React.ReactNode> = {
   "jobs-list": <JobsListHelp />,
   "job-detail": <JobDetailHelp />,
   "miswrite-candidates": <MiswriteCandidatesHelp />,
+  "setup-status": <SetupStatusHelp />,
 };
 
 /**

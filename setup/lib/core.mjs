@@ -3,13 +3,24 @@
 // モジュールの形（契約）:
 //   export const meta = { id, title, targets: ["dev"] | ["dev", "prod"], phases: ["<段階>", ...], after: ["<id>", ...] };
 //     phases は prod で動くモジュールだけが持つ（本番の段階。setup/lib/runner.mjs の PROD_PHASES。2 つ以上なら段階ごとに 1 回ずつ呼ばれる）
-//   export async function check(ctx)  // 読むだけ。用意できているかを確かめる。{ ok: boolean, notes: string[] } を返す
+//   export async function check(ctx)  // 読むだけ。用意できているかを確かめる。{ ok: boolean, notes: string[], items?: StatusItem[] } を返す
+//     items は任意（監視アプリの「設定の状況」が読む。親スクリプトの --json で { moduleId, phase, ok, notes, items, error, skipped } に載る）。
+//     返さなければ [] として扱い、ok と notes だけから手順に当てはめる。StatusItem の形:
+//       { key: "cloud.sns-subscription", step: "P2", level: "ok"|"action"|"warn"|"manual"|"unknown", title, evidence, stopId? }
+//       key はカタログの probe が参照する名前、step は手順の番号（P1〜P15・R1 など）、title と evidence に秘密値を入れない（出す前に mask を通す）
 //   export async function apply(ctx)  // 何度実行しても同じ結果になる。終わったら何も返さない
 //
 // ctx.phase: 今の本番の段階の id（dev では null）。phases を 2 つ以上持つモジュールは、これで中身を切り替える
 // ctx.siteRouted: 公開サイト（Astro）が本番のドメインで Route 53 から配信されているか。段階 google・operate のときだけ true
 //   （google は配信の後に --phase google で明示したときだけ動く）。公開サイトに届かないと進められない手順（公開サイトの測定 ID と
 //   Search Console の所有権）は、これが false なら飛ばす（dev は公開サイトが AWS に無いので常に false）
+//
+// ctx.WORKTREE: 追跡しないファイル（cloud の samconfig など）と突き合わせの基点になる作業ツリー。環境変数 SETUP_WORKTREE
+//   （絶対パス）があればそれ、無ければ REPO。コードを承認済みの main のチェックアウトから動かすとき（監視アプリが子プロセスで --check する）は、
+//   REPO がチェックアウトを指し、WORKTREE が人の作業ツリーを指す
+// ctx.checkOnly: --check のとき true。このとき ctx.state.set は「check の中で状態を書こうとした: <key>」を投げる
+//   （check は読むだけ。確かめた結果を残したいときは、状態ではなく check の戻り値の items に載せる。ctx.writeEnvFile も同じく
+//   「check の中で環境変数ファイルを書こうとした: <パス>」を投げる）
 //
 // 秘密値の扱い:
 //   - 秘密値は ctx.state.set(key, value, { secret: true }) で状態ファイルに置く。ctx.log などの出力からは自動で伏せる
@@ -20,7 +31,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // W はモジュールのパスの基点、REPO はリポジトリのルート。2026-10-11 に MarketingDepartment/WebsiteOperations の下から
@@ -101,7 +112,9 @@ export function loadConfig(target, path) {
 }
 
 export class State {
-  constructor(target) {
+  /** readOnly が true なら set は何も書かずに例外を投げる（--check のとき。check が状態ファイルを書き換えないため） */
+  constructor(target, { readOnly = false } = {}) {
+    this.readOnly = readOnly;
     ensurePrivateDir(join(CONFIG_DIR, "setup"));
     this.file = join(CONFIG_DIR, "setup", `${target}.state.json`);
     this.data = existsSync(this.file) ? JSON.parse(readFileSync(this.file, "utf8")) : { values: {}, secrets: [] };
@@ -114,6 +127,7 @@ export class State {
     return this.data.values[key] !== undefined && this.data.values[key] !== "";
   }
   set(key, value, { secret = false } = {}) {
+    if (this.readOnly) throw new Error(`check の中で状態を書こうとした: ${key}`);
     this.data.values[key] = value;
     if (secret) {
       registerSecret(value);
@@ -261,16 +275,31 @@ export async function waitForHttp(url, { timeoutMs = 180_000, intervalMs = 3_000
 // ctx（モジュールに渡すもの）
 // ---------------------------------------------------------------------------
 
-export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" || phase === "operate" }) {
+/** 作業ツリー（ctx.WORKTREE）。SETUP_WORKTREE（絶対パス）があればそれ、無ければ REPO。相対パスは取り違えやすいので止める */
+export function resolveWorktree(env = process.env) {
+  const v = env.SETUP_WORKTREE;
+  if (v === undefined || v === "") return REPO;
+  if (!isAbsolute(v)) throw new Error("SETUP_WORKTREE は絶対パスで指定する");
+  return resolve(v);
+}
+
+/** --check の ctx.writeEnvFile。check は読むだけの契約なので、呼ばれたら書かずに止める（値は出さず、パスだけ） */
+function writeEnvFileInCheck(path) {
+  throw new Error(`check の中で環境変数ファイルを書こうとした: ${relative(REPO, path)}`);
+}
+
+export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" || phase === "operate", checkOnly = false }) {
   const prefix = `  [${moduleId}]`;
   return {
     target,
     phase, // 本番の段階（冒頭の説明）
     siteRouted, // 公開サイトが Route 53 から配信されているか（冒頭の説明）
+    checkOnly, // --check のとき true（冒頭の説明）
     conf, // ユーザーの設定（~/.config/comegin/setup/<target>.conf）
     state, // スクリプトが作った値（State）
     W,
     REPO,
+    WORKTREE: resolveWorktree(), // 追跡しないファイルと突き合わせの基点（冒頭の説明）
     CONFIG_DIR,
     log: (msg) => console.log(mask(`${prefix} ${msg}`)),
     warn: (msg) => console.error(mask(`${prefix} ! ${msg}`)),
@@ -279,7 +308,7 @@ export function createContext({ target, conf, state, moduleId, phase = null, sit
     commandExists,
     waitForHttp,
     readEnvFile,
-    writeEnvFile,
+    writeEnvFile: checkOnly ? writeEnvFileInCheck : writeEnvFile, // --check では書かずに例外にする
     randomSecret,
     /** 設定か状態から値を取る。どちらにも無ければ undefined */
     value: (key) => conf[key] || state.get(key),

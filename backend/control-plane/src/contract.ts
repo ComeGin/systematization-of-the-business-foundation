@@ -130,6 +130,54 @@ export interface ManualRunAccepted {
   accepted: boolean;
 }
 
+/**
+ * 設定の状況（setup/status の手順の一覧を、本番の状態に当てた結果）の判定。
+ * ok=済み／action=人が対応する／warn=警告／manual=自動では確かめられない（申告・判断を含む）／unknown=確かめられなかった
+ */
+export type SetupStatusLevel = "ok" | "action" | "warn" | "manual" | "unknown";
+
+export interface SetupStatusItemView {
+  id: string;
+  title: string;
+  who: string;
+  kind: string;
+  level: SetupStatusLevel;
+  /** 根拠（秘密値・個人情報を含まない短い文） */
+  evidence: string;
+  /** 設定スクリプトが止まるときの id（setup/manual-steps.md の早見表で引ける） */
+  stopId: string | null;
+  docs: { file: string; heading: string }[];
+  checkedAt: string | null;
+}
+
+export interface SetupStatusStepView {
+  id: string;
+  title: string;
+  level: SetupStatusLevel;
+  items: SetupStatusItemView[];
+}
+
+export interface SetupStatusView {
+  /** false なら steps は空で、reason に「本番の監視アプリだけで動く」など */
+  enabled: boolean;
+  /** カタログを読めない・設定が無いなど（値なし） */
+  reason: string | null;
+  checkedAt: string | null;
+  nextCheckAt: string | null;
+  running: boolean;
+  counts: Record<SetupStatusLevel, number>;
+  /** 直近の知らせの送信の失敗（種類だけ） */
+  notifyError: string | null;
+  steps: SetupStatusStepView[];
+}
+
+/** 手順書（Markdown）の 1 節。 */
+export interface SetupDocSection {
+  file: string;
+  heading: string;
+  markdown: string;
+}
+
 export interface ControlPlane {
   /** スケジューラとハートビートを開始する（CONTROL_SCHEDULER_ENABLED=false ならハートビートと写しの再送だけ）。冪等。 */
   start(): Promise<void>;
@@ -141,6 +189,12 @@ export interface ControlPlane {
   getRun(runId: Ulid): Promise<RunRecord | null>;
   listJobs(): Promise<JobStatus[]>;
   listMiswriteCandidates(): Promise<MiswriteCandidate[]>;
+  /** 設定の状況（直近の確認結果）。無効のときは enabled=false で steps は空。 */
+  getSetupStatus(): Promise<SetupStatusView>;
+  /** 設定の状況の確認を今すぐ始める。完了を待たずに返す。確認中なら accepted=false。 */
+  refreshSetupStatus(): Promise<{ accepted: boolean }>;
+  /** カタログの docs に現れる手順書の 1 節。許可されないファイル・見つからない見出しは null。 */
+  readSetupDoc(file: string, heading: string): Promise<SetupDocSection | null>;
 }
 
 /**

@@ -358,6 +358,18 @@ describe("State", () => {
   });
 
   describe("異常系", () => {
+    it("入力: readOnly の State は set が「check の中で状態を書こうとした」を投げ、ファイルも内容も変えない", () => {
+      const writable = new core.State("dev");
+      writable.set("KEEP", "1");
+      const before = readFileSync(writable.file, "utf8");
+      const s = new core.State("dev", { readOnly: true });
+      expect(() => s.set("NEW", "x")).toThrow("check の中で状態を書こうとした: NEW");
+      expect(() => s.set("KEEP", "2", { secret: true })).toThrow("check の中で状態を書こうとした: KEEP");
+      expect(s.get("KEEP")).toBe("1");
+      expect(s.has("NEW")).toBe(false);
+      expect(readFileSync(s.file, "utf8")).toBe(before);
+    });
+
     it("入力: 状態ファイルが JSON として壊れていれば例外にし、空の状態で上書きしない（作った値を失わない）", () => {
       mkdirSync(stateDir(), { recursive: true });
       const file = join(stateDir(), "dev.state.json");
@@ -753,6 +765,17 @@ describe("createContext", () => {
       for (const fn of ["http", "run", "commandExists", "waitForHttp", "readEnvFile", "writeEnvFile", "randomSecret"]) expect(ctx[fn]).toBe(core[fn]);
     });
 
+    it("入力: ctx.WORKTREE は SETUP_WORKTREE があればその絶対パス、無い・空なら REPO。checkOnly は既定 false で渡した値になる", () => {
+      vi.stubEnv("SETUP_WORKTREE", "");
+      expect(make().ctx.WORKTREE).toBe(core.REPO);
+      vi.stubEnv("SETUP_WORKTREE", "/work/tree");
+      expect(make().ctx.WORKTREE).toBe("/work/tree");
+      expect(core.resolveWorktree({})).toBe(core.REPO);
+      expect(make().ctx.checkOnly).toBe(false);
+      const state = new core.State("dev");
+      expect(core.createContext({ target: "prod", conf: {}, state, moduleId: "m", checkOnly: true }).checkOnly).toBe(true);
+    });
+
     it("ctx.log はモジュールの id を前に付け、秘密値を伏せて標準出力に出す", () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       const { ctx, state } = make();
@@ -787,6 +810,12 @@ describe("createContext", () => {
   });
 
   describe("異常系", () => {
+    it("入力: SETUP_WORKTREE が相対パスなら createContext も resolveWorktree も止める", () => {
+      vi.stubEnv("SETUP_WORKTREE", "relative/dir");
+      expect(() => core.resolveWorktree()).toThrow("SETUP_WORKTREE は絶対パスで指定する");
+      expect(() => make()).toThrow("SETUP_WORKTREE は絶対パスで指定する");
+    });
+
     it("空入力: ctx.require は値が無ければ、キー名と書く場所を添えて止める", () => {
       const { ctx } = make({ ADMIN_EMAIL: "a@example.com" });
       expect(() => ctx.require("MAUTIC_CLIENT_ID")).toThrow("MAUTIC_CLIENT_ID が無い。~/.config/comegin/setup/dev.conf に書く");

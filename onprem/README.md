@@ -147,6 +147,8 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 | `next-js-prod:checkout` | `CONTROL_MAIN_CHECKOUT` が無い・作業ツリーと同じ・`origin/main` と違うコミット | `git -C <作業ツリー> fetch origin && git -C <チェックアウト> checkout --detach origin/main`（setup は git を書き換えない。`setup/manual-steps.md` の 6 節） |
 | `next-js-prod:build` | `backend/control-plane/dist/`・`frontend/next-js/.next/` が無い、またはチェックアウトを動かす前のビルド | チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（next-js は control-plane の `dist` を読む） |
 | `next-js-prod:principal` | IAM ユーザー `comegin-prod-control-plane` が無い・管理ポリシー `comegin-prod-control-plane` 以外も付いている・資格情報ファイルが無い／600 でない・そのキーの主体が違う | `cloud/README.md` の 4.5.2（ユーザーの作成・ポリシーの付与・キーの発行を人が自分の端末で）。別の場所に置いたなら `prod.conf` に `CONTROL_AWS_CREDENTIALS_FILE=` |
+| `next-js-prod:status-principal` | IAM ユーザー `comegin-prod-status-reader` が無い・管理ポリシー `comegin-prod-status-reader` 以外も付いている・資格情報ファイルが無い／600 でない・そのキーの主体が違う | `cloud/README.md` の 4.5.3（下の「設定の状況を有効にする」の 1）。別の場所に置いたなら `prod.conf` に `CONTROL_STATUS_AWS_CREDENTIALS_FILE=` |
+| `next-js-prod:status-github` | 参照専用の GitHub のトークンのファイルが無い／600 でない／空・`github_pat_` で始まらない（classic など）・トークンでリポジトリを読めない（401・403・404）・応答に `X-OAuth-Scopes` が付く（classic の印） | 下の「設定の状況を有効にする」の 2。別の場所に置いたなら `prod.conf` に `CONTROL_STATUS_GITHUB_TOKEN_FILE=` |
 | `next-js-prod:prod-values` | 下の表の必須の値が `prod.conf` に無い | 表示されたキーを `prod.conf` に書く |
 | `next-js-prod:systemd`・`systemd-dir` | ユニット `comegin-control` が無い・動いていない・チェックアウト以外で動いている | 下の「常駐させる（監視アプリ）」 |
 | `next-js-prod:restart` | `.env` を書き換えた後に `comegin-control` を起動し直していない | `sudo systemctl restart comegin-control` |
@@ -158,12 +160,13 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 
 | 変数 | 本番の値 | 出どころ |
 |---|---|---|
-| `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` | `prod.conf` の `CONTROL_PUBLIC_URL`・`CONTROL_GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`。無ければ、今の監視アプリ（作業ツリーの `.env`）の値を引き継ぐ（開く URL が `http://127.0.0.1:3200` 以外なら、Google のクライアントの Authorized redirect URIs に `<その URL>/api/auth/callback/google` があること） | `setup/manual-steps.md` の 7.2 |
+| `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` | `BETTER_AUTH_URL` は `prod.conf` の `CONTROL_PUBLIC_URL`、**無ければ `http://127.0.0.1:3200`**（作業ツリーの `.env` からは引き継がない。手元以外の URL なら警告。下の「開く（監視アプリ）」）。`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` は `prod.conf` の `CONTROL_GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`、無ければ今の監視アプリ（作業ツリーの `.env`）の値を引き継ぐ。Google のクライアントの Authorized redirect URIs に `<BETTER_AUTH_URL>/api/auth/callback/google` があること | `setup/manual-steps.md` の 7.2 |
 | `CONTROL_MAIN_CHECKOUT`・`CONTROL_WORKTREE` | チェックアウト・作業ツリーの絶対パス（`CONTROL_DATA_DIR`・`CONTROL_AGENT_HOME` は `prod.conf` にあれば） | `setup/manual-steps.md` の 6 節 |
 | `CONTROL_SCHEDULER_ENABLED` | `true`（`enabled: false` のジョブは登録されないので、手順 5 の PR より前に `true` でよい） | — |
 | `ANTHROPIC_API_KEY` | **必須**。本番の運用に使う API キー（費用はここに付く） | `setup/manual-steps.md` の 7.3 |
 | `SITE_URL` | `prod.conf` の `PUBLIC_SITE_URL`（`weekly-lighthouse` の計測対象） | — |
 | `AWS_REGION`・`AWS_PROFILE`・`AWS_SHARED_CREDENTIALS_FILE`・`RUNLOG_BUCKET` | `ap-northeast-1`・`comegin-prod-control-plane`・資格情報ファイルの絶対パス・スタックの出力 `RunLogBucketName` | `cloud/README.md` の 4.5.2 |
+| `CONTROL_SETUP_STATUS_ENABLED`・`CONTROL_STATUS_AWS_CREDENTIALS_FILE`・`CONTROL_STATUS_AWS_PROFILE`・`CONTROL_STATUS_GITHUB_TOKEN_FILE`・`CONTROL_STATUS_ALERT_TOPIC_ARN`・`CONTROL_STATUS_LINK_BASE` | `true`・`~/.config/comegin/status-reader/aws-credentials` の絶対パス・`default`・`~/.config/comegin/status-reader/github-token` の絶対パス・スタックの出力 `OpsAlertTopicArn`・`BETTER_AUTH_URL` と同じ値（メールのリンクの根）。ファイルの中身は書かない。画面の使い方は下の「設定の状況を有効にする」 | `cloud/README.md` の 4.5.3・`backend/control-plane/README.md` |
 | `MISWRITE_CHATWOOT_BASE_URL`・`..._ACCOUNT_ID`・`..._API_TOKEN`・`MISWRITE_AGENT_USER_ID` | `https://chat.comegin.com`（`CHATWOOT_BASE_URL`）・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`・状態の `CHATWOOT_AGENT_USER_ID`（`chatwoot-prod` が置く）。**開発の `127.0.0.1:3100` の値にしない** | `cloud/README.md` の 7.3 |
 | `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER` | 任意（無ければ I-13 の起票が skipped）。fine-grained PAT（このリポジトリだけ。Contents と Pull requests を Read and write）・リポジトリは空なら `origin` の URL から・起票をまとめる Issue の番号・レビュアーの GitHub のユーザー名。1 つでも書いたら 4 つとも要る | `backend/control-plane/README.md` の I-13 |
 | `CONTROL_N8N_EXPORT_URL`・`CONTROL_N8N_EXPORT_API_KEY` | **判断の後で** `prod.conf` に書く。`http://127.0.0.1:5679` と本番の n8n の API キー（コミュニティ版は全権限になる） | `backend/control-plane/README.md` の n8n-export |
@@ -181,6 +184,89 @@ journalctl -u comegin-control -n 50   # 「開始 scheduler=on heartbeat=on」�
 
 - 作業ツリーで監視アプリを開発するときは、このユニットを止めてから `pnpm dev` する（どちらも 3200 を使う）
 - ハートビートは定義の `heartbeat.yaml` に関係なく、AWS の設定があれば起動時から 5 分ごとに送られる。15 分ほどでアラーム `comegin-prod-onprem-heartbeat` が OK に戻る（`cloud/README.md` の 4.13）。**`heartbeat.yaml` は `enabled: false` のままにする**（有効にすると二重に送り、E-15 に 1 日 288 件の記録が増える。`next-js-prod` が警告する）
+
+### 開く（監視アプリ）
+
+本番の監視アプリは **`http://127.0.0.1:3200`** で開く（`127.0.0.1` にだけバインドしている）。ログインは Google（Workspace）だけで、許可リスト `CONTROL_ADMIN_EMAILS` のメールだけが通る。
+
+- **オンプレの機械の上**: ブラウザで `http://127.0.0.1:3200` を開く。
+- **別の端末から**: `ssh -L 3200:127.0.0.1:3200 <オンプレの機械>` でトンネルを張り、手元のブラウザで同じ `http://127.0.0.1:3200` を開く（ブラウザが送る `Origin` が `BETTER_AUTH_URL` と一致するので通る）。
+- **本番は ngrok で外に出さない。** ADR-23 は開発の監視アプリだけを ngrok で公開するリスクを受け入れたもので、「定期実行を有効にするとき」を見直す条件にしている（2026-11-02 に有効にした）。本番の監視アプリは本番の資格情報を持ち、エージェントを起動できる。
+- **auth.comegin.com（admin-auth）は使わない。** ALB の `authenticate-oidc` は ALB の後ろのターゲット（クラウドの Mautic・Chatwoot）にだけ効き、オンプレの監視アプリは ALB の後ろにいない。ALB からオンプレへ転送させると、WireGuard で `10.99.0.2:5680` だけに絞っている閉じ方が崩れる（2026-11-03 に検討して見送った）。
+
+**ブラウザで開く URL と `BETTER_AUTH_URL` は 1 文字も違えない。** Better Auth は、Cookie を持つ要求の `Origin` が `BETTER_AUTH_URL` と違うと `403 Invalid origin` を返す（`127.0.0.1` と `localhost` は同じものとして扱う）。Google でログインした後の戻り先（リダイレクト URI）も `BETTER_AUTH_URL` から作られる。
+
+開く URL を変えるとき（直すとき）の手順:
+
+1. `prod.conf` の `CONTROL_PUBLIC_URL` を `http://127.0.0.1:3200` にする（空でも同じ。`next-js-prod` の既定）。`--check` は、チェックアウトの `.env` の `BETTER_AUTH_URL` がこの値と違えば ✗ を出し、手元以外の URL なら `!` で警告する。
+2. Google Cloud で、監視アプリが使う OAuth クライアント（`CONTROL_GOOGLE_CLIENT_ID`）の Authorized redirect URIs に `http://127.0.0.1:3200/api/auth/callback/google` があることを確かめる（無ければ足す。`setup/manual-steps.md` の 7.2）。
+3. `next-js-prod` だけを実行し直して、チェックアウトの `.env` を書き直す。**`next-js-prod` は段階 `operate` にあるので、`--phase operate` を付ける**（付けないと既定の段階 env〜apps の中だけを探し、「`--only の next-js-prod が見つからない`」で止まる）。
+
+   ```bash
+   node setup/setup.mjs --target prod --phase operate --only next-js-prod
+   sudo systemctl restart comegin-control   # .env は起動したときに読まれる
+   ```
+
+4. ブラウザで `http://127.0.0.1:3200` を開き、Google でログインできることを確かめる。
+
+| 症状 | 原因 | 直し方 |
+|---|---|---|
+| `Invalid origin`（403） | 開いた URL と `BETTER_AUTH_URL` が違う | 上の手順 1〜3 |
+| Google が `redirect_uri_mismatch` で止める | Google のクライアントに `<BETTER_AUTH_URL>/api/auth/callback/google` が無い | 上の手順 2 |
+| ngrok の URL を開くと 404 | 開発の ngrok のトンネルが張られていない（本番では使わない） | 本番は `http://127.0.0.1:3200` で開く |
+| 「ログインできませんでした」で `/login` に戻る | `hd`・`email_verified`・`CONTROL_ADMIN_EMAILS` のどれかで拒否された | `journalctl -u comegin-control -n 50` の `[auth] login refused: …` で理由の種類を見る |
+
+`BETTER_AUTH_URL` の今の値は、`.env` を開かずに確かめられる。`Origin` を付けて `sign-in/social` に投げ、返る Google の認可 URL の `redirect_uri` を見る（ログインはしない）。`Cookie` を付けないとオリジンの検査が飛ばされて 200 になるので、ダミーの `Cookie` を付ける。
+
+```bash
+curl -s -X POST http://127.0.0.1:3200/api/auth/sign-in/social \
+  -H 'Origin: http://127.0.0.1:3200' -H 'Cookie: x=1' -H 'content-type: application/json' \
+  -d '{"provider":"google","callbackURL":"/"}'
+# 403 {"code":"INVALID_ORIGIN"} … BETTER_AUTH_URL が http://127.0.0.1:3200 ではない
+# 200 {"url":"https://accounts.google.com/...&redirect_uri=http%3A%2F%2F127.0.0.1%3A3200%2Fapi%2Fauth%2Fcallback%2Fgoogle..."} … そろっている
+```
+
+**2026-11-03 の例**: `prod.conf` に `CONTROL_PUBLIC_URL` が無かった。そのため、作業ツリーの `.env` にあった開発の ngrok の URL（`https://comegin-next-js-dev.ngrok.app`）が、本番のチェックアウトの `BETTER_AUTH_URL` に引き継がれていた。`http://127.0.0.1:3200` で開くと `Invalid origin`、ngrok はトンネルが無く 404 で、どちらからも入れなかった。上の手順 1〜3 で `http://127.0.0.1:3200` にそろえ、ログインできた。同じ日に `next-js-prod` を直し、開く URL を作業ツリーから引き継がない（既定 `http://127.0.0.1:3200`）ようにして、`--check` に食い違いの検査と、手元以外の URL の警告を足した。
+
+### 設定の状況を有効にする（/setup-status）
+
+監視アプリの「設定の状況」画面（`/setup-status`）は、設定スクリプトの読み取り専用の確認（`node setup/setup.mjs --target prod --check`）を **10 分ごとに子プロセスで**実行して、本番の設定の手順（`setup/00-setup-overview.md` の P1〜P15・6 節）が今どうなっているかを出す。ずれ（● 更新が必要・! 警告）が新しくなったときと、残っているあいだの 1 日 1 回のまとめを、SNS `comegin-ops-alert` のメールで知らせる。**本番の監視アプリだけで有効**（開発の `next-js` モジュールは `CONTROL_SETUP_STATUS_ENABLED=false` のまま。画面は「本番の監視アプリだけで動く」と出す）。設計は `docs/superpowers/specs/2026-11-03-setup-status-design.md`。
+
+有効にするために、人が用意するものは 2 つ。どちらも `next-js-prod` が確かめ、無いと止まる（`next-js-prod:status-principal`・`next-js-prod:status-github`）。確かめた後、チェックアウトの `.env` に `CONTROL_SETUP_STATUS_ENABLED=true` ほか（上の表）を書く。
+
+1. **読み取り専用の AWS の主体**（`next-js-prod:status-principal`）。IAM ユーザー `comegin-prod-status-reader` に管理ポリシー `comegin-prod-status-reader`（`cloud/stacks/iam.yaml` の `StatusReaderPolicy`）**だけ**を付け、アクセスキーを `~/.config/comegin/status-reader/aws-credentials`（600。プロファイル名 `default`）に直接書く。**監視アプリの主体（`comegin-prod-control-plane`）とは別のユーザー**にする（ハートビートと写しの送り手に、スタックや IAM の読み取りを持たせないため）。手順は `cloud/README.md` の 4.5.3（先に `sam deploy` で管理ポリシーを作る）。スクリプトは、そのキーだけで `sts get-caller-identity`（`user/comegin-prod-status-reader` で終わること）、`iam list-attached-user-policies`（`comegin-prod-status-reader` の 1 つだけ）を確かめる。
+2. **参照専用の GitHub のトークン**（`next-js-prod:status-github`）。main の最新を監視アプリが自分で取るために使う（人が `git fetch` しなくても、PR のマージに気づけるようにする）。I-13 の起票用の `GITHUB_TOKEN`（Read and write）とは**別のトークン**にする。
+   - GitHub の Settings → Developer settings → Fine-grained personal access tokens で作る。**Repository access は `ComeGin/systematization-of-the-business-foundation` の 1 つだけ**、**Repository permissions は Contents: Read-only と Pull requests: Read-only だけ**（Metadata は自動で Read）。有効期限を決め、切れる前に作り直す日を控える（切れると `next-js-prod:status-github` が止まり、画面が `?` になる）。
+   - トークンは `~/.config/comegin/status-reader/github-token` に 1 行で、画面に出さずに直接書く（600）:
+
+     ```bash
+     ( umask 077; mkdir -p ~/.config/comegin/status-reader
+       read -rs GH_STATUS_TOKEN && printf '%s\n' "$GH_STATUS_TOKEN" > ~/.config/comegin/status-reader/github-token; unset GH_STATUS_TOKEN )
+     stat -c '%a %U' ~/.config/comegin/status-reader/github-token   # 600 と自分のユーザー名
+     ```
+
+   - スクリプトは、トークンが `github_pat_` で始まる（fine-grained）ことと、`GET https://api.github.com/repos/<GITHUB_REPOSITORY。無ければ ComeGin/systematization-of-the-business-foundation>` を `Authorization: Bearer` で呼んで **200** になり、応答に **`X-OAuth-Scopes` が付かない**（classic のトークンは付く）ことを確かめる。トークンの値は表示しない。classic のトークン（`ghp_` など）は止まる。
+   - **Contents と Pull requests を Read-only にしたかは、スクリプトでは確かめられない。** `GET /repos` の `permissions` はトークンの範囲ではなく認証ユーザーの役割（所有者なら常に `push: true`）なので、判定に使えない。人が、作るときに両方を **Read-only** にし、ほかの権限・ほかのリポジトリを付けていないことを、トークンの設定画面で目で確かめる。
+
+別の場所に置いたときは、`prod.conf` に `CONTROL_STATUS_AWS_CREDENTIALS_FILE=`・`CONTROL_STATUS_GITHUB_TOKEN_FILE=`（絶対パス）を書く。2 つのファイルの場所は `.env` に書くが、**中身（キー・トークン）は `.env` にも `prod.conf` にも書かない**。監視アプリの子プロセスの環境にだけ渡り、エージェントの環境には入れない（`backend/control-plane/README.md`）。
+
+有効にした後の確かめ方:
+
+```bash
+node setup/setup.mjs --target prod --phase operate --only next-js-prod   # 2 つの id が止まらず、.env に CONTROL_SETUP_STATUS_ENABLED=true が書かれる
+sudo systemctl restart comegin-control                                  # .env は起動したときに読まれる
+journalctl -u comegin-control -n 50                                     # 設定の状況の確認の開始・結果の行（秘密値は出ない）
+```
+
+ブラウザで `http://127.0.0.1:3200/setup-status` を開き、「有効」の表示と、項目の状態（✓・●・!・?・◇）が出ることを確かめる。`?`（確かめられなかった）が続くときは、まず主体のキーが生きているか（`cloud/README.md` の 4.5.3 の確かめ方）と、トークンの期限を見る。
+
+（任意）**origin の URL をリポジトリの今の名前に合わせる。** リポジトリの改名前に clone した作業ツリーは、origin が旧名（例: `https://github.com/kamegin4-aws/systematization-of-the-business-foundation.git`）のままのことがある。監視アプリは、origin の名前が設定のリポジトリ（`GITHUB_REPOSITORY`。無ければ `ComeGin/systematization-of-the-business-foundation`）と違うと、GitHub の API でその名前の転送先（`full_name`）を確かめ、同じリポジトリのときだけ `git fetch` する（プロセスの中で覚え、起動のたびに 1 回だけ API を呼ぶ）。動きはするが、`next-js-prod` の確認は `next-js-prod.status-github` を `!` 警告にし、直し方を出す（止めない）。人が自分の端末で直す（チェックアウトは作業ツリーと `.git` を共有しているので、作業ツリーで 1 回直せば両方に効く）:
+
+```bash
+git -C <作業ツリー> remote get-url origin                                                     # 今の URL
+git -C <作業ツリー> remote set-url origin https://github.com/ComeGin/systematization-of-the-business-foundation.git
+git -C <作業ツリー> remote get-url origin                                                     # 直った URL
+```
 
 ### 5. 定期実行を段階的に有効にする
 
@@ -210,6 +296,8 @@ journalctl -u comegin-control -n 50   # 「開始 scheduler=on heartbeat=on」�
 | 毎日 04:30 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |
 | 毎月 1 日 05:00 | `monthly-analysis` | — |
 | 毎日 05:30〜06:15 | `daily-i13-file`・`daily-miswrite-check`・`daily-silence-check`・`daily-n8n-export` | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
+
+**オンプレのマシンは夜（0〜8 時）も動かしておく。** スケジューラは監視アプリのプロセスの中にあり（cron 式は Asia/Tokyo）、マシンが止まっていた時刻の実行は、起動した後に取り戻さない。2026-11-03 は、マシン（VirtualBox の VM）が 11:28 に起動したため、最初の夜の実行（00:00〜06:15）は 1 本も動かなかった。VM の中のアイドル時の休止は無効（`gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout` が `0`）でも、ホストの電源・休止と VM の自動起動はホスト側で設定する（VM の中からは確かめられない）。翌朝に `journalctl -u comegin-control --since "<その日> 00:00" | grep -a 'engine 起動'` で、0〜6 時の実行が出ていることを確かめる。
 
 改善ループの本体はすべて 06:25 までに終わる（`timeout_sec` で打ち切られた場合も）。`runlog-flush`（写しの送り直し）も 0〜8 時の 15 分ごとで、07:50 までに終わる。昼に動くのは、監視アプリのハートビート（5 分ごと）と写しの再送だけ（どちらも改善の処理ではない）。朝 8 時以降に監視アプリの画面か `journalctl -u comegin-control --since today` で、その夜の結果をまとめて見る。
 
@@ -317,9 +405,43 @@ curl -s -o /dev/null -w '%{http_code}\n' http://10.99.0.2:5680/rest/login       
 
 クラウドの側から届くことは、人が確かめる（ECS Exec で `mautic-web` のタスクに入り、`curl -X POST http://10.99.0.2:5680/webhook/does-not-exist` を送る。応答が 404 になる点はプロキシの拒否と同じなので、オンプレで `docker compose logs webhook-proxy` を見て、**送信元が `10.99.0.1` のリクエストが記録されていること**で確かめる（本文が n8n の JSON なら、プロキシを通って n8n まで届いている）。記録が無くタイムアウトなら、経路表・セキュリティグループ・EC2 内のファイアウォール・オンプレの `wg show` を順に確かめる。送信元が `10.99.0.1` 以外で記録されたら、EC2 の masquerade の設定を見直す。）
 
+### 本番の Webhook の試し送信（I-11・I-12）
+
+`setup/00-setup-overview.md` の P9 の〔未検査〕。本物のイベントを 1 つずつ起こし、Mautic・Chatwoot から WireGuard を通って n8n に届き、署名が合うことを確かめる。**本番の n8n は成功した実行を Executions に残さない**ので、届いたかは **`webhook-proxy` のアクセスログ**と **SNS `comegin-lead-alert` の通知メール**で見る（I-11・I-12 は、顧客からの要求〈フォームの送信・会話の開始〉で I-21 を呼び、`comegin-lead-alert` に送る）。前提: I-11・I-12 が公開済み（P9 の判断）・`comegin-lead-alert` を購読済み（`cloud/README.md` の 4.4）。
+
+ログはオンプレの端末で、**末尾から**読む（`-f` で開いたまま送ってもよい）:
+
+```bash
+cd ~/ComeGin/systematization-of-the-business-foundation/onprem/n8n
+docker compose logs --tail 3000 --no-log-prefix webhook-proxy | grep -a -v _proxy_health | grep -a 'POST /webhook'
+```
+
+- **`--tail` を付けずに頭から読まない。** マシンを電源断などで止めると、Docker のログのファイルに壊れた区間が残り、頭から読むとそこで黙って終わる（エラーも出ない）。2026-11-03 に、頭から読んだ出力が 11-01 14:42 で終わり、届いていた Webhook を「0 件」と読み違えた。`--tail` は末尾から読むので、壊れた区間より後ろなら読める（ヘルスチェックが 10 秒ごとに 1 行なので、3000 行でおよそ 8 時間分）。
+- `grep -a` は、壊れた区間の NUL を含んでいても行を出させるため。
+
+1. **Mautic → n8n（I-11）**: `https://comegin.com` のご相談フォームから、`@comegin.com` のテスト用アドレスで送る。Mautic はキューモードなので、`mautic-cron` の毎分の処理で 1〜2 分後に送られる。
+   - ログに `10.99.0.1 … "POST /webhook/mautic-event HTTP/1.1" 200`
+   - `comegin-lead-alert` の通知メールと、フォームの自動返信メールが届く
+   - Mautic の歯車 → Webhooks → `n8n I-11` のログで、状態が `200`
+2. **Chatwoot → n8n（I-12）**: `https://comegin.com` のチャットで、**FAQ に無い質問**（例「テストです。担当者につないでください」）を送る。Chatwoot はすぐ送る（1 つの会話で数件届く）。P12 の FAQ ボットの引き継ぎの確認を兼ねる。
+   - ログに `10.99.0.1 … "POST /webhook/chatwoot-event HTTP/1.1" 200`
+   - 会話の開始の通知メール（`comegin-lead-alert`）が届く
+   - 会話にラベル `faq-unmatched` が付き、管理者に引き継ぎのメールが届く
+3. 後片付け: Mautic のテストのコンタクトを消し、Chatwoot のテストの会話を解決にする。n8n の重複排除の表（`dedup_*`）は 7 日で消えるので触らない。
+
+| ログの状態 | 意味 | 見直すところ |
+|---|---|---|
+| `200` | 届いて、署名も合った | — |
+| `401` | 届いたが、署名が合わない | Mautic・Chatwoot の Webhook の secret と、n8n の Crypto 資格情報（`n8n-prod` の provision で作り直せる） |
+| `404`（n8n が返す） | 届いたが、ワークフローが公開されていない | n8n で I-11・I-12 を公開する（P9 の判断） |
+| `502` | プロキシまでは届いたが、n8n が起動していない | `docker compose ps`・`systemctl status comegin-n8n` |
+| 行が出ない | 送る側で止まっている | Mautic の Webhook のログの `Access to private addresses is not allowed`（私設アドレスの許可は `10.99.0.2`）と、失敗続きでの自動停止。Chatwoot は CloudWatch の Sidekiq のログの `has no public ip addresses`。経路は上の ECS Exec の確認 |
+
+**2026-11-03 の結果**: 18:23 に `mautic-event` が `200`、18:24 に `chatwoot-event` が `200`（4 件）。`comegin-lead-alert` の送信も CloudWatch の `NumberOfMessagesPublished` で確かめた。同じ日の昼には、マシンの起動の直後に Mautic のキューの送信が `502`（n8n がまだ起動していない。11:29）、親が未公開のあいだに Chatwoot が `404`（11:38）・Mautic が `404`（12:30）になっていた（下の「止まったときの影響」）。
+
 ## 止まったときの影響
 
-- **オンプレのマシン・回線・WireGuard・`webhook-proxy`・n8n のどれかが止まると、クラウドの Mautic・Chatwoot からの Webhook が届かず欠落する**（`I-11` `I-12`）。Mautic の Webhook の再送の有無は未確認（縮退運転は DD-07 で扱う）。
+- **オンプレのマシン・回線・WireGuard・`webhook-proxy`・n8n のどれかが止まると、クラウドの Mautic・Chatwoot からの Webhook が届かず欠落する**（`I-11` `I-12`）。Mautic の Webhook の再送の有無は未確認（縮退運転は DD-07 で扱う）。2026-11-03 に、マシンの起動の直後（n8n が起動する前）に Mautic のキューの送信が `502`、I-11・I-12 が未公開のあいだに Chatwoot と Mautic の送信が `404` になったのを、`webhook-proxy` のログで見た。**Chatwoot は送り直さない**ので、この間の会話の開始の通知は欠けている。マシンを起動するときは、WireGuard → Strapi → n8n が上がってから Mautic・Chatwoot のイベントが来る順になるとは限らない。
 - 訪問者に届くサービス（Astro・Mautic・Chatwoot・`consent-api`・`admin-auth`・`faq-bot`）は止まらない（Cal.com は ADR-24 で SaaS になり、クラウドに置かないので、この一覧に入らない）。
 - Strapi が止まると、記事の制作・ビルドが止まる（公開済みのページは Astro に焼き込み済みなので止まらない）。データは RDS・S3 にあるので、マシンを失っても消えない（暗号化キー・鍵類を控えてあれば復旧できる）。
 

@@ -1,8 +1,8 @@
 # 監視アプリ（next-js）
 
-エージェントの定期実行・手動の指示・実行記録（E-15）・誤った書き込みの候補を扱う、オンプレの管理画面。Next.js 16（App Router）に、サーバー側のライブラリ [`backend/control-plane`](../../backend/control-plane/README.md) を取り込み、**1 プロセス**で動かす。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`。
+エージェントの定期実行・手動の指示・実行記録（E-15）・誤った書き込みの候補・本番の設定の状況（`/setup-status`）を扱う、オンプレの管理画面。Next.js 16（App Router）に、サーバー側のライブラリ [`backend/control-plane`](../../backend/control-plane/README.md) を取り込み、**1 プロセス**で動かす。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md`。
 
-- **`127.0.0.1:3200` にだけバインドする**（`dev` / `start` が `-p 3200 -H 127.0.0.1`）。開発では ngrok で外から開いてよい（ADR-23。`BETTER_AUTH_URL` をその URL にすると、`next.config.ts` がそのホストを `allowedDevOrigins` に入れる）。Next.js の既定の 3000 は以前 Umami と衝突していたため 3200 を使う（Umami は ADR-25 で廃止したが、ポートは変えない）。
+- **`127.0.0.1:3200` にだけバインドする**（`dev` / `start` が `-p 3200 -H 127.0.0.1`）。開発では ngrok で外から開いてよい（ADR-23。`BETTER_AUTH_URL` をその URL にすると、`next.config.ts` がそのホストを `allowedDevOrigins` に入れる）。**本番の常駐（`comegin-control`）は `http://127.0.0.1:3200` で開き、ngrok で外に出さない**（ブラウザで開く URL と `BETTER_AUTH_URL` が違うと `403 Invalid origin`。手順は `onprem/README.md` の「開く（監視アプリ）」）。Next.js の既定の 3000 は以前 Umami と衝突していたため 3200 を使う（Umami は ADR-25 で廃止したが、ポートは変えない）。
 - **ログインは Google（Workspace）だけ**（Better Auth の Google プロバイダー。ADR-23）。メールとパスワードのログインは持たない。通すのは `hd`（`GOOGLE_HOSTED_DOMAIN`。既定 `comegin.com`）の ID トークンで、`email_verified` が true、かつ許可リスト `CONTROL_ADMIN_EMAILS`（カンマ区切り）にあるメールだけ。ユーザーは初回のログインで作られる。許可リストは要求ごと（API・コンソールのページ）にも確かめ、外したメールのセッションは次の要求で失効させる（API は 401、ページは `/login` へ）。Google の OAuth クライアントの作り方は `setup/manual-steps.md` の 7.2（承認済みのリダイレクト URI は `<BETTER_AUTH_URL>/api/auth/callback/google`）。
 - ブラウザから Claude Code を直接呼ばない。指示はサーバー側（Route Handler）で受け、control-plane が Agent SDK を呼ぶ。ブラウザには経過と結果だけが返る。
 
@@ -53,11 +53,13 @@ app/api/runs              GET 一覧 / POST 手動の起動
 app/api/runs/[runId]      GET 1 件
 app/api/jobs              GET ジョブ一覧
 app/api/miswrite-candidates  GET 誤った書き込みの候補
+app/api/setup-status      GET 設定の状況 / POST 今すぐ確かめる（Origin の確認は guardApiRequest）
+app/api/setup-status/doc  GET ?file=&heading= 手順書（承認済み main）の 1 節。許可されない・見つからないは 404
 app/login                 ログイン前の画面（components/layout/PublicLayout）
 app/(console)/layout.tsx  ログイン後の外枠（components/layout/ConsoleLayout = AppLayoutToolbar）
 app/(console)/<モジュール>/  画面（Server Component。データを読み、components/<モジュール>/ の View に渡す）
 components/layout/        外枠・パンくず・ナビゲーション・Tools（routes.ts がパスから決める）
-components/<モジュール>/   runs・jobs・miswrite-candidates。一覧・詳細・新規の View と、Tools に出す help.tsx
+components/<モジュール>/   runs・jobs・miswrite-candidates・setup-status。一覧・詳細・新規の View と、Tools に出す help.tsx
 components/{common,auth}/ モジュールをまたぐ部品（自動の読み直し・設定エラー・遷移）とログイン
 lib/ids.ts                URL から受け取る ID の形の検査
 ```
@@ -86,6 +88,7 @@ App layout（AppLayoutToolbar。TopNavigation・SideNavigation・パンくず）
 | 画面 | 種類 | 内容 |
 |---|---|---|
 | `/` | - | `/runs` へ移る |
+| `/setup-status` | 地図＋詳細 | 設定の状況（本番の設定の手順 P1〜P15・R1 が済んでいるか）。左に段階の地図（段階ごとの印）、右に選んだ段階の項目（状態・だれが・止まる id・根拠）。項目を開くと正本の手順書の節をその場で読んで描く（`react-markdown` ＋ `remark-gfm`。生の HTML は描かず、相対パスのリンクは文字で出す）。選んだ段階は `?step=P12`（無い・不正なら、更新が必要 → 警告 → 確かめられない → P1 の順で既定）。「今すぐ確かめる」は POST で、確認中は押せず、結果が入れ替わるまで自動で読み直す。`CONTROL_SETUP_STATUS_ENABLED` が `true` でない監視アプリ（開発）では理由の表示だけ |
 | `/runs` | 一覧 | 実行記録（E-15）。新しい順に 50 件ずつ、`?outcome=` で絞り込み、`?before=<run_id>` でさかのぼる。最新のページで実行中があれば自動で読み直す |
 | `/runs/new` | 新規 | 手動の起動（エージェント＋プロンプト、または定期実行の定義）。受け付けたら（見送りでも）その実行の詳細へ移る。`?jobId=` で定義を選んだ状態で開く |
 | `/runs/[runId]` | 詳細 | 実行 1 件（概要・要約）。子リソースは対象の ID と、この実行に近い誤った書き込みの候補 |

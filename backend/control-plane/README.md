@@ -58,8 +58,14 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 | AWS | `AWS_REGION`・`RUNLOG_BUCKET`（`AWS_PROFILE`・`HEARTBEAT_NAMESPACE` は任意） | 全部空なら写しとハートビートは無効 |
 | 突き合わせ | `MISWRITE_CHATWOOT_BASE_URL`・`..._ACCOUNT_ID`・`..._API_TOKEN`・`MISWRITE_AGENT_USER_ID` | 全部空なら `miswrite-check` は `skipped` |
 | n8n の書き出し | `CONTROL_N8N_EXPORT_URL`・`CONTROL_N8N_EXPORT_API_KEY`（＋ I-13 の GitHub の 4 変数） | どれかが未設定なら `n8n-export` は `skipped`（片方だけの設定でも例外にしない。理由に変数名だけ） |
+| 設定の状況 | `CONTROL_SETUP_STATUS_ENABLED`（既定 `false`）。`true` のときだけ、`CONTROL_STATUS_AWS_CREDENTIALS_FILE`（絶対パス）・`CONTROL_STATUS_GITHUB_TOKEN_FILE`（絶対パス）・`CONTROL_STATUS_ALERT_TOPIC_ARN`（`arn:aws:sns:` で始まる）と、既存の `AWS_REGION`・`SITE_URL` が必須。`CONTROL_STATUS_AWS_PROFILE`（既定 `default`）・`CONTROL_STATUS_LINK_BASE`（既定 `http://127.0.0.1:3200`）・`GITHUB_REPOSITORY`（無ければ `ComeGin/systematization-of-the-business-foundation`）は任意 | `false`（本番の監視アプリだけで有効にする）なら `getSetupStatus()` は `enabled=false`。`true` で必須が欠けている・形が違う（`true`/`false` 以外・相対パス・`arn:aws:sns:` で始まらない・URL でない）ときは**例外にしない**（他の機能は動かす。spec 7）。`status` を `null`、`statusConfigError` に変数名と理由だけ（値は入れない）を入れ、`getSetupStatus()` は `enabled=false` でその理由を `reason` に出す（ログにも WARN で出す）。`AWS_REGION` を使うため、既存の AWS グループの規則で `RUNLOG_BUCKET` も必須になる |
 
-秘密値（`GITHUB_TOKEN`・AWS・`MISWRITE_*`・`CONTROL_N8N_EXPORT_API_KEY`・`BETTER_AUTH_SECRET`）はエージェントの子プロセスに渡らない。
+秘密値（`GITHUB_TOKEN`・AWS・`MISWRITE_*`・`CONTROL_N8N_EXPORT_API_KEY`・`BETTER_AUTH_SECRET`）はエージェントの子プロセスに渡らない。設定の状況の資格情報・トークンは「ファイルの場所」だけを env に置き、値は確認のたびにそのファイルから読む。本番では `next-js-prod`（設定スクリプトの段階 `operate`）が、読み取り専用の主体（IAM ユーザー `comegin-prod-status-reader`。`~/.config/comegin/status-reader/aws-credentials`）と参照専用の GitHub のトークン（`~/.config/comegin/status-reader/github-token`。fine-grained PAT で、Contents と Pull requests を Read-only にするのは人。スクリプトは読めることと classic でないことまで確かめる）を確かめた後で、チェックアウトの `.env` に `CONTROL_SETUP_STATUS_ENABLED=true` と上の変数を書く（`CONTROL_STATUS_ALERT_TOPIC_ARN` はスタックの出力 `OpsAlertTopicArn`、`CONTROL_STATUS_LINK_BASE` は `BETTER_AUTH_URL` と同じ値）。有効にする手順は `onprem/README.md` の「設定の状況を有効にする」、主体は `cloud/README.md` の 4.5.3。
+
+### 設定の状況の読み出し（`src/status`）
+
+- `catalog.ts`: `loadCatalog(mainCheckout)` が `setup/status/steps.mjs`（手順の一覧の正本）を承認済み main のチェックアウトから `import()` して zod で検証する。`CATALOG_VERSION` が 1 でなければ `CatalogError`（値は出さない）。更新時刻を `?mtime=` に付けて、main が進んだときに古い版を掴まない。
+- `docs.ts`: `readDocSection(mainCheckout, file, heading, allowedFiles)` が手順書の 1 節を返す。`file` はカタログの `docs` に現れるもの（`catalogDocFiles()`）だけ許し、`..`・絶対パス・チェックアウトの外を指すリンクは `null`。見出しの一致は `setup/status/verify-steps.mjs` と同じ（先頭一致。末尾が数字なら `4.1` は `4.10`・`4.1.1` に当たらない。コードブロックの中は見出しでない）。先頭一致が 2 つ以上あれば `null`。
 
 ## E-15（実行記録）
 

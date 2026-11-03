@@ -11,6 +11,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 import { comeginStrapiGuard } from "./src/modules/blog/integration.ts";
 import { comeginFontSubset } from "./src/modules/brand/integration.ts";
+import { comeginBuildInfo } from "./src/modules/build-info/index.ts";
 import { comeginThreeGlobeWebgpuStub } from "./src/modules/motion/vite-plugin.ts";
 
 // .env は設定ファイル内では自動ロードされないため、Vite の loadEnv で明示的に読み込む。
@@ -51,6 +52,9 @@ export default defineConfig({
     // @fontsource の分割フォントと差し替える（Q3 の performance 対策。ユーザー判断で P-5 を変更）。
     // dev では何もしない。中身は src/modules/brand/integration.ts。
     comeginFontSubset(),
+    // ビルドの最後に dist/build-info.json（コミットとビルドの日時。秘密値なし）を書く。監視アプリが、配信中のサイトより
+    // origin/main が進んでいないか（再配信の要否）を HTTPS で確かめるのに使う。中身は src/modules/build-info/index.ts。
+    comeginBuildInfo(),
   ],
 
   vite: {

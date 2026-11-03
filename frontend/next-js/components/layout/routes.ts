@@ -3,7 +3,7 @@
 import type { AppLayoutToolbarProps } from "@cloudscape-design/components/app-layout-toolbar";
 import type { BreadcrumbGroupProps } from "@cloudscape-design/components/breadcrumb-group";
 
-export type HelpId = "runs-list" | "runs-new" | "run-detail" | "jobs-list" | "job-detail" | "miswrite-candidates";
+export type HelpId = "runs-list" | "runs-new" | "run-detail" | "jobs-list" | "job-detail" | "miswrite-candidates" | "setup-status";
 
 export interface RouteMeta {
   breadcrumbs: BreadcrumbGroupProps.Item[];
@@ -16,15 +16,19 @@ export interface RouteMeta {
 const ROOT: BreadcrumbGroupProps.Item = { text: "監視アプリ", href: "/" };
 const RUNS: BreadcrumbGroupProps.Item = { text: "実行記録", href: "/runs" };
 const JOBS: BreadcrumbGroupProps.Item = { text: "定期実行のジョブ", href: "/jobs" };
+const SETUP_STATUS: BreadcrumbGroupProps.Item = { text: "設定の状況", href: "/setup-status" };
 const CANDIDATES: BreadcrumbGroupProps.Item = { text: "誤った書き込みの候補", href: "/miswrite-candidates" };
 
 /** サイドのナビゲーションに出すモジュール。 */
-export const NAVIGATION_ITEMS = [RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, CANDIDATES] as const;
+export const NAVIGATION_ITEMS = [SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, CANDIDATES] as const;
 
 export function resolveRoute(pathname: string): RouteMeta {
   const [module, id] = pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
   const self = (text: string) => ({ text, href: pathname });
 
+  if (module === "setup-status") {
+    return { breadcrumbs: [ROOT, SETUP_STATUS], activeHref: "/setup-status", help: "setup-status", contentType: "default" };
+  }
   if (module === "runs") {
     if (id === undefined) return { breadcrumbs: [ROOT, RUNS], activeHref: "/runs", help: "runs-list", contentType: "table" };
     if (id === "new") {

@@ -1,11 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  ローカル（オンプレ）側の主体に付ける管理ポリシー 2 本と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ。
+  ローカル（オンプレ）側の主体に付ける管理ポリシー 3 本と、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ。
 # テンプレートの Description は 1024 バイトまで（日本語は 1 文字 3 バイト。超えるとスタックの作成が失敗する）。詳しい説明は以下のコメント。
 # アクセスキーはここでは作らない（キーを CloudFormation の出力や状態に残さないため。発行は運用者が人の操作で行い、
-# オンプレの秘匿ファイルにだけ置く。README の 4.5）。管理ポリシー 2 本の付与先の IAM ユーザーも、人が作る。
+# オンプレの秘匿ファイルにだけ置く。README の 4.5）。管理ポリシー 3 本の付与先の IAM ユーザーも、人が作る。
 # 1) 監視アプリ用: E-15 の写しへの追記と、ハートビートの送信だけ（TA-04 の 1 節、TA-06 の 4.7・7 節）。
 # 2) デプロイ用: Astro の配信（s3 sync と無効化）だけ（TA-02 の 6 節）。
+# 2b) 設定の状況用（StatusReaderPolicy）: 監視アプリが 10 分ごとに行う設定スクリプトの --check の読み取りと、ops トピックへの通知の発行だけ
+#    （docs/superpowers/specs/2026-11-03-setup-status-design.md の 6.1。付与先の IAM ユーザーは人が作る。README の 4.5.3）。
 # 3) IAM ユーザー comegin-<env>-onprem-strapi-media: Strapi のメディアのバケットだけ（ADR-21）。
 # 4) IAM ユーザー comegin-<env>-onprem-n8n-sns: ops・lead の 2 トピックへの sns:Publish と、n8n のスケジュール実行のハートビート
 #    （名前空間 N8nHeartbeatNamespace だけへの cloudwatch:PutMetricData）だけ（ADR-21、TA-05 の 4 節の項目 3）。
@@ -29,6 +31,10 @@ Parameters:
     Type: String
     Default: ComeGin/OnpremN8n
     Description: n8n のスケジュール実行のハートビートに PutMetricData を許す名前空間。observability.yaml の値と一致させる。監視アプリの名前空間（HeartbeatNamespace）とは分ける。
+  DomainName:
+    Type: String
+    Default: comegin.com
+    Description: SES のドメイン ID の名前（ses.yaml の DomainName と一致させる）。StatusReaderPolicy が ses:GetEmailIdentity を許す対象。
   AstroBucketArn:
     Type: String
     Description: Astro の配信用バケットの ARN（data.yaml）
@@ -97,6 +103,120 @@ Resources:
             Effect: Allow
             Action: cloudfront:CreateInvalidation
             Resource: !Ref DistributionArn
+
+  # 監視アプリの「設定の状況」（設定スクリプトの --check を 10 分ごとに子プロセスで実行する）専用の主体。
+  # 付けるのは専用の IAM ユーザー comegin-<env>-status-reader（人が作る。キーも人が発行して監視アプリのサーバーだけが読むファイルに直接書く。
+  # README の 4.5.3）。監視アプリの主体（ControlPlanePolicy）には足さない。エージェントの環境に渡さない（TA-04 の 1 節）。
+  # 中身は「--check の本番の経路で aws を呼んでいる API」の読み取りだけ（cloud/setup/aws.mjs・cloud/setup/index.mjs・
+  # frontend/next-js/setup/prod・middleware/n8n/setup/prod）と、ops トピックへの通知（sns:Publish）。リソースは comegin-<env> の範囲に絞る。
+  # 与えない:
+  #   - 書き込み全般（Put*/Create*/Update*/Delete*/Attach*/RunTask など）
+  #   - Secret の値の読み取り（DescribeSecret は値が入っているかの確認用で、値は読めない）と secretsmanager:ListSecrets
+  #   - sns:Subscribe / Unsubscribe / SetTopicAttributes / DeleteTopic 等（購読・トピックの変更）と、ops 以外のトピックへの sns:Publish
+  #   - cloudwatch:PutMetricAlarm / DisableAlarmActions / DeleteAlarms / PutMetricData（アラームを止められない・生存を偽れない）
+  #   - S3 のオブジェクトの読み取り・s3:ListAllMyBuckets、iam:CreateAccessKey 等（キーの一覧は読めるがシークレットは読めない）
+  #   - 本番スタックが無いときだけ通る「残りもの」の探索（sns:ListTopics・secretsmanager:ListSecrets・s3:ListAllMyBuckets・ecr:DescribeRepositories）。
+  #     リソースを絞れず、アカウントの名前を広く読めるため。スタックが無いときは画面で「確かめられない」になる。
+  # リソースレベルの権限に対応しないアクション（ses:GetAccount）だけ Resource: '*'。
+  StatusReaderPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'comegin-${EnvName}-status-reader'
+      # Description は更新で置き換えになる（固定名のため、デプロイ後に変えると更新が失敗する）。
+      # 出典: https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-managedpolicy.html
+      Description: 設定の状況の確認用。本番の設定の読み取りだけ（Secret の値は読めない）と、comegin-ops-alert への sns:Publish だけ。書き込みは不可。
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # 本番スタック（comegin-<env>。ap-northeast-1）と global スタック（comegin-global-<env>。us-east-1）の出力とパラメータ。
+          # 入れ子のスタック（comegin-<env>-XxxStack-...）は名前が違うので読めない。
+          - Sid: ReadStacks
+            Effect: Allow
+            Action: cloudformation:DescribeStacks
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/comegin-${EnvName}/*'
+              - !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AWS::AccountId}:stack/comegin-global-${EnvName}/*'
+          # Secret に値（AWSCURRENT の版）が入っているかだけ。値の読み取りは与えない。
+          - Sid: DescribeSecretsMetadata
+            Effect: Allow
+            Action: secretsmanager:DescribeSecret
+            Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:comegin/${EnvName}/*'
+          # ECS のサービスの台数（クラスター comegin-<env> の comegin-<env>-* のサービスだけ）。
+          - Sid: ReadServices
+            Effect: Allow
+            Action: ecs:DescribeServices
+            Resource: !Sub 'arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/comegin-${EnvName}/comegin-${EnvName}-*'
+          # DB 作成のタスクが「db-init-<engine>: done」を出したかの確認（ロググループ /comegin/<env>/tasks だけ）。
+          # FilterLogEvents はロググループの ARN（末尾 :*）が対象。念のため末尾なしも許す。
+          - Sid: ReadTasksLog
+            Effect: Allow
+            Action: logs:FilterLogEvents
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/comegin/${EnvName}/tasks'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/comegin/${EnvName}/tasks:*'
+          # 派生イメージのタグが ECR にあるか（comegin/<env>/ 以下のリポジトリだけ）。
+          - Sid: ReadEcrImages
+            Effect: Allow
+            Action: ecr:DescribeImages
+            Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/comegin/${EnvName}/*'
+          # SES のドメイン ID（DKIM・MAIL FROM の状態）。
+          - Sid: ReadSesIdentity
+            Effect: Allow
+            Action: ses:GetEmailIdentity
+            Resource: !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}'
+          # SES のサンドボックス解除の確認（ProductionAccessEnabled）。このアクションはリソースレベルの権限に対応しない。
+          # cfn-guard の IAM_POLICYDOCUMENT_NO_WILDCARD_RESOURCE は、この 1 件だけ意図した例外
+          # （読み取りだけで、SES のアカウント全体の送信の可否・上限の情報）。
+          - Sid: ReadSesAccount
+            Effect: Allow
+            Action: ses:GetAccount
+            Resource: '*'
+          # ops・lead の 2 トピックの購読の確認。購読の ARN は <トピックの ARN>:<UUID> なので、末尾 :* も許す。
+          - Sid: ReadTopicSubscriptions
+            Effect: Allow
+            Action:
+              - sns:ListSubscriptionsByTopic
+              - sns:GetSubscriptionAttributes
+            Resource:
+              - !Ref OpsAlertTopicArn
+              - !Sub '${OpsAlertTopicArn}:*'
+              - !Ref LeadAlertTopicArn
+              - !Sub '${LeadAlertTopicArn}:*'
+          # メールでの知らせ（設計 6.2）。ops トピックの 1 つだけ。lead トピックには発行できない。
+          - Sid: PublishOpsAlert
+            Effect: Allow
+            Action: sns:Publish
+            Resource: !Ref OpsAlertTopicArn
+          # IAM ユーザー（オンプレの 2 つ・監視アプリ・この主体自身）のアクセスキーの一覧（メタデータだけ。シークレットは読めない）。
+          - Sid: ListOwnedUserKeys
+            Effect: Allow
+            Action: iam:ListAccessKeys
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/comegin-${EnvName}-onprem-strapi-media'
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/comegin-${EnvName}-onprem-n8n-sns'
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/comegin-${EnvName}-control-plane'
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/comegin-${EnvName}-status-reader'
+          # 監視アプリの主体とこの主体に、管理ポリシーが付いているか（付いているポリシーの名前の一覧）。
+          - Sid: ReadMonitoringPrincipals
+            Effect: Allow
+            Action:
+              - iam:GetUser
+              - iam:ListAttachedUserPolicies
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/comegin-${EnvName}-control-plane'
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/comegin-${EnvName}-status-reader'
+          # 配信用の管理ポリシー（comegin-<env>-deploy）の付与先があるか。
+          - Sid: ReadDeployPolicyEntities
+            Effect: Allow
+            Action: iam:ListEntitiesForPolicy
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/comegin-${EnvName}-deploy'
+          # ハートビートのアラーム 2 つ（監視アプリ・n8n のスケジュール実行）の状態。メトリクスのアラームだけ（合成アラームは読めない）。
+          - Sid: ReadHeartbeatAlarms
+            Effect: Allow
+            Action: cloudwatch:DescribeAlarms
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:comegin-${EnvName}-onprem-heartbeat'
+              - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:comegin-${EnvName}-onprem-n8n-schedule-heartbeat'
 
   # オンプレの Strapi 専用。アップロードの Put、配信用の署名付き URL の Get、削除、一覧だけ。
   # バケットの設定・ポリシー・バージョン管理の操作は与えない。ほかのバケットにも届かない。
@@ -173,6 +293,8 @@ Outputs:
     Value: !Ref ControlPlanePolicy
   DeployPolicyArn:
     Value: !Ref DeployPolicy
+  StatusReaderPolicyArn:
+    Value: !Ref StatusReaderPolicy
   OnpremStrapiMediaUserName:
     Value: !Ref OnpremStrapiMediaUser
   OnpremN8nSnsUserName:

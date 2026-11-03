@@ -10,6 +10,9 @@
 //           無くても後の設定は進められるので警告だけにする（どれも以前はスクリプトが確かめていなかった）
 //   operate 運用開始の確認（2026-11-02 に追加。setup/00-setup-overview.md の P15）。止めずに警告だけ: 配信用の主体（4.5.1）・
 //           IAM ユーザーの古いキーの残り・prod.conf に残った初期設定用の値・SES のサンドボックス
+// 段階 apps・operate の check は、止めない確認（警告）を notes（先頭が ! の文。今までどおり）と items（監視アプリの「設定の状況」が読む。
+// key は cloud.<名前>、step は P 番号。警告が無ければ level ok、読めなければ unknown）の両方で返す。check は読むだけ
+// （DB 作成のタスクの成功を状態に残す dbInitDone も、--check では書かない）。追跡しない cloud/samconfig.toml は ctx.WORKTREE から読む
 // 段階の順番は setup/lib/runner.mjs の PROD_PHASES（ユーザーの決定。2026-10-27）。apps の後に google・operate が続く。
 //
 // 方針:
@@ -82,7 +85,8 @@ async function imageExists(ctx, repo, tag) {
 
 /** parameter_overrides の "Key=Value" を名前 → 値の Map にする。ファイルが無ければ null */
 function samParameters(ctx) {
-  const file = join(ctx.W, SAMCONFIG);
+  // 追跡しない実行時のファイル。コードを main のチェックアウトから動かすとき（監視アプリ）も、作業ツリーのものを読む
+  const file = join(ctx.WORKTREE, SAMCONFIG);
   if (!existsSync(file)) return null;
   const params = new Map();
   for (const m of readFileSync(file, "utf8").matchAll(/"([A-Za-z0-9]+)=([^"]*)"/g)) params.set(m[1], m[2]);
@@ -260,81 +264,142 @@ async function missingDbInit(ctx, main, opts) {
   return missing;
 }
 
-/** 1 つの確かめが読めなくても（権限・一時的な失敗）、ほかを続ける。読めなかったことは警告に残す */
-async function tryWarn(warnings, label, fn) {
-  try {
-    await fn();
-  } catch (e) {
-    warnings.push(`${label}を確かめられない（${e.message.split("\n")[0]}）`);
-  }
+/**
+ * 止めない確認（警告）の集め方。確認ごとに項目（key・step。監視アプリの「設定の状況」が読む）を持ち、人向けの文（texts）は今までどおり順番に集める。
+ * 項目の level: 警告の文があれば warn、確かめられなかったものだけなら unknown、どちらも無ければ ok
+ */
+function findings() {
+  const texts = [];
+  const handles = [];
+  const list = (h) => [].concat(h);
+  const self = {
+    texts,
+    item(key, step, title, okEvidence) {
+      const h = { key, step, title, okEvidence, warns: [], unknowns: [] };
+      handles.push(h);
+      return h;
+    },
+    /** 警告の文を足す（人向けの文にも出る） */
+    warn(h, text) {
+      h.warns.push(text);
+      texts.push(text);
+    },
+    /** 確かめられなかった（人向けの文に 1 回だけ出し、項目のすべてに付ける） */
+    unknown(h, text) {
+      for (const x of list(h)) x.unknowns.push(text);
+      texts.push(text);
+    },
+    /** 人向けの文には出さず、項目だけを「確かめられなかった」にする（確かめる対象そのものが無かったとき） */
+    quiet(h, text) {
+      for (const x of list(h)) x.unknowns.push(text);
+    },
+    /** 1 つの確かめが読めなくても（権限・一時的な失敗）、ほかを続ける。読めなかったことは警告に残す */
+    async attempt(h, label, fn) {
+      try {
+        await fn();
+      } catch (e) {
+        self.unknown(h, `${label}を確かめられない（${e.message.split("\n")[0]}）`);
+      }
+    },
+    items() {
+      return handles.map((h) => {
+        const level = h.warns.length ? "warn" : h.unknowns.length ? "unknown" : "ok";
+        const evidence = level === "ok" ? h.okEvidence : [...h.warns, ...h.unknowns].join("／");
+        return { key: h.key, step: h.step, level, title: h.title, evidence };
+      });
+    },
+  };
+  return self;
 }
 
-/** 止めはしないが、済んでいなければ知らせる人の作業。文は「何が・どうなる・どこを見る」 */
+/** 止めはしないが、済んでいなければ知らせる人の作業。文は「何が・どうなる・どこを見る」。{ warnings: 人向けの文, items: 項目 } を返す */
 async function appsWarnings(ctx, main) {
-  const warnings = [];
+  const f = findings();
   const domain = parameterOf(main, "DomainName") || "comegin.com";
 
-  await tryWarn(warnings, "global の 2 回目", async () => {
+  const second = f.item("cloud.global-second", "P2", "global の 2 回目（CloudFront のフラットレートプランの購読）", `${GLOBAL_STACK} の DistributionArn がある（購読済み）`);
+  await f.attempt(second, "global の 2 回目", async () => {
     const global = await describeStack(ctx, GLOBAL_STACK, GLOBAL_REGION);
-    if (!parameterOf(global, "DistributionArn")) warnings.push(`global の 2 回目が済んでいない（${GLOBAL_STACK} の DistributionArn が空。CloudFront のフラットレートプランを購読しておらず、従量課金のまま。cloud/README.md の 4.3）`);
+    if (!parameterOf(global, "DistributionArn")) f.warn(second, `global の 2 回目が済んでいない（${GLOBAL_STACK} の DistributionArn が空。CloudFront のフラットレートプランを購読しておらず、従量課金のまま。cloud/README.md の 4.3）`);
   });
 
+  const sns = f.item("cloud.sns-subscription", "P2", "SNS の購読（comegin-ops-alert・comegin-lead-alert）", "どちらのトピックにも確認済みの購読があり、解除に認証が要る");
+  let snsChecked = 0;
   for (const key of ["OpsAlertTopicArn", "LeadAlertTopicArn"]) {
     const arn = outputOf(main, key);
     if (!arn) continue;
+    snsChecked++;
     const topic = arn.split(":").pop();
-    await tryWarn(warnings, `SNS ${topic} の購読`, async () => {
+    await f.attempt(sns, `SNS ${topic} の購読`, async () => {
       const subs = (await awsJson(ctx, ["sns", "list-subscriptions-by-topic", "--region", REGION, "--topic-arn", arn]))?.Subscriptions ?? [];
       const confirmed = subs.filter((s) => s.SubscriptionArn?.startsWith("arn:"));
       if (!confirmed.length) {
-        warnings.push(`SNS ${topic} を誰も購読していない（確認待ち ${subs.length - confirmed.length} 件）。アラームが誰にも届かない（cloud/README.md の 4.4）`);
+        f.warn(sns, `SNS ${topic} を誰も購読していない（確認待ち ${subs.length - confirmed.length} 件）。アラームが誰にも届かない（cloud/README.md の 4.4）`);
         return;
       }
       for (const s of confirmed) {
         const attrs = (await awsJson(ctx, ["sns", "get-subscription-attributes", "--region", REGION, "--subscription-arn", s.SubscriptionArn]))?.Attributes ?? {};
-        if (attrs.ConfirmationWasAuthenticated !== "true") warnings.push(`SNS ${topic} の購読（${s.Protocol}）が --authenticate-on-unsubscribe true なしで確認されている。通知メールのリンクから誰でも解除できる（解除して、4.4 のとおり購読し直す）`);
+        if (attrs.ConfirmationWasAuthenticated !== "true") f.warn(sns, `SNS ${topic} の購読（${s.Protocol}）が --authenticate-on-unsubscribe true なしで確認されている。通知メールのリンクから誰でも解除できる（解除して、4.4 のとおり購読し直す）`);
       }
     });
   }
+  if (!snsChecked) f.quiet(sns, "スタックの出力に OpsAlertTopicArn・LeadAlertTopicArn が無く、購読を確かめていない");
 
-  await tryWarn(warnings, "SES", async () => {
+  // 公開サイトの配信（P12）の前に申請する。同じ確認が段階 operate にもある（P15。operateWarnings）
+  const sesProd = f.item("cloud.ses-production", "P12", "SES の本番アクセス（サンドボックスの解除）", "SES はサンドボックスではない（本番アクセスが有効）");
+  const sesDomain = f.item("cloud.ses-domain", "P4", `SES のドメイン ID ${domain}`, `SES の ${domain} は DKIM・MAIL FROM とも SUCCESS`);
+  let sesPending = [sesProd, sesDomain];
+  try {
     const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
-    if (account && account.ProductionAccessEnabled !== true) warnings.push("SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。公開サイトを配信したらすぐ、Transactional で申請する（cloud/README.md の 4.9.2）");
+    if (account && account.ProductionAccessEnabled !== true) f.warn(sesProd, "SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。公開サイトを配信したらすぐ、Transactional で申請する（cloud/README.md の 4.9.2）");
+    else if (!account) f.quiet(sesProd, "SES のアカウントの情報を読めなかった");
+    sesPending = [sesDomain];
     const id = await awsJson(ctx, ["sesv2", "get-email-identity", "--region", REGION, "--email-identity", domain]);
-    if (!id) warnings.push(`SES のドメイン ID ${domain} が無い（ses.yaml。段階 deploy を確かめる）`);
+    if (!id) f.warn(sesDomain, `SES のドメイン ID ${domain} が無い（ses.yaml。段階 deploy を確かめる）`);
     else {
-      if (id.DkimAttributes?.Status !== "SUCCESS") warnings.push(`SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9.1）`);
-      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") warnings.push(`SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9.1）`);
+      if (id.DkimAttributes?.Status !== "SUCCESS") f.warn(sesDomain, `SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9.1）`);
+      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") f.warn(sesDomain, `SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9.1）`);
     }
-  });
+  } catch (e) {
+    f.unknown(sesPending, `SESを確かめられない（${e.message.split("\n")[0]}）`);
+  }
 
   // apex の SPF は見ない。SES のメールの SPF は MAIL FROM のサブドメイン（ses.yaml）で評価され、DMARC は緩い照合で通る（cloud/README.md の 4.9.6）
-  await tryWarn(warnings, `${domain} の DMARC`, async () => {
+  const dmarcItem = f.item("cloud.dmarc", "P4", `${domain} の DMARC`, `_dmarc.${domain} に DMARC の TXT があり、照合は緩い（aspf・adkim が s ではない）`);
+  await f.attempt(dmarcItem, `${domain} の DMARC`, async () => {
     const txt = async (name) => (await resolveTxt(name).catch((e) => (e.code === "ENODATA" || e.code === "ENOTFOUND" ? [] : Promise.reject(e)))).map((r) => r.join(""));
     const dmarc = (await txt(`_dmarc.${domain}`)).find((r) => r.startsWith("v=DMARC1"));
-    if (!dmarc) warnings.push(`_dmarc.${domain} に DMARC の TXT が無い（Gmail などで迷惑メールに入りやすい。p=none から始める。cloud/README.md の 4.9.6）`);
-    else if (/;\s*a(spf|dkim)\s*=\s*s\b/i.test(dmarc)) warnings.push(`_dmarc.${domain} の DMARC が厳しい照合（aspf=s か adkim=s）。MAIL FROM がサブドメインの SES のメールが照合に落ちる。外す（cloud/README.md の 4.9.6）`);
+    if (!dmarc) f.warn(dmarcItem, `_dmarc.${domain} に DMARC の TXT が無い（Gmail などで迷惑メールに入りやすい。p=none から始める。cloud/README.md の 4.9.6）`);
+    else if (/;\s*a(spf|dkim)\s*=\s*s\b/i.test(dmarc)) f.warn(dmarcItem, `_dmarc.${domain} の DMARC が厳しい照合（aspf=s か adkim=s）。MAIL FROM がサブドメインの SES のメールが照合に落ちる。外す（cloud/README.md の 4.9.6）`);
   });
 
-  if (!parameterOf(main, "WireguardFixedAmiId")) warnings.push("WireGuard の AMI が固定されていない（WireguardFixedAmiId が空）。新しい AMI が出た後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる。samconfig.toml に書く（cloud/README.md の 4.2.1 の手順 3）");
+  const ami = f.item("cloud.wireguard-ami", "P6", "WireGuard の AMI の固定", "WireguardFixedAmiId が入っている（AMI を固定済み）");
+  if (!parameterOf(main, "WireguardFixedAmiId")) f.warn(ami, "WireGuard の AMI が固定されていない（WireguardFixedAmiId が空）。新しい AMI が出た後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる。samconfig.toml に書く（cloud/README.md の 4.2.1 の手順 3）");
 
+  const onpremKeys = f.item("cloud.onprem-keys", "P6", "オンプレ用の IAM ユーザーの有効なアクセスキー", "オンプレの Strapi（メディア）と n8n（SNS）の IAM ユーザーに有効なキーがある");
+  let keyUsers = 0;
   for (const [key, use] of [["OnpremStrapiMediaUserName", "オンプレの Strapi のメディアのアップロード"], ["OnpremN8nSnsUserName", "オンプレの n8n の通知とハートビート"]]) {
     const user = outputOf(main, key);
     if (!user) continue;
-    await tryWarn(warnings, `IAM ユーザー ${user} のキー`, async () => {
+    keyUsers++;
+    await f.attempt(onpremKeys, `IAM ユーザー ${user} のキー`, async () => {
       const keys = (await awsJson(ctx, ["iam", "list-access-keys", "--user-name", user]))?.AccessKeyMetadata ?? [];
-      if (!keys.some((k) => k.Status === "Active")) warnings.push(`IAM ユーザー ${user} に有効なアクセスキーが無い。${use}が失敗する（人が発行する。cloud/README.md の 4.5）`);
+      if (!keys.some((k) => k.Status === "Active")) f.warn(onpremKeys, `IAM ユーザー ${user} に有効なアクセスキーが無い。${use}が失敗する（人が発行する。cloud/README.md の 4.5）`);
     });
   }
+  if (!keyUsers) f.quiet(onpremKeys, "スタックの出力に IAM ユーザー名（OnpremStrapiMediaUserName・OnpremN8nSnsUserName）が無く、キーを確かめていない");
 
-  await tryWarn(warnings, "SMTP の Secret", async () => {
-    for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) warnings.push(`Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.9.3・4.9.4・4.11）`);
+  const smtp = f.item("cloud.smtp-secrets", "P4", "SMTP の Secret（Mautic・Chatwoot の送信用）", "Mautic・Chatwoot の SMTP の Secret（4 つ）に値が入っている");
+  await f.attempt(smtp, "SMTP の Secret", async () => {
+    for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) f.warn(smtp, `Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.9.3・4.9.4・4.11）`);
   });
-  await tryWarn(warnings, "配信用の主体", async () => {
+
+  const principal = f.item("cloud.deploy-principal", "P12", "配信用の主体（管理ポリシー comegin-prod-deploy の付与先）", `管理ポリシー comegin-${ENV_NAME}-deploy が主体に付いている`);
+  await f.attempt(principal, "配信用の主体", async () => {
     const w = await deployPrincipalWarning(ctx);
-    if (w) warnings.push(w);
+    if (w) f.warn(principal, w);
   });
-  return warnings;
+  return { warnings: f.texts, items: f.items() };
 }
 
 /** 管理ポリシー comegin-<env>-deploy（DeployPolicyArn）の付与先が無ければ警告文。公開サイトの配信（P12）の前に要る */
@@ -352,29 +417,34 @@ const SETUP_ONLY_KEYS = [
   { key: "MAUTIC_SETUP_CLIENT_SECRET", how: "同上" },
 ];
 
-/** 段階 operate の警告（止めない）。運用開始の仕上げ（P15）と、配信用の主体・キーの残り */
+/** 段階 operate の警告（止めない）。運用開始の仕上げ（P15）と、配信用の主体・キーの残り。{ warnings: 人向けの文, items: 項目 } を返す */
 async function operateWarnings(ctx, main) {
-  const warnings = [];
-  await tryWarn(warnings, "配信用の主体", async () => {
+  const f = findings();
+  const principal = f.item("cloud.deploy-principal", "P15", "配信用の主体（管理ポリシー comegin-prod-deploy の付与先）", `管理ポリシー comegin-${ENV_NAME}-deploy が主体に付いている`);
+  await f.attempt(principal, "配信用の主体", async () => {
     const w = await deployPrincipalWarning(ctx);
-    if (w) warnings.push(w);
+    if (w) f.warn(principal, w);
   });
   // キーの入れ替えの後に古いキーが残っていないか（1 ユーザーに有効なキーは 1 つにする。cloud/README.md の 4.5 のローテーション）
-  const users = [outputOf(main, "OnpremStrapiMediaUserName"), outputOf(main, "OnpremN8nSnsUserName"), `comegin-${ENV_NAME}-control-plane`].filter(Boolean);
+  const oldKeys = f.item("cloud.old-keys", "P15", "IAM ユーザーの古いアクセスキーの残り", "どの IAM ユーザーも有効なキーは 1 つだけ");
+  const users = [outputOf(main, "OnpremStrapiMediaUserName"), outputOf(main, "OnpremN8nSnsUserName"), `comegin-${ENV_NAME}-control-plane`, `comegin-${ENV_NAME}-status-reader`].filter(Boolean);
   for (const user of users) {
-    await tryWarn(warnings, `IAM ユーザー ${user} のキー`, async () => {
+    await f.attempt(oldKeys, `IAM ユーザー ${user} のキー`, async () => {
       const keys = (await awsJson(ctx, ["iam", "list-access-keys", "--user-name", user]))?.AccessKeyMetadata ?? [];
       const active = keys.filter((k) => k.Status === "Active");
-      if (active.length > 1) warnings.push(`IAM ユーザー ${user} に有効なアクセスキーが ${active.length} つある（作成 ${active.map((k) => k.CreateDate.slice(0, 10)).join("・")}）。使っているほうが動くことを確かめてから、古いキーを update-access-key --status Inactive → delete-access-key（cloud/README.md の 4.5）`);
+      if (active.length > 1) f.warn(oldKeys, `IAM ユーザー ${user} に有効なアクセスキーが ${active.length} つある（作成 ${active.map((k) => k.CreateDate.slice(0, 10)).join("・")}）。使っているほうが動くことを確かめてから、古いキーを update-access-key --status Inactive → delete-access-key（cloud/README.md の 4.5）`);
     });
   }
+  const setupOnly = f.item("cloud.setup-only-values", "P15", "prod.conf に残った初期設定用の値", "prod.conf に初期設定にだけ使う値（CHATWOOT_ADMIN_TOKEN・MAUTIC_SETUP_CLIENT_*）は残っていない");
   const left = SETUP_ONLY_KEYS.filter((k) => ctx.conf[k.key]);
-  if (left.length) warnings.push(`初期設定にだけ使う値が prod.conf に残っている: ${left.map((k) => `${k.key}（${k.how}）`).join("、")}（setup/00-setup-overview.md の P15）`);
-  await tryWarn(warnings, "SES", async () => {
+  if (left.length) f.warn(setupOnly, `初期設定にだけ使う値が prod.conf に残っている: ${left.map((k) => `${k.key}（${k.how}）`).join("、")}（setup/00-setup-overview.md の P15）`);
+  const sesProd = f.item("cloud.ses-production", "P15", "SES の本番アクセス（サンドボックスの解除）", "SES はサンドボックスではない（本番アクセスが有効）");
+  await f.attempt(sesProd, "SES", async () => {
     const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
-    if (account && account.ProductionAccessEnabled !== true) warnings.push("SES はまだサンドボックス。顧客にメールが届かない（cloud/README.md の 4.9.2。公開サイトの配信の後すぐに申請する）");
+    if (account && account.ProductionAccessEnabled !== true) f.warn(sesProd, "SES はまだサンドボックス。顧客にメールが届かない（cloud/README.md の 4.9.2。公開サイトの配信の後すぐに申請する）");
+    else if (!account) f.quiet(sesProd, "SES のアカウントの情報を読めなかった");
   });
-  return warnings;
+  return { warnings: f.texts, items: f.items() };
 }
 
 // ---------------------------------------------------------------------------
@@ -424,14 +494,15 @@ export async function check(ctx) {
     if (!main) return { ok: false, notes: [`スタック ${STACK} が無い（先に段階 deploy）`] };
     const missing = await missingDbInit(ctx, main, { record: false });
     const notes = DB_ENGINES.map((e) => `DB 作成（db-init-${e}）: ${missing.includes(e) ? "今のスタックの作成の後に成功した記録が無い（cloud/README.md の 4.8）" : "済み"}`);
-    for (const w of await appsWarnings(ctx, main)) notes.push(`! ${w}`);
-    return { ok: missing.length === 0, notes };
+    const { warnings, items } = await appsWarnings(ctx, main);
+    for (const w of warnings) notes.push(`! ${w}`);
+    return { ok: missing.length === 0, notes, items };
   }
   if (ctx.phase === "operate") {
     const main = await describeStack(ctx, STACK, REGION);
     if (!main) return { ok: false, notes: [`スタック ${STACK} が無い（先に段階 deploy）`] };
-    const warnings = await operateWarnings(ctx, main);
-    return { ok: true, notes: warnings.length ? warnings.map((w) => `! ${w}`) : ["運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる"] };
+    const { warnings, items } = await operateWarnings(ctx, main);
+    return { ok: true, notes: warnings.length ? warnings.map((w) => `! ${w}`) : ["運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる"], items };
   }
   throw new Error(`cloud は段階 ${ctx.phase} を持たない`);
 }
@@ -501,7 +572,7 @@ export async function apply(ctx) {
     const missing = await missingDbInit(ctx, main);
     if (missing.length) ctx.manual("db-init", "DB とアプリ用ユーザーを作る（ECS の RunTask。段階 apps のすべての前提）", dbInitSteps(missing));
     ctx.log(`DB 作成（${DB_ENGINES.map((e) => `db-init-${e}`).join("・")}）は今のスタックの作成の後に成功している`);
-    const warnings = await appsWarnings(ctx, main);
+    const { warnings } = await appsWarnings(ctx, main);
     for (const w of warnings) ctx.warn(w);
     ctx.log(warnings.length ? `人の作業が ${warnings.length} 件残っている（上の !。止めずに進む。setup/00-setup-overview.md の 4 節）` : "global の 2 回目・SNS の購読・SES・AMI の固定・IAM のキー・SMTP の Secret・配信用の主体は済んでいる");
     return;
@@ -509,7 +580,7 @@ export async function apply(ctx) {
 
   if (ctx.phase === "operate") {
     const main = await requireMainStack(ctx);
-    const warnings = await operateWarnings(ctx, main);
+    const { warnings } = await operateWarnings(ctx, main);
     for (const w of warnings) ctx.warn(w);
     ctx.log(warnings.length ? `運用開始の仕上げが ${warnings.length} 件残っている（上の !。止めずに進む。setup/00-setup-overview.md の P15）` : "運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる");
     return;

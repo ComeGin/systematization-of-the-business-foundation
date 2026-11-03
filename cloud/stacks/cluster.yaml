@@ -55,6 +55,8 @@ Resources:
       RetentionInDays: !Ref LogRetentionDays
 
   # 運用者が RunTask で起動する 1 回だけのタスク（DB の作成・マイグレーション。ops-tasks.yaml と README）
+  # 注意: 設定の状況の主体（iam.yaml の StatusReaderPolicy。README の 4.5.3）は、このロググループのログの本文を読める
+  # （logs:FilterLogEvents はストリームでは絞れない）。秘密値を出力しうるタスクは、ここにログを出さない。
   TasksLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

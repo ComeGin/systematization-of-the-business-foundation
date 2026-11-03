@@ -56,9 +56,9 @@ async function inspect(ctx) {
     r.notes.push("ss コマンドが無いのでポートは未確認");
   }
 
-  // 秘匿ファイルは存在だけを見る（中身は読まない）
+  // 秘匿ファイルは存在だけを見る（中身は読まない）。追跡しないので、コードを main のチェックアウトから動かすとき（監視アプリ）も作業ツリーのものを見る
   for (const name of ["strapi", "n8n"]) {
-    const exists = existsSync(join(ctx.W, "onprem", name, ".env"));
+    const exists = existsSync(join(ctx.WORKTREE, "onprem", name, ".env"));
     r.envFiles[name] = exists;
     r.notes.push(`onprem/${name} の環境変数ファイル: ${exists ? "ある" : "まだ無い"}`);
   }

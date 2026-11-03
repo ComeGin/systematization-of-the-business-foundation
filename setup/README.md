@@ -29,17 +29,50 @@ node setup/setup.mjs --target dev
 
 | オプション | 意味 |
 |---|---|
-| `--phase <段階>` | **prod だけ**。その段階だけを実行する（下の「本番の段階」）。省略すると `env` から `apps` までを順に進める。`google` は明示したときだけ動く。dev に付けたとき・無い段階のときは、何もせずに `1` で終わる |
-| `--check` | 何も変えずに、各モジュールの状態を表示する |
+| `--phase <段階>` | **prod だけ**。その段階だけを実行する（下の「本番の段階」）。省略すると `env` から `apps` までを順に進める。`google` は明示したときだけ動く。**`--phase all` は `--check` のときだけ**で、`env` から `operate` までのすべての段階を確かめる。dev に付けたとき・無い段階のとき・`--check` なしの `--phase all` は、何もせずに `1` で終わる |
+| `--check` | 何も変えずに、各モジュールの状態を表示する。**状態ファイルにも書かない**（`ctx.state.set` は「check の中で状態を書こうとした: <key>」を投げ、そのモジュールは「? 確かめられない」になって次へ進む） |
+| `--json` | **`--check` のときだけ**（監視アプリが子プロセスとして読む）。人向けの表示をすべて標準エラーに回し、標準出力の最後の 1 行に結果の JSON を出す。形は下の「`--json` の結果」。終了コードは確かめた結果に関わらず `0`。`--check` なしや `--list`・`--show` との組み合わせは `1` |
 | `--only <id,...>` | 指定したモジュールだけ（id は `--list` で見る） |
+| `--skip <id,...>` | 指定したモジュールを飛ばす（id は `--list` で見る。`--json` の結果には `skipped: true` で残る） |
 | `--from <id>` | 指定したモジュールから後ろだけ（失敗したあとに続きから） |
 | `--list` | モジュールの一覧と順番 |
 | `--show <KEY>` | 状態ファイルの値を 1 つ表示する（作った管理者のパスワードなど。**秘密値も表示する**） |
 | `--config <path>` | 設定ファイルの場所を変える（指定したファイルが無ければ、何も実行せずに `1` で終わる。省略時の既定の場所に無いのは初回として空の設定で進む） |
 
-`--only`・`--from`・`--show`・`--config` の値が無い・空・次のオプション（`-` で始まる）のとき、`--only`・`--from` に `--list` に無い id（この target では動かないものを含む）を渡したときは、何も実行せずに `1` で終わる。
+`--only`・`--skip`・`--from`・`--show`・`--config` の値が無い・空・次のオプション（`-` で始まる）のとき、`--only`・`--skip`・`--from` に `--list` に無い id（この target では動かないものを含む）を渡したときは、何も実行せずに `1` で終わる。
 
 終了コード: `0` 終わった／`1` 失敗（直してから `--from <id>`）／`3` 画面の操作が必要（案内に従って再実行）。
+
+### `--json` の結果
+
+```bash
+node setup/setup.mjs --target prod --check --json --phase all [--skip a,b] 2>/dev/null | tail -n 1
+```
+
+標準出力の最後の 1 行が次の JSON（`frontend.mjs` も同じ。`script` が `setup/frontend.mjs` になる）。出力は `mask()` を通してあり、秘密値は出ない。
+
+```ts
+type SetupCheckReport = {
+  version: 1; target: "prod"; script: "setup/setup.mjs" | "setup/frontend.mjs";
+  startedAt: string; finishedAt: string; // ISO 8601（+09:00）
+  results: Array<{
+    moduleId: string; phase: string | null; ok: boolean; notes: string[];
+    items: StatusItem[];  // モジュールが返さなければ []
+    error: string | null; // check が投げたときの message（投げても次のモジュールへ進む）
+    skipped: boolean;     // --skip で飛ばした
+  }>;
+};
+type StatusItem = {
+  key: string;   // 例 "cloud.sns-subscription"
+  step: string;  // 例 "P2"・"P15"・"R1"
+  level: "ok" | "action" | "warn" | "manual" | "unknown";
+  title: string; evidence: string;
+  stopId?: string; // 例 "next-js-prod:build"
+};
+```
+
+- `ctx.WORKTREE`: 追跡しないファイルと突き合わせの基点。環境変数 `SETUP_WORKTREE`（絶対パス）があればそれ、無ければ `REPO`（相対パスは `1` で止める）
+- `ctx.checkOnly`: `--check` のとき `true`
 
 ## 本番の段階（`--target prod`）
 
@@ -88,7 +121,7 @@ node setup/setup.mjs --target prod --phase operate
 | `mautic-mcp` | `backend/mautic-mcp/setup/` | `pnpm install`・`pnpm build`・資格情報の確認 → `mautic-dev.env` | なし（資格情報が無ければ失敗。mautic を先に） |
 | `control-plane` | `backend/control-plane/setup/` | Node と pnpm の版の確認・`pnpm install`・`pnpm build`・E-15 の置き場（700） | なし |
 | `next-js` | `frontend/next-js/setup/` | init-env・`CONTROL_*` の値・Google の資格情報と許可リスト（`CONTROL_ADMIN_EMAILS`）・`pnpm install`・Google ログインを始められるかの確認（認可 URL の `hd` とリダイレクト URI） | `CONTROL_MAIN_CHECKOUT` が無い（失敗として止まる）／**Google の OAuth クライアントの作成**／監視アプリの起動・起動し直し（別の端末で `pnpm dev`） |
-| `next-js-prod` | `frontend/next-js/setup/prod/`（prod だけ。段階 `operate`） | 承認済みの main のチェックアウトの `frontend/next-js/.env` を本番の値で書く（`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット・監視アプリ専用の資格情報ファイル。Google のクライアントは無ければ今の監視アプリから引き継ぐ）。チェックアウトが `origin/main` か・ビルドが新しいか・IAM の主体とキー・systemd・応答と Google ログインを確かめる。ハートビートのアラームと有効な定期実行の数は警告だけ | `next-js-prod:checkout`・`build`・`principal`・`prod-values`・`systemd`・`systemd-dir`・`restart`・`start`（`onprem/README.md` の「監視アプリ（改善ループ）を本番で動かす」） |
+| `next-js-prod` | `frontend/next-js/setup/prod/`（prod だけ。段階 `operate`） | 承認済みの main のチェックアウトの `frontend/next-js/.env` を本番の値で書く（`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット・監視アプリ専用の資格情報ファイル・設定の状況の `CONTROL_SETUP_STATUS_ENABLED=true` と `CONTROL_STATUS_*`〈主体のキーと GitHub のトークンのファイルの場所・知らせのトピック・リンクの根〉。Google のクライアントは無ければ今の監視アプリから引き継ぐ。開く URL〈`BETTER_AUTH_URL`〉は `CONTROL_PUBLIC_URL`、無ければ `http://127.0.0.1:3200` で、引き継がない）。チェックアウトが `origin/main` か・ビルドが新しいか・IAM の主体とキー・設定の状況の読み取り専用の主体〈`comegin-prod-status-reader`。キーの主体と付いているポリシーまで〉と参照専用の GitHub のトークン〈fine-grained PAT の `github_pat_` で `GET /repos/<リポジトリ>` が 200・`X-OAuth-Scopes` なし。Read-only かは確かめられず人が選ぶ。値は表示しない〉・systemd・応答と Google ログインを確かめる。ハートビートのアラームと有効な定期実行の数は警告だけ | `next-js-prod:checkout`・`build`・`principal`・`status-principal`・`status-github`・`prod-values`・`systemd`・`systemd-dir`・`restart`・`start`（`onprem/README.md` の「監視アプリ（改善ループ）を本番で動かす」） |
 | `onprem` | `onprem/setup/`（prod だけ） | 読むだけの確認（wg0・systemd・待ち受け） | 本番の立ち上げ手順の案内（枠だけ） |
 | `chatwoot-prod` | `backend/chatwoot-system/setup/prod/`（prod だけ） | 最初に ECS の `chatwoot-web`・`chatwoot-worker` の DesiredCount（親のパラメータ）が 1 以上か（0 なら `db:chatwoot_prepare` と台数の上げ方を案内して止まる）。開発の `chatwoot` と同じ API の手順を、本番（`https://chat.comegin.com`。ALB のルール 201）に向けて行う: 受信箱「Web サイト」（解決後は新しいチャット・管理者とエージェント専用ユーザーをメンバーに）・FAQ のラベル 4 つ・FAQ ボット（送り先は本番の faq-bot の関数 URL）と受信箱への接続・マクロ・管理者の引き継ぎのメール通知。website_token を prod の状態に置く（公開サイトの本番のビルドが読む） | `chatwoot-prod:ecs`（台数を上げる）／最初の管理者（画面の onboarding）とエージェント専用ユーザーとそれぞれのトークン／FAQ ボットのトークンと secret を Secrets Manager に入れる（`cloud/README.md` の 7.3） |
 | `mautic-prod` | `backend/mautic-system/dev/setup/prod/`（prod だけ） | 最初に `mautic-web` の DesiredCount が 1 か、最後に `mautic-cron` の DesiredCount が 1 か（インストールの後に上げる）。開発の `mautic` と同じ API の手順を、本番（`https://mkt.comegin.com`。ALB のルール 202）に向けて行う: カスタム項目 3 つ・フォーム consult と自動返信・セグメント mql。フォームの ID を prod の状態に置く | `mautic-prod:ecs-web`・`mautic-prod:ecs-cron`（台数を上げる）／インストール（`/installer`）と画面の設定（API・Webhook のキューモードと私設アドレス `10.99.0.2`・CORS・メール）と初期設定用の API 認証情報（`cloud/README.md` の 7.4） |
@@ -194,11 +227,35 @@ Mautic と Chatwoot は、私設アドレスへの Webhook を既定で送らな
 - 子プロセスに秘密値を渡すときは、コマンドライン引数ではなく標準入力か環境変数を使う（`ps` に出さない）。Strapi の管理者は CLI（`admin:create-user`）がパスワードを引数でしか受けないため、管理 API（`/admin/register-admin`）で作る
 - 子プロセスの出力は貯めておき、失敗したときだけ最後の 20 行を伏せ字にして表示する
 
+## 設定の状況のカタログ（`setup/status/`）
+
+監視アプリの「設定の状況」画面（`/setup-status`）が、本番の手順を 1 項目ずつどう確かめるかを持つ一覧。`00-setup-overview.md` の 3 節（P1〜P15）のチェック項目と 6 節（R1）の表の各行を、1 行 1 項目で写してある。**人が読む正本は `00-setup-overview.md`** で、カタログはそれに合わせる。
+
+| ファイル | 中身 |
+|---|---|
+| `setup/status/steps.mjs` | 一覧本体。`STEPS`（段階 → 項目）・`KNOWN_ITEM_KEYS`（各モジュールの `check()` が `items` で返す `(key, step)`）・`PRODUCT_API_MODULES`（製品の API を呼ぶ＝1 時間に 1 回までのモジュール）・`CATALOG_VERSION`。副作用のない ESM で、`default` は export しない。監視アプリが承認済みの main のチェックアウトから `import()` で読む |
+| `setup/status/verify-steps.mjs` | 一覧と `00-setup-overview.md` のずれの検査 |
+
+項目の形（`steps.mjs` の冒頭のコメントが正）:
+
+- `overviewText`: 該当の行にだけ含まれる部分文字列（その段階の節で 1 回だけ現れること）。検査が行との対応に使う
+- `probe`: 確かめ方。`item`（モジュールの `items` のうち `key` が一致し、`step` がこの段階のもの）／`items`（1 行が複数の key にまたがるとき。`keys` の項目をすべて見て、level は最も重いもの、evidence は「／」でつなぐ。`keys` は空にしない）／`module`（モジュールの `ok`・`notes` 全体）／`drift`（`site-redeploy`・`n8n-workflows`。設定スクリプトが見ていない「ずれ」）／`none`（◇。〔未検査〕・〔申告〕・判断・確かめる手段が無いもの）
+- `docs`: 正本の節（`{ file, heading }`）。`heading` は見出し（`#` を除く）の先頭に一致し、**1 つだけ**当たること。末尾が数字のときは後ろに数字が続く見出しに当たらない（`4.1` は `4.10` に当たらない）。見出しが同名で 2 つあるもの（onprem の「常駐させる」）は `（systemd）`・`（監視アプリ）` まで書く
+- チェック項目の行 = 3 節の各 P の、字下げのない `- [ ] `・`- 〔`（〔未検査〕〔警告〕〔申告〕）・`- 再実行で **自動**` の行。字下げした補足と「守ること」は数えない。字下げのない `- ` の行でどれにも当たらないものは数えず、検査が「注意:」として出す（新しい手順を `[ ]` なしで書いたときに気づくため）
+
+```bash
+node setup/status/verify-steps.mjs [--root <dir>]   # 0: 一致／1: 不一致（理由を 1 行ずつ）
+cd setup && pnpm exec vitest run tests/status       # 検査そのものの単体テスト
+```
+
+**`00-setup-overview.md` の P1〜P15・6 節を直したら、`steps.mjs` も直し、`verify-steps.mjs` を通す。** 行を足す・消す・言い回しを変えると、`overviewText` が当たらなくなって検査が止まる。`check()` が新しい `key` を `items` で返すようにしたら、`KNOWN_ITEM_KEYS` にも足す（同じ `key` を 2 つの段階に出すなら、両方の段階を `steps` に書く）。
+
 ## モジュールを足すとき
 
 1. `<モジュール>/setup/index.mjs` に、`setup/lib/core.mjs` の冒頭に書いた形（`meta`・`check`・`apply`）で書く。見本は `middleware/host-relay/setup/index.mjs`
 2. `setup/setup.mjs`（フロントエンドのモジュールなら `setup/frontend.mjs`）の `MODULES` に、依存の順で 1 行足す
-3. 新しい設定のキーは `setup.conf.example` に、新しい状態のキーはこの README の「作られる値」に足す
+3. `check` は読むだけにする（`--check` では `ctx.state.set` が例外になる）。監視アプリの「設定の状況」に出す項目は、戻り値に `items`（`{ key, step, level, title, evidence, stopId? }` の配列。上の「`--json` の結果」）を足す。返さなくても、`ok` と `notes` から手順に当てはめられる
+4. 新しい設定のキーは `setup.conf.example` に、新しい状態のキーはこの README の「作られる値」に足す
 
 ## 既知の未確認（最初の実行で分かる）
 

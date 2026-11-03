@@ -54,6 +54,7 @@ CONTROL_GOOGLE_CLIENT_SECRET=
 # ログインを許すメールアドレス（カンマ区切り。既定は ADMIN_EMAIL）。comegin.com の Google アカウントだけが通る
 CONTROL_ADMIN_EMAILS=
 # ブラウザで開く URL（BETTER_AUTH_URL に書く。任意。空なら環境変数ファイルの今の値。ngrok で開くなら https://comegin-next-js-dev.ngrok.app）
+# prod（next-js-prod）では、空なら http://127.0.0.1:3200（開発の .env からは引き継がない）。本番は ngrok で外に出さない（手元以外の URL は警告。onprem/README.md の「開く（監視アプリ）」）
 CONTROL_PUBLIC_URL=
 # E-15（実行記録の SQLite）の置き場（任意。既定 ~/.local/share/comegin-control）
 CONTROL_DATA_DIR=

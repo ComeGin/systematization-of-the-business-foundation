@@ -23,6 +23,13 @@ const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
 
 const baseOf = (ctx) => String(ctx.conf.MAUTIC_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 
+// 初期設定（ensure*）が最後まで済むと、作ったものの ID がこの 3 つとして状態に入る。
+// 済んだ後は、初期設定用の API 認証情報（MAUTIC_SETUP_CLIENT_*）を prod.conf と画面から消す決まり（setup/00-setup-overview.md の P15。
+// cloud の段階 operate が残りを警告する）。消した後に「無い」で止めると P15 と矛盾するので、3 つがそろっていれば初期設定を飛ばす。
+// 作り直したいとき（画面でフォームを消したなど）は、初期設定用の認証情報を作り直して prod.conf に書けば、ensure* が名前で探して直す。
+const SETUP_RESULT_KEYS = ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL", "MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY"];
+const setupFinished = (ctx) => SETUP_RESULT_KEYS.every((key) => ctx.state.has(key));
+
 /** 未認証で /api を叩いて状態を見る。未インストールは /installer への 302、API が無効は 403 api_disabled、有効は 401、それ以外（ALB の 502・503 など）は abnormal */
 async function apiState(ctx) {
   const res = await fetch(`${baseOf(ctx)}/api/contacts?limit=1`, { headers: { Accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(10_000) }).catch(() => null);
@@ -70,8 +77,9 @@ export async function check(ctx) {
   mark(yes(ctx.value("MAUTIC_PROD_SETTINGS_DONE")), "画面の設定（Webhook・CORS・メール・API 認証情報）は済みと申告されている", "画面の設定が済んだと申告されていない（MAUTIC_PROD_SETTINGS_DONE=yes）");
   const id = ctx.conf.MAUTIC_SETUP_CLIENT_ID;
   const secret = ctx.conf.MAUTIC_SETUP_CLIENT_SECRET;
-  if (!id || !secret) mark(false, "", "MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET が prod.conf に無い");
-  else if (state === "enabled") mark(Boolean(await fetchToken({ ...ctx, mauticBase: baseOf(ctx) }, id, secret)), "初期設定用の API 認証情報でトークンを取れる", "初期設定用の API 認証情報でトークンを取れない");
+  if (!id || !secret) {
+    mark(setupFinished(ctx), "初期設定は済み（初期設定用の API 認証情報は prod.conf から消してある。P15 のとおり。やり直すときだけ書き直す）", "MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET が prod.conf に無い");
+  } else if (state === "enabled") mark(Boolean(await fetchToken({ ...ctx, mauticBase: baseOf(ctx) }, id, secret)), "初期設定用の API 認証情報でトークンを取れる", "初期設定用の API 認証情報でトークンを取れない");
   for (const key of ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL"]) mark(ctx.state.has(key), `${key} は状態にある（${ctx.state.get(key)}）`, `${key} がまだ状態に無い（apply で作る）`);
   return { ok, notes };
 }
@@ -93,20 +101,27 @@ export async function apply(ctx) {
   if (state === "redirect") throw new Error("本番の Mautic の /api が認証の内側に落ちている。edge.yaml のルール 202 と、MktHost が合っているかを確かめる");
   const id = ctx.conf.MAUTIC_SETUP_CLIENT_ID;
   const secret = ctx.conf.MAUTIC_SETUP_CLIENT_SECRET;
-  if (state !== "enabled" || !yes(ctx.value("MAUTIC_PROD_SETTINGS_DONE")) || !id || !secret) {
-    ctx.manual("settings", "本番の Mautic をインストールし、画面で設定して、初期設定用の API 認証情報を prod.conf に書く", settingsSteps(ctx));
-  }
+  const settingsDone = state === "enabled" && yes(ctx.value("MAUTIC_PROD_SETTINGS_DONE"));
+  const hasSetupClient = Boolean(id && secret);
+  if (settingsDone && !hasSetupClient && setupFinished(ctx)) {
+    // P15 で初期設定用の値を消した後。初期設定は済んでいるので、cron の台数だけを確かめる
+    ctx.log("初期設定は済み（フォーム consult・自動返信・セグメント mql の ID は状態にある）。初期設定用の API 認証情報が prod.conf に無いので、初期設定は飛ばす（やり直すときは作り直して書く）");
+  } else {
+    if (!settingsDone || !hasSetupClient) {
+      ctx.manual("settings", "本番の Mautic をインストールし、画面で設定して、初期設定用の API 認証情報を prod.conf に書く", settingsSteps(ctx));
+    }
 
-  const c = { ...ctx, mauticBase: baseOf(ctx) };
-  const token = await fetchToken(c, id, secret);
-  if (!token) throw new Error("初期設定用の API 認証情報でトークンを取れない。MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET と、認証情報が管理者のロールで作られているかを確かめる");
-  ctx.log("本番の Mautic に初期設定用の API 認証情報で認証できた");
-  await ensureContactFields(c, token);
-  await ensureForms(c, token);
-  await ensureAutoReply(c, token);
-  await ensureSegment(c, token);
-  ctx.log("フォーム consult とセグメント mql の ID を prod の状態に置いた（MAUTIC_FORM_ID_CONSULT は node setup/frontend.mjs --target prod の .env.production が読む）");
-  ctx.log("Mautic から n8n（I-11）への Webhook は、オンプレの本番の n8n の provision（n8n-prod）が作る（宛先 http://10.99.0.2:5680/webhook/mautic-event）");
+    const c = { ...ctx, mauticBase: baseOf(ctx) };
+    const token = await fetchToken(c, id, secret);
+    if (!token) throw new Error("初期設定用の API 認証情報でトークンを取れない。MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET と、認証情報が管理者のロールで作られているかを確かめる");
+    ctx.log("本番の Mautic に初期設定用の API 認証情報で認証できた");
+    await ensureContactFields(c, token);
+    await ensureForms(c, token);
+    await ensureAutoReply(c, token);
+    await ensureSegment(c, token);
+    ctx.log("フォーム consult とセグメント mql の ID を prod の状態に置いた（MAUTIC_FORM_ID_CONSULT は node setup/frontend.mjs --target prod の .env.production が読む）");
+    ctx.log("Mautic から n8n（I-11）への Webhook は、オンプレの本番の n8n の provision（n8n-prod）が作る（宛先 http://10.99.0.2:5680/webhook/mautic-event）");
+  }
 
   const cron = await serviceCounts(ctx, main, "mautic-cron", "MauticCronDesiredCount");
   if (cron.desiredParam !== 1) {

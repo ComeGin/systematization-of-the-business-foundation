@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ManualStepRequired, State, W, createContext, loadConfig, mask } from "./core.mjs";
+import { ManualStepRequired, State, W, createContext, loadConfig, mask, resolveWorktree } from "./core.mjs";
 
 // 本番の段階（ユーザーの決定。2026-10-27）。ECR のリポジトリは sam deploy が作るので、イメージのプッシュはデプロイの後。
 // google は公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く（--phase を付けないと env〜apps まで）。
@@ -32,15 +32,20 @@ function helpText(title, script) {
   return `${title}
 
 使い方:
-  node ${script} --target <dev|prod> [--phase <段階>] [--check] [--only <id,...>] [--from <id>] [--list] [--show <KEY>] [--config <path>]
+  node ${script} --target <dev|prod> [--phase <段階>] [--check [--json]] [--only <id,...>] [--skip <id,...>] [--from <id>] [--list] [--show <KEY>] [--config <path>]
 
   --target  dev（オンプレの開発環境）か prod（本番。画面の操作と AWS への書き込み〈デプロイ・プッシュ〉は案内して止まる）
   --phase   prod だけ。その段階だけを実行する。段階は次の順（省略すると env から apps までを順に進める）:
 ${PROD_PHASES.map((p, i) => `              ${i + 1}. ${p.id.padEnd(8)} ${p.title}`).join("\n")}
             google は公開サイトが Route 53 から配信された後に --phase google で、
-            operate は google の後に --phase operate で行う
-  --check   何も変えずに、各モジュールの用意の状態を表示する
+            operate は google の後に --phase operate で行う。
+            --check のときだけ --phase all が使える（env から operate までの全段階を確かめる）
+  --check   何も変えずに、各モジュールの用意の状態を表示する（状態ファイルも書かない）
+  --json    --check のときだけ。人向けの表示をすべて標準エラーに出し、標準出力の最後の 1 行に結果の JSON
+            （{ version, target, script, startedAt, finishedAt, results[] }。モジュールごとの ok・notes・items・error・skipped）を出す。
+            終了コードは確かめた結果に関わらず 0（引数の誤りなどは 1）
   --only    指定したモジュールだけを実行する（--list の id。カンマ区切り）
+  --skip    指定したモジュールを飛ばす（--list の id。カンマ区切り。--json の結果には skipped: true で残る）
   --from    指定したモジュールから後ろを実行する
   --list    モジュールの一覧と順番を表示する
   --show    状態ファイルの値を 1 つ表示する（作った管理者のパスワードなど。秘密値も表示する）
@@ -51,7 +56,7 @@ ${PROD_PHASES.map((p, i) => `              ${i + 1}. ${p.id.padEnd(8)} ${p.title
 }
 
 function parseArgs(argv) {
-  const a = { target: null, phase: null, check: false, only: null, from: null, list: false, show: null, config: null, help: false };
+  const a = { target: null, phase: null, check: false, json: false, only: null, skip: null, from: null, list: false, show: null, config: null, help: false };
   // 値を取るオプションの値。無い・空・次のオプション（-- で始まる）なら止める。
   // 値が無いまま進むと、--show・--only・--from が「指定なし」と同じになり、全モジュールの apply が走ってしまうため
   const value = (name, i) => {
@@ -64,9 +69,13 @@ function parseArgs(argv) {
     if (v === "--target") a.target = argv[++i];
     else if (v === "--phase") a.phase = value(v, ++i);
     else if (v === "--check") a.check = true;
+    else if (v === "--json") a.json = true;
     else if (v === "--only") {
       a.only = value(v, ++i).split(",").map((s) => s.trim());
       if (a.only.includes("")) throw new Error(`--only の id に空のものがある: ${argv[i]}（--list を参照）`);
+    } else if (v === "--skip") {
+      a.skip = value(v, ++i).split(",").map((s) => s.trim());
+      if (a.skip.includes("")) throw new Error(`--skip の id に空のものがある: ${argv[i]}（--list を参照）`);
     } else if (v === "--from") a.from = value(v, ++i);
     else if (v === "--list") a.list = true;
     else if (v === "--show") a.show = value(v, ++i);
@@ -110,16 +119,44 @@ const phaseTitle = (id) => {
   return `段階 ${i + 1}. ${PROD_PHASES[i].title}（--phase ${id}）`;
 };
 
+// --json の結果の版。形を変えるときに上げる（監視アプリ〈control-plane〉が検証する）
+const REPORT_VERSION = 1;
+
+/** ISO 8601 の日本時間（+09:00）。監視アプリの画面と同じ時刻の読み方にそろえる */
+function jstIso(date) {
+  return new Date(date.getTime() + 9 * 3_600_000).toISOString().replace("Z", "+09:00");
+}
+
+/** 文字列を再帰的に mask に通す（モジュールが返した items に秘密値が混ざっても、出す前に伏せる） */
+function maskDeep(v) {
+  if (typeof v === "string") return mask(v);
+  if (Array.isArray(v)) return v.map(maskDeep);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskDeep(x)]));
+  return v;
+}
+
+/** モジュールが返した items を結果に載せる形にする（返さなければ []。オブジェクトでないものは捨てる） */
+function normalizeItems(items) {
+  return Array.isArray(items) ? items.filter((i) => i && typeof i === "object" && !Array.isArray(i)).map(maskDeep) : [];
+}
+
 async function main({ title, script, modules: moduleList }) {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return console.log(helpText(title, script));
   if (args.target !== "dev" && args.target !== "prod") throw new Error("--target dev か --target prod を指定する（--help を参照）");
   if (args.phase && args.target !== "prod") throw new Error("--phase は --target prod だけで使う（dev には段階が無い）");
-  if (args.phase && !PROD_PHASES.some((p) => p.id === args.phase)) throw new Error(`--phase の ${args.phase} は無い段階（${PROD_PHASES.map((p) => p.id).join("・")}）`);
+  if (args.phase === "all" && !args.check) throw new Error("--phase all は --check と一緒にだけ使う（全段階を実行するときは --phase を付けない）");
+  if (args.phase && args.phase !== "all" && !PROD_PHASES.some((p) => p.id === args.phase)) throw new Error(`--phase の ${args.phase} は無い段階（${PROD_PHASES.map((p) => p.id).join("・")}・all）`);
+  if (args.json && !args.check) throw new Error("--json は --check と一緒にだけ使う（--help を参照）");
+  if (args.json && (args.list || args.show)) throw new Error("--json は --list・--show と一緒に使えない");
+  resolveWorktree(); // SETUP_WORKTREE が相対パスなら、何も実行せずに止める
+  // --json は標準出力の最後の 1 行を結果の JSON にするので、ほかの出力（モジュールの console.log を含む）は標準エラーへ回す
+  const startedAt = new Date();
+  if (args.json) console.log = console.info = console.debug = (...a) => console.error(...a);
   // 案内に出す再実行のコマンドの共通部分（--phase を付けて実行したなら、付けたまま案内する）
   const base = `node ${script} --target ${args.target}${args.phase ? ` --phase ${args.phase}` : ""}`;
 
-  const state = new State(args.target);
+  const state = new State(args.target, { readOnly: args.check });
   if (args.show) {
     if (!state.has(args.show)) throw new Error(`${args.show} は状態ファイルに無い（${state.file}）`);
     return console.log(state.get(args.show));
@@ -146,20 +183,23 @@ async function main({ title, script, modules: moduleList }) {
     return;
   }
 
-  const phaseIds = args.phase ? [args.phase] : DEFAULT_PHASES;
+  const phaseIds = args.phase === "all" ? PROD_PHASES.map((p) => p.id) : args.phase ? [args.phase] : DEFAULT_PHASES;
   const phaseNote = args.target === "prod" ? `（段階: ${phaseIds.join("→")}）` : "";
   console.log(`対象: ${args.target}${phaseNote}／設定: ${existsSync(confFile) ? confFile : `${confFile}（まだ無い。setup.conf.example を参照）`}／状態: ${state.file}`);
 
   let runs = plan(available, args.target, phaseIds);
+  // --only・--skip・--from と同じく、無い id（打ち間違い・この target や段階では動かないもの）は、何も実行せずに止める
+  const requireKnown = (option, ids) => {
+    const unknown = ids.filter((id) => !runs.some((r) => r.mod.meta.id === id));
+    if (!unknown.length) return;
+    // ほかの段階にあるなら、その段階を案内する（例: --only ga4 は --phase google）
+    const elsewhere = unknown.map((id) => available.find((m) => m.mod.meta.id === id)).filter(Boolean);
+    const hint = elsewhere.length ? `。${elsewhere.map((m) => `${m.mod.meta.id} は --phase ${m.mod.meta.phases.join(" か --phase ")}`).join("、")}` : "";
+    throw new Error(`${option} の ${unknown.join(", ")} が見つからない（--list を参照${hint}）`);
+  };
+  if (args.skip) requireKnown("--skip", args.skip);
   if (args.only) {
-    // --from と同じく、無い id（打ち間違い・この target や段階では動かないもの）は、何も実行せずに止める
-    const unknown = args.only.filter((id) => !runs.some((r) => r.mod.meta.id === id));
-    if (unknown.length) {
-      // ほかの段階にあるなら、その段階を案内する（例: --only ga4 は --phase google）
-      const elsewhere = unknown.map((id) => available.find((m) => m.mod.meta.id === id)).filter(Boolean);
-      const hint = elsewhere.length ? `。${elsewhere.map((m) => `${m.mod.meta.id} は --phase ${m.mod.meta.phases.join(" か --phase ")}`).join("、")}` : "";
-      throw new Error(`--only の ${unknown.join(", ")} が見つからない（--list を参照${hint}）`);
-    }
+    requireKnown("--only", args.only);
     runs = runs.filter((r) => args.only.includes(r.mod.meta.id));
   }
   if (args.from) {
@@ -170,22 +210,32 @@ async function main({ title, script, modules: moduleList }) {
   const missing = modules.filter((m) => m.missing);
   if (missing.length) console.log(`（未実装のモジュール: ${missing.map((m) => m.rel).join(", ")}）`);
 
+  const results = []; // --json の結果
   let currentPhase = null;
   for (const { mod, phase } of runs) {
     if (phase && phase !== currentPhase) {
       console.log(`\n━━ ${phaseTitle(phase)}`);
       currentPhase = phase;
     }
-    const ctx = createContext({ target: args.target, conf, state, moduleId: mod.meta.id, phase });
+    const ctx = createContext({ target: args.target, conf, state, moduleId: mod.meta.id, phase, checkOnly: args.check });
     console.log(`\n■ ${mod.meta.title}（${mod.meta.id}${phase && mod.meta.phases.length > 1 ? `・${phase}` : ""}）`);
+    if (args.skip?.includes(mod.meta.id)) {
+      console.log("  - 飛ばした（--skip）");
+      results.push({ moduleId: mod.meta.id, phase, ok: false, notes: [], items: [], error: null, skipped: true });
+      continue;
+    }
     if (args.check) {
+      const result = { moduleId: mod.meta.id, phase, ok: false, notes: [], items: [], error: null, skipped: false };
       try {
         const r = await mod.check(ctx);
         console.log(`  ${r.ok ? "✓ 用意できている" : "… まだ"}`);
         for (const n of r.notes ?? []) console.log(mask(`    - ${n}`));
+        Object.assign(result, { ok: Boolean(r.ok), notes: (r.notes ?? []).map((n) => mask(String(n))), items: normalizeItems(r.items) });
       } catch (e) {
         console.log(mask(`  ? 確かめられない（${e.message}）`));
+        result.error = mask(String(e.message));
       }
+      results.push(result);
       continue;
     }
     try {
@@ -202,6 +252,10 @@ async function main({ title, script, modules: moduleList }) {
       console.error(`  直してから、続きから実行する: ${base} --from ${mod.meta.id}`);
       process.exit(1);
     }
+  }
+  if (args.json) {
+    const report = { version: REPORT_VERSION, target: args.target, script, startedAt: jstIso(startedAt), finishedAt: jstIso(new Date()), results };
+    process.stdout.write(`${JSON.stringify(report)}\n`);
   }
   if (args.check) return;
   console.log("\n✓ すべて終わった。作った管理者のパスワードなどは `--show <KEY>` で見る（README の「作られる値」）");

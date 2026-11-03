@@ -96,7 +96,9 @@ function prodCheckoutOf(ctx) {
     throw new Error(
       `${checkout} に ${DIR} が無い（古いコミットを指していないか。git -C ${checkout} checkout --detach origin/main を人が実行する）`,
     );
-  if (realpathSync(checkout) === realpathSync(ctx.REPO)) {
+  // 比べる相手は作業ツリー（ctx.WORKTREE）。コードを承認済みの main のチェックアウトから動かすとき（監視アプリ）は REPO がチェックアウト自身を指すので、
+  // REPO と比べると常に「同じ場所」になってしまう
+  if (realpathSync(checkout) === realpathSync(ctx.WORKTREE)) {
     throw new Error(
       `SITE_BUILD_CHECKOUT（${checkout}）が作業ツリーと同じ場所。作業ツリーに .env.production を置くと、pnpm lh などの開発のビルドが本番の値で焼かれるので、承認済みの main の別のチェックアウトにする`,
     );
@@ -193,10 +195,11 @@ async function playwrightChromiumReady(ctx) {
 
 /** consent-api の環境変数ファイル（無ければ雛形）から、同じ値にそろえる 2 つを読む */
 function consentValues(ctx) {
-  const dir = join(ctx.W, "backend/consent-api");
+  // .env は追跡しないので作業ツリーから読む（無ければ、追跡している .env.example）
+  const dir = join(ctx.WORKTREE, "backend/consent-api");
   const env = existsSync(join(dir, ".env"))
     ? ctx.readEnvFile(join(dir, ".env"))
-    : ctx.readEnvFile(join(dir, ".env.example"));
+    : ctx.readEnvFile(join(ctx.W, "backend/consent-api", ".env.example"));
   return {
     policy: env.CONSENT_POLICY_VERSION,
     cookieDomain: env.COOKIE_DOMAIN ?? "",

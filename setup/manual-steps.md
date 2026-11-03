@@ -50,7 +50,7 @@
 | `chatwoot-prod:onboarding`／`chatwoot-prod:faq-bot-secrets`（`--target prod`） | 本番の Chatwoot の管理者・エージェント専用ユーザーのトークンが無い／FAQ ボットのトークンを Secrets Manager に入れたと申告していない | 画面の onboarding とエージェントの招待をしてトークンを書く／表示されたコマンドで Secrets Manager に入れて `FAQ_BOT_SECRETS_STORED=yes` | [cloud 7.3](../cloud/README.md#73-本番の-chatwootchatwoot-prod) |
 | `mautic-prod:settings`（`--target prod`） | 本番の Mautic が未インストール・API が無効・画面の設定を申告していない・初期設定用の API 認証情報が無い | インストールして画面で設定し、`MAUTIC_SETUP_CLIENT_*` と `MAUTIC_PROD_SETTINGS_DONE=yes` を書く | [cloud 7.4](../cloud/README.md#74-本番の-mauticmautic-prod) |
 | `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く／dist は main のチェックアウトでパッケージごとにビルドする | [onprem「本番の MCP」](../onprem/README.md#本番の-mcpmcp-prod)・[「MCP サーバの dist」](../onprem/README.md#mcp-サーバの-dist-をビルドするmcp-prodfinish) |
-| `next-js-prod:checkout`／`build`／`principal`／`prod-values`／`systemd`／`systemd-dir`／`restart`／`start`（`--target prod`。段階 `operate`） | 監視アプリ（改善ループ）を本番の値で常駐させる前提が足りない（チェックアウト・ビルド・IAM の主体とキー・`prod.conf` の値・systemd のユニット） | 表示のとおり。どれも人が自分の端末で行う | [onprem「監視アプリ（改善ループ）を本番で動かす」](../onprem/README.md#監視アプリ改善ループを本番で動かす) |
+| `next-js-prod:checkout`／`build`／`principal`／`status-principal`／`status-github`／`prod-values`／`systemd`／`systemd-dir`／`restart`／`start`（`--target prod`。段階 `operate`） | 監視アプリ（改善ループ）を本番の値で常駐させる前提が足りない（チェックアウト・ビルド・IAM の主体とキー・設定の状況の読み取り専用の主体〈`status-principal`〉と GitHub の参照専用のトークン〈`status-github`〉・`prod.conf` の値・systemd のユニット） | 表示のとおり。どれも人が自分の端末で行う（`status-principal` は [cloud 4.5.3](../cloud/README.md#453-設定の状況の主体statusreaderpolicyarnを作りキーを発行する1-回だけ)、`status-github` は onprem「設定の状況を有効にする」） | [onprem「監視アプリ（改善ループ）を本番で動かす」](../onprem/README.md#監視アプリ改善ループを本番で動かす)・[「設定の状況を有効にする」](../onprem/README.md#設定の状況を有効にするsetup-status) |
 | （`cloud` の警告。段階 `operate`） | 配信用の主体が無い・IAM ユーザーに古いキーが残っている・`prod.conf` に初期設定用の値が残っている・SES がサンドボックス | 止めない。`setup/00-setup-overview.md` の P15 | [cloud 4.5](../cloud/README.md#45-iam-の管理ポリシーを付けるオンプレの-iam-ユーザーのキーを発行する) |
 
 ## 1. 設定ファイルの書き方（全節で共通）
@@ -225,6 +225,8 @@ Google の OAuth クライアントは、Google Workspace（comegin.com）の管
    ```
 
    7.1 と同じクライアントを使ってもよい。その場合は、そのクライアントの Authorized redirect URIs に監視アプリの URI も足し、`CONTROL_GOOGLE_*` は空のままにする（スクリプトが `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET` を使う）
+
+   **本番（`next-js-prod`）は、同じクライアントに `http://127.0.0.1:3200/api/auth/callback/google` も足す。** 本番の監視アプリは `http://127.0.0.1:3200` で開き（`prod.conf` の `CONTROL_PUBLIC_URL` が空なら、この値になる）、ngrok で外に出さない（`onprem/README.md` の「開く（監視アプリ）」）
 3. 同じコマンドを実行し直す。スクリプトが監視アプリの環境変数ファイルに書き、`next-js:restart-app` で止まったら監視アプリを起動し直す（環境変数は起動したときに読まれる）。最後にスクリプトが、Google の認可 URL の `hd`（`comegin.com`）とリダイレクト URI を確かめる
 4. ブラウザで `<BETTER_AUTH_URL>/login` を開き、**Google でログイン**。通るのは次の 3 つを満たすアカウントだけ（どれかが欠けると `/login` に戻り、「ログインできませんでした」と出る。理由の種類は `pnpm dev` の端末に `[auth] login refused: …` で出る）
    - `comegin.com` の Google Workspace のアカウント（ID トークンの `hd`）
@@ -301,7 +303,7 @@ OAuth の同意画面が「テスト中」のままだと、更新トークン�
 | Mautic | http://127.0.0.1:8000/s/login | `admin` | `--show MAUTIC_ADMIN_PASSWORD`（スクリプトがインストールした場合だけ） |
 | Strapi | http://127.0.0.1:1337/admin | `ADMIN_EMAIL` | `--show STRAPI_ADMIN_PASSWORD`（スクリプトが作った場合だけ） |
 | n8n | http://127.0.0.1:5678 | `ADMIN_EMAIL` | `--show N8N_OWNER_PASSWORD`（スクリプトが作った場合だけ） |
-| 監視アプリ | `<BETTER_AUTH_URL>/login`（いまの開発は https://comegin-next-js-dev.ngrok.app/login） | Google（`CONTROL_ADMIN_EMAILS` のアカウント） | なし（Google でログイン。7.2） |
+| 監視アプリ | `<BETTER_AUTH_URL>/login`（いまの開発は https://comegin-next-js-dev.ngrok.app/login。本番の常駐は http://127.0.0.1:3200/login） | Google（`CONTROL_ADMIN_EMAILS` のアカウント） | なし（Google でログイン。7.2） |
 | MailHog（開発のメール） | http://127.0.0.1:8025 | なし | なし |
 
 手で作った管理者のパスワードを `dev.conf` に書いた場合は、そちらを使う（状態には入らない）。
