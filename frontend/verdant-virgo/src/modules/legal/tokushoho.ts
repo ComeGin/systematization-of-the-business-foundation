@@ -10,7 +10,7 @@ import type { TableLegalPage } from "./types";
 
 export const tokushoho: TableLegalPage = {
   kind: "table",
-  path: "/legal/tokushoho",
+  path: "/legal/tokushoho/",
   breadcrumb: [
     { label: "ホーム", href: "/" },
     { label: "特定商取引法に基づく表記" },
@@ -32,7 +32,7 @@ export const tokushoho: TableLegalPage = {
       [
         "販売価格",
         [
-          link("料金ページ", "/pricing"),
+          link("料金ページ", "/pricing/"),
           "に記載のとおりです。",
           strong("表示価格はすべて税込です。"),
         ],

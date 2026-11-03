@@ -2290,7 +2290,8 @@ title は 32 字前後、description は 120 字前後（全角・半角とも 1
   - ブログ一覧: title `ブログ｜福祉の現場の困りごとと、その直し方 | ComeGin`（31）／description は介護労働実態調査の 75.4%・49.4% を主にしていた（120）。D-C で業界を限らない書き方にし、IPA の 50.8% を主にした。**description は検索結果に出る文なので、7-3 と違って介護の数字は入れない**（120 字前後に 2 つの調査を入れると出典が書けない）。**G-B（2026-10-08）で C22 を確定し、「情報セキュリティなど IT の困りごと」に改めた**。字数を 120 字前後に収めるため「全国で」「起きている」「に分けて」を削った（旧案は 123 字）
 - description の数字には出典を括弧で添える（ブログ一覧の「（IPA、2025年）」。GL §8.1-2「数字には出典と年度」。`Caption` を置けないため）
 - **h1 は 1 画面に 1 つ**。セクション見出しは h2、カードの見出しは h3。
-- `?service=` `?cta=` `?from=` の付いた `/contact` は canonical を `/contact` にする（パラメータ違いの重複を作らない。`LH-seo` 1.0 のため）。
+- `?service=` `?cta=` `?from=` の付いた `/contact/` は canonical を `/contact/` にする（パラメータ違いの重複を作らない。`LH-seo` 1.0 のため）。
+- **URL は末尾スラッシュ付きを正にする（2026-11-04）。** canonical・`og:url`・sitemap・パンくずの構造化データ・**内部リンクのすべて**を `/services/` の形にそろえる。スラッシュ無し（`/services`）は CloudFront が 301 でスラッシュ付きへ寄せる（`cloud/stacks/cdn.yaml` の `RewriteIndexFunction`。クエリは引き継ぐ）。それまでは内部リンクがスラッシュ無し、canonical と sitemap がスラッシュ付きで、両方の URL が 200 を返していた（Google の重複 URL。内部リンクは canonical の判断材料になる）。新しくリンクを書くときもスラッシュ付きにする
 
 ### 7.1 OGP とファビコン（**2026-10-01 に新設**。GL §9.5）
 
@@ -2319,7 +2320,7 @@ title は 32 字前後、description は 120 字前後（全角・半角とも 1
 
 | 置き場 | 内容 | 実装 |
 |---|---|---|
-| トップ（`/`）の JSON-LD | `@graph` に `WebSite`（`name` ComeGin、`alternateName` ["カメギン"]、`url`、`inLanguage` ja）と `Organization`（`name` ComeGin、`alternateName` カメギン、`logo` は `/favicon-512.png`、メール・電話・設立日・代表者・所在地は 5-6 の会社情報と同じ）。**トップだけに置く**（WebSite は Google の規定でトップだけ） | `src/modules/site-content/organization.ts` の `homeJsonLd`、`src/pages/index.astro` の `slot="head"` |
+| トップ（`/`）の JSON-LD | `@graph` に `WebSite`（`name` ComeGin、`alternateName` ["カメギン"]、`url`、`inLanguage` ja）と `Organization`（`name` ComeGin、`alternateName` カメギン、`logo` は `/favicon-512.png`、メール・電話・設立日・所在地は 5-6 の会社情報と同じ。`founder` は代表の `Person` を `@id` で指す）と代表の `Person`。**トップだけに置く**（WebSite は Google の規定でトップだけ） | 値は `src/modules/site-content/organization.ts` の `ORGANIZATION`、形は `src/modules/seo/lib/jsonld.ts` の `homeJsonLd`（2026-11-04 に移した）、`src/pages/index.astro` の `slot="head"` |
 | トップの title・description | title の末尾を「 \| ComeGin（カメギン）」、description の冒頭を「ComeGin（カメギン）は、」 | `seo.ts` の `top` |
 | 会社概要の description・5-6 の会社名 | 「ComeGin（カメギン）」 | `seo.ts` の `about`、`about.ts` |
 | 特定商取引法に基づく表記の事業者名 | 「ComeGin（カメギン）」 | `legal/tokushoho.ts` |
@@ -2328,6 +2329,23 @@ title は 32 字前後、description は 120 字前後（全角・半角とも 1
 - **ほかの画面の title の末尾は「 | ComeGin」のまま**（全画面に読みを付けると title が長くなり、ページ固有の語が切られる）。`og:site_name`・ロゴの `aria-label` も「ComeGin」のまま（WebSite の `name` と同じ）
 - プライバシーポリシーの冒頭は、以前から「ComeGin（カメギン。以下「ComeGin」といいます）」と書いている
 - 配信の後、Search Console の URL 検査でトップを検査し、再クロールを依頼する。反映には数日〜数週間かかる。WebSite の構造化データはリッチリザルトテストの対象外なので、構文は Schema Markup Validator で確かめる（Organization はリッチリザルトテストで確かめられる）
+
+### 7.3 記事と著者の構造化データ・OGP・sitemap の更新日（**2026-11-04 に新設**）
+
+Google は、記事の書き手・公開日・更新日を、画面の表示と構造化データ（`Article`）の両方から読む（Google 検索セントラルの Article の構造化データ。E-E-A-T の「誰が書いたか」の材料）。**画面に見えている値だけを構造化データに書く**（画面に無い内容を構造化データだけに書かない。構造化データの一般的なガイドライン）。
+
+| 置き場 | 内容 | 実装 |
+|---|---|---|
+| ブログ記事（`/blog/<slug>/`） | `BlogPosting`（`headline` は h1、`description` は要約、`datePublished`・`dateModified` は 8-3 の公開日・更新日〈Strapi の publishedAt・updatedAt〉、`image` は OGP 画像、`articleSection` はカテゴリ、`author` は代表の `Person`〈`url` は `/about/`〉、`publisher` は Organization） | `src/modules/seo` の `blogPostingJsonLd`、`src/pages/blog/[slug].astro` |
+| 記事の 8-3 の著者名 | 会社概要（`/about/`。経歴・運営方針）へのリンクにする（`rel="author"`） | `src/pages/blog/[slug].astro` |
+| 記事の meta | `article:published_time`・`article:modified_time`（構造化データと同じ値） | `BaseLayout` の `articleTimes` |
+| 記事の OGP 画像 | **アイキャッチがある記事だけ**、アイキャッチを 1200 × 630 の JPEG に切り出したもの（`og:image:alt` はアイキャッチの代替テキスト、無ければ記事の題名）。アイキャッチが無い記事は §7.1 の共通の 1 枚 | `src/modules/seo` の `articleOgImage`（ビルドで `dist/_astro/` に取り込む。ADR-11） |
+| 会社概要（`/about/`） | `AboutPage`（主題は Organization）と代表の `Person` | `src/modules/seo` の `aboutPageJsonLd` |
+| sitemap | **記事の URL にだけ** `<lastmod>`（記事の `article:modified_time` と同じ値）。固定ページには付けない（内容が変わらないのにビルドのたびに日付が変わると、lastmod 全体が信用されなくなる）。使わない名前空間（news・video・image・xhtml）は出さない | `src/modules/seo/integration.ts`（`astro.config.mjs` で `sitemap()` の後に登録） |
+
+- §7.1 の「OGP 画像は全画面で共通の 1 枚」の例外は、**アイキャッチのある記事**だけ（記事ごとの絵は Strapi の側で用意されるため、維持の手間が増えない）
+- 代表の `Person` は 1 つの `@id`（`/about/#representative`）にし、トップの `founder`・会社概要・記事の `author` から同じ人を指す
+- 配信の後、リッチリザルトテストで記事 1 本を確かめる（Article はリッチリザルトテストの対象）
 
 ## 8. Cookie 同意バナーとチャット
 

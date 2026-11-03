@@ -4,8 +4,11 @@
  * 本文へのスキップリンク、ヘッダー・パンくず・フッター、計測・同意・チャットの差し込み口を持つ。
  *
  * - title・description・noindex は site-content/seo.ts の値をそのまま渡す（01-content-spec.md §7）
- * - OGP 画像は全画面共通の 1 枚（public/og.png。§7.1）。og:title・og:description は title・description と同じ
- * - canonical はクエリを外した URL（/contact?cta=… も /contact にする。§7 の注）
+ * - OGP 画像は全画面共通の 1 枚（public/og.png。§7.1）。ブログ記事だけはアイキャッチから作った 1200×630 を渡す（seo モジュールの articleOgImage。2026-11-04）。
+ *   og:title・og:description は title・description と同じ
+ * - canonical はクエリを外した URL（/contact/?cta=… も /contact/ にする。§7 の注）。末尾スラッシュ付き（ビルドの Astro.url.pathname。
+ *   内部リンク・sitemap も同じ形にそろえ、スラッシュ無しは CloudFront が 301 で寄せる。cloud/stacks/cdn.yaml。2026-11-04）
+ * - 記事は article:published_time・article:modified_time を出す（sitemap の lastmod もこの値から作る。seo モジュールの integration）
  * - 計測・チャットは integrations の部品を body の末尾と head に置く（ページ側は何もしない）
  * - Cookie 同意バナーはスキップリンクの直後に置く（見た目は下端に固定のまま。DOM の順＝フォーカス順で、本文より前に操作できるようにする。WCAG 2.4.3）
  * - <main> は tabindex="-1"。スキップリンクで本文へフォーカスを移す
@@ -22,6 +25,7 @@ import { ChatLoader } from '@/modules/chat';
 import { ConsentBanner } from '@/modules/consent';
 import type { MotionZone } from '@/modules/motion';
 import { PageTransition, PageTransitionHead } from '@/modules/page-transition';
+import { JsonLd } from '@/modules/seo';
 import { SourceDlRedirect } from '@/modules/source-dl';
 import type { BreadcrumbItem, BreadcrumbTone, HeaderCta } from '../lib/types';
 import { HOME_CRUMB } from '../lib/types';
@@ -43,6 +47,10 @@ export interface Props {
   /** 既定は全画面共通の /og.png */
   ogImage?: string;
   ogType?: 'website' | 'article';
+  /** og:image の代替テキスト。既定は「ComeGin」 */
+  ogImageAlt?: string;
+  /** 記事の公開日時・更新日時（ISO 8601）。ブログ記事だけが渡す */
+  articleTimes?: { published: string; modified: string };
   /** ページの中に無料 DL ブロック（id="source-dl"）があるか。Sheet・フッターの DL のリンク先が変わる */
   sourceDlOnPage?: boolean;
   /** 動きの区分。vivid＝トップ・サービス（A）、none＝規約・ポリシー（C）、既定の calm＝ほか（B） */
@@ -58,6 +66,8 @@ const {
   breadcrumbTone = 'subtle',
   ogImage = '/og.png',
   ogType = 'website',
+  ogImageAlt = 'ComeGin',
+  articleTimes,
   sourceDlOnPage = false,
   motionZone = 'calm',
 } = Astro.props;
@@ -123,12 +133,14 @@ const breadcrumbJsonLd = breadcrumb && {
     <meta property="og:image" content={ogImageUrl.href} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="ComeGin" />
+    <meta property="og:image:alt" content={ogImageAlt} />
+    {articleTimes && <meta property="article:published_time" content={articleTimes.published} />}
+    {articleTimes && <meta property="article:modified_time" content={articleTimes.modified} />}
     <meta name="twitter:card" content="summary_large_image" />
 
     <meta name="generator" content={Astro.generator} />
     {motionZone !== 'none' && <PageTransitionHead />}
-    {breadcrumbJsonLd && <script type="application/ld+json" set:html={JSON.stringify(breadcrumbJsonLd)} />}
+    {breadcrumbJsonLd && <JsonLd data={breadcrumbJsonLd} />}
     <slot name="head" />
     <AnalyticsHead />
   </head>

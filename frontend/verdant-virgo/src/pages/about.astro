@@ -16,9 +16,12 @@ import { MOTION_PAUSE, MOTION_PAUSE_TARGETS } from '@/modules/site-content/a11y'
 import { about } from '@/modules/site-content/about';
 import { contactHref } from '@/modules/site-content/cta';
 import { SEO } from '@/modules/site-content/seo';
+import { aboutPageJsonLd, JsonLd } from '@/modules/seo';
 
 const seo = SEO.about;
 const from = Astro.url.pathname;
+// 構造化データ（AboutPage。代表の Person を記事の著者・トップの founder と同じ @id で結ぶ。seo モジュール。2026-11-04）
+const jsonLd = aboutPageJsonLd(Astro.site ?? Astro.url);
 
 // about.ts のアイコン名（Lucide の kebab-case）→ 部品
 const ICONS: Record<string, LucideIcon> = {
@@ -42,6 +45,7 @@ const breadcrumb = about.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} breadcrumb={breadcrumb}>
+  <JsonLd slot="head" data={jsonLd} />
   {/* 5-3 導入ヒーロー。h1 はビジョン（Desktop 2 行・Mobile 4 行。H-19）。画像枠（アトリエの静止画）は Mobile でも出す（atelier spec §7） */}
   <PageIntro title={hero.h1} badge={hero.badge}>
     <p slot="body" class="type-body-lg phrase max-w-[720px] text-text-muted">{hero.body.join('')}</p>

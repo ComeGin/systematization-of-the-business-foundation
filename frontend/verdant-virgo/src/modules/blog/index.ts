@@ -11,6 +11,7 @@ export {
   formatJstDate,
 } from './lib/articles';
 export { BLOG_CATEGORIES, ALL_CATEGORIES_LABEL, findBlogCategory, type BlogCategorySlug } from './lib/categories';
+export { toAbsoluteMediaUrl } from './lib/media';
 export { prepareArticleBody, type PreparedBody, type TocItem } from './lib/body';
 export type { Article, BlogCategory, BlogAuthor, StrapiMedia, SearchIntent } from './lib/types';
 export { default as ArticleBlocks } from './components/ArticleBlocks.astro';

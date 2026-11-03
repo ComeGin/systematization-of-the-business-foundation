@@ -493,7 +493,7 @@ AA-05 の ADR-09 で採用したセルフホストの OpenSEO（`middleware/open
 - **Google Cloud で Google Analytics Admin API と Data API を有効にする**（Admin API はプロパティの一覧、Data API はレポートの取得に使う）。
 - **リダイレクト URI に `http://localhost:3001/api/ga4/oauth/callback` を足す**（GSC の `/api/gsc/oauth/callback` は残す）。運用者のブラウザがローカルの OpenSEO に戻るだけで、トンネルを必要としない。
 - **接続は画面の Connect with Google で行い、本番のプロパティだけを選ぶ**（GA4 のプロパティは本番の 1 つだけ。開発環境のプロパティは作らない）。トークンは OpenSEO の DB（Better Auth の account テーブル）に `BETTER_AUTH_SECRET` で暗号化して置く。**GA4 の接続を外しても GSC の接続は外れない。**
-- **接続した Google アカウントがプロパティの権限を失う・離任すると取得が止まる**（BA-05 の離任時チェックリスト。GSC と同じ）。setup の設定キーは `OPENSEO_GA4_CONNECTED=yes`（接続済み）／`OPENSEO_SKIP_GA4=yes`（接続しない）。
+- **接続した Google アカウントがプロパティの権限を失う・離任すると取得が止まる**（BA-05 の離任時チェックリスト。GSC と同じ）。接続は setup の `openseo` が OpenSEO の MCP の無料のツールで確かめる（2026-11-04。以前は `OPENSEO_GA4_CONNECTED=yes` の申告制）。接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。
 
 ## 9. 未決定事項
 - **（2026-10-06 に追加。ADR-25）GA4 の BigQuery エクスポートを使うか。** 使うと訪問者単位の生データが Google Cloud（BigQuery）に置かれ、新しい資格情報（サービスアカウント）と保管先が増える。**今は使わない。** 判断者 `R1`。

@@ -48,14 +48,14 @@ export function faqPages(): readonly FaqPage[] {
     },
     {
       key: "pricing",
-      path: "/pricing",
+      path: "/pricing/",
       anchor: "pricing-faq",
       context: "料金",
       items: PRICING_PAGE.faq.items,
     },
     ...SERVICE_ORDER.map((slug) => ({
       key: `services-${slug}`,
-      path: `/services/${slug}`,
+      path: `/services/${slug}/`,
       anchor: "detail-faq",
       context: SERVICE_CARDS[slug].title,
       items: SERVICE_DETAILS[slug].faq.items,

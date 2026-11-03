@@ -1,4 +1,4 @@
-// 会社名とその読み、トップ（/）にだけ置く構造化データ（JSON-LD）。01-content-spec.md §7.2（2026-11-03 に新設）。
+// 会社名とその読み、会社の情報（トップの構造化データの値）。01-content-spec.md §7.2（2026-11-03 に新設）。JSON-LD の形は seo モジュール（2026-11-04 に移した）。
 //
 // 目的: 欧文の社名「ComeGin」を、和名（読み）の「カメギン」でも同じ会社・同じサイトだと Google に認識させる。
 // - WebSite の name / alternateName は Google の「サイト名」の材料。**トップだけに置く**（Google の site-names の規定）
@@ -15,44 +15,17 @@ export const SITE_NAME_KANA = "カメギン";
 export const SITE_NAME_WITH_KANA = `${SITE_NAME}（${SITE_NAME_KANA}）`;
 
 /**
- * トップに置く JSON-LD（@graph に WebSite と Organization）。
- * site は astro.config.mjs の site（SITE_URL）。本番では https://comegin.com/ になる。
+ * 会社の情報（トップの Organization の構造化データの値）。about.ts の会社情報（§4.5 の 5-6）と同じにする。片方だけ直さない。
+ * JSON-LD の形（WebSite・Organization・代表の Person の結び付け）は seo モジュール（src/modules/seo/lib/jsonld.ts の homeJsonLd）が組む。
  */
-export function homeJsonLd(site: URL | string) {
-  const home = new URL("/", site).href;
-  const organizationId = `${home}#organization`;
-  return {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "WebSite",
-        "@id": `${home}#website`,
-        name: SITE_NAME,
-        alternateName: [SITE_NAME_KANA],
-        url: home,
-        inLanguage: "ja",
-        publisher: { "@id": organizationId },
-      },
-      {
-        "@type": "Organization",
-        "@id": organizationId,
-        name: SITE_NAME,
-        alternateName: SITE_NAME_KANA,
-        url: home,
-        // 512px のフルカラーの印（§7.1 のファビコン）。Google のロゴの条件（112px 以上・クロールできる画像）を満たす
-        logo: new URL("/favicon-512.png", site).href,
-        email: "kamegin4@comegin.com",
-        telephone: "+81-80-5257-9787",
-        foundingDate: "2026-09-27",
-        founder: { "@type": "Person", name: "亀谷 銀大" },
-        address: {
-          "@type": "PostalAddress",
-          addressCountry: "JP",
-          addressRegion: "大阪府",
-          addressLocality: "大阪市城東区",
-          streetAddress: "蒲生4-19-3 ロイヤルアシュリー蒲生502",
-        },
-      },
-    ],
-  };
-}
+export const ORGANIZATION = {
+  email: "kamegin4@comegin.com",
+  telephone: "+81-80-5257-9787",
+  foundingDate: "2026-09-27",
+  address: {
+    addressCountry: "JP",
+    addressRegion: "大阪府",
+    addressLocality: "大阪市城東区",
+    streetAddress: "蒲生4-19-3 ロイヤルアシュリー蒲生502",
+  },
+} as const;

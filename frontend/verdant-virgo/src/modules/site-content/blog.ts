@@ -12,7 +12,7 @@ import { TOP } from "./top";
 export type BlogIntent = SearchIntent;
 
 export const blogIndex = {
-  path: "/blog",
+  path: "/blog/",
 
   // 7-2 パンくず
   breadcrumb: [{ label: "ホーム", href: "/" }, { label: "ブログ" }],
@@ -81,7 +81,7 @@ export const blogArticle = {
   // 8-2 パンくずの親（現在のページは記事タイトル。Mobile は 1 行で省略）
   breadcrumbParents: [
     { label: "ホーム", href: "/" },
-    { label: "ブログ", href: "/blog" },
+    { label: "ブログ", href: "/blog/" },
   ],
 
   // 8-3 記事ヘッダーのメタ情報。「公開日 YYYY年M月D日」「更新日 …」「著者 亀谷 銀大」の形で値の前に置く

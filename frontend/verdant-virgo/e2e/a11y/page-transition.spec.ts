@@ -155,7 +155,7 @@ test.describe("ページ移動の形のつながり", () => {
       await hideConsent(page);
       await watchSwap(page);
       const link = page
-        .locator('[data-morph-source] a[href="/services/development"]')
+        .locator('[data-morph-source] a[href="/services/development/"]')
         .first();
       await follow(page, link, /\/services\/development\/?$/);
 
@@ -187,7 +187,7 @@ test.describe("ページ移動の形のつながり", () => {
       await hideConsent(page);
       await follow(
         page,
-        page.locator('[data-morph-source] a[href="/services/development"]').first(),
+        page.locator('[data-morph-source] a[href="/services/development/"]').first(),
         /\/services\/development\/?$/,
       );
       await Promise.all([page.waitForURL(/\/services\/?$/), page.goBack()]);
@@ -341,7 +341,7 @@ test.describe("ページ移動の形のつながり", () => {
       await follow(
         page,
         page
-          .locator('[data-morph-source] a[href="/services/development"]')
+          .locator('[data-morph-source] a[href="/services/development/"]')
           .first(),
         /\/services\/development\/?$/,
       );

@@ -260,7 +260,8 @@ node setup/frontend.mjs --target prod --phase google
 - [ ] **人・画面** GA4 の本番のプロパティと Web ストリームを作り、`GA4_PROPERTY_ID`・`GA4_MEASUREMENT_ID` に（`ga4:property`）— manual 7.5
 - [ ] **人・画面** Search Console にドメインプロパティ `comegin.com` を登録し、Route 53 に TXT を足す（`verdant-virgo:gsc-domain`）— manual 7.4
 - [ ] **人・画面** OpenSEO 用の OAuth クライアント（Search Console API・Analytics Admin API・Data API を有効に。リダイレクト URI 2 つ）→ `OPENSEO_GOOGLE_CLIENT_*` — manual 7.4・7.5
-- [ ] **人・画面** `http://localhost:3001` で Search Console と GA4 に接続し、GA4 は本番のプロパティ（`561857847`）を選ぶ → **〔申告〕** `OPENSEO_GSC_CONNECTED=yes`・`OPENSEO_GA4_CONNECTED=yes` — manual 7.4・7.5
+- [ ] **人・画面** `openseo:project` `http://localhost:3001` のプロジェクトの Domain を `comegin.com` にする（Default を使うなら Project settings → General。Domain が `comegin.com` のプロジェクトは 1 つだけ。エージェントは `list_projects` でこれを探す。2026-11-04 の夜の観測は、これが無くて GSC も GA4 も読めなかった）— manual 7.4・7.6
+- [ ] **人・画面** そのプロジェクトの Project settings → Integrations で Search Console（`sc-domain:comegin.com`）と GA4 に接続し、GA4 は本番のプロパティ（`561857847`）を選ぶ（`openseo:gsc-connect`・`ga4-connect`）。**接続はスクリプトが OpenSEO の MCP の無料のツールで確かめる**（2026-11-04 から。以前の申告 `OPENSEO_*_CONNECTED=yes` は要らない）— manual 7.4・7.5
   - 接続の後に「Couldn't load properties」と出たら、OAuth クライアントのプロジェクトで Analytics Admin API（と Data API）が有効になっていない（ログは `ga4.property_discovery_failed … status: 403`）。有効にして数分待ち、ページを読み直す（接続し直さなくてよい。2026-11-02 に起きた）— manual 7.5
 - [ ] **人・端末** `node setup/frontend.mjs --target prod --phase google` を（`--check` ではなく）実行して `.env.production` に測定 ID を書き直す。`--check` で「`PUBLIC_GA4_MEASUREMENT_ID`（空）が prod.conf の `GA4_MEASUREMENT_ID` と違う」と出るうちは、書き直していない（2026-11-02 に検査を追加）
 - [ ] **人・端末** 測定 ID 入りでビルドし直して、P12 と同じ手順で配信する。同期の前に `dist/_astro/` の JS に測定 ID があることを確かめる（GA4 の画面のスニペットは貼らない）— cloud 4.14 の手順 2-5・`middleware/ga4/README.md` の 5.1
@@ -283,6 +284,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票）を書く。Google のクライアント・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ。**開く URL は `CONTROL_PUBLIC_URL`、無ければ `http://127.0.0.1:3200`**（作業ツリーからは引き継がない。以前は引き継いで開発の ngrok の URL が入り、`127.0.0.1:3200` で開くと `Invalid origin` だった。2026-11-03。手元以外の URL は警告。onprem「開く（監視アプリ）」） → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット・設定の状況の `CONTROL_SETUP_STATUS_ENABLED=true` と `CONTROL_STATUS_*`〈主体のキーとトークンのファイルの場所・知らせのトピック `OpsAlertTopicArn`・リンクの根は `BETTER_AUTH_URL` と同じ〉）
 - [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
 - [ ] **人・ブラウザ** `http://127.0.0.1:3200` を開き、Google でログインできる（別の端末からは `ssh -L 3200:127.0.0.1:3200`。本番は ngrok で外に出さない）。`next-js-prod` だけを実行し直すときは `node setup/setup.mjs --target prod --phase operate --only next-js-prod`（`--phase operate` が要る）— onprem「開く（監視アプリ）」
+- [ ] 〔警告〕**人・端末** OpenSEO（`127.0.0.1:3001`）が常駐している（コンテナが running・再起動の設定が `unless-stopped`・`docker.service` が enabled）と、本番のプロジェクトと Search Console・GA4 の接続が揃っていることを `openseo` が確かめる（2026-11-04 から。止まっていれば `docker compose up -d` で上げ直し、ほかは警告だけ。エージェントが夜に MCP で読むため。systemd のユニットは置かない）— onprem「常駐させる（OpenSEO）」・manual 7.6
 - [ ] 〔警告〕アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（起動から 15 分ほど）— cloud 4.13
 - [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告。2026-11-02 に、まとめて有効にした中に入っていて、PR #58 で戻した）。`daily-n8n-export` は [6 節](#6-判断が残っている項目r1)の判断の後に有効にする
 - [ ] **人・画面** 最初の定期実行の後、監視アプリの画面（または `journalctl -u comegin-control`）で `success`・`skipped` の理由を見る。いつ何が動くかは onprem「監視アプリ…」の 5 の表（**2026-11-03 からすべて 0〜8 時〈JST〉に起動し、06:25 までに終わる**。`ops/README.md` の「時刻の決め方」）
@@ -291,7 +293,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 
 ### P15. 段階 `operate`: 運用開始の仕上げ
 
-同じ `--phase operate` の最初（`cloud`）が読み取りで確かめ、**止めずに警告だけ出す**（2026-11-02 から）。
+同じ `--phase operate` の `cloud` が読み取りで確かめ、**止めずに警告だけ出す**（2026-11-02 から）。
 
 - [ ] 〔警告〕**人・端末** 配信用の主体（許可セット `ComeginProdDeploy`）がある — cloud 4.5.1
 - [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」
@@ -341,8 +343,8 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | `ADMIN_AUTH_PROD_READY=yes` | migrate と register-alb-client が `{"ok":true}` で、Google でログインして戻れた | cloud 7.2 |
 | `FAQ_BOT_SECRETS_STORED=<指紋>` | FAQ ボットの 2 つの値を Secrets Manager に入れた（ボットを作り直したら入れ直す） | cloud 7.3 |
 | `MAUTIC_PROD_SETTINGS_DONE=yes` | インストールと画面の設定（API・Webhook・CORS・メール）が済んだ | cloud 7.4 |
-| `OPENSEO_GSC_CONNECTED=yes` | OpenSEO で Search Console に接続し、プロパティを選んだ | manual 7.4 |
-| `OPENSEO_GA4_CONNECTED=yes` | OpenSEO で本番の GA4 プロパティに接続した | manual 7.5 |
+
+`OPENSEO_GSC_CONNECTED`・`OPENSEO_GA4_CONNECTED` は 2026-11-04 に申告制をやめた（OpenSEO の MCP の無料のツールで接続を確かめる。manual 7.6）。書いてあっても使わない。
 
 ## 6. 判断が残っている項目（R1）
 

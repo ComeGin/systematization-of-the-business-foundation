@@ -127,15 +127,19 @@ servers:
 
   # ---------- PostHog（公式の MCP。HTTP。本番用のプロジェクトだけ）----------
   # analytics-reporter と ops-watcher だけが使う。URL はリージョンを問わない（認証したアカウントで US か EU に振り分けられる）。
-  # 境界は 3 重: (1) readonly=true（作成・更新・削除のツールを登録しない）、(2) 個人 API キーは「MCP Server」プリセットで
-  # 本番用のプロジェクトの読み取りだけに絞って発行する、(3) エージェント定義の tools に使うツールだけを列挙する。
+  # 境界は 4 重: (1) readonly=true（作成・更新・削除のツールを登録しない）、(2) tools= で使う 3 本だけを登録させる、
+  # (3) 個人 API キーは「MCP Server」プリセットで本番用のプロジェクトの読み取りだけに絞って発行する、(4) エージェント定義の tools に使うツールだけを列挙する。
+  # mode=tools は必須（2026-11-04）。PostHog の MCP は接続元を見てモードを決め、Claude Code には既定で CLI モード（exec の 1 本だけ）を返す。
+  # そのため tools/list に execute-sql などが無く、許可リスト（mcp__posthog-prod__execute-sql など）と食い違って、
+  # 2026-11-04 の夜の観測（AUD-2026-1104-analytics-0003・0004、AUD-2026-1104-ops-0001）が全件 permission_denied になった。
+  # 出典: https://posthog.com/docs/model-context-protocol/faq の「CLI mode / Tools mode」「Filtering available MCP tools」。
   # x-posthog-project-id で本番用のプロジェクトに固定する（開発用のプロジェクトを読まないため）。
   # 出典: https://posthog.com/docs/model-context-protocol/faq（2026-10-04 に確認）。
-  # TODO: ツール名（query-error-tracking-issues-list・query-error-tracking-issue・execute-sql）は公式の説明から。接続して tools/list で確かめる（L3-1）
+  # ツール名（execute-sql・query-error-tracking-issues-list・query-error-tracking-issue）は、2026-11-04 に PostHog の MCP の説明文（ツールの一覧）で確かめた。
   - name: posthog-prod
     env: prod
     transport: http
-    url: https://mcp.posthog.com/mcp?readonly=true
+    url: https://mcp.posthog.com/mcp?readonly=true&mode=tools&tools=execute-sql,query-error-tracking-issues-list,query-error-tracking-issue
     headers_from_env_file:
       env_file: "${HOME}/.config/comegin/mcp/posthog-prod.env"
       Authorization: "Bearer ${POSTHOG_PROD_API_KEY}"

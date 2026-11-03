@@ -109,7 +109,7 @@ TA-03 の 3.3 の「週次 AB テスト」と「週次 問い合わせの棚卸�
 | `strapi-mcp` / `strapi-prod` | Strapi 組み込み（HTTP `/mcp`）。開発は `127.0.0.1:1337`、本番は**オンプレの本番の Strapi**（`127.0.0.1:1338`。ADR-21、`onprem/strapi`） | 本番は Admin トークンで**下書きまで**（公開・非公開化・削除の権限を与えない） |
 | `n8n` / `n8n-prod` | n8n 組み込み（HTTP `/mcp-server/http`）。開発は `127.0.0.1:5678`、本番は**オンプレの本番の n8n のエディターの口**（`127.0.0.1:5679`。ADR-21、`onprem/n8n`） | 本番は作成と更新まで。どのエージェントにも割り当てていない |
 | `openseo` | ローカル HTTP | `ACCESS_LEVEL` が無い。許可リストはエージェント定義の `tools`。GA4 も読む（`analytics-reporter` だけ。`get_google_analytics_*` のうち 5 本。OpenSEO に接続するのは本番の GA4 プロパティだけ。ADR-25） |
-| `posthog-prod` | HTTP（`https://mcp.posthog.com/mcp?readonly=true`） | 読み取り専用。`analytics-reporter` と `ops-watcher` だけが使う。個別ツールの許可リスト（`execute-sql`、`query-error-tracking-*`）。個人 API キーも本番用のプロジェクトの読み取りだけで発行する |
+| `posthog-prod` | HTTP（`https://mcp.posthog.com/mcp?readonly=true&mode=tools&tools=…`） | 読み取り専用。`analytics-reporter` と `ops-watcher` だけが使う。個別ツールの許可リスト（`execute-sql`、`query-error-tracking-*`）。**`mode=tools` が必須**（無いと Claude Code には `exec` 1 本の CLI モードが返り、許可リストのツールが存在しなくなる。2026-11-04 の観測が全件 `permission_denied` になった原因）。個人 API キーも本番用のプロジェクトの読み取りだけで発行する |
 
 - **stdio の登録には `env_vars`（秘密でない定数。`TRANSPORT` と `*_ACCESS_LEVEL`）を書く。** node の `--env-file-if-exists` は既にある環境変数を上書きしないので、env ファイルに別の値が書かれていても登録表の値が勝つ（`ACCESS_LEVEL` を env ファイルで広げられない）。キー名に secret・token・password・api_key などを含む値は登録表に書けない（control-plane が拒否する）
 - **MCP の名前に `__` を含めない**（ツールの完全名 `mcp__<name>__<tool>` の区切りと衝突する）
@@ -131,7 +131,6 @@ env ファイルの実体は `~/.config/comegin/mcp/` に置く。エージェ�
 ## 未確認（TODO）
 
 - **`strapi-prod` の `keyword` / `content-plan` のツール名**（`create_keyword`、`list_content-plan` など）は、Strapi の MCP の命名規則（singularName）からの推定。開発環境の `strapi-mcp` の `tools/list` で確かめる（L3-1）。`.claude/agents/` の該当 3 本の frontmatter にも同じ TODO のコメントがある
-- **`posthog-prod` のツール名**（`execute-sql`、`query-error-tracking-issues-list`、`query-error-tracking-issue`）は PostHog の公式の説明から。接続して `tools/list` で確かめる
 - n8n（`/mcp-server/http`）の URL とヘッダーは、設計書とソースの読みで書いた。実際の接続は未確認（Umami の登録は ADR-25 で廃止した）
 - OpenSEO の GA4 のツール（`get_google_analytics_*`）は上流のソース（`middleware/open-seo-main/src/server/mcp/tools/google-analytics-tools.ts`）の読みで書いた。本番のプロパティを接続した後に `tools/list` と実際の応答で確かめる
 

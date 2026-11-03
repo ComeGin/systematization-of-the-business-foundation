@@ -106,7 +106,7 @@ OpenSEO に接続するのは本番のプロパティだけ。
 | 接続 | OpenSEO の画面のプロジェクトのダッシュボードか Project settings → Analytics の **Connect with Google** → プロパティを選ぶ（**2026-11-02 に本番のプロパティ `561857847` に接続した**。Search Console も同じ日に接続） |
 | API を有効にするプロジェクト | OAuth クライアントの Google Cloud プロジェクト（クライアント ID の先頭の数字がプロジェクト番号。2026-11-02 時点は `961159289082`） |
 | 「Couldn't load properties」 | Admin API が無効だと、接続（同意）は通るのにプロパティの一覧で 403 になる（2026-11-02 に起きた。見分け方は `setup/manual-steps.md` の 7.5）。有効にして数分待ち、読み直せば出る |
-| setup の設定キー | 済んだら `OPENSEO_GA4_CONNECTED=yes`、接続しないと決めたら `OPENSEO_SKIP_GA4=yes`（`middleware/open-seo-main/dev/setup/index.mjs`。接続の有無は OpenSEO の DB の中で `/api/health` には出ないので申告制） |
+| setup の確かめ方 | 接続は `openseo` モジュール（`middleware/open-seo-main/dev/setup/index.mjs`）が OpenSEO の MCP の `get_google_analytics_measurement_health`（無料）で確かめ、プロパティが `GA4_PROPERTY_ID` と同じかも見る（2026-11-04。以前は `OPENSEO_GA4_CONNECTED=yes` の申告制）。接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。接続するのは Domain が `comegin.com` のプロジェクト（`setup/manual-steps.md` の 7.6） |
 
 `analytics-reporter` に持たせる GA4 のツールは `get_google_analytics_traffic_acquisition`・`get_google_analytics_page_performance`・
 `get_google_analytics_organic_landing_pages`・`get_google_analytics_organic_overview`・`get_google_analytics_measurement_health` の 5 本

@@ -268,12 +268,12 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 - [ ] Google Cloud（GSC の OAuth クライアントと同じプロジェクト）で **Google Analytics Admin API** と **Google Analytics Data API** を有効にする
 - [ ] 同じ OAuth クライアント（Web アプリケーション）の承認済みのリダイレクト URI に **`http://localhost:3001/api/ga4/oauth/callback`** を足す（GSC の `/api/gsc/oauth/callback` は残す）
 - [ ] OpenSEO の画面（`http://localhost:3001`）の `comegin.com` のプロジェクトで、**Project settings → Analytics の Connect with Google** を押し、Analytics の読み取り専用の許可を与えて、**本番のプロパティだけ**を選ぶ（GSC とは別に同意が 1 回要る）
-- [ ] 済んだら `prod.conf` に `OPENSEO_GA4_CONNECTED=yes` を書く（GA4 を接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。その場合 `analytics-reporter` は GA4 を読めない）
+- [ ] 済んだら `node setup/setup.mjs --target prod --phase google --only openseo` を実行し直す（接続は OpenSEO の MCP で確かめる。2026-11-04 から `OPENSEO_GA4_CONNECTED=yes` の申告は要らない。GA4 を接続しないと決めたら `OPENSEO_SKIP_GA4=yes`。その場合 `analytics-reporter` は GA4 を読めない）
 
 出典: `middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`（API の有効化・リダイレクト URI・Connect with Google・トークンは Better Auth の account テーブルに暗号化して保存）、`middleware/open-seo-main/specs/0007-google-analytics-mcp-integration.md`（スコープは `analytics.readonly`）。
 
 **Claude の作業**
-- `node setup/setup.mjs --target prod --phase google --check` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、`OPENSEO_GSC_CONNECTED` か `OPENSEO_SKIP_GSC`、`OPENSEO_GA4_CONNECTED` か `OPENSEO_SKIP_GA4` がある）
+- `node setup/setup.mjs --target prod --phase google --check` が通る（`GA4_PROPERTY_ID` が数字、`GA4_MEASUREMENT_ID` が `^G-[A-Z0-9]+$`、Domain が `comegin.com` のプロジェクトが 1 つだけあり、そのプロジェクトで Search Console と GA4 の接続を OpenSEO の MCP で確かめられる〈`OPENSEO_SKIP_GSC`・`OPENSEO_SKIP_GA4` なら飛ばす〉。2026-11-04 から）
 - Claude Code から `mcp__openseo__get_google_analytics_measurement_health` を `comegin.com` のプロジェクトで呼び、**接続済み（`not_connected` でない）**ことと、選んだのが本番のプロパティであることを確かめる（無料。費用の出るツールは呼ばない）
 - `I-05`（本番のタグ）が通るまではデータが無いのが正常（`empty_but_ok`。DD-03 の 5.2）
 

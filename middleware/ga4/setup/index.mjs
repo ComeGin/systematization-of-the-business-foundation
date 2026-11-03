@@ -13,7 +13,7 @@
 //   - 開発の公開サイト（astro dev）にはタグを出さない（ユーザーの決定）。開発の Astro の環境変数に PUBLIC_GA4_MEASUREMENT_ID があれば失敗にする。
 //     画面の操作ではなく設定の誤りなので manual ではなく例外（manual の id は ga4:property だけ。setup/manual-steps.md の早見表）。
 //     環境変数ファイルは読むだけで、書き換えない（消すのは人）
-//   - OpenSEO から GA4 を読む接続（OPENSEO_GA4_CONNECTED／OPENSEO_SKIP_GA4）は openseo モジュールが扱う
+//   - OpenSEO から GA4 を読む接続は openseo モジュールが扱う（OpenSEO の MCP で確かめる。使わないなら OPENSEO_SKIP_GA4）
 //
 // 設定のキー（~/.config/comegin/setup/prod.conf。雛形は setup/setup.conf.example。どちらも秘密値ではない）:
 //   GA4_PROPERTY_ID      本番のプロパティの ID（数字だけ）
@@ -97,7 +97,7 @@ export async function apply(ctx) {
       ctx.manual("property", "本番の GA4 プロパティを作り（設定済みなら確かめ）、プロパティ ID と測定 ID を設定に書く", propertySteps());
     }
     ctx.log(`本番のプロパティ ${ctx.value("GA4_PROPERTY_ID")}／測定 ID ${ctx.value("GA4_MEASUREMENT_ID")}（形式は正しい。本番のビルドに PUBLIC_GA4_MEASUREMENT_ID として渡す。cloud/README.md の 4.14）`);
-    ctx.log("終わった。OpenSEO からの読み取りの接続は openseo モジュール（OPENSEO_GA4_CONNECTED）");
+    ctx.log("終わった。OpenSEO からの読み取りの接続は openseo モジュール（OpenSEO の MCP で確かめる）");
     return;
   }
 

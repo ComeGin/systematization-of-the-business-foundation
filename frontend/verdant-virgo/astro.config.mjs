@@ -11,6 +11,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 import { comeginStrapiGuard } from "./src/modules/blog/integration.ts";
 import { comeginFontSubset } from "./src/modules/brand/integration.ts";
+import { comeginSitemapLastmod } from "./src/modules/seo/integration.ts";
 import { comeginBuildInfo } from "./src/modules/build-info/index.ts";
 import { comeginThreeGlobeWebgpuStub } from "./src/modules/motion/vite-plugin.ts";
 
@@ -44,7 +45,12 @@ export default defineConfig({
       // noindex なのに sitemap にあると、Search Console が矛盾として警告する。
       filter: (page) =>
         !/\/(contact\/thanks|404)\/?$/.test(new URL(page).pathname),
+      // ニュース・動画・画像・多言語は出していないので、使わない名前空間を XML から外す（2026-11-04）
+      namespaces: { news: false, video: false, image: false, xhtml: false },
     }),
+    // sitemap の記事に <lastmod>（Strapi の更新日時。記事の article:modified_time と同じ値）を足す。sitemap() の後に置く
+    // （astro:build:done は登録の順に走る）。中身は src/modules/seo/integration.ts。
+    comeginSitemapLastmod(),
     // Strapi の画像の取り込み元の許可と、dist/ に Strapi・S3 の URL が残ったらビルドを止める検査
     // （DD-05 の 1 節・ADR-11）。中身は src/modules/blog/integration.ts。
     comeginStrapiGuard(),

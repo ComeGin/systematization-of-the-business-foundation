@@ -28,10 +28,10 @@ export const SOURCE_ZIP_URL = `${REPOSITORY}/archive/refs/tags/test-v0.1.zip`;
 
 /** ヘッダーのナビ（§1.3。Mobile の Sheet のリンク 4 つも同じ） */
 export const headerNav: readonly NavLink[] = [
-  { label: "サービス", href: "/services" },
-  { label: "料金", href: "/pricing" },
-  { label: "会社概要", href: "/about" },
-  { label: "ブログ", href: "/blog" },
+  { label: "サービス", href: "/services/" },
+  { label: "料金", href: "/pricing/" },
+  { label: "会社概要", href: "/about/" },
+  { label: "ブログ", href: "/blog/" },
 ];
 
 /** ヘッダー・Sheet の「無料相談」ボタン（§1.3。ラベルは画面によらず同じ） */
@@ -78,23 +78,23 @@ export const footerColumns: readonly FooterColumn[] = [
   {
     heading: "サービス",
     items: [
-      { kind: "link", label: "環境構築", href: "/services/environment-setup" },
-      { kind: "link", label: "受託開発", href: "/services/development" },
-      { kind: "link", label: "コンサル", href: "/services/consulting" },
-      { kind: "link", label: "業務提携", href: "/services/partnership" },
-      { kind: "link", label: "料金", href: "/pricing" },
+      { kind: "link", label: "環境構築", href: "/services/environment-setup/" },
+      { kind: "link", label: "受託開発", href: "/services/development/" },
+      { kind: "link", label: "コンサル", href: "/services/consulting/" },
+      { kind: "link", label: "業務提携", href: "/services/partnership/" },
+      { kind: "link", label: "料金", href: "/pricing/" },
     ],
   },
   {
     heading: "ComeGin について",
     items: [
-      { kind: "link", label: "会社概要", href: "/about" },
-      { kind: "link", label: "ブログ", href: "/blog" },
+      { kind: "link", label: "会社概要", href: "/about/" },
+      { kind: "link", label: "ブログ", href: "/blog/" },
       // §6.3 の 4: consult_global_footer（遷移先に ?cta=・?from= を付ける。SiteFooter が組み立てる）
       {
         kind: "link",
         label: "無料相談",
-        href: "/contact",
+        href: "/contact/",
         ctaId: "consult_global_footer",
       },
       {
@@ -119,19 +119,19 @@ export const footerColumns: readonly FooterColumn[] = [
   {
     heading: "規約・ポリシー",
     items: [
-      { kind: "link", label: "プライバシーポリシー", href: "/legal/privacy" },
+      { kind: "link", label: "プライバシーポリシー", href: "/legal/privacy/" },
       {
         kind: "link",
         label: "特定商取引法に基づく表記",
-        href: "/legal/tokushoho",
+        href: "/legal/tokushoho/",
       },
       // 2026-10-18 に追加（G-1 で承認）。ページ → ページ → 操作（Cookie 設定）の順
       {
         kind: "link",
         label: "ウェブアクセシビリティ方針",
-        href: "/accessibility",
+        href: "/accessibility/",
       },
-      { kind: "link", label: "サイトマップ", href: "/sitemap" },
+      { kind: "link", label: "サイトマップ", href: "/sitemap/" },
       { kind: "consent-settings", label: "Cookie 設定" },
     ],
   },

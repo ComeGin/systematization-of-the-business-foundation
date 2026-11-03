@@ -3,7 +3,7 @@
 // 和欧間の半角スペースは仕様書のまま入れる（計画 P-2）。cta_id は cta.ts（§6.3）を正にし、ここでは番号だけを注記する。
 
 export const contact = {
-  path: "/contact",
+  path: "/contact/",
 
   // 6-2 パンくず
   breadcrumb: [{ label: "ホーム", href: "/" }, { label: "無料相談" }],
@@ -87,12 +87,12 @@ export const contact = {
 } as const;
 
 export const contactThanks = {
-  path: "/contact/thanks",
+  path: "/contact/thanks/",
 
   // 6'-1 パンくず（noindex の画面）
   breadcrumb: [
     { label: "ホーム", href: "/" },
-    { label: "無料相談", href: "/contact" },
+    { label: "無料相談", href: "/contact/" },
     { label: "受付完了" },
   ],
 
@@ -124,12 +124,12 @@ export const contactThanks = {
       {
         title: "ブログを読む",
         body: "事業経営基盤づくりの考え方を紹介しています。",
-        href: "/blog",
+        href: "/blog/",
       },
       {
         title: "料金を確認する",
         body: "すべてのサービスの金額と期間を掲載しています。",
-        href: "/pricing",
+        href: "/pricing/",
       },
       // 副 CTA。§6.3 の #25 dl_thanks_card
       {

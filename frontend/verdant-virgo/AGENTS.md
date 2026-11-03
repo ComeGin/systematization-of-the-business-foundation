@@ -26,6 +26,14 @@ React Bits の部品を足すときは、次を守る（ADR-28・`05-motion-spec
   - 例外: A（vivid）のページ（`/`・`/services/`・サービス詳細 4 本）では、目を引く動きを 1 つの画面に複数置いてよい（ADR-29・`05-motion-spec.md` §2 の規則 1）。B のページはこの規則のまま。
 - island で新しい依存を import したら `astro.config.mjs` の `vite.optimizeDeps.include` に足す。
 
+## SEO の規則（2026-11-04）
+
+正本は `docs/BasicDesign/DesignSpec/website/01-content-spec.md` の §7。
+
+- 内部リンクは**末尾スラッシュ付き**で書く（`/services/`、`/contact/?cta=…`、`` `/blog/${slug}/` ``）。canonical・sitemap と同じ形にする。スラッシュ無しは本番の CloudFront が 301 で寄せるが、リンクの側でそろえる
+- 構造化データ（JSON-LD）は `src/modules/seo` の組み立て関数と `JsonLd` 部品で出す（`set:html={JSON.stringify(...)}` を直接書かない）。画面に見えている値だけを書く
+- sitemap に載せない画面（noindex）を足したら、`astro.config.mjs` の `sitemap({ filter })` にも足す。`lastmod` は記事にだけ付く（`src/modules/seo/integration.ts`）
+
 ## Documentation
 
 Full documentation: https://docs.astro.build

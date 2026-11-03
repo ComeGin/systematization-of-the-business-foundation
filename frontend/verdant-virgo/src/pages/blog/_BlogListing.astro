@@ -32,14 +32,14 @@ interface Props {
 const { seo, articles, page, totalPages, categorySlug } = Astro.props;
 const { hero, pagination, sourceDownload } = blogIndex;
 
-// 一覧の URL。1 ページ目は /blog または /blog/category/<slug>、2 ページ目以降は …/page/<n>
-const basePath = categorySlug ? `/blog/category/${categorySlug}` : '/blog';
-const pageHref = (n: number) => (n === 1 ? basePath : `${basePath}/page/${n}`);
+// 一覧の URL（canonical・sitemap と同じ末尾スラッシュ付き）。1 ページ目は /blog/ または /blog/category/<slug>/、2 ページ目以降は …/page/<n>/
+const basePath = categorySlug ? `/blog/category/${categorySlug}/` : '/blog/';
+const pageHref = (n: number) => (n === 1 ? basePath : `${basePath}page/${n}/`);
 const tabs = [
-  { label: ALL_CATEGORIES_LABEL, href: '/blog', active: !categorySlug },
+  { label: ALL_CATEGORIES_LABEL, href: '/blog/', active: !categorySlug },
   ...BLOG_CATEGORIES.map((category) => ({
     label: category.label,
-    href: `/blog/category/${category.slug}`,
+    href: `/blog/category/${category.slug}/`,
     active: category.slug === categorySlug,
   })),
 ];

@@ -58,7 +58,7 @@ export const CONSULT_TEXT = {
 export const PRIVACY_CONSENT = {
   linkText: 'プライバシーポリシー',
   rest: 'に同意する',
-  href: '/legal/privacy',
+  href: '/legal/privacy/',
 } as const;
 
 export const BADGE = { required: '必須', optional: '任意' } as const;

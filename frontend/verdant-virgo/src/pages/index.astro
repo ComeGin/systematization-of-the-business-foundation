@@ -49,7 +49,7 @@ import {
   TestimonialCard,
 } from '@/modules/marketing-ui';
 import { TAX_NOTE } from '@/modules/site-content/pricing';
-import { homeJsonLd } from '@/modules/site-content/organization';
+import { homeJsonLd, JsonLd } from '@/modules/seo';
 import { SEO } from '@/modules/site-content/seo';
 import { ctaHref, SERVICE_CARDS, SERVICE_ORDER, serviceCardPrices, type CtaCopy } from '@/modules/site-content/services';
 import { TOP } from '@/modules/site-content/top';
@@ -96,7 +96,7 @@ const { announcement, hero, philosophy, problems, promises, experience, loop, to
 ---
 
 <BaseLayout title={seo.title} description={seo.description} noindex={seo.noindex} sourceDlOnPage motionZone="vivid">
-  <script slot="head" type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  <JsonLd slot="head" data={jsonLd} />
   {/* 1-1 告知バナー */}
   <AnnouncementBanner slot="announcement" badge={announcement.badge} text={announcement.desktopBody} shortText={announcement.mobileBody}>
     <CTAButton

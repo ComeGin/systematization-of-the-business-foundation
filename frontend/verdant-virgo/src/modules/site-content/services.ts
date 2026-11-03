@@ -139,7 +139,7 @@ export const SERVICE_CARDS: Readonly<Record<ServiceSlug, ServiceCardCopy>> = {
     badge: 'ソースコード無料配布',
     body: 'ComeGin の事業経営基盤一式を、お客さまのクラウドまたはお客さまの端末に構築します。ソースコードは無料で配布しているため、ご自身で構築することもできます。',
     priceRows: [{ key: 'environment-setup', showNote: false }],
-    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/environment-setup' },
+    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/environment-setup/' },
     sourceDlLinkLabel: SOURCE_DL_LABEL,
   },
   development: {
@@ -151,7 +151,7 @@ export const SERVICE_CARDS: Readonly<Record<ServiceSlug, ServiceCardCopy>> = {
       { key: 'development-vibe', showNote: false },
       { key: 'development-full', showNote: false },
     ],
-    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/development' },
+    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/development/' },
     sourceDlLinkLabel: null,
   },
   consulting: {
@@ -161,7 +161,7 @@ export const SERVICE_CARDS: Readonly<Record<ServiceSlug, ServiceCardCopy>> = {
     // 料金ページのカード 4 と同じ文
     body: PRICING_DESCRIPTIONS.consulting,
     priceRows: [{ key: 'consulting', showNote: false }],
-    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/consulting' },
+    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/consulting/' },
     sourceDlLinkLabel: null,
   },
   partnership: {
@@ -171,7 +171,7 @@ export const SERVICE_CARDS: Readonly<Record<ServiceSlug, ServiceCardCopy>> = {
     // 料金ページのカード 5 と同じ文
     body: PRICING_DESCRIPTIONS.partnership,
     priceRows: [{ key: 'partnership', showNote: true }],
-    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/partnership' },
+    detailLink: { label: DETAIL_LINK_LABEL, href: '/services/partnership/' },
     sourceDlLinkLabel: null,
   },
 };
@@ -299,7 +299,7 @@ const SERVICE_CTA_LABEL = 'このサービスを相談する';
 
 const servicesCrumb = (label: string): readonly BreadcrumbItem[] => [
   { label: 'ホーム', href: '/' },
-  { label: 'サービス', href: '/services' },
+  { label: 'サービス', href: '/services/' },
   { label },
 ];
 
