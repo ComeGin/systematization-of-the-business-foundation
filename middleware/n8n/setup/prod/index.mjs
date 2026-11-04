@@ -17,7 +17,7 @@
 // AWS には読み取りだけ（cloudformation describe-stacks・iam list-access-keys・cloudwatch describe-alarms）。
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { awsJson, ENV_NAME, outputOf, REGION, requireMainStack } from "../../../../cloud/setup/aws.mjs";
+import { awsJson, ENV_NAME, isAwsUnavailable, outputOf, REGION, requireMainStack, settleAwsUnavailable } from "../../../../cloud/setup/aws.mjs";
 import { buildConf, provision } from "../../provision/provision.mjs";
 import { apiKeyWorks, ensureApiKey, ensureMcpToken, healthy, mcpWorks, openSession } from "../index.mjs";
 
@@ -97,6 +97,7 @@ export async function check(ctx) {
     title: "管理者のトークンで確かめる項目（Chatwoot の Webhook の作成に使う CHATWOOT_ADMIN_TOKEN）",
     ...(hasAdmin ? { level: "ok", evidence: "CHATWOOT_ADMIN_TOKEN がある（Webhook の作成に使う）" } : { level: "manual", evidence: "初期設定用の値（CHATWOOT_ADMIN_TOKEN）を消した後なので確かめない（P15）" }),
   };
+  let awsDown = null; // AWS に問い合わせられなかった（認証の失効・障害）。最後に settleAwsUnavailable で ● か ? かを決める
   const up = await healthy(ctx, BASE);
   mark(up, `本番の n8n（${BASE}/healthz）が応答している`, `本番の n8n（${BASE}/healthz）が応答しない（onprem の手順で WireGuard → Strapi → n8n の順に上げる。onprem/README.md）`);
   if (!up) return { ok, notes, items: [adminItem] };
@@ -122,10 +123,11 @@ export async function check(ctx) {
     const hb = await heartbeatState(ctx);
     if (hb !== "OK") notes.push(`! アラーム ${HEARTBEAT_ALARM} が ${hb ?? "見つからない"}（ハートビートが届いていない。${HEARTBEAT_HINT}）`);
   } catch (e) {
-    mark(false, "", `AWS を確かめられない（${e.message.split("\n")[0]}）`);
+    if (isAwsUnavailable(e)) awsDown = `AWS を確かめられない（${e.message.split("\n")[0]}）`;
+    else mark(false, "", `AWS を確かめられない（${e.message.split("\n")[0]}）`);
   }
   if (ctx.conf.N8N_PUBLISH_PARENTS !== "true") notes.push("親（I-11・I-12）は未公開のまま取り込む（公開は R1 の判断。prod.conf の N8N_PUBLISH_PARENTS=true）");
-  return { ok, notes, items: [adminItem] };
+  return settleAwsUnavailable({ ok, notes, items: [adminItem] }, awsDown);
 }
 
 export async function apply(ctx) {

@@ -11,7 +11,7 @@
 // ECS の台数は順番があるので、2 か所で読み取りだけで確かめる（cloud/README.md の 4.10・4.11）:
 //   - 最初に mautic-web の DesiredCount（親のパラメータ）が 1 か。0 ならインストールの画面が開かないので、上げる手順を案内して止まる
 //   - 最後に mautic-cron の DesiredCount が 1 か。cron はインストールが終わるまで待つので、初期設定の後に上げる（2 つ動くとメールが二重になるので 1 に固定）
-import { notRunningNote, raiseCountSteps, requireMainStack, serviceCounts } from "../../../../../cloud/setup/aws.mjs";
+import { isAwsUnavailable, notRunningNote, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../../cloud/setup/aws.mjs";
 import { apiEnabled, ensureAutoReply, ensureContactFields, ensureForms, ensureSegment, fetchToken } from "../index.mjs";
 
 export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・セグメント）", targets: ["prod"], phases: ["apps"], after: [] };
@@ -61,6 +61,7 @@ export async function check(ctx) {
     notes.push(cond ? good : bad);
     if (!cond) ok = false;
   };
+  let awsDown = null; // AWS に問い合わせられなかった（認証の失効・障害）。最後に settleAwsUnavailable で ● か ? かを決める
   try {
     const main = await requireMainStack(ctx);
     for (const [svc, param] of [["mautic-web", "MauticWebDesiredCount"], ["mautic-cron", "MauticCronDesiredCount"]]) {
@@ -69,7 +70,8 @@ export async function check(ctx) {
       if (c.desiredParam === 1 && c.running === 0) notes.push(`! ${notRunningNote(c)}`);
     }
   } catch (e) {
-    mark(false, "", `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`);
+    if (isAwsUnavailable(e)) awsDown = `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`;
+    else mark(false, "", `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`);
   }
   const state = await apiState(ctx);
   const describe = { enabled: "インストール済みで API は有効", disabled: "API が無効（設定 > API 設定）", "not-installed": "未インストール（/installer）", redirect: "API が認証の内側に落ちている（ALB のルール 202 を確かめる）", abnormal: "API の応答が異常（mautic-web が止まっているか、ALB の 502・503。台数とアラームを見る）", unreachable: `${baseOf(ctx)} に届かない` };
@@ -81,7 +83,7 @@ export async function check(ctx) {
     mark(setupFinished(ctx), "初期設定は済み（初期設定用の API 認証情報は prod.conf から消してある。P15 のとおり。やり直すときだけ書き直す）", "MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET が prod.conf に無い");
   } else if (state === "enabled") mark(Boolean(await fetchToken({ ...ctx, mauticBase: baseOf(ctx) }, id, secret)), "初期設定用の API 認証情報でトークンを取れる", "初期設定用の API 認証情報でトークンを取れない");
   for (const key of ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL"]) mark(ctx.state.has(key), `${key} は状態にある（${ctx.state.get(key)}）`, `${key} がまだ状態に無い（apply で作る）`);
-  return { ok, notes };
+  return settleAwsUnavailable({ ok, notes }, awsDown);
 }
 
 export async function apply(ctx) {

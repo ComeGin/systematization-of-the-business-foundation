@@ -1448,7 +1448,7 @@ aws ecs describe-services \
    | `CHATWOOT_ADMIN_TOKEN で…認証できない（401）` | トークンの写し間違い。プロフィール設定から写し直す |
    | `…アカウント N の管理者ではない`／`…担当者（agent）ではない` | 2 つのトークンを逆に書いた、または AI エージェントの役割が「管理者」。設定 → 担当者 で役割を直す |
    | `本番の Chatwoot に届かない` | Chatwoot が止まっている（夜間の停止の最中を含む） |
-   | `ECS の台数を確かめられない` | AWS の認証が切れている（`aws sso login`） |
+   | `ECS の台数を確かめられない`（`--check` では「? 確かめられない」。2026-11-04 から、ほかに欠けが無ければ ● にしない） | AWS の認証が切れている（`aws sso login`） |
 
 3. **人・端末** FAQ ボットの access_token と secret を Secrets Manager の `comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN`・`CHATWOOT_BOT_SECRET` に入れる（`chatwoot-prod:faq-bot-secrets`）。
 

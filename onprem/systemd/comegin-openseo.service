@@ -1,0 +1,34 @@
+# OpenSEO（middleware/open-seo-main。127.0.0.1:3001）を、起動時に Docker のあとで上げる systemd ユニットの雛形（2026-11-04）。
+# インストールは人が行う（onprem/README.md の「常駐させる（OpenSEO）」）。ここでは /etc には何も書かない。
+#
+# 差し替える箇所: User（docker を使えるユーザー）と WorkingDirectory（このリポジトリの middleware/open-seo-main の絶対パス）。
+# WorkingDirectory は、setup/setup.mjs（openseo モジュール）が環境変数ファイルを書いた作業ツリーの場所にする
+# （監視アプリのような main のチェックアウトではない。環境変数ファイルはディレクトリごとにあり、別の場所に無ければ起動に失敗し、
+#   別の値で作られていれば BETTER_AUTH_SECRET が違うので Google の接続が切れる）。
+# 初回は node setup/setup.mjs --target dev --only openseo が済んでいること（環境変数ファイルの作成とイメージの取得）。
+#
+# Strapi・n8n と違って WireGuard・RDS に依存しない（データはこのマシンの Docker のボリューム、外へは Google と DataForSEO に
+# インターネット越しにつなぐだけ）ので、wg-quick@wg0 を Requires= に入れない。監視アプリ（comegin-control）もこのユニットを
+# Wants= に入れない（OpenSEO が止まっても、監視アプリと他の定期実行は動かし続ける）。
+#
+# 開発と本番で 1 つを共用する（TA-07 の 3.7）。作業で止めるときは docker compose stop ではなく systemctl stop / start を使う
+# （docker compose で止めても、このユニットは active のまま残り、マシンを再起動するまで上がらない）。
+
+[Unit]
+Description=ComeGin OpenSEO (SEO data for the improvement loop, on-premises, shared by dev and prod)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=kamegin
+WorkingDirectory=/home/kamegin/ComeGin/systematization-of-the-business-foundation/middleware/open-seo-main
+ExecStart=/usr/bin/docker compose up -d
+# 止めるだけ（down にしない。ボリューム open-seo-main_open_seo_data にプロジェクトと Google の OAuth のトークンがある）
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

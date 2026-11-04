@@ -85,7 +85,7 @@ type StatusItem = {
 | 3 | `images` | 派生イメージ（Chatwoot・Mautic）のビルドと ECR へのプッシュ。本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` のタグが ECR にあるかを見る（タグを変えたら `samconfig.toml` に書いて `sam deploy` をもう 1 回） | `cloud` |
 | 4 | `apps` | 本番のアプリの設定。先頭の `cloud` が前提を確かめる（DB 作成のタスクのログ〈無ければ止まる〉、global の 2 回目・SNS の購読・SES・DMARC・WireGuard の AMI の固定・オンプレの IAM のキー・SMTP の Secret〈警告だけ〉）。`chatwoot-prod`・`mautic-prod` は ECS の台数（親のパラメータの DesiredCount）を確かめ、0 なら上げる手順を案内して止まる | `cloud`・`admin-auth`・`onprem`・`chatwoot-prod`・`mautic-prod`・`n8n-prod`・`mcp-prod`／（frontend.mjs）`verdant-virgo` |
 | 5 | `google` | 公開サイトが Route 53 から配信された後（`cloud/README.md` の 4.14）に `--phase google` で行う。GA4 のプロパティ・OpenSEO の本番のプロジェクトと Search Console・GA4 の接続（MCP で確かめる）・公開サイトの測定 ID と Search Console の所有権 | `ga4`・`openseo`／（frontend.mjs）`ga4`・`verdant-virgo` |
-| 6 | `operate` | `google` の後に `--phase operate` で行う。改善ループ（監視アプリ）を本番の値で常駐させる: 承認済みの main のチェックアウトとビルド・監視アプリの IAM の主体とキー（キーで `sts get-caller-identity`）・チェックアウトの `frontend/next-js/.env`（本番の値で書く）・systemd のユニット `comegin-control`・応答と Google ログイン（止まる）、ハートビートのアラーム・有効な定期実行の数（警告だけ）。`cloud` が運用開始の仕上げ（配信用の主体・IAM の古いキーの残り・`prod.conf` に残った初期設定用の値・SES）を、`openseo` が OpenSEO の常駐（コンテナ・再起動の設定・`docker.service`）と本番のプロジェクト・接続を、警告だけで確かめる | `openseo`・`cloud`・`next-js-prod`／（frontend.mjs）`next-js-prod` |
+| 6 | `operate` | `google` の後に `--phase operate` で行う。改善ループ（監視アプリ）を本番の値で常駐させる: 承認済みの main のチェックアウトとビルド・監視アプリの IAM の主体とキー（キーで `sts get-caller-identity`）・チェックアウトの `frontend/next-js/.env`（本番の値で書く）・systemd のユニット `comegin-control`・応答と Google ログイン（止まる）、ハートビートのアラーム・有効な定期実行の数（警告だけ）。`cloud` が運用開始の仕上げ（配信用の主体・IAM の古いキーの残り・`prod.conf` に残った初期設定用の値・SES）を、`openseo` が OpenSEO の常駐（コンテナ・再起動の設定・systemd のユニット `comegin-openseo`）と本番のプロジェクト・接続を、警告だけで確かめる | `openseo`・`cloud`・`next-js-prod`／（frontend.mjs）`next-js-prod` |
 
 **ECR のリポジトリは `sam deploy` が作る**（`cloud/stacks/ecr.yaml`）ので、イメージのプッシュはデプロイの後になる。ECS のサービスは 0 台で作られ、タスク定義はイメージの有無を検査しないので、イメージが無くても 1 回目のデプロイは通る（`cloud/README.md` の 4.2）。admin-auth・consent-api・faq-bot は Lambda で、ECR を使わない（`sam build` がまとめる）。
 
@@ -255,6 +255,7 @@ cd setup && pnpm exec vitest run tests/status       # 検査そのものの単�
 1. `<モジュール>/setup/index.mjs` に、`setup/lib/core.mjs` の冒頭に書いた形（`meta`・`check`・`apply`）で書く。見本は `middleware/host-relay/setup/index.mjs`
 2. `setup/setup.mjs`（フロントエンドのモジュールなら `setup/frontend.mjs`）の `MODULES` に、依存の順で 1 行足す
 3. `check` は読むだけにする（`--check` では `ctx.state.set` が例外になる）。監視アプリの「設定の状況」に出す項目は、戻り値に `items`（`{ key, step, level, title, evidence, stopId? }` の配列。上の「`--json` の結果」）を足す。返さなくても、`ok` と `notes` から手順に当てはめられる
+   - **確かめられなかった（AWS・製品の API に問い合わせられない）ときは、`ok: false` にせず例外を投げる**（2026-11-04）。監視アプリは `ok: false` を ●（更新が必要。すぐメール）、例外（`error`）を ?（確かめられない。1 時間続いたらメール）にする。AWS の認証の失効や障害で ● とメールが出ないようにするため。AWS は `cloud/setup/aws.mjs` の `awsJson` が、対象が無いときは `null`、問い合わせられないときは `AwsUnavailable` を投げる。受け止めて続けたいときは `isAwsUnavailable(e)` で見分けて覚えておき、最後に `settleAwsUnavailable(result, awsDown)` で返す（ほかの確認がすべて通っていれば例外にし、ほかに欠けがあれば `ok: false` のまま `notes` に足す）。使っている例は `cloud` の段階 env・`chatwoot-prod`・`mautic-prod`・`n8n-prod`
 4. 新しい設定のキーは `setup.conf.example` に、新しい状態のキーはこの README の「作られる値」に足す
 
 ## 既知の未確認（最初の実行で分かる）

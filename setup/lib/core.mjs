@@ -8,6 +8,9 @@
 //     返さなければ [] として扱い、ok と notes だけから手順に当てはめる。StatusItem の形:
 //       { key: "cloud.sns-subscription", step: "P2", level: "ok"|"action"|"warn"|"manual"|"unknown", title, evidence, stopId? }
 //       key はカタログの probe が参照する名前、step は手順の番号（P1〜P15・R1 など）、title と evidence に秘密値を入れない（出す前に mask を通す）
+//     確かめられなかった（AWS・製品の API に問い合わせられない）ときは、ok:false にせず例外を投げる。ok:false は監視アプリで
+//     ●（更新が必要）とメールになり、例外は ?（確かめられない。1 時間続いたらメール）になる。ほかに欠けがあるときだけ ok:false にし、
+//     確かめられなかったことは notes に足す（AWS は cloud/setup/aws.mjs の AwsUnavailable と settleAwsUnavailable。2026-11-04）
 //   export async function apply(ctx)  // 何度実行しても同じ結果になる。終わったら何も返さない
 //
 // ctx.phase: 今の本番の段階の id（dev では null）。phases を 2 つ以上持つモジュールは、これで中身を切り替える

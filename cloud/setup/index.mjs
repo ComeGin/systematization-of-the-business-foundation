@@ -35,7 +35,7 @@
 import { resolveTxt } from "node:dns/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ENV_NAME, GLOBAL_REGION, GLOBAL_STACK, REGION, STACK, awsJson, dbInitDone, dbInitSteps, describeStack, outputOf, parameterOf, requireMainStack, secretHasValue } from "./aws.mjs";
+import { AwsUnavailable, ENV_NAME, GLOBAL_REGION, GLOBAL_STACK, REGION, STACK, awsJson, dbInitDone, dbInitSteps, describeStack, isAwsUnavailable, outputOf, parameterOf, requireMainStack, secretHasValue, settleAwsUnavailable } from "./aws.mjs";
 
 export const meta = { id: "cloud", title: "AWS（本番のスタック。環境変数・デプロイ・イメージ・apps の前提・運用開始の確認）", targets: ["prod"], phases: ["env", "deploy", "images", "apps", "operate"], after: [] };
 
@@ -70,7 +70,7 @@ async function callerIdentity(ctx) {
   try {
     return await awsJson(ctx, ["sts", "get-caller-identity"]);
   } catch (e) {
-    throw new Error(`AWS の認証が使えない（aws sts get-caller-identity が失敗した。AWS_PROFILE か aws sso login を確かめる）\n${e.message}`);
+    throw new AwsUnavailable(`AWS の認証が使えない（aws sts get-caller-identity が失敗した。AWS_PROFILE か aws sso login を確かめる）\n${e.message}`);
   }
 }
 
@@ -131,22 +131,25 @@ function envSteps(problems) {
   ];
 }
 
+/** { problems, notes, awsDown }。awsDown は AWS の認証を確かめられなかったときの 1 行（problems には入れない。check と apply で扱いが違う） */
 async function checkEnv(ctx) {
   const notes = [];
   const problems = await toolProblems(ctx);
   let id = null;
+  let awsDown = null;
   if (!problems.some((p) => p.startsWith("aws "))) {
     try {
       id = await callerIdentity(ctx);
     } catch (e) {
-      problems.push(e.message.split("\n")[0]);
+      if (!isAwsUnavailable(e)) throw e;
+      awsDown = e.message.split("\n")[0];
     }
   }
   const expected = ctx.value("AWS_ACCOUNT_ID") || DEFAULT_ACCOUNT_ID;
   if (id && id.Account !== expected) problems.push(`AWS の認証のアカウントが ${id.Account}（デプロイ先は ${expected}。AWS_PROFILE を確かめる）`);
   problems.push(...envSamProblems(samParameters(ctx)));
   if (id) notes.push(`AWS の認証: ${id.Arn}`);
-  return { problems, notes };
+  return { problems, notes, awsDown };
 }
 
 // ---------------------------------------------------------------------------
@@ -453,8 +456,9 @@ async function operateWarnings(ctx, main) {
 
 export async function check(ctx) {
   if (ctx.phase === "env") {
-    const { problems, notes } = await checkEnv(ctx);
-    return { ok: problems.length === 0, notes: problems.length ? [...problems, ...notes] : [...notes, `${SAMCONFIG} の必須の値はそろっている`] };
+    const { problems, notes, awsDown } = await checkEnv(ctx);
+    // AWS の認証が使えないだけなら ?（確かめられない）。人の端末では AWS_PROFILE・aws sso login、監視アプリでは確認用の主体のキーを疑う
+    return settleAwsUnavailable({ ok: problems.length === 0, notes: problems.length ? [...problems, ...notes] : [...notes, `${SAMCONFIG} の必須の値はそろっている`] }, awsDown);
   }
   if (ctx.phase === "deploy") {
     const notes = [];
@@ -509,7 +513,8 @@ export async function check(ctx) {
 
 export async function apply(ctx) {
   if (ctx.phase === "env") {
-    const { problems, notes } = await checkEnv(ctx);
+    const { problems, notes, awsDown } = await checkEnv(ctx);
+    if (awsDown) problems.push(awsDown); // apply では、認証が使えないなら先に進めない（人に AWS_PROFILE・aws sso login を頼む）
     for (const n of notes) ctx.log(n);
     if (problems.length) ctx.manual("env", "本番のデプロイに要る道具・AWS の認証・デプロイの設定ファイルをそろえる", envSteps(problems));
     ctx.log(`${SAMCONFIG} の必須の値はそろっている（値は表示しない）。次は段階 deploy`);

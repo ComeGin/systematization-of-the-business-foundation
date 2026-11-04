@@ -16,7 +16,7 @@
 // 最初に、ECS の chatwoot-web・chatwoot-worker の DesiredCount（親のパラメータ）が 1 以上かを読み取りだけで確かめ、0 なら
 // db:chatwoot_prepare と台数を上げる手順を案内して止まる（cloud/README.md の 4.10・4.11。以前はスクリプトが確かめず、Chatwoot に届かないとだけ出ていた）
 import { createHash } from "node:crypto";
-import { notRunningNote, raiseCountSteps, requireMainStack, serviceCounts } from "../../../../cloud/setup/aws.mjs";
+import { isAwsUnavailable, notRunningNote, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../cloud/setup/aws.mjs";
 import { ASK_RESOLVED_MACRO, FAQ_LABELS, HANDOFF_EMAIL_FLAG, ensureAskResolvedMacro, ensureFaqBot, ensureHandoffNotification, ensureInbox, ensureLabels, profile } from "../index.mjs";
 
 export const meta = { id: "chatwoot-prod", title: "Chatwoot（本番。受信箱・FAQ ボット・ラベル・マクロ）", targets: ["prod"], phases: ["apps"], after: [] };
@@ -153,6 +153,7 @@ export async function check(ctx) {
     mark(cond, good, bad);
     if (!cond) adminFailures.push(bad);
   };
+  let awsDown = null; // AWS に問い合わせられなかった（認証の失効・障害）。最後に settleAwsUnavailable で ● か ? かを決める
   let inAdmin = false; // 今、管理者のトークンが要る呼び出しの途中か（例外がどちらの確認で起きたかを見分ける）
   let aborted = false; // 例外で確認が途中で終わった
   const adminItem = () => {
@@ -175,11 +176,12 @@ export async function check(ctx) {
       if (c.desiredParam >= 1 && c.running === 0) notes.push(`! ${notRunningNote(c)}`);
     }
   } catch (e) {
-    mark(false, "", `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`);
+    if (isAwsUnavailable(e)) awsDown = `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`;
+    else mark(false, "", `ECS の台数を確かめられない（${e.message.split("\n")[0]}）`);
   }
   mark(v.missing.length === 0, "prod.conf に本番の Chatwoot の値がそろっている", `prod.conf に無いキー: ${v.missing.join("・")}`);
   for (const p of problems(v)) mark(false, "", p);
-  if (!ok) return { ok, notes, items: [hasAdmin ? { ...ADMIN_ITEM, level: "unknown", evidence: "前の確認が通らないので確かめていない" } : adminItem()] };
+  if (!ok) return settleAwsUnavailable({ ok, notes, items: [hasAdmin ? { ...ADMIN_ITEM, level: "unknown", evidence: "前の確認が通らないので確かめていない" } : adminItem()] }, awsDown);
   if (!hasAdmin) notes.push("管理者のトークン（CHATWOOT_ADMIN_TOKEN）が prod.conf に無い。初期設定用の値を消した後なので、受信箱・FAQ ボットの接続・メンバー・ラベル・マクロ・メール通知は確かめない（P15。やり直すときだけ書く）");
 
   const c = { ...ctx, chatwootBase: v.base };
@@ -243,7 +245,7 @@ export async function check(ctx) {
     }
   }
   mark(secretsStored(ctx), "FAQ ボットのトークンと secret は Secrets Manager に入れたと申告されている（今のボットの指紋と一致）", "FAQ ボットのトークンと secret を Secrets Manager に入れたと申告されていないか、ボットが作り直されて指紋が合わない（apply の案内のとおり入れ直し、FAQ_BOT_SECRETS_STORED を書き直す）");
-  return { ok, notes, items: [adminItem()] };
+  return settleAwsUnavailable({ ok, notes, items: [adminItem()] }, awsDown);
 }
 
 export async function apply(ctx) {

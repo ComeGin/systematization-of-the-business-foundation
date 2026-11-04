@@ -7,7 +7,7 @@ ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い
 | `wireguard/` | オンプレと AWS の VPC をつなぐ WireGuard のオンプレ側。設定の雛形・鍵の生成・手順（[README](wireguard/README.md)） |
 | `strapi/` | 本番の Strapi の compose。`backend/strapi-system` の Dockerfile でビルドし、RDS の `strapi` と S3 のメディアのバケットを使う |
 | `n8n/` | 本番の n8n の compose（本体・runners・Webhook の受け口のリバースプロキシ）。RDS の `n8n` を使う |
-| `systemd/` | 起動時に WireGuard のあとで Strapi・n8n を上げるユニットと、監視アプリ（`comegin-control`）を常駐させるユニットの雛形（インストールは人が行う）。OpenSEO はユニットを持たず、Docker の再起動の設定で常駐させる（「常駐させる（OpenSEO）」） |
+| `systemd/` | 起動時に WireGuard のあとで Strapi・n8n を上げるユニットと、監視アプリ（`comegin-control`）・OpenSEO（`comegin-openseo`。WireGuard に依存しない）を常駐させるユニットの雛形（インストールは人が行う） |
 
 ## 構成
 
@@ -113,7 +113,7 @@ curl -s http://127.0.0.1:5679/healthz                                           
 
 `systemd/` の雛形は、`wg-quick@wg0.service` のあとに Strapi・n8n を上げる。`Requires=` なので、`wg-quick@wg0` を止める・再起動すると Strapi・n8n も止まる・再起動される（アドレスが消えるとバインドが無効になるため）。**インストールは人が行う**（`/etc` への書き込みは Claude Code では行わない）。
 
-監視アプリ（改善ループの起動元）の雛形 `systemd/comegin-control.service` も同じ場所にある。こちらは承認済みの main のチェックアウトの `frontend/next-js` で `pnpm start` を常駐させるもので、本番の値の `.env` とビルドを済ませてから置く（`setup/00-setup-overview.md` の P14）。
+監視アプリ（改善ループの起動元）の雛形 `systemd/comegin-control.service` も同じ場所にある。こちらは承認済みの main のチェックアウトの `frontend/next-js` で `pnpm start` を常駐させるもので、本番の値の `.env` とビルドを済ませてから置く（`setup/00-setup-overview.md` の P14）。OpenSEO の雛形 `systemd/comegin-openseo.service` の置き方は、下の「常駐させる（OpenSEO）」。
 
 ```bash
 # CHANGE_ME / CHANGE/ME を自分の環境に合わせて書き換えてから置く
@@ -126,18 +126,29 @@ sudo systemctl enable --now comegin-strapi.service comegin-n8n.service
 
 OpenSEO（`middleware/open-seo-main`。`127.0.0.1:3001`）も、オンプレで常駐させる道具（2026-11-04 に、この節を追加）。改善ループのエージェント（`seo-auditor`・`analytics-reporter`・`keyword-researcher`・`knowledge-scout`）が、夜の定期実行の中で MCP の `openseo` で Search Console・GA4・DataForSEO を読むため、止まっているとその夜の観測が欠ける。開発と本番で 1 つを共用するので、`onprem/` には置かず `middleware/` のまま動かす（TA-07 の 3.7）。設定の全体の順番は `setup/manual-steps.md` の 7.6。
 
-**systemd のユニットは置かない。Docker の再起動の設定で常駐させる。** 上流の `compose.yaml` が `restart: unless-stopped` なので、`docker.service` が enabled なら、マシンの起動のときに Docker が上げ直す。Strapi・n8n と違って WireGuard にも RDS にも依存しない（Google と DataForSEO にインターネット越しにつなぐだけ）ので、起動の順番を systemd で決める必要が無い。監視アプリのユニット（`comegin-control`）も、OpenSEO を `Wants=` に入れない（OpenSEO が止まっても、監視アプリと他の定期実行は動かし続ける）。
+**Strapi・n8n と同じく、systemd のユニット `comegin-openseo` で常駐させる**（2026-11-04 に、Docker の再起動の設定だけから改めた）。ユニットが起動のときに `docker compose up -d`、停止のときに `docker compose stop` を実行する。上流の `compose.yaml` の `restart: unless-stopped` は、動いている間に落ちたときの回復として残る。
+
+- **Strapi・n8n との違い**: WireGuard にも RDS にも依存しない（データはこのマシンの Docker のボリューム。外へは Google と DataForSEO にインターネット越しにつなぐだけ）。そのため `Requires=` は `docker.service` だけで、`wg-quick@wg0` を止めても OpenSEO は止まらない。監視アプリのユニット（`comegin-control`）も、OpenSEO を `Wants=` に入れない（OpenSEO が止まっても、監視アプリと他の定期実行は動かし続ける）。
+- **なぜユニットにしたか**: `unless-stopped` だけでは、人が `docker compose stop` したままマシンを再起動すると上がらない。ユニットなら起動のたびに `up -d` するので、止めた理由にかかわらず上がる。`systemctl status comegin-strapi comegin-n8n comegin-openseo` で、まとめて見られる。
+- **`WorkingDirectory` は作業ツリーの `middleware/open-seo-main`**（設定スクリプトが環境変数ファイルを書いた場所）。監視アプリと違って main のチェックアウトにしない。環境変数ファイルはディレクトリごとにあり（`compose.yaml` の `env_file`）、別の場所に無ければ起動に失敗し、別の値で作られていれば `BETTER_AUTH_SECRET` が違うので Google の接続が切れる。
 
 ```bash
-# 一度だけ（初回は setup/setup.mjs が docker compose up -d する）
-sudo systemctl enable docker.service
-# 確かめる（止めずに警告だけ出す。止まっていれば docker compose up -d で上げ直す）
+# 前提: node setup/setup.mjs --target dev --only openseo が済んでいる（環境変数ファイルの作成とイメージの取得）
+# 1. 雛形の User と WorkingDirectory を自分の環境に合わせて書き換えてから置く（人が行う。/etc への書き込みは Claude Code では行わない）
+sudo install -m 644 systemd/comegin-openseo.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now comegin-openseo.service
+systemctl status comegin-openseo   # active (exited) なら正しい（Type=oneshot。コンテナは Docker が動かしている）
+# 2. 確かめる（止めずに警告だけ出す。ユニット・コンテナ・本番のプロジェクトと接続を見る）
 node setup/setup.mjs --target prod --phase operate --only openseo
 ```
 
+既に `docker compose up -d` で動いているところにユニットを入れても、`enable --now` の `up -d` は何もせず終わる（コンテナを作り直さない）。
+
 守ること:
 
-- **`docker compose stop` で止めたままにしない。** `unless-stopped` は、人が止めたコンテナを、マシンを再起動した後も上げない。作業で止めたら `docker compose up -d`（`middleware/open-seo-main` で）で戻す。
+- **作業で止めるときは `sudo systemctl stop comegin-openseo`、戻すときは `sudo systemctl start comegin-openseo`。** `docker compose stop` で止めると、ユニットは active のまま残り、`systemctl start` しても何もしない（`RemainAfterExit=yes`）。そのときは `sudo systemctl restart comegin-openseo` か、`middleware/open-seo-main` で `docker compose up -d` で戻す。
+- 環境変数ファイルを書き換えた後の作り直し（`--force-recreate`）は、これまでどおり設定スクリプト（`--only openseo`）が行う。ユニットを通さなくてよい。
 - **`docker compose down -v` をしない。** ボリューム `open-seo-main_open_seo_data` に、プロジェクトと Search Console・GA4 の OAuth のトークンが入っている。消すと、プロジェクトの作成と接続をやり直すことになる（`setup/manual-steps.md` の 7.6）。
 - **環境変数ファイルの `BETTER_AUTH_SECRET` を変えない**（保存済みのトークンの暗号鍵。変えると接続が全部切れる）。
 - **トンネルを張らない**（`local_noauth` で認証が無い。費用の出るツールも同じ `/mcp` にある）。別の端末から画面を開くときは `ssh -L 3001:127.0.0.1:3001` を使い、ブラウザでは `http://localhost:3001` を開く（Google の OAuth のリダイレクト URI に合わせる）。
@@ -280,6 +291,8 @@ journalctl -u comegin-control -n 50                                     # 設定
 ```
 
 ブラウザで `http://127.0.0.1:3200/setup-status` を開き、「有効」の表示と、項目の状態（✓・●・!・?・◇）が出ることを確かめる。`?`（確かめられなかった）が続くときは、まず主体のキーが生きているか（`cloud/README.md` の 4.5.3 の確かめ方）と、トークンの期限を見る。
+
+**AWS に届かないとき（キーの失効・権限・AWS の障害）は、AWS を読む項目がまとめて `?` になる**（P1・P2〜P4・P7〜P9 など。2026-11-04 から。以前は P1・P7・P8・P9 が ● になり、「更新が必要」のメールが誤って出た）。`?` は ● と違ってすぐにはメールにならず、1 時間以上続いたときに「確かめられない状態が続いている」が 1 通だけ出る。項目の根拠は「確かめられなかった: …。AWS 以外の確認は通っている」。AWS 以外に欠けがあれば、その項目は ● のままで、根拠の最後に AWS の分が付く（● の理由はほかの欠けのほう）。キーが失効したときは、`next-js-prod.status-principal`（P14）だけが ● になり、「キーで認証できない」と出る（直すのは人。`cloud/README.md` の 4.5.3 でキーを発行し直す）。
 
 （任意）**origin の URL をリポジトリの今の名前に合わせる。** リポジトリの改名前に clone した作業ツリーは、origin が旧名（例: `https://github.com/kamegin4-aws/systematization-of-the-business-foundation.git`）のままのことがある。監視アプリは、origin の名前が設定のリポジトリ（`GITHUB_REPOSITORY`。無ければ `ComeGin/systematization-of-the-business-foundation`）と違うと、GitHub の API でその名前の転送先（`full_name`）を確かめ、同じリポジトリのときだけ `git fetch` する（プロセスの中で覚え、起動のたびに 1 回だけ API を呼ぶ）。動きはするが、`next-js-prod` の確認は `next-js-prod.status-github` を `!` 警告にし、直し方を出す（止めない）。人が自分の端末で直す（チェックアウトは作業ツリーと `.git` を共有しているので、作業ツリーで 1 回直せば両方に効く）:
 
