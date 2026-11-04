@@ -1,4 +1,4 @@
-// 設定の状況の本体。10 分ごと（と「今すぐ確かめる」・起動の 30 秒後）に、次の順で確かめる（spec の 5・6）:
+// 設定の状況の本体。1 時間ごと（と「今すぐ確かめる」・起動の 30 秒後）に、次の順で確かめる（spec の 5・6）:
 //   1. 承認済み main のチェックアウトで origin の main を取る（fetchMain）
 //   2. 2 本の設定スクリプトの --check --json（製品の API を呼ぶモジュールは 1 時間に 1 回。それ以外は前回の結果を引き継ぐ）と、
 //      2 つのずれの確認（fetch が失敗したら確かめずに unknown。本番の n8n の比較は製品の API なので 1 時間に 1 回で、間の回は前回の結果を引き継ぐ）
@@ -28,9 +28,15 @@ import { type SetupCheckReport, type SetupScript, SETUP_SCRIPTS, runSetupCheck }
 import { StatusStore, type StoredDrift, type StoredStatus } from "./store.js";
 
 export const FIRST_CHECK_DELAY_MS = 30 * 1000;
-export const CHECK_INTERVAL_MS = 10 * 60 * 1000;
+/** 定期の確認の間隔（2026-11-04 にユーザーの指示で 10 分から 1 時間にした） */
+export const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** 製品の API を呼ぶ確認の間隔（spec 5.1。「今すぐ確かめる」のときは待たない） */
 export const PRODUCT_API_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * 製品の API の間隔の判定に許すずれ。定期の確認の間隔が製品の API の間隔と同じ 1 時間なので、
+ * タイマーの揺れで前回からの経過が 1 時間をわずかに切ると、その回を飛ばして 2 時間に 1 回になってしまう。それを防ぐ
+ */
+export const PRODUCT_API_DUE_SLACK_MS = 60 * 1000;
 
 export const DISABLED_REASON = "本番の監視アプリだけで動く（CONTROL_SETUP_STATUS_ENABLED が true ではない）";
 
@@ -140,11 +146,11 @@ export class SetupStatusService {
     return (text: string) => redact(text, secrets);
   }
 
-  /** 起動の 30 秒後に 1 回、以後 10 分ごと。config.status が無ければ何もしない。冪等。 */
+  /** 起動の 30 秒後に 1 回、以後 1 時間ごと。config.status が無ければ何もしない。冪等。 */
   start(): void {
     if (!this.config.status || this.timer) return;
     this.schedule(FIRST_CHECK_DELAY_MS);
-    logLine("INFO", "setup-status", "開始（起動の 30 秒後と、以後 10 分ごとに確かめる）");
+    logLine("INFO", "setup-status", "開始（起動の 30 秒後と、以後 1 時間ごとに確かめる）");
   }
 
   /** 次の予定を止め、確認中なら打ち切る（子プロセスは AbortSignal で殺す）。冪等。 */
@@ -336,7 +342,7 @@ export class SetupStatusService {
       const productDue =
         force ||
         previous?.productApiCheckedAt == null ||
-        startedAt.getTime() - Date.parse(previous.productApiCheckedAt) >= PRODUCT_API_INTERVAL_MS;
+        startedAt.getTime() - Date.parse(previous.productApiCheckedAt) >= PRODUCT_API_INTERVAL_MS - PRODUCT_API_DUE_SLACK_MS;
       // 前回の本当の結果（飛ばしたものでない）があるモジュールだけを飛ばす（無いものは確かめないと出せない）。
       // 親スクリプトに無い id を --skip に渡すと止まるので、そのスクリプトの前回の結果にある id に限る
       const skipFor = (script: SetupScript): string[] =>

@@ -262,7 +262,7 @@ curl -s -X POST http://127.0.0.1:3200/api/auth/sign-in/social \
 
 ### 設定の状況を有効にする（/setup-status）
 
-監視アプリの「設定の状況」画面（`/setup-status`）は、設定スクリプトの読み取り専用の確認（`node setup/setup.mjs --target prod --check`）を **10 分ごとに子プロセスで**実行して、本番の設定の手順（`setup/00-setup-overview.md` の P1〜P15・6 節）が今どうなっているかを出す。ずれ（● 更新が必要・! 警告）が新しくなったときと、残っているあいだの 1 日 1 回のまとめを、SNS `comegin-ops-alert` のメールで知らせる。**本番の監視アプリだけで有効**（開発の `next-js` モジュールは `CONTROL_SETUP_STATUS_ENABLED=false` のまま。画面は「本番の監視アプリだけで動く」と出す）。設計は `docs/superpowers/specs/2026-11-03-setup-status-design.md`。
+監視アプリの「設定の状況」画面（`/setup-status`）は、設定スクリプトの読み取り専用の確認（`node setup/setup.mjs --target prod --check`）を **1 時間ごとに子プロセスで**実行して、本番の設定の手順（`setup/00-setup-overview.md` の P1〜P15・6 節）が今どうなっているかを出す。ずれ（● 更新が必要・! 警告）が新しくなったときと、残っているあいだの 1 日 1 回のまとめを、SNS `comegin-ops-alert` のメールで知らせる。**本番の監視アプリだけで有効**（開発の `next-js` モジュールは `CONTROL_SETUP_STATUS_ENABLED=false` のまま。画面は「本番の監視アプリだけで動く」と出す）。設計は `docs/superpowers/specs/2026-11-03-setup-status-design.md`。
 
 有効にするために、人が用意するものは 2 つ。どちらも `next-js-prod` が確かめ、無いと止まる（`next-js-prod:status-principal`・`next-js-prod:status-github`）。確かめた後、チェックアウトの `.env` に `CONTROL_SETUP_STATUS_ENABLED=true` ほか（上の表）を書く。
 

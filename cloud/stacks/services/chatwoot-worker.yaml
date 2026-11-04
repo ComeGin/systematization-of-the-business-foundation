@@ -86,7 +86,7 @@ Parameters:
     Description: 止める時刻（Application Auto Scaling の cron 式。NightlyStopTimezone の時刻）。
   NightlyStartSchedule:
     Type: String
-    Default: cron(0 8 * * ? *)
+    Default: cron(45 3 * * ? *)
     Description: 再開する時刻。DesiredCount の台数に戻す。
   NightlyStopTimezone:
     Type: String
@@ -286,7 +286,7 @@ Resources:
             - !Ref SecurityGroupId
           Subnets: !Ref PrivateSubnetIds
 
-  # 夜間の停止（chatwoot-worker。夜間の Webhook・メールは朝に処理される）。22 時に最小・最大を 0 にしてタスクを止め、8 時に DesiredCount に戻す（日本時間）。
+  # 夜間の停止（chatwoot-worker。夜間の Webhook・メールは朝に処理される）。22 時に最小・最大を 0 にしてタスクを止め、3 時 45 分に DesiredCount に戻す（日本時間。2026-11-04 に 8 時から早めた。template.yaml の NightlyStartSchedule）。
   # タスクの台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま（README の 4.11）。
   # 使う IAM ロールは Application Auto Scaling のサービスにリンクされたロール（無ければ初回に自動で作られる）。
   NightlyStopScalableTarget:
