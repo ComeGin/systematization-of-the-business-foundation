@@ -120,7 +120,7 @@ Claude は `.env` などの秘匿ファイルを読めない（フックで止�
 
 **Claude の作業**
 - 棚卸し: 未割り当ての会話を Chatwoot に 1 件作ってから手動で実行し、MailHog に通知メール（会話番号と件数だけ。氏名・本文・email が無いこと）が届くこと。**0 件のときは通知されない**こと
-- `ops-monitor`: 実行して通知が出ない（`ok`）こと → OpenSEO を止めて（`docker compose stop`）もう一度実行し、**1 回だけ**通知が出ること → 起動し直して `ok` に戻ると 1 回だけ通知が出ること。`/api/health` の中継は `docker exec n8n-n8n-1 wget -qO- http://host.docker.internal:3001/api/health`（200）と、それ以外のパスが 404 であること
+- `ops-monitor`: 実行して通知が出ない（`ok`）こと → OpenSEO を止めて（`sudo systemctl stop comegin-openseo`。ユニットを置く前なら `middleware/open-seo-main` で `docker compose stop`）もう一度実行し、**1 回だけ**通知が出ること → 起動し直して（`sudo systemctl start comegin-openseo`。ユニットが active のまま `docker compose stop` したときは `restart`。onprem「常駐させる（OpenSEO）」）`ok` に戻ると 1 回だけ通知が出ること。**止めたままにしない**（夜の観測が欠ける）。`/api/health` の中継は `docker exec n8n-n8n-1 wget -qO- http://host.docker.internal:3001/api/health`（200）と、それ以外のパスが 404 であること
 - ハートビート: **AWS を呼ばない確認**にとどめる（署名の組み立てとローカルのエコーサーバー。実機の送信は AWS のデプロイ後。B5）
 
 **合格**: 上のとおり。終わったら公開を戻し、スイッチを `false` に戻す。

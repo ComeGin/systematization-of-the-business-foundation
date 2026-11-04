@@ -292,6 +292,8 @@ journalctl -u comegin-control -n 50                                     # 設定
 
 ブラウザで `http://127.0.0.1:3200/setup-status` を開き、「有効」の表示と、項目の状態（✓・●・!・?・◇）が出ることを確かめる。`?`（確かめられなかった）が続くときは、まず主体のキーが生きているか（`cloud/README.md` の 4.5.3 の確かめ方）と、トークンの期限を見る。
 
+**AWS に届かないとき（キーの失効・権限・AWS の障害）は、AWS を読む項目がまとめて `?` になる**（P1・P2〜P4・P7〜P9 など。2026-11-04 から。以前は P1・P7・P8・P9 が ● になり、「更新が必要」のメールが誤って出た）。`?` は ● と違ってすぐにはメールにならず、1 時間以上続いたときに「確かめられない状態が続いている」が 1 通だけ出る。項目の根拠は「確かめられなかった: …。AWS 以外の確認は通っている」。AWS 以外に欠けがあれば、その項目は ● のままで、根拠の最後に AWS の分が付く（● の理由はほかの欠けのほう）。キーが失効したときは、`next-js-prod.status-principal`（P14）だけが ● になり、「キーで認証できない」と出る（直すのは人。`cloud/README.md` の 4.5.3 でキーを発行し直す）。
+
 （任意）**origin の URL をリポジトリの今の名前に合わせる。** リポジトリの改名前に clone した作業ツリーは、origin が旧名（例: `https://github.com/kamegin4-aws/systematization-of-the-business-foundation.git`）のままのことがある。監視アプリは、origin の名前が設定のリポジトリ（`GITHUB_REPOSITORY`。無ければ `ComeGin/systematization-of-the-business-foundation`）と違うと、GitHub の API でその名前の転送先（`full_name`）を確かめ、同じリポジトリのときだけ `git fetch` する（プロセスの中で覚え、起動のたびに 1 回だけ API を呼ぶ）。動きはするが、`next-js-prod` の確認は `next-js-prod.status-github` を `!` 警告にし、直し方を出す（止めない）。人が自分の端末で直す（チェックアウトは作業ツリーと `.git` を共有しているので、作業ツリーで 1 回直せば両方に効く）:
 
 ```bash

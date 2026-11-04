@@ -17,17 +17,42 @@ export const TASKS_LOG_GROUP = `/comegin/${ENV_NAME}/tasks`;
 
 const NOT_FOUND = /does not exist|ImageNotFoundException|RepositoryNotFoundException|ResourceNotFoundException|NotFoundException|NoSuchEntity/;
 
-/** aws CLI を JSON で呼ぶ。対象が無いときは null。出力に警告が混ざっても読めるよう、最初の { から読む */
+/**
+ * AWS に問い合わせられなかった（認証の失効・権限・AWS の障害・時間切れ・応答が読めない）。対象が「無い」こととは区別する（無いときは awsJson が null）。
+ * check の中でこれを受け止めて ok:false にすると、監視アプリの「設定の状況」が ●（更新が必要）とメールを出してしまう（2026-11-04 に直した）。
+ * 受け止めるモジュールは settleAwsUnavailable で結果を返し、ほかに欠けが無ければ例外にする（runner が error に載せ、画面は ?〈確かめられない〉）
+ */
+export class AwsUnavailable extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AwsUnavailable";
+  }
+}
+// instanceof ではなく name で見る（モジュールの読み込み方が違っても同じに判定できるように）
+export const isAwsUnavailable = (e) => e?.name === "AwsUnavailable";
+
+/**
+ * check の結果に「AWS を確かめられなかった」（awsDown。無ければ null）を反映する。
+ *   - ほかの確認がすべて通っている（result.ok）→ AwsUnavailable を投げる（● ではなく ?。直すものがあるとは言えない）
+ *   - ほかに欠けがある → ok:false のまま、根拠に AWS の分を足す（● の理由は、ほかの欠けのほう）
+ */
+export function settleAwsUnavailable(result, awsDown) {
+  if (!awsDown) return result;
+  if (result.ok) throw new AwsUnavailable(`${awsDown}。AWS 以外の確認は通っている`);
+  return { ...result, notes: [...result.notes, awsDown] };
+}
+
+/** aws CLI を JSON で呼ぶ。対象が無いときは null。問い合わせられなかったときは AwsUnavailable。出力に警告が混ざっても読めるよう、最初の { から読む */
 export async function awsJson(ctx, args) {
   let out;
   try {
     out = await ctx.run("aws", [...args, "--output", "json"], { timeoutMs: 60_000 });
   } catch (e) {
     if (NOT_FOUND.test(e.message)) return null;
-    throw e;
+    throw new AwsUnavailable(e.message);
   }
   const i = out.indexOf("{");
-  if (i < 0) throw new Error(`aws ${args.slice(0, 2).join(" ")} の応答が JSON ではない`);
+  if (i < 0) throw new AwsUnavailable(`aws ${args.slice(0, 2).join(" ")} の応答が JSON ではない`);
   return JSON.parse(out.slice(i));
 }
 

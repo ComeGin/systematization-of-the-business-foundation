@@ -255,6 +255,7 @@ cd setup && pnpm exec vitest run tests/status       # 検査そのものの単�
 1. `<モジュール>/setup/index.mjs` に、`setup/lib/core.mjs` の冒頭に書いた形（`meta`・`check`・`apply`）で書く。見本は `middleware/host-relay/setup/index.mjs`
 2. `setup/setup.mjs`（フロントエンドのモジュールなら `setup/frontend.mjs`）の `MODULES` に、依存の順で 1 行足す
 3. `check` は読むだけにする（`--check` では `ctx.state.set` が例外になる）。監視アプリの「設定の状況」に出す項目は、戻り値に `items`（`{ key, step, level, title, evidence, stopId? }` の配列。上の「`--json` の結果」）を足す。返さなくても、`ok` と `notes` から手順に当てはめられる
+   - **確かめられなかった（AWS・製品の API に問い合わせられない）ときは、`ok: false` にせず例外を投げる**（2026-11-04）。監視アプリは `ok: false` を ●（更新が必要。すぐメール）、例外（`error`）を ?（確かめられない。1 時間続いたらメール）にする。AWS の認証の失効や障害で ● とメールが出ないようにするため。AWS は `cloud/setup/aws.mjs` の `awsJson` が、対象が無いときは `null`、問い合わせられないときは `AwsUnavailable` を投げる。受け止めて続けたいときは `isAwsUnavailable(e)` で見分けて覚えておき、最後に `settleAwsUnavailable(result, awsDown)` で返す（ほかの確認がすべて通っていれば例外にし、ほかに欠けがあれば `ok: false` のまま `notes` に足す）。使っている例は `cloud` の段階 env・`chatwoot-prod`・`mautic-prod`・`n8n-prod`
 4. 新しい設定のキーは `setup.conf.example` に、新しい状態のキーはこの README の「作られる値」に足す
 
 ## 既知の未確認（最初の実行で分かる）
