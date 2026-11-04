@@ -311,7 +311,7 @@ OpenSEO は**オンプレの道具**（TA-07 の 3.7。正本のデータは持�
 | イメージ | `ghcr.io/every-app/open-seo:0.1.8`（ダイジェストで固定。モジュールの `PINNED_IMAGE`。版を上げるときはこの定数を変えて `--only openseo` を実行し直す） |
 | データ | Docker のボリューム `open-seo-main_open_seo_data`。プロジェクト・保存したキーワード・Search Console と GA4 の OAuth のトークン（`BETTER_AUTH_SECRET` で暗号化）が入る |
 | 環境変数ファイル | `middleware/open-seo-main` の環境変数ファイル（権限 600。スクリプトが設定〈`<target>.conf`〉から書く。手で書き換えない） |
-| 常駐のしかた | Docker の再起動の設定 `restart: unless-stopped`（上流の `compose.yaml`）＋ `docker.service` が enabled。systemd のユニットは置かない（onprem「常駐させる（OpenSEO）」） |
+| 常駐のしかた | systemd のユニット `comegin-openseo`（雛形 `onprem/systemd/comegin-openseo.service`。`Requires=docker.service` だけで WireGuard に依存しない。置くのは人）が起動時に `docker compose up -d`。落ちたときの回復は上流の `compose.yaml` の `restart: unless-stopped`（onprem「常駐させる（OpenSEO）」。2026-11-04 にユニットを足した） |
 
 #### 順番
 
@@ -340,13 +340,23 @@ OpenSEO は**オンプレの道具**（TA-07 の 3.7。正本のデータは持�
 
    最後まで通ると「終わった」と出る。Search Console のドメインプロパティの登録（`verdant-virgo:gsc-domain`）と GA4 のプロパティの作成（`ga4:property`）は、別のモジュール（`setup.mjs` の `ga4`・`frontend.mjs` の `verdant-virgo`）が案内する（`setup/00-setup-overview.md` の P13）。
 
-3. **常駐の確認（段階 `operate`）**
+3. **ユニットを置く（人が行う）**
+
+   `onprem/systemd/comegin-openseo.service` の `User` と `WorkingDirectory`（作業ツリーの `middleware/open-seo-main` の絶対パス。手順 1 で環境変数ファイルを書いた場所）を書き換えてから置く。
+
+   ```bash
+   sudo install -m 644 onprem/systemd/comegin-openseo.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now comegin-openseo.service
+   ```
+
+4. **常駐の確認（段階 `operate`）**
 
    ```bash
    node setup/setup.mjs --target prod --phase operate --only openseo
    ```
 
-   止めずに警告だけ出す。コンテナが止まっていれば `docker compose up -d` で上げ直す（環境変数ファイルは変えない）。それ以外の欠け（再起動の設定・`docker.service`・プロジェクト・接続）は表示に従って直す。`--phase operate` を丸ごと実行したときも、同じ確認が入る（`setup/00-setup-overview.md` の P14）。
+   止めずに警告だけ出す。コンテナが止まっていれば `docker compose up -d` で上げ直す（環境変数ファイルは変えない）。それ以外の欠け（ユニットが無い・enabled でない・active でない・`WorkingDirectory` が違う、再起動の設定、プロジェクト・接続）は表示に従って直す。`--phase operate` を丸ごと実行したときも、同じ確認が入る（`setup/00-setup-overview.md` の P14）。
 
 #### スクリプトが確かめること
 
@@ -356,7 +366,8 @@ OpenSEO は**オンプレの道具**（TA-07 の 3.7。正本のデータは持�
 | Domain が `comegin.com` のプロジェクトがちょうど 1 つ | google・operate | MCP の `list_projects`（無料） |
 | Search Console に接続し、プロパティが `sc-domain:comegin.com` | google・operate | MCP の `get_search_console_performance`（無料。Google の API を 1 行だけ読む） |
 | GA4 に接続し、プロパティが `GA4_PROPERTY_ID` と同じ | google・operate | MCP の `get_google_analytics_measurement_health`（無料。GA4 の Admin API を読む） |
-| コンテナが running・再起動の設定が `unless-stopped` か `always`・`docker.service` が enabled | operate | `docker compose ps`・`docker inspect`・`systemctl is-enabled` |
+| コンテナが running・再起動の設定が `unless-stopped` か `always` | operate | `docker compose ps`・`docker inspect` |
+| ユニット `comegin-openseo` があり、enabled・active で、`WorkingDirectory` が作業ツリーの `middleware/open-seo-main` | operate | `systemctl show`（`LoadState`・`UnitFileState`・`ActiveState`・`WorkingDirectory`） |
 
 スクリプトが呼ぶ MCP のツールは、この 3 本だけに限ってある（モジュールの `FREE_TOOLS`）。DataForSEO を呼ぶツールは呼ばない。設定の状況の画面（監視アプリの `/setup-status`）も、1 時間に 1 回まで同じ確認をする。
 
@@ -374,7 +385,10 @@ docker inspect -f '{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}' open-se
 | 症状 | 原因 | 対処 |
 |---|---|---|
 | 夜の観測（`docs/audits/gsc/`・`analytics/`）の `fetch.note` に「`domain` が `comegin.com` のプロジェクトが 0 件」 | プロジェクトの Domain が `comegin.com` でない（2026-11-04 に起きた。Default の Domain が開発の ngrok の URL だった） | 7.4 の `openseo:project` |
-| マシンを再起動したら OpenSEO が上がらない | `docker compose stop` で止めたまま（`unless-stopped` は、止めたコンテナを再起動の後に上げない）か、`docker.service` が disabled | `docker compose up -d`（`middleware/open-seo-main` で）。`sudo systemctl enable docker.service`。一時的に止めたら、作業の後に必ず `up -d` で戻す |
+| マシンを再起動したら OpenSEO が上がらない | ユニット `comegin-openseo` が無い・enabled でない（ユニットが無いと、`docker compose stop` で止めたままのコンテナは上がらない） | 手順 3 でユニットを置く。`sudo systemctl enable --now comegin-openseo` |
+| `systemctl status comegin-openseo` が failed | `WorkingDirectory` が無いパス・環境変数ファイルが無い・Docker が上がっていない | `journalctl -u comegin-openseo -n 50`。パスを直したら `sudo systemctl daemon-reload && sudo systemctl restart comegin-openseo` |
+| ユニットは active なのに応答しない | `docker compose stop` で止めた（ユニットは active のまま残る） | `sudo systemctl restart comegin-openseo`。作業で止めるときは `systemctl stop` / `start` を使う |
+| 再起動の後、Google の接続が全部切れている | ユニットの `WorkingDirectory` が別のチェックアウトで、そこの環境変数ファイルの `BETTER_AUTH_SECRET` が違う（ファイルが無ければ、上の failed になる） | `WorkingDirectory` を作業ツリーの `middleware/open-seo-main` にして置き直す。`--check` の operate が食い違いを警告する |
 | 接続していたのに `gsc-connect`・`ga4-connect` で止まる | OAuth の同意画面が「テスト中」で更新トークンが切れた・Google 側で権限を外した | 画面で接続し直す（7.5 の最後） |
 | すべての接続が一度に切れた | 環境変数ファイルの `BETTER_AUTH_SECRET` が変わった（保存済みのトークンを復号できない） | **変えない**。変わってしまったら、手順 2 の 3・4 で接続し直す |
 | プロジェクトも接続も消えた | ボリューム `open-seo-main_open_seo_data` を消した（`docker compose down -v` など） | **`-v` を付けない**。消えたら手順 2 の 2〜4 をやり直す（保存したキーワード・順位計測の履歴は戻らない） |

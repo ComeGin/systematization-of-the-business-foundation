@@ -9,7 +9,8 @@
 //     dev の内容に加えて、Google の OAuth クライアント・本番のドメイン（GSC_DOMAIN。既定 comegin.com）のプロジェクト・
 //     Search Console の接続・GA4 の接続を案内する
 //   - --target prod の段階 operate（2026-11-04 に追加）: 改善ループのエージェントが夜に MCP で呼ぶので、常駐しているか
-//     （コンテナが running・再起動の設定が unless-stopped か always・docker.service が enabled）と、プロジェクトと接続が揃っているかを
+//     （コンテナが running・再起動の設定が unless-stopped か always・systemd のユニット comegin-openseo が enabled かつ active で、
+//     WorkingDirectory がこの作業ツリーの middleware/open-seo-main）と、プロジェクトと接続が揃っているかを
 //     確かめる。止めずに警告だけ出す（コンテナが止まっていれば docker compose up -d で上げ直す。それ以外は変えない）
 //
 // 方針（setup/lib/core.mjs の契約）:
@@ -71,8 +72,11 @@ const GA4_REDIRECT_URI = "http://localhost:3001/api/ga4/oauth/callback";
 const MCP_URL = `${BASE_URL}/mcp`;
 // setup から呼んでよい OpenSEO の MCP のツール（費用が出ない・書き込まないものだけ。ここに無い名前は callTool が断る）
 const FREE_TOOLS = new Set(["list_projects", "get_search_console_performance", "get_google_analytics_measurement_health"]);
-// 常駐とみなす再起動の設定（上流の compose.yaml は unless-stopped）
+// 常駐とみなす再起動の設定（上流の compose.yaml は unless-stopped。動いている間に落ちたときの回復）
 const RESIDENT_POLICIES = new Set(["unless-stopped", "always"]);
+// 起動時に上げる systemd のユニット（雛形は onprem/systemd/comegin-openseo.service。置くのは人）
+const UNIT = "comegin-openseo.service";
+const UNIT_TEMPLATE = "onprem/systemd/comegin-openseo.service";
 // イメージは版とダイジェストで固定する（上流の compose の既定は :latest。compose.yaml の image は ${OPEN_SEO_IMAGE:-...} なので、環境変数ファイルで差し替える）。
 // 出典: docker buildx imagetools inspect ghcr.io/every-app/open-seo:0.1.8（:v0.1.8・2026-10-06 時点の :latest と同じダイジェスト）
 const PINNED_IMAGE = "ghcr.io/every-app/open-seo:0.1.8@sha256:79f19fb7100e71133effa43898a2ba1ad4702075f3127e6ca91cd076e1101538";
@@ -229,8 +233,31 @@ async function inspectProduction(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 常駐（Docker の再起動の設定。systemd のユニットは置かない〈WireGuard に依存しないので起動の順番を制御しなくてよい〉）
+// 常駐（systemd のユニット comegin-openseo が起動時に docker compose up -d する。2026-11-04 に、Docker の再起動の設定だけから改めた）
+//   unless-stopped だけだと、人が docker compose stop したまま再起動すると上がらない。Strapi・n8n と同じくユニットに起動と停止を持たせ、
+//   systemctl で 3 つまとめて見られるようにする。WireGuard には依存しない（ユニットは Requires=docker.service だけ）
 // ---------------------------------------------------------------------------
+
+/** ユニットの状態。{ installed, enabled, active, dir } */
+async function unitState(ctx) {
+  const show = async (prop) => {
+    try {
+      return (await ctx.run("systemctl", ["show", "-p", prop, "--value", UNIT], { timeoutMs: 10_000 })).trim();
+    } catch {
+      return "";
+    }
+  };
+  if ((await show("LoadState")) !== "loaded") return { installed: false };
+  return {
+    installed: true,
+    enabled: (await show("UnitFileState")) === "enabled",
+    active: (await show("ActiveState")) === "active",
+    dir: await show("WorkingDirectory"),
+  };
+}
+
+const unitInstallHint = (ctx) =>
+  `${UNIT_TEMPLATE} の User と WorkingDirectory（${root(ctx)}）を書き換え、人が自分の端末で置く: sudo install -m 644 ${UNIT_TEMPLATE} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now ${UNIT}`;
 
 /** { ok, notes, running } */
 async function inspectResidency(ctx) {
@@ -246,18 +273,27 @@ async function inspectResidency(ctx) {
   const running = status === "running";
   let ok = running && RESIDENT_POLICIES.has(policy);
   notes.push(`コンテナ: ${status}、再起動の設定: ${policy || "?"}`);
-  if (!running) notes.push("動いていない。docker compose stop で止めたままだと、マシンを再起動しても上がらない（unless-stopped）");
-  if (!RESIDENT_POLICIES.has(policy)) notes.push("再起動の設定が unless-stopped でも always でもない（上流の compose.yaml の restart を確かめる）");
-  let enabled = "?";
-  try {
-    enabled = (await ctx.run("systemctl", ["is-enabled", "docker.service"], { timeoutMs: 15_000 })).trim();
-  } catch (e) {
-    enabled = String(e.message).split("\n").pop()?.trim() || "不明";
-  }
-  notes.push(`docker.service: ${enabled}`);
-  if (enabled !== "enabled") {
+  if (!running) notes.push(`動いていない（docker compose stop で止めたままなど）。作業で止めるときは sudo systemctl stop / start ${UNIT} を使う`);
+  if (!RESIDENT_POLICIES.has(policy)) notes.push("再起動の設定が unless-stopped でも always でもない（上流の compose.yaml の restart を確かめる。動いている間に落ちたときに上がらない）");
+
+  const unit = await unitState(ctx);
+  if (!unit.installed) {
     ok = false;
-    notes.push("docker.service が enabled でない。マシンを再起動すると OpenSEO が上がらない（sudo systemctl enable docker.service）");
+    notes.push(`ユニット ${UNIT} が無い。マシンを再起動したときに上がる保証が無い。${unitInstallHint(ctx)}`);
+    return { ok, running, notes };
+  }
+  notes.push(`ユニット ${UNIT}: ${unit.enabled ? "enabled" : "enabled でない"}・${unit.active ? "active" : "active でない"}・WorkingDirectory ${unit.dir || "（空）"}`);
+  if (!unit.enabled) {
+    ok = false;
+    notes.push(`ユニットが enabled でない（マシンの起動のときに上がらない）。人が自分の端末で: sudo systemctl enable --now ${UNIT}`);
+  }
+  if (!unit.active) {
+    ok = false;
+    notes.push(`ユニットが active でない（systemctl stop したまま、か起動に失敗した）。sudo systemctl start ${UNIT}。失敗するなら journalctl -u ${UNIT} -n 50`);
+  }
+  if (unit.dir !== root(ctx)) {
+    ok = false;
+    notes.push(`ユニットの WorkingDirectory が ${unit.dir || "空"}（期待: ${root(ctx)}。環境変数ファイルを書いた場所でないと、起動に失敗するか、BETTER_AUTH_SECRET が違って Google の接続が切れる）。${unitInstallHint(ctx)}`);
   }
   return { ok, running, notes };
 }
@@ -409,7 +445,7 @@ async function applyOperate(ctx) {
   }
   const r = await inspectOperate(ctx, health);
   for (const n of r.notes) (r.ok ? ctx.log : ctx.warn)(n);
-  if (r.ok) ctx.log("常駐している（Docker の再起動の設定で上がる）。本番のプロジェクトと Google の接続も揃っている");
+  if (r.ok) ctx.log(`常駐している（ユニット ${UNIT} が起動時に上げる）。本番のプロジェクトと Google の接続も揃っている`);
   else ctx.warn("OpenSEO に足りないものがある（止めずに続ける）。onprem/README.md の「常駐させる（OpenSEO）」と setup/manual-steps.md の 7.4〜7.6");
 }
 
