@@ -3,7 +3,16 @@
 import type { AppLayoutToolbarProps } from "@cloudscape-design/components/app-layout-toolbar";
 import type { BreadcrumbGroupProps } from "@cloudscape-design/components/breadcrumb-group";
 
-export type HelpId = "runs-list" | "runs-new" | "run-detail" | "jobs-list" | "job-detail" | "miswrite-candidates" | "setup-status";
+export type HelpId =
+  | "runs-list"
+  | "runs-new"
+  | "run-detail"
+  | "jobs-list"
+  | "job-detail"
+  | "agents-list"
+  | "agent-detail"
+  | "miswrite-candidates"
+  | "setup-status";
 
 export interface RouteMeta {
   breadcrumbs: BreadcrumbGroupProps.Item[];
@@ -16,11 +25,12 @@ export interface RouteMeta {
 const ROOT: BreadcrumbGroupProps.Item = { text: "監視アプリ", href: "/" };
 const RUNS: BreadcrumbGroupProps.Item = { text: "実行記録", href: "/runs" };
 const JOBS: BreadcrumbGroupProps.Item = { text: "定期実行のジョブ", href: "/jobs" };
+const AGENTS: BreadcrumbGroupProps.Item = { text: "Agent", href: "/agents" };
 const SETUP_STATUS: BreadcrumbGroupProps.Item = { text: "設定の状況", href: "/setup-status" };
 const CANDIDATES: BreadcrumbGroupProps.Item = { text: "誤った書き込みの候補", href: "/miswrite-candidates" };
 
 /** サイドのナビゲーションに出すモジュール。 */
-export const NAVIGATION_ITEMS = [SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, CANDIDATES] as const;
+export const NAVIGATION_ITEMS = [SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, AGENTS, CANDIDATES] as const;
 
 export function resolveRoute(pathname: string): RouteMeta {
   const [module, id] = pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
@@ -39,6 +49,10 @@ export function resolveRoute(pathname: string): RouteMeta {
   if (module === "jobs") {
     if (id === undefined) return { breadcrumbs: [ROOT, JOBS], activeHref: "/jobs", help: "jobs-list", contentType: "table" };
     return { breadcrumbs: [ROOT, JOBS, self(id)], activeHref: "/jobs", help: "job-detail", contentType: "default" };
+  }
+  if (module === "agents") {
+    if (id === undefined) return { breadcrumbs: [ROOT, AGENTS], activeHref: "/agents", help: "agents-list", contentType: "table" };
+    return { breadcrumbs: [ROOT, AGENTS, self(id)], activeHref: "/agents", help: "agent-detail", contentType: "default" };
   }
   if (module === "miswrite-candidates") {
     return {

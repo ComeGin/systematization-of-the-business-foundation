@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ControlPlane, MiswriteCandidate, RunRecord } from "control-plane";
-import { createFakePlane, makeRun, SAMPLE_RUN_ID, type FakePlane } from "../../../../helpers/control-plane";
+import type { ControlPlane, MiswriteCandidate, RunObservations, RunRecord } from "control-plane";
+import { createFakePlane, makeObservation, makeObservations, makeRun, SAMPLE_RUN_ID, type FakePlane } from "../../../../helpers/control-plane";
 import { asElement, NEXT_NOT_FOUND } from "../../../../helpers/page";
 
 type State = { plane: ControlPlane; error: null } | { plane: null; error: string };
-type DetailProps = { run: RunRecord; candidates: MiswriteCandidate[] };
+type DetailProps = { run: RunRecord; candidates: MiswriteCandidate[]; observations: RunObservations | null };
 
 const mocks = vi.hoisted(() => ({
   requirePageSession: vi.fn(async (): Promise<unknown> => ({ user: { name: "管理者" } })),
@@ -56,6 +56,21 @@ describe("/runs/[runId]（実行の詳細のページ）", () => {
       expect(element.type).toBe(mocks.RunDetailView);
       expect(element.props.run).toBe(run);
       expect(element.props.candidates.map((c) => c.messageId)).toEqual([1]);
+    });
+
+    it("この実行の書いた観測と対象にした観測を渡す", async () => {
+      plane.getRun.mockResolvedValue(makeRun());
+      const observed = makeObservations({ written: [makeObservation({ outcome: "permission_denied" })], referenced: [makeObservation({ found: false })] });
+      plane.listRunObservations.mockResolvedValue([observed]);
+      const element = await render(SAMPLE_RUN_ID);
+      expect(plane.listRunObservations).toHaveBeenCalledWith([SAMPLE_RUN_ID]);
+      expect(element.props.observations).toBe(observed);
+    });
+
+    it("空入力: 観測が返らなければ observations は null", async () => {
+      plane.getRun.mockResolvedValue(makeRun());
+      const element = await render(SAMPLE_RUN_ID);
+      expect(element.props.observations).toBeNull();
     });
 
     it("空入力: 候補が 0 件なら空の一覧を渡す", async () => {

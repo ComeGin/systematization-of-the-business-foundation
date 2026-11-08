@@ -4,6 +4,12 @@ import type { RunOutcome } from "control-plane";
 /** E-15 の run_id（ULID。26 文字、Crockford Base32）。 */
 export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
+/**
+ * Agent の名前（.claude/agents/<name>.md）。control-plane の AGENT_NAME_PATTERN の写し。
+ * ここは Client Component からも読まれうるので control-plane を import しない。ずれは tests/lib/ids.test.ts が見る
+ */
+export const AGENT_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
 const RUN_OUTCOMES: readonly RunOutcome[] = ["success", "failure", "partial", "skipped"];
 
 export function isRunOutcome(value: unknown): value is RunOutcome {

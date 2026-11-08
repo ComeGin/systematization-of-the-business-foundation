@@ -54,6 +54,9 @@ describe("loadSchedules", () => {
           timeoutSec: 900,
           maxTurns: 20,
           prompt: "観測する",
+          overview: null,
+          stage: null,
+          io: null,
         },
         {
           id: "b-job",
@@ -67,6 +70,9 @@ describe("loadSchedules", () => {
           timeoutSec: 900,
           maxTurns: null,
           prompt: null,
+          overview: null,
+          stage: null,
+          io: null,
         },
       ]);
     });
@@ -101,6 +107,41 @@ describe("loadSchedules", () => {
       expect(job).toMatchObject({ kind: "builtin", agent: null, prompt: null });
     });
 
+    it("overview・stage・io を読み、does_not_write は doesNotWrite にする", async () => {
+      putSchedule(
+        "a.yaml",
+        agent("a", "overview: |\n  概要。\nstage: observe\nio:\n  reads: [A]\n  writes: [B]\n  does_not_write: [C]\n"),
+      );
+      const { jobs, errors } = await loadSchedules(temp.dir);
+      expect(errors).toEqual([]);
+      expect(jobs[0]).toMatchObject({ overview: "概要。", stage: "observe", io: { reads: ["A"], writes: ["B"], doesNotWrite: ["C"] } });
+    });
+
+    it("空入力: overview・stage・io が無ければ null", async () => {
+      putSchedule("b.yaml", builtin("b"));
+      const [job] = (await loadSchedules(temp.dir)).jobs;
+      expect(job).toMatchObject({ overview: null, stage: null, io: null });
+    });
+
+    it("空入力: overview が空白だけなら null", async () => {
+      putSchedule("b.yaml", builtin("b", "overview: '  '\n"));
+      const [job] = (await loadSchedules(temp.dir)).jobs;
+      expect(job?.overview).toBeNull();
+    });
+
+    it("io に reads だけがあれば writes と doesNotWrite は []", async () => {
+      putSchedule("b.yaml", builtin("b", "io:\n  reads: [A]\n"));
+      const [job] = (await loadSchedules(temp.dir)).jobs;
+      expect(job?.io).toEqual({ reads: ["A"], writes: [], doesNotWrite: [] });
+    });
+
+    it.each(["measure", "observe", "propose", "file", "create", "check", "maintain", "monitor"])("stage: %s を受け付ける", async (stage) => {
+      putSchedule("b.yaml", builtin("b", `stage: ${stage}\n`));
+      const { jobs, errors } = await loadSchedules(temp.dir);
+      expect(errors).toEqual([]);
+      expect(jobs[0]?.stage).toBe(stage);
+    });
+
     it("kind=agent では builtin を書いてあっても捨てる", async () => {
       putSchedule("a.yaml", agent("a", "builtin: heartbeat\n"));
       const [job] = (await loadSchedules(temp.dir)).jobs;
@@ -109,6 +150,23 @@ describe("loadSchedules", () => {
   });
 
   describe("異常系", () => {
+    it.each([
+      ["8 値以外の stage", "stage: watch\n", { stage: null }],
+      ["文字列でない io.reads の要素", "io:\n  reads: [1]\n", { io: null }],
+      ["文字列の io", "io: 読むもの\n", { io: null }],
+      ["数値の overview", "overview: 3\n", { overview: null }],
+    ])("入力: 表示のための欄の誤り（%s）は、その欄だけ null にして定義は読み込み、WARN に欄の名前だけを出す", async (_label, extra, expected) => {
+      putSchedule("a.yaml", builtin("a", extra));
+      const { jobs, errors } = await loadSchedules(temp.dir);
+      expect(errors).toEqual([]);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject(expected);
+      const logged = stderr.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toMatch(/a\.yaml: 表示のための欄 (stage|io|overview) を読めないので出さない/);
+      expect(logged).not.toContain("watch");
+      expect(logged).not.toContain("読むもの");
+    });
+
     it("空入力: 空の YAML ファイルは errors に入れ、jobs に入れない", async () => {
       putSchedule("empty.yaml", "");
       const { jobs, errors } = await loadSchedules(temp.dir);

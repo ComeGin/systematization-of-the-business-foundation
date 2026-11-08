@@ -16,3 +16,15 @@ prompt: |
   - スタックトレース・例外のメッセージ・ユーザーの識別子を成果物に書かない
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent ops-watcher を起動し、本番の PostHog の Error Tracking から直近 24 時間の課題（例外）の件数・発生件数・影響を受けたユーザー数を読み、E-12（source: ops）に変換する。取得できなかったときは、その分類を書いた E-12 を残す（0 件とは書かない）。
+stage: observe
+io:
+  reads:
+    - "本番の PostHog の Error Tracking（posthog-prod の query-error-tracking-*）"
+  writes:
+    - "E-12（docs/audits/ops/。作業ツリー）"
+  does_not_write:
+    - "PostHog の課題の状態・抑制・割り当て・アラート"
+    - "スタックトレース・例外のメッセージ・ユーザーの識別子"

@@ -4,7 +4,7 @@ import Button from "@cloudscape-design/components/button";
 import Header from "@cloudscape-design/components/header";
 import Select, { type SelectProps } from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import type { RunOutcome, RunRecord } from "control-plane";
+import type { RunOutcome, RunRecord, RunObservations } from "control-plane";
 import { useRouter } from "next/navigation";
 import { AutoRefresh } from "@/components/common/AutoRefresh";
 import { useFollow } from "@/components/common/navigation";
@@ -37,12 +37,14 @@ export function RunsListView({
   before,
   hasOlder,
   pageSize,
+  observations,
 }: {
   runs: RunRecord[];
   outcome: RunOutcome | null;
   before: string | null;
   hasOlder: boolean;
   pageSize: number;
+  observations: Record<string, RunObservations>;
 }) {
   const router = useRouter();
   const follow = useFollow();
@@ -53,6 +55,7 @@ export function RunsListView({
       <RunsTable
         variant="full-page"
         runs={runs}
+        observations={observations}
         empty={outcome ? "条件に合う実行記録はありません" : undefined}
         header={
           <Header

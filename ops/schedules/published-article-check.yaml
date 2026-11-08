@@ -7,3 +7,13 @@ agent: null
 builtin: published-article-check
 after: []
 timeout_sec: 600
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  まだ実装されていない雛形で、いまは毎回「未実装のため見送った」で終わる。予定では、本番の Strapi を読み、前回から公開された記事があれば公開サイトのビルドと計測を起こす。
+stage: monitor
+io:
+  reads:
+    - "（未実装）予定: 本番の Strapi の公開済みの記事"
+  writes:
+    - "（未実装）予定: 公開サイトのビルドと計測の起動"
+  does_not_write: []

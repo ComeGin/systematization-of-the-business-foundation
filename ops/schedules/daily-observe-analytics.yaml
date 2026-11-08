@@ -17,3 +17,16 @@ prompt: |
   - Mautic・PostHog の応答に truncation_message が付いたら期間を半分に狭めて 1 回だけ取り直す
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent analytics-reporter を起動し、直近 35 日（今日の 3 日前まで）の集計値を読んで E-12（source: analytics）に正規化する。GA4 はセッション数・自然検索の割合・ページビュー、Mautic はフォーム送信の集計、PostHog は記事の公開数と Core Web Vitals の p75。個々のコンタクト・訪問者は読まない。
+stage: observe
+io:
+  reads:
+    - "OpenSEO 経由の GA4（本番のプロパティ）"
+    - "Mautic のフォーム送信の集計（mautic-prod-ro。参照専用）"
+    - "PostHog の集計（posthog-prod の execute-sql。参照専用）"
+  writes:
+    - "E-12（docs/audits/analytics/。作業ツリー）"
+  does_not_write:
+    - "GA4・Mautic・PostHog（どれも参照だけ）。メールアドレスなどの個票は成果物に書かない"

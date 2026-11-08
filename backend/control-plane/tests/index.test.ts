@@ -205,11 +205,11 @@ describe("listJobs", () => {
       writeSchedule("off-job", 'enabled: false\ncron: "0 7 * * *"\nkind: builtin\nbuiltin: silence-check\n');
     });
 
-    it("定義からプロンプトを除いて返す", async () => {
+    it("定義に kind=agent のプロンプトを含めて返し、builtin では null（画面に出す。2026-11-06 の設計 5 節）", async () => {
       const jobs = await createControlPlane({ env: baseEnv() }).listJobs();
       expect(jobs.map((job) => job.definition.id)).toEqual(["daily-seo", "off-job"]);
-      for (const job of jobs) expect(job.definition).not.toHaveProperty("prompt");
-      expect(JSON.stringify(jobs)).not.toContain("内部のプロンプト");
+      expect(jobs[0]!.definition.prompt).toBe("内部のプロンプト");
+      expect(jobs[1]!.definition.prompt).toBeNull();
     });
 
     it("nextRunAt はスケジューラが有効で enabled のジョブだけ", async () => {
@@ -382,6 +382,125 @@ describe("start / stop", () => {
       const plane = createControlPlane({ env: baseEnv({ CONTROL_SCHEDULER_ENABLED: "true" }) });
       await expect(plane.start()).rejects.toThrow(/ENOTDIR/);
       await plane.stop();
+    });
+  });
+});
+
+describe("listRunObservations", () => {
+  const audit = (dir: string, id: string, correlation: string, outcome: string) =>
+    writeAt(
+      join(root, dir),
+      `docs/audits/ops/${id}.md`,
+      `---\naudit_id: ${id}\nsource: ops\ncreated_by: agent/ops-watcher\nfetch:\n  outcome: ${outcome}\n  correlation_id: ${correlation}\n---\n`,
+    );
+
+  describe("正常系", () => {
+    it("入力の順に、実行が書いた観測を返す（作業ツリーの観測を読む）", async () => {
+      seedRun("01K6PZ3T8Q4M2N7R9S5V1W3X6A", true);
+      seedRun("01K6PZ3T8Q4M2N7R9S5V1W3X6B", true);
+      audit("wt", "AUD-2026-1004-ops-0001", "01K6PZ3T8Q4M2N7R9S5V1W3X6B", "permission_denied"); // 日付は実行の開始日（2026-10-04）
+      const result = await createControlPlane({ env: baseEnv() }).listRunObservations([
+        "01K6PZ3T8Q4M2N7R9S5V1W3X6B",
+        "01K6PZ3T8Q4M2N7R9S5V1W3X6A",
+      ]);
+      expect(result.map((r) => r.runId)).toEqual(["01K6PZ3T8Q4M2N7R9S5V1W3X6B", "01K6PZ3T8Q4M2N7R9S5V1W3X6A"]);
+      expect(result[0]!.written.map((o) => [o.auditId, o.outcome])).toEqual([["AUD-2026-1004-ops-0001", "permission_denied"]]);
+      expect(result[1]!.written).toEqual([]);
+    });
+
+    it("空入力: runIds が [] なら []", async () => {
+      expect(await createControlPlane({ env: baseEnv() }).listRunObservations([])).toEqual([]);
+    });
+
+    it("実行の開始日と離れた日付の観測は、correlation_id が一致しても読まない（日付で絞る。2026-11-06 の最終レビュー）", async () => {
+      seedRun("01K6PZ3T8Q4M2N7R9S5V1W3X6A", true); // 開始は 2026-10-04（JST）
+      audit("wt", "AUD-2026-1004-ops-0001", "01K6PZ3T8Q4M2N7R9S5V1W3X6A", "ok");
+      audit("wt", "AUD-2026-1020-ops-0001", "01K6PZ3T8Q4M2N7R9S5V1W3X6A", "unreachable");
+      const [result] = await createControlPlane({ env: baseEnv() }).listRunObservations(["01K6PZ3T8Q4M2N7R9S5V1W3X6A"]);
+      expect(result!.written.map((o) => o.auditId)).toEqual(["AUD-2026-1004-ops-0001"]);
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: ULID でない id と、E-15 に無い run は結果に含めない", async () => {
+      seedRun("01K6PZ3T8Q4M2N7R9S5V1W3X6A", true);
+      const result = await createControlPlane({ env: baseEnv() }).listRunObservations([
+        "../x",
+        "01K6PZ3T8Q4M2N7R9S5V1W3X6A",
+        "01K6PZ3T8Q4M2N7R9S5V1W3X6Z",
+      ]);
+      expect(result.map((r) => r.runId)).toEqual(["01K6PZ3T8Q4M2N7R9S5V1W3X6A"]);
+    });
+
+    it("入力: 201 件以上は先頭の 200 件だけ", async () => {
+      seedRun("01K6PZ3T8Q4M2N7R9S5V1W3X6A", true);
+      const ids = [...Array.from({ length: 200 }, () => "01K6PZ3T8Q4M2N7R9S5V1W3X6Z"), "01K6PZ3T8Q4M2N7R9S5V1W3X6A"];
+      expect(await createControlPlane({ env: baseEnv() }).listRunObservations(ids)).toEqual([]);
+    });
+  });
+});
+
+describe("listAgents と getAgent", () => {
+  const agentMd = (name: string, tools = "Read") => `---\nname: ${name}\ndescription: ${name} の役割。\ntools: ${tools}\n---\n\n${name} の手順\n`;
+  const putAgent = (name: string, text = agentMd(name)) => writeAt(join(root, "main"), `.claude/agents/${name}.md`, text);
+
+  describe("正常系", () => {
+    it("listAgents は名前の順に、使うジョブと接続先の access_level を付けて返す", async () => {
+      putAgent("seo-auditor", agentMd("seo-auditor", "Read, mcp__mautic-prod-ro__mautic_run_report"));
+      putAgent("analytics-reporter");
+      writeAt(join(root, "main"), "ops/mcp-registry.yaml", "version: 1\nservers:\n  - name: mautic-prod-ro\n    env: prod\n    transport: http\n    url: https://example.invalid/mcp\n    access_level: read_only\n");
+      writeSchedule("daily-seo", 'cron: "0 4 * * *"\nkind: agent\nagent: seo-auditor\nprompt: "p"\n');
+      const { agents, errors } = await createControlPlane({ env: baseEnv() }).listAgents();
+      expect(errors).toEqual([]);
+      expect(agents.map((a) => [a.name, a.jobIds])).toEqual([
+        ["analytics-reporter", []],
+        ["seo-auditor", ["daily-seo"]],
+      ]);
+      expect(agents[1]!.toolGroups[1]).toEqual({
+        server: "mautic-prod-ro",
+        accessLevel: "read_only",
+        tools: [{ name: "mcp__mautic-prod-ro__mautic_run_report", access: "read" }],
+      });
+    });
+
+    it("getAgent は 1 件を本文つきで返す", async () => {
+      putAgent("seo-auditor");
+      const agent = await createControlPlane({ env: baseEnv() }).getAgent("seo-auditor");
+      expect(agent).toMatchObject({ name: "seo-auditor", description: "seo-auditor の役割。", body: "seo-auditor の手順" });
+    });
+
+    it("空入力: 定義が無ければ listAgents は空", async () => {
+      expect(await createControlPlane({ env: baseEnv() }).listAgents()).toEqual({ agents: [], errors: [] });
+    });
+  });
+
+  describe("異常系", () => {
+    it.each(["../x", "no-such", ""])("入力: getAgent(%j) は null", async (name) => {
+      putAgent("seo-auditor");
+      expect(await createControlPlane({ env: baseEnv() }).getAgent(name)).toBeNull();
+    });
+
+    it("入力: 読めない定義は getAgent が null、listAgents は errors に入れる", async () => {
+      putAgent("lead-ops", "frontmatter が無い");
+      const plane = createControlPlane({ env: baseEnv() });
+      expect(await plane.getAgent("lead-ops")).toBeNull();
+      expect((await plane.listAgents()).errors).toEqual([{ file: "lead-ops.md", reason: expect.any(String) }]);
+    });
+
+    it("サーバ: 登録表が壊れていても Agent は返し、accessLevel は null にする", async () => {
+      putAgent("seo-auditor", agentMd("seo-auditor", "mcp__openseo__whoami"));
+      writeAt(join(root, "main"), "ops/mcp-registry.yaml", "version: 2\n");
+      const agent = await createControlPlane({ env: baseEnv() }).getAgent("seo-auditor");
+      expect(agent?.toolGroups).toEqual([{ server: "openseo", accessLevel: null, tools: [{ name: "mcp__openseo__whoami", access: "read" }] }]);
+    });
+  });
+});
+
+describe("getAgent（YAML の構文エラー）", () => {
+  describe("異常系", () => {
+    it("入力: frontmatter の YAML が壊れた定義は例外にせず null", async () => {
+      writeAt(join(root, "main"), ".claude/agents/lead-ops.md", "---\nname: lead-ops\ntools: [Read\n---\n本文\n");
+      await expect(createControlPlane({ env: baseEnv() }).getAgent("lead-ops")).resolves.toBeNull();
     });
   });
 });

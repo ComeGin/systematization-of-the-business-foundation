@@ -3,7 +3,8 @@
 import { asAdmin, expect, openHydrated, test } from "./support/fixtures.mjs";
 import { cookieHeader, createSession } from "./support/auth.mjs";
 import { runToCompletion, startRun, waitForRun } from "./support/api.mjs";
-import { ADMIN_EMAIL, AGENT, JOBS } from "./support/sandbox.mjs";
+import { rm } from "node:fs/promises";
+import { ADMIN_EMAIL, AGENT, auditIdFor, JOBS, writeObservation } from "./support/sandbox.mjs";
 
 test.use(asAdmin);
 
@@ -63,6 +64,52 @@ test.describe("実行記録と手動の起動", () => {
       await expect(page.getByText("古い記録をさかのぼって表示しています")).toBeVisible();
       await page.getByRole("link", { name: "最新に戻る" }).click();
       await expect(page).toHaveURL(/\/runs$/);
+    });
+  });
+
+  test.describe("中身（その実行が書いた観測）", () => {
+    test("Agent のジョブを起動した後に、その相関 ID を持つ permission_denied の観測を置くと、一覧の中身が「取得に失敗 1 / 1 件」、詳細に理由が出る", async ({
+      page,
+      request,
+      cleanup,
+    }) => {
+      const cookie = cookieHeader(await createSession(ADMIN_EMAIL));
+      const run = await runToCompletion(request, cookie, { kind: "job", jobId: JOBS.agent });
+      const file = writeObservation({
+        auditId: auditIdFor(run.startedAt, "ops", 901),
+        source: "ops",
+        correlationId: run.runId,
+        outcome: "permission_denied",
+        note: "E2E: 対象のプロジェクトが見つからない",
+      });
+      cleanup.add("観測のファイル", () => rm(file, { force: true }));
+
+      await page.goto("/runs");
+      await expect(page.getByRole("row").filter({ hasText: run.runId })).toContainText("取得に失敗 1 / 1 件");
+      await page.goto(`/runs/${run.runId}`);
+      await expect(page.getByRole("heading", { name: /この実行が書いた観測/ })).toBeVisible();
+      const auditId = auditIdFor(run.startedAt, "ops", 901);
+      const written = page.getByRole("table").filter({ hasText: auditId });
+      await expect(written).toContainText(auditId);
+      await expect(written).toContainText("permission_denied（権限が無い）");
+      await expect(written).toContainText("E2E: 対象のプロジェクトが見つからない");
+    });
+
+    test("入力: 観測の理由（note）の <script> と **太字** はそのままの文字で出る", async ({ page, request, cleanup }) => {
+      const cookie = cookieHeader(await createSession(ADMIN_EMAIL));
+      const run = await runToCompletion(request, cookie, { kind: "job", jobId: JOBS.agent });
+      const file = writeObservation({
+        auditId: auditIdFor(run.startedAt, "ops", 902),
+        source: "ops",
+        correlationId: run.runId,
+        outcome: "ok",
+        note: "<script>window.__e2eInjected = 1</script> **太字**",
+      });
+      cleanup.add("観測のファイル", () => rm(file, { force: true }));
+
+      await page.goto(`/runs/${run.runId}`);
+      await expect(page.getByText("<script>window.__e2eInjected = 1</script> **太字**")).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { __e2eInjected?: number }).__e2eInjected)).toBeUndefined();
     });
   });
 

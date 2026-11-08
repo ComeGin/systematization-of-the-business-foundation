@@ -7,3 +7,17 @@ agent: null
 builtin: miswrite-check
 after: []
 timeout_sec: 600
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理。本番の Chatwoot の会話のメッセージを読み、エージェント専用ユーザーが送ったもののうち、承認済みの E-13 にも実行記録（E-15）にも対応しないものを「誤った書き込みの候補」として監視アプリに残す。メッセージの本文は保存しない。Chatwoot が動いている 3 時 45 分より後に起動する。
+stage: check
+io:
+  reads:
+    - "本番の Chatwoot の会話とメッセージ（参照専用のトークン）"
+    - "承認済み main の E-13（approved・applied）"
+    - "実行記録（E-15）"
+  writes:
+    - "監視アプリの「誤った書き込みの候補」（E-15 の置き場の SQLite）"
+  does_not_write:
+    - "本番の Chatwoot（読むだけ）"
+    - "メッセージの本文"

@@ -4,19 +4,25 @@ import type { DatabaseSync } from "node:sqlite";
 import { loadControlPlaneConfig, type ControlPlaneConfig } from "./config.js";
 import type { EngineContext } from "./context.js";
 import type {
+  AgentInfo,
+  AgentListing,
   ControlPlane,
   CreateControlPlane,
   JobStatus,
   ListRunsQuery,
   ManualRunAccepted,
   ManualRunRequest,
+  RunObservations,
   MiswriteCandidate,
   RunRecord,
   SetupDocSection,
   SetupStatusView,
   Ulid,
 } from "./contract.js";
-import { AGENT_NAME_PATTERN } from "./definitions/agent-def.js";
+import { buildAgentInfo, listAgentDefinitions } from "./definitions/agent-catalog.js";
+import { AGENT_NAME_PATTERN, AgentDefinitionError, loadAgentDefinition } from "./definitions/agent-def.js";
+import { type McpRegistry, loadMcpRegistry } from "./definitions/registry.js";
+import { auditDatesForRuns, loadAuditIndex, observationsForRun } from "./definitions/audits.js";
 import { type LoadedSchedules } from "./definitions/schedules.js";
 import { Engine } from "./engine.js";
 import { createCloudWatchClient, putHeartbeat } from "./integrations/aws.js";
@@ -30,11 +36,14 @@ import { LeaseStore } from "./store/leases.js";
 import { MiswriteStore } from "./store/miswrite.js";
 import { RunStore } from "./store/runs.js";
 import { toIsoJst } from "./time.js";
+import { ULID_PATTERN } from "./ulid.js";
 import { loadSchedules } from "./definitions/schedules.js";
 
 export type * from "./contract.js";
 export { ConfigError, loadControlPlaneConfig, resolveDataDir, type ControlPlaneConfig } from "./config.js";
 export { openAuthDatabase } from "./store/db.js";
+/** Agent の名前の形。next-js の lib/ids.ts の写しが同じかをテストで確かめるために公開する（2026-11-09） */
+export { AGENT_NAME_PATTERN } from "./definitions/agent-def.js";
 
 /** 手動の起動の入力が不正（呼び出し側の誤り。画面・API では 4xx にする）。 */
 export class ControlPlaneInputError extends Error {
@@ -48,6 +57,9 @@ const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 const RUNLOG_FLUSH_INTERVAL_MS = 10 * 60 * 1000;
 const SCHEDULES_CACHE_MS = 5_000;
 const MAX_MANUAL_PROMPT_LENGTH = 20_000;
+
+/** listRunObservations が 1 回に扱う実行の数（実行記録の一覧の上限と同じ） */
+const MAX_OBSERVATION_RUNS = 200;
 
 class ControlPlaneImpl implements ControlPlane {
   private readonly db: DatabaseSync;
@@ -183,11 +195,57 @@ class ControlPlaneImpl implements ControlPlane {
 
   async listJobs(): Promise<JobStatus[]> {
     const { jobs } = await this.loadSchedules();
-    return jobs.map(({ prompt: _prompt, ...definition }) => ({
+    return jobs.map((definition) => ({
       definition,
-      nextRunAt: this.config.schedulerEnabled && definition.enabled ? nextRunAt({ ...definition, prompt: null }) : null,
+      nextRunAt: this.config.schedulerEnabled && definition.enabled ? nextRunAt(definition) : null,
       lastRun: this.ctx.runs.latestByJob(definition.id),
     }));
+  }
+
+  async listRunObservations(runIds: Ulid[]): Promise<RunObservations[]> {
+    const runs = runIds
+      .slice(0, MAX_OBSERVATION_RUNS)
+      .filter((runId) => ULID_PATTERN.test(runId))
+      .map((runId) => this.ctx.runs.get(runId))
+      .filter((run): run is RunRecord => run !== null);
+    if (runs.length === 0) return [];
+    const index = await loadAuditIndex(
+      { worktree: this.config.worktree, mainCheckout: this.config.mainCheckout },
+      { dates: auditDatesForRuns(runs) },
+    );
+    return runs.map((run) => observationsForRun(run, index));
+  }
+
+  async listAgents(): Promise<AgentListing> {
+    const [{ definitions, errors }, { jobs }, registry] = await Promise.all([
+      listAgentDefinitions(this.config.mainCheckout),
+      this.loadSchedules(true),
+      this.loadRegistryForDisplay(),
+    ]);
+    return { agents: definitions.map((definition) => buildAgentInfo(definition, jobs, registry)), errors };
+  }
+
+  async getAgent(name: string): Promise<AgentInfo | null> {
+    if (!AGENT_NAME_PATTERN.test(name)) return null;
+    let definition;
+    try {
+      definition = await loadAgentDefinition(this.config.mainCheckout, name);
+    } catch (error) {
+      if (error instanceof AgentDefinitionError) return null;
+      throw error;
+    }
+    const [{ jobs }, registry] = await Promise.all([this.loadSchedules(true), this.loadRegistryForDisplay()]);
+    return buildAgentInfo(definition, jobs, registry);
+  }
+
+  /** 表示のための登録表。壊れていても画面は出す（access_level を出さないだけ）。起動の検査は runner が別に行う */
+  private async loadRegistryForDisplay(): Promise<McpRegistry> {
+    try {
+      return await loadMcpRegistry(this.config.mainCheckout);
+    } catch (error) {
+      logLine("WARN", "control-plane", `表示のための MCP の登録表を読めない（${errorName(error)}）`);
+      return { servers: new Map() };
+    }
   }
 
   async listMiswriteCandidates(): Promise<MiswriteCandidate[]> {

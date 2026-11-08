@@ -16,3 +16,16 @@ prompt: |
   - 同じキーワードに企画が既にあるときは作らない
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent content-planner を起動し、採用済み（adoption_status: adopted）で企画がまだ無い E-01 から、記事の構成案を本番の Strapi に E-03（plan_state: drafted）として起案する。1 回の実行で 3 件まで。企画の採否は R2 が決める。
+stage: create
+io:
+  reads:
+    - "本番の Strapi の E-01（adopted）・E-03・E-04"
+    - "E-12（docs/audits/。根拠に使うとき）"
+  writes:
+    - "本番の Strapi の E-03（plan_state: drafted）"
+  does_not_write:
+    - "企画の承認・差し戻し（R2 が行う）"
+    - "記事（E-04）"

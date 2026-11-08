@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { isRunOutcome, ULID } from "@/lib/ids";
+import { describe, expect, it, vi } from "vitest";
+import { AGENT_NAME, isRunOutcome, ULID } from "@/lib/ids";
 import { SAMPLE_RUN_ID } from "../helpers/control-plane";
 
 describe("ULID", () => {
@@ -66,6 +66,17 @@ describe("isRunOutcome", () => {
       ["null", null],
     ])("空入力: %s は認めない", (_label, value) => {
       expect(isRunOutcome(value)).toBe(false);
+    });
+  });
+});
+
+describe("AGENT_NAME", () => {
+  describe("正常系", () => {
+    it("control-plane の AGENT_NAME_PATTERN と同じ正規表現（写しがずれたら落ちる。2026-11-09）", async () => {
+      // 画面の側でも先に検査するため写しを持つ。control-plane の実体（dist）と突き合わせる
+      const actual = await vi.importActual<typeof import("control-plane")>("control-plane");
+      expect(AGENT_NAME.source).toBe(actual.AGENT_NAME_PATTERN.source);
+      expect(AGENT_NAME.flags).toBe(actual.AGENT_NAME_PATTERN.flags);
     });
   });
 });

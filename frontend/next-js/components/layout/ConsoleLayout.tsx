@@ -6,6 +6,7 @@ import SideNavigation from "@cloudscape-design/components/side-navigation";
 import TopNavigation from "@cloudscape-design/components/top-navigation";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { AgentDetailHelp, AgentsListHelp } from "@/components/agents/help";
 import { useFollow } from "@/components/common/navigation";
 import { JobDetailHelp, JobsListHelp } from "@/components/jobs/help";
 import { MiswriteCandidatesHelp } from "@/components/miswrite-candidates/help";
@@ -22,6 +23,8 @@ const HELP: Record<HelpId, React.ReactNode> = {
   "run-detail": <RunDetailHelp />,
   "jobs-list": <JobsListHelp />,
   "job-detail": <JobDetailHelp />,
+  "agents-list": <AgentsListHelp />,
+  "agent-detail": <AgentDetailHelp />,
   "miswrite-candidates": <MiswriteCandidatesHelp />,
   "setup-status": <SetupStatusHelp />,
 };

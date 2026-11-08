@@ -19,3 +19,16 @@ prompt: |
   - 1 回の実行で起票するのは、検査 5 の当日の上限を超えない範囲まで
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  観測 4 本（daily-observe-*）が当日に成功で終わるのを待って、Agent proposal-writer を起動する。全 source の E-12 と既存の E-13 を読み、起票前チェック 15 項目をすべて通った改善提案だけを E-13（draft）として書く。承認・適用・PR は行わない（PR は daily-i13-file が作る）。
+stage: propose
+io:
+  reads:
+    - "E-12（docs/audits/ の全 source）"
+    - "E-13（docs/proposals/。却下されたものを含む）"
+  writes:
+    - "E-13 の draft（docs/proposals/PRP-*.md。作業ツリー）"
+  does_not_write:
+    - "既存の E-13（書き換え・削除をしない）"
+    - "承認・適用・コミット・PR"

@@ -17,3 +17,18 @@ prompt: |
   - 社内メモと E-12 に会話本文・顧客の氏名・メールアドレスを書かない。会話は display_id と主題の分類だけで指す
 timeout_sec: 1200
 max_turns: 80
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent conversation-triage を起動し、本番の Chatwoot の未解決（open・pending）の会話を最大 4 ページ読んで一次切り分けする。会話に社内メモ（顧客には届かない）とラベル・優先度を付け、集計を E-12（source: conversations）に残す。Chatwoot は 22 時〜翌 3 時 45 分に止まっているので、それより後に起動する。
+stage: observe
+io:
+  reads:
+    - "本番の Chatwoot の未解決の会話とメッセージ（chatwoot-prod）"
+  writes:
+    - "本番の Chatwoot の社内メモ（chatwoot_add_private_note）"
+    - "会話のラベルの追加と優先度"
+    - "E-12（docs/audits/conversations/。作業ツリー）"
+  does_not_write:
+    - "顧客へのメッセージ"
+    - "会話の状態・担当者・チーム"
+    - "社内メモと E-12 に、会話の本文・顧客の氏名・メールアドレス"

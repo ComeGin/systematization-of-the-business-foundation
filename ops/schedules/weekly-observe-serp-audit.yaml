@@ -17,3 +17,15 @@ prompt: |
   lighthouse・gsc は処理しない。
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent seo-auditor を起動し、OpenSEO に保存済みのランク追跡の結果とサイト監査の結果を読んで、E-12（source: serp・site_audit）に正規化する。ランク追跡と監査の実行は人が OpenSEO で行う。完了した監査が無ければ site_audit の E-12 は作らない。
+stage: observe
+io:
+  reads:
+    - "OpenSEO のランク追跡の保存済みの結果（get_rank_tracker）"
+    - "OpenSEO のサイト監査の結果（get_audit_status・get_audit_issues）"
+  writes:
+    - "E-12（docs/audits/serp/・docs/audits/site_audit/。作業ツリー）"
+  does_not_write:
+    - "ランク追跡の作成・実行、監査の実行（費用の出るツールは使わない）"

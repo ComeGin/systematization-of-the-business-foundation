@@ -18,3 +18,19 @@ prompt: |
   - 既存の phrase は作り直さない。adoption_status に adopted と skipped を書かない
 timeout_sec: 1200
 max_turns: 60
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent keyword-researcher を起動し、OpenSEO でキーワード候補と検索ボリューム・SERP を調べ、検索意図を 3 つに分けて、本番の Strapi に E-01（keyword。adoption_status: candidate）を作る。費用が発生するので、1 回の見積もりが 2,000 クレジットを超える調査はしない。採否は R2 が決める。
+stage: create
+io:
+  reads:
+    - "OpenSEO のキーワード候補・検索ボリューム・SERP（費用が出る）"
+    - "OpenSEO のプロジェクトの説明と保存済みのキーワード（get_project_context・list_saved_keywords）"
+    - "本番の Strapi の既存の E-01"
+  writes:
+    - "本番の Strapi の E-01（adoption_status: candidate）"
+    - "既存の E-01 の monthly_volume・intent_code が空なら埋める（update_keyword）"
+    - "OpenSEO の保存済みのキーワード（save_keywords）"
+  does_not_write:
+    - "E-01 の採否（adopted・skipped。R2 が決める）"
+    - "既存の phrase の作り直し"

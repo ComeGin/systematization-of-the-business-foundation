@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ControlPlane, JobStatus, RunRecord } from "control-plane";
-import { createFakePlane, makeRun, type FakePlane } from "../../../../helpers/control-plane";
+import type { AgentInfo, ControlPlane, JobDefinition, JobStatus, RunObservations, RunRecord } from "control-plane";
+import { createFakePlane, makeAgent, makeJob, makeObservations, makeRun, SAMPLE_RUN_ID, type FakePlane } from "../../../../helpers/control-plane";
 import { asElement, NEXT_NOT_FOUND } from "../../../../helpers/page";
 
 type State = { plane: ControlPlane; error: null } | { plane: null; error: string };
-type DetailProps = { job: JobStatus; runs: RunRecord[]; runLimit: number };
+type DetailProps = {
+  job: JobStatus;
+  jobs: JobDefinition[];
+  runs: RunRecord[];
+  runLimit: number;
+  observations: Record<string, RunObservations>;
+  agent: AgentInfo | null;
+};
 
 const mocks = vi.hoisted(() => ({
   requirePageSession: vi.fn(async (): Promise<unknown> => ({ user: { name: "管理者" } })),
@@ -43,6 +50,10 @@ function job(id: string): JobStatus {
       after: [],
       timeoutSec: 60,
       maxTurns: null,
+      prompt: null,
+      overview: null,
+      stage: null,
+      io: null,
     },
     nextRunAt: null,
     lastRun: null,
@@ -69,7 +80,29 @@ describe("/jobs/[jobId]（ジョブの詳細のページ）", () => {
       const element = await render("daily-seo");
       expect(plane.listRuns).toHaveBeenCalledWith({ jobId: "daily-seo", limit: 50 });
       expect(element.type).toBe(mocks.JobDetailView);
-      expect(element.props).toEqual({ job: target, runs, runLimit: 50 });
+      expect(element.props).toEqual({ job: target, jobs: [job("heartbeat").definition, target.definition], runs, runLimit: 50, observations: {}, agent: null });
+    });
+
+    it("実行記録の runId で listRunObservations を 1 回呼び、runId ごとの観測を渡す", async () => {
+      plane.listJobs.mockResolvedValue([job("daily-seo")]);
+      plane.listRuns.mockResolvedValue([makeRun()]);
+      const observed = makeObservations();
+      plane.listRunObservations.mockResolvedValue([observed]);
+      const element = await render("daily-seo");
+      expect(plane.listRunObservations).toHaveBeenCalledWith([SAMPLE_RUN_ID]);
+      expect(element.props.observations).toEqual({ [SAMPLE_RUN_ID]: observed });
+    });
+
+    it("Agent のジョブでは getAgent を呼んで渡し、builtin では呼ばない", async () => {
+      const agentJob = makeJob("daily-observe-seo", "seo-auditor");
+      plane.listJobs.mockResolvedValue([agentJob, job("heartbeat")]);
+      const agent = makeAgent();
+      plane.getAgent.mockResolvedValue(agent);
+      expect((await render("daily-observe-seo")).props.agent).toBe(agent);
+      expect(plane.getAgent).toHaveBeenCalledWith("seo-auditor");
+      plane.getAgent.mockClear();
+      await render("heartbeat");
+      expect(plane.getAgent).not.toHaveBeenCalled();
     });
 
     it("空入力: 実行記録が 0 件でも詳細を出す", async () => {
@@ -94,6 +127,14 @@ describe("/jobs/[jobId]（ジョブの詳細のページ）", () => {
       plane.listJobs.mockResolvedValue([job("daily-seo")]);
       await expect(render(jobId)).rejects.toThrow(NEXT_NOT_FOUND);
       expect(plane.listRuns).not.toHaveBeenCalled();
+    });
+
+    it("入力: getAgent が null（定義が無い・読めない）でも詳細を出す", async () => {
+      plane.listJobs.mockResolvedValue([makeJob("daily-observe-seo", "seo-auditor")]);
+      plane.getAgent.mockResolvedValue(null);
+      const element = await render("daily-observe-seo");
+      expect(element.type).toBe(mocks.JobDetailView);
+      expect(element.props.agent).toBeNull();
     });
 
     it("空入力: ジョブが 0 件なら 404 にする", async () => {

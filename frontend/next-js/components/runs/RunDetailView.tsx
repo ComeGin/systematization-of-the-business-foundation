@@ -9,19 +9,30 @@ import Link from "@cloudscape-design/components/link";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Table from "@cloudscape-design/components/table";
 import TextContent from "@cloudscape-design/components/text-content";
-import type { MiswriteCandidate, RunRecord } from "control-plane";
+import type { MiswriteCandidate, RunObservations, RunRecord } from "control-plane";
+import { describeOutcome } from "@/components/common/failure-class";
 import { AutoRefresh } from "@/components/common/AutoRefresh";
 import { formatTime, useFollow } from "@/components/common/navigation";
 import { InfoLink } from "@/components/layout/tools-context";
 import { CandidatesTable } from "@/components/miswrite-candidates/CandidatesTable";
+import { ContentStatus } from "./ContentStatus";
+import { ObservationsTable } from "./ObservationsTable";
 import { RunStatus, runLabel } from "./RunStatus";
 import { TRIGGER_LABEL } from "./RunsTable";
 
 /**
  * 詳細: 実行 1 件（E-15）。残っているのは要約・対象の ID・成否・起動の種類・費用だけ（ツールの結果は残さない）。
- * 子リソースは「対象の ID」と「この実行に近い誤った書き込みの候補」。
+ * 子リソースは「この実行が書いた観測」「対象にした（読んだ）観測」「対象の ID」と「この実行に近い誤った書き込みの候補」。
  */
-export function RunDetailView({ run, candidates }: { run: RunRecord; candidates: MiswriteCandidate[] }) {
+export function RunDetailView({
+  run,
+  candidates,
+  observations,
+}: {
+  run: RunRecord;
+  candidates: MiswriteCandidate[];
+  observations: RunObservations | null;
+}) {
   const follow = useFollow();
   const target = run.jobId ? (
     <Link href={`/jobs/${encodeURIComponent(run.jobId)}`} onFollow={follow}>
@@ -46,11 +57,15 @@ export function RunDetailView({ run, candidates }: { run: RunRecord; candidates:
             columns={3}
             items={[
               { label: "状態", value: <RunStatus run={run} /> },
+              { label: "中身", value: <ContentStatus observations={observations ?? undefined} /> },
               { label: "対象", value: target },
               { label: "起動", value: TRIGGER_LABEL[run.trigger] },
               { label: "開始", value: formatTime(run.startedAt) },
               { label: "終了", value: formatTime(run.finishedAt) },
-              { label: "失敗分類", value: run.failureClass ?? "-" },
+              {
+                label: "失敗分類",
+                value: run.failureClass ? `${run.failureClass}（${describeOutcome(run.failureClass).meaning}）` : "-",
+              },
               { label: "SDK の結果", value: run.sdkSubtype ?? "-" },
               { label: "費用（USD）", value: run.costUsd === null ? "-" : run.costUsd.toFixed(4) },
               { label: "S3 の写し", value: run.copiedAt ? formatTime(run.copiedAt) : run.status === "running" ? "-" : "未送" },
@@ -73,6 +88,20 @@ export function RunDetailView({ run, candidates }: { run: RunRecord; candidates:
             ) : null}
           </TextContent>
         </Container>
+
+        <ObservationsTable
+          title="この実行が書いた観測"
+          description="観測（E-12）の fetch.correlation_id がこの実行の相関 ID と一致するもの。「中身」はこれで決める"
+          observations={observations?.written ?? []}
+          empty="この実行が書いた観測はありません"
+        />
+
+        <ObservationsTable
+          title="この実行が対象にした（読んだ）観測"
+          description="対象の ID にある観測で、この実行が書いたものでないもの。「中身」には数えない"
+          observations={observations?.referenced ?? []}
+          empty="対象にした観測はありません"
+        />
 
         <Table
           variant="container"
