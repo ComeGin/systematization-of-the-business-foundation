@@ -9,7 +9,7 @@ import type { SetupCheckReport, SetupScript, StatusItem } from "./run-check.js";
 export type ModuleResultWithTime = SetupCheckReport["results"][number] & { checkedAt: string; script: SetupScript };
 
 /** evaluate の戻り値（画面の形のうち、確認の結果から決まる部分） */
-export type EvaluatedStatus = Omit<SetupStatusView, "enabled" | "reason" | "running" | "nextCheckAt" | "notifyError">;
+export type EvaluatedStatus = Omit<SetupStatusView, "enabled" | "reason" | "running" | "nextCheckAt" | "notifyError" | "guide">;
 
 /** 重さの順（大きいほど重い）。action > warn > unknown > manual > ok（spec の 4 節） */
 const SEVERITY: Record<SetupStatusLevel, number> = { action: 4, warn: 3, unknown: 2, manual: 1, ok: 0 };

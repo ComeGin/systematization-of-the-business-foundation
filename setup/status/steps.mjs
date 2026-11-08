@@ -25,7 +25,16 @@
 //   docs        正本の節。heading は、そのファイルの見出し（# を除いた文字列）の先頭に一致する文字列。
 //               末尾が数字のときは、その後ろに数字が続く見出しには当たらない（"4.1" は "4.10" に当たらない）
 //   stopId      設定スクリプトが止まるときの id（setup/manual-steps.md の早見表で引ける）
-
+//
+// 段階の形: { id, title, commands, items }
+//   commands    その段階を進める（止まったあとにやり直す）コマンド。setup/00-setup-overview.md か setup/README.md に
+//               そのまま書いてあるもの（検査が確かめる）。人だけが行う段階（P12・R1）は空
+//
+// RUN_ORDER（2026-11-09）: setup/README.md の「本番の段階」のコマンドの並び（実行の順番）。画面の上に出す。
+//   { id, command, note, steps }
+//   command     実行するコマンド（README の行の先頭とそのまま同じ）。人が行う手順（配信）は null
+//   note        何をするか。README のその行のコメント（コメントの無い行は短い説明。command が null のときは、README のコメントの行そのもの）
+//   steps       そのコマンドで進める段階の id
 export const CATALOG_VERSION = 1;
 
 /** 製品の API を呼ぶ（1 時間に 1 回まで）モジュール */
@@ -97,11 +106,43 @@ const ON_WEBHOOK_TEST = "本番の Webhook の試し送信（I-11・I-12）";
 const ON_SCHEDULES = "5. 定期実行を段階的に有効にする";
 const ON_IMPACT = "止まったときの影響";
 
+// 段階を進めるコマンド（setup/README.md の「本番の段階」・00-setup-overview.md の各 P の節）
+const SETUP_PROD = "node setup/setup.mjs --target prod";
+const FRONTEND_PROD = "node setup/frontend.mjs --target prod";
+const BACKEND_STEPS = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10"];
+
+/** 実行の順番（setup/README.md の「本番の段階」のコードブロックの並び。行の先頭のコマンドとコメントを写したもの） */
+export const RUN_ORDER = [
+  { id: "backend-check", command: `${SETUP_PROD} --check`, note: "段階 env〜apps の状態を見る（AWS には読み取りだけ）", steps: BACKEND_STEPS },
+  { id: "backend", command: SETUP_PROD, note: "env → deploy → images → apps（止まったら案内に従い、同じコマンドを実行し直す）", steps: BACKEND_STEPS },
+  { id: "frontend", command: FRONTEND_PROD, note: "段階 apps: 公開サイトの .env.production（測定 ID は空。タグを出さない）", steps: ["P11"] },
+  { id: "site-deploy", command: null, note: "公開サイトを配信し、Route 53 で届くようになったら", steps: ["P12"] },
+  { id: "google", command: `${SETUP_PROD} --phase google`, note: "段階 google: GA4・OpenSEO の本番のプロジェクトと接続", steps: ["P13"] },
+  { id: "frontend-google", command: `${FRONTEND_PROD} --phase google`, note: "測定 ID を入れて書き直す（そのあとビルドし直す）", steps: ["P13"] },
+  { id: "site-redeploy", command: null, note: "測定 ID 入りで配信し直したら、改善ループを動かす", steps: ["P13"] },
+  { id: "operate-check", command: `${SETUP_PROD} --phase operate --check`, note: "段階 operate の状態を見る", steps: ["P14", "P15"] },
+  { id: "operate", command: `${SETUP_PROD} --phase operate`, note: "段階 operate: 改善ループ（監視アプリ）の常駐と運用開始の仕上げ", steps: ["P14", "P15"] },
+];
+
+/** 段階ごとの、進める・やり直すコマンド */
+const CMD = {
+  env: [`${SETUP_PROD} --phase env`],
+  deploy: [`${SETUP_PROD} --phase deploy`],
+  images: [`${SETUP_PROD} --phase images`],
+  // P4〜P10 は 1 回の --phase apps の中で、止まるたびに 1 つずつ進む（00-setup-overview.md の 3 節）
+  apps: [`${SETUP_PROD} --phase apps`],
+  frontend: [FRONTEND_PROD],
+  google: [`${SETUP_PROD} --phase google`, `${FRONTEND_PROD} --phase google`],
+  operate: [`${SETUP_PROD} --phase operate --check`, `${SETUP_PROD} --phase operate`],
+  none: [],
+};
+
 /** @type {Array<{ id: string; title: string; items: any[] }>} */
 export const STEPS = [
   {
     id: "P1",
     title: "段階 env: 道具と設定ファイル",
+    commands: CMD.env,
     items: [
       { id: "P1.tools", title: "AWS CLI・SAM CLI・Docker・pnpm を入れて認証する", who: "人・端末", kind: "検査",
         overviewText: "AWS CLI・SAM CLI 1.154 以上", probe: mod("cloud", "env"), docs: cloud("2"), stopId: "cloud:env" },
@@ -118,6 +159,7 @@ export const STEPS = [
   {
     id: "P2",
     title: "段階 deploy: スタックを作る",
+    commands: CMD.deploy,
     items: [
       { id: "P2.global", title: "global（us-east-1）をデプロイする", who: "人・端末", kind: "検査",
         overviewText: "`cd cloud && sam deploy --config-env global`", probe: mod("cloud", "deploy"), docs: cloud("4.1"), stopId: "cloud:global" },
@@ -136,6 +178,7 @@ export const STEPS = [
   {
     id: "P3",
     title: "段階 images: 派生イメージ",
+    commands: CMD.images,
     items: [
       { id: "P3.push", title: "Chatwoot・Mautic の派生イメージをビルドして ECR にプッシュする", who: "人・端末", kind: "検査",
         overviewText: "派生イメージを `--platform linux/amd64`", probe: mod("cloud", "images"), docs: cloud("4.7"), stopId: "cloud:push" },
@@ -146,6 +189,7 @@ export const STEPS = [
   {
     id: "P4",
     title: "データ層の仕上げ（cloud の段階 apps）",
+    commands: CMD.apps,
     items: [
       { id: "P4.db-init", title: "DB とアプリ用ユーザーを作る（db-init）", who: "人・端末", kind: "検査",
         overviewText: "DB とアプリ用ユーザーを作る", probe: mod("cloud", "apps"), docs: cloud("4.8"), stopId: "cloud:db-init" },
@@ -158,6 +202,7 @@ export const STEPS = [
   {
     id: "P5",
     title: "admin-auth（管理画面の関門）",
+    commands: CMD.apps,
     items: [
       { id: "P5.migrate", title: "admin-auth-ops で migrate と register-alb-client を実行する", who: "人・端末", kind: "検査",
         overviewText: "運用の Lambda（`admin-auth-ops`）に", probe: mod("admin-auth", "apps"), docs: cloud("4.19", "7.2"), stopId: "admin-auth:prod-migrate" },
@@ -170,6 +215,7 @@ export const STEPS = [
   {
     id: "P6",
     title: "オンプレの本番（WireGuard → Strapi → n8n）",
+    commands: CMD.apps,
     items: [
       { id: "P6.wireguard", title: "WireGuard を立ち上げる（鍵・wg0.conf・疎通）", who: "人・端末", kind: "検査",
         overviewText: "WireGuard: 鍵を作る", probe: mod("onprem", "apps"), docs: cloud("4.2.1"), stopId: "onprem:onprem-bringup" },
@@ -192,6 +238,7 @@ export const STEPS = [
   {
     id: "P7",
     title: "Chatwoot（chatwoot-prod）",
+    commands: CMD.apps,
     items: [
       { id: "P7.chatwoot-prepare", title: "db:chatwoot_prepare を RunTask で実行する", who: "人・端末", kind: "未検査",
         overviewText: "`db:chatwoot_prepare` を RunTask で実行する", probe: NONE, docs: cloud("4.10"), stopId: "chatwoot-prod:ecs" },
@@ -210,6 +257,7 @@ export const STEPS = [
   {
     id: "P8",
     title: "Mautic（mautic-prod）",
+    commands: CMD.apps,
     items: [
       { id: "P8.web-count", title: "MauticWebDesiredCount を 1 にして sam deploy", who: "人・端末", kind: "検査",
         overviewText: "`MauticWebDesiredCount=1` を書いて", probe: mod("mautic-prod", "apps"), docs: cloud("4.11"), stopId: "mautic-prod:ecs-web" },
@@ -228,6 +276,7 @@ export const STEPS = [
   {
     id: "P9",
     title: "本番の n8n（n8n-prod）",
+    commands: CMD.apps,
     items: [
       { id: "P9.mautic-credentials", title: "本番の Mautic で n8n 用の API 認証情報を作り、N8N_MAUTIC_CLIENT_* に書く", who: "人・画面", kind: "検査",
         overviewText: "本番の Mautic で **n8n 用の** API 認証情報を作り", probe: mod("n8n-prod", "apps"), docs: onprem(ON_N8N_PROD), stopId: "n8n-prod:mautic-api-credentials" },
@@ -248,6 +297,7 @@ export const STEPS = [
   {
     id: "P10",
     title: "本番の MCP（mcp-prod）",
+    commands: CMD.apps,
     items: [
       { id: "P10.tokens", title: "エージェント専用のトークンと API 認証情報を発行して prod.conf に書く", who: "人・画面", kind: "検査",
         overviewText: "エージェント専用のアカウントでトークンを発行して `prod.conf` に書く", probe: item("mcp-prod.values"), docs: onprem(ON_MCP), stopId: "mcp-prod:prod-values" },
@@ -262,6 +312,7 @@ export const STEPS = [
   {
     id: "P11",
     title: "公開サイトの値（setup/frontend.mjs --target prod）",
+    commands: CMD.frontend,
     items: [
       { id: "P11.calcom", title: "Cal.com に完了画面で予約させるイベント「オンライン面談」を作る", who: "人・画面", kind: "検査",
         overviewText: "Cal.com（SaaS。ADR-24）に完了画面で予約させるイベント", probe: mod("verdant-virgo", "apps"), docs: [], stopId: "verdant-virgo:prod-values" },
@@ -274,6 +325,7 @@ export const STEPS = [
   {
     id: "P12",
     title: "ビルドと配信〔未検査〕",
+    commands: CMD.none,
     items: [
       { id: "P12.strapi-content", title: "本番の Strapi にカテゴリ 3 つと公開済みの記事が 1 本以上ある", who: "人・画面", kind: "未検査",
         overviewText: "カテゴリ 3 つ（slug は", probe: NONE, docs: cloud("4.14") },
@@ -298,6 +350,7 @@ export const STEPS = [
   {
     id: "P13",
     title: "段階 google（公開サイトが Route 53 から配信された後）",
+    commands: CMD.google,
     items: [
       { id: "P13.ga4", title: "GA4 の本番のプロパティと Web ストリームを作り、ID を書く", who: "人・画面", kind: "検査",
         overviewText: "GA4 の本番のプロパティと Web ストリームを作り", probe: mod("ga4", "google"), docs: manual("7.5"), stopId: "ga4:property" },
@@ -322,6 +375,7 @@ export const STEPS = [
   {
     id: "P14",
     title: "段階 operate: 改善ループ（監視アプリ）を本番で動かす",
+    commands: CMD.operate,
     items: [
       { id: "P14.checkout", title: "チェックアウトを origin/main に合わせる", who: "人・端末", kind: "検査",
         overviewText: "`next-js-prod:checkout` チェックアウトを", probe: item("next-js-prod.checkout"), docs: manual("6"), stopId: "next-js-prod:checkout" },
@@ -356,6 +410,7 @@ export const STEPS = [
   {
     id: "P15",
     title: "段階 operate: 運用開始の仕上げ",
+    commands: CMD.operate,
     items: [
       { id: "P15.deploy-principal", title: "配信用の主体（許可セット ComeginProdDeploy）がある", who: "人・端末", kind: "警告",
         overviewText: "配信用の主体（許可セット `ComeginProdDeploy`）がある", probe: item("cloud.deploy-principal"), docs: cloud("4.5.1") },
@@ -374,6 +429,7 @@ export const STEPS = [
   {
     id: "R1",
     title: "判断が残っている項目（6 節）",
+    commands: CMD.none,
     items: [
       { id: "R1.db", title: "DB をサーバーレスのままにするか、クラスター（プロビジョンド）にするか", who: "判断", kind: "判断",
         overviewText: "**DB をサーバーレスのままにするか", probe: NONE, docs: cloud("6") },

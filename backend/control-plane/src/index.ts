@@ -253,7 +253,8 @@ class ControlPlaneImpl implements ControlPlane {
   }
 
   async getSetupStatus(): Promise<SetupStatusView> {
-    return this.setupStatus.view();
+    const view = this.setupStatus.view();
+    return { ...view, guide: await this.setupStatus.guide(view) };
   }
 
   async refreshSetupStatus(): Promise<{ accepted: boolean }> {

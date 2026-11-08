@@ -233,8 +233,8 @@ Mautic と Chatwoot は、私設アドレスへの Webhook を既定で送らな
 
 | ファイル | 中身 |
 |---|---|
-| `setup/status/steps.mjs` | 一覧本体。`STEPS`（段階 → 項目）・`KNOWN_ITEM_KEYS`（各モジュールの `check()` が `items` で返す `(key, step)`）・`PRODUCT_API_MODULES`（製品の API を呼ぶ＝1 時間に 1 回までのモジュール）・`CATALOG_VERSION`。副作用のない ESM で、`default` は export しない。監視アプリが承認済みの main のチェックアウトから `import()` で読む |
-| `setup/status/verify-steps.mjs` | 一覧と `00-setup-overview.md` のずれの検査 |
+| `setup/status/steps.mjs` | 一覧本体。`STEPS`（段階 → 項目。段階ごとに、進める・やり直すコマンドの `commands`）・`RUN_ORDER`（上の「本番の段階」のコードブロックのコマンドの並び。画面の上の「実行の順番」に出す。2026-11-09）・`KNOWN_ITEM_KEYS`（各モジュールの `check()` が `items` で返す `(key, step)`）・`PRODUCT_API_MODULES`（製品の API を呼ぶ＝1 時間に 1 回までのモジュール）・`CATALOG_VERSION`。副作用のない ESM で、`default` は export しない。監視アプリが承認済みの main のチェックアウトから `import()` で読む |
+| `setup/status/verify-steps.mjs` | 一覧と `00-setup-overview.md` のずれの検査。あわせて、`RUN_ORDER` のコマンドがこの README の行の先頭にそのままあること（人の手順の行は `note` が README にあること）、段階の `commands` が `00-setup-overview.md` かこの README にあること、項目の `stopId` が `manual-steps.md` の早見表にあることも確かめる |
 
 項目の形（`steps.mjs` の冒頭のコメントが正）:
 
@@ -248,7 +248,7 @@ node setup/status/verify-steps.mjs [--root <dir>]   # 0: 一致／1: 不一致�
 cd setup && pnpm exec vitest run tests/status       # 検査そのものの単体テスト
 ```
 
-**`00-setup-overview.md` の P1〜P15・6 節を直したら、`steps.mjs` も直し、`verify-steps.mjs` を通す。** 行を足す・消す・言い回しを変えると、`overviewText` が当たらなくなって検査が止まる。`check()` が新しい `key` を `items` で返すようにしたら、`KNOWN_ITEM_KEYS` にも足す（同じ `key` を 2 つの段階に出すなら、両方の段階を `steps` に書く）。
+**`00-setup-overview.md` の P1〜P15・6 節、上の「本番の段階」のコマンド、`manual-steps.md` の早見表を直したら、`steps.mjs` も直し、`verify-steps.mjs` を通す。** 行を足す・消す・言い回しを変えると、`overviewText` が当たらなくなって検査が止まる。`check()` が新しい `key` を `items` で返すようにしたら、`KNOWN_ITEM_KEYS` にも足す（同じ `key` を 2 つの段階に出すなら、両方の段階を `steps` に書く）。
 
 ## モジュールを足すとき
 

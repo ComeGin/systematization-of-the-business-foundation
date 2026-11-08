@@ -13,6 +13,12 @@
 //   (d) docs の各ファイルが root にあり、heading に先頭一致する見出しが 1 つだけある
 //   (e) probe が item のとき key、items のとき keys の 1 つ 1 つについて、(key, 段階) が KNOWN_ITEM_KEYS にある（items の keys は空にしない）
 //   (f) `### P<n>.` の見出しが重複していない
+//   (g) RUN_ORDER（あれば）の id が重複せず、steps が STEPS にあり、command が setup/README.md のある行の先頭とそのまま同じ
+//       （command が null の行は、note が setup/README.md にある）
+//   (h) 段階の commands（あれば）の各コマンドが、00-setup-overview.md か setup/README.md にそのまま書いてある
+//       （`` `コマンド` `` か、行の先頭）
+//   (i) 項目の stopId が、setup/manual-steps.md の 0 節の早見表の 1 列目にある（`next-js-prod:checkout`／`build` のように
+//       モジュールを省いた id は、直前の id のモジュールを補う。監視アプリの「止まったとき」の案内はこの行を出す）
 //
 // チェック項目の行 = 節の中の、字下げのない次のどれか（コードブロックの中は数えない）:
 //   `- [ ] ` / `- [x] `、`- 〔`（〔未検査〕〔警告〕〔申告〕）、`- 再実行で **自動**`
@@ -26,6 +32,9 @@ import * as defaultCatalog from "./steps.mjs";
 
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const OVERVIEW = "setup/00-setup-overview.md";
+const README = "setup/README.md";
+const MANUAL = "setup/manual-steps.md";
+const STOP_TABLE_HEADING = "0. 早見表";
 
 const WHO = ["自動", "人・端末", "人・画面", "人・GitHub", "人・ブラウザ", "判断"];
 const KIND = ["検査", "警告", "申告", "未検査", "判断"];
@@ -69,6 +78,59 @@ function countOccurrences(haystack, needle) {
   let count = 0;
   for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) count++;
   return count;
+}
+
+/**
+ * 早見表の 1 列目から止まる id を取り出す。最初の「（」より前の `…` だけを見て、`:` の無いものは直前の id のモジュールを補う
+ * （backend/control-plane/src/status/stop-guide.ts の stopIdsInCell と同じ規則）
+ */
+export function stopIdsInCell(cell) {
+  const head = cell.split("（")[0];
+  const ids = [];
+  let module = null;
+  for (const m of head.matchAll(/`([^`]+)`/g)) {
+    const token = m[1].trim();
+    if (!/^[a-z0-9-]+(:[a-z0-9-]+)?$/.test(token)) continue;
+    if (token.includes(":")) {
+      module = token.split(":")[0];
+      ids.push(token);
+    } else if (module) {
+      ids.push(`${module}:${token}`);
+    }
+  }
+  return ids;
+}
+
+/** manual-steps.md の早見表（0 節の最初の表）の、止まる id の集合。節が無ければ null */
+function stopTableIds(text) {
+  const lines = linesOutsideFences(text).map((l) => l.text);
+  const start = lines.findIndex((line) => {
+    const m = /^(#{1,6})\s+(.*?)\s*$/.exec(line);
+    return m && headingMatches(m[2], STOP_TABLE_HEADING);
+  });
+  if (start === -1) return null;
+  const level = /^(#+)/.exec(lines[start])[1].length;
+  const ids = new Set();
+  let separatorSeen = false;
+  for (const line of lines.slice(start + 1)) {
+    const h = /^(#{1,6})\s/.exec(line);
+    if (h && h[1].length <= level) break;
+    if (!line.startsWith("|")) continue;
+    if (/^\|[\s:|-]+\|?\s*$/.test(line)) { separatorSeen = true; continue; }
+    if (!separatorSeen) continue;
+    const cell = line.split("|")[1] ?? "";
+    for (const id of stopIdsInCell(cell)) ids.add(id);
+  }
+  return ids;
+}
+
+/** コマンドが text に「`コマンド`」か、行の先頭（後ろは空白・行末）として書いてあるか */
+function mentionsCommand(text, command) {
+  if (text.includes(`\`${command}\``)) return true;
+  return text.split("\n").some((line) => {
+    const t = line.trimStart();
+    return t.startsWith(command) && /^(\s|$)/.test(t.slice(command.length));
+  });
 }
 
 /** 00-setup-overview.md を、段階ごとの節（チェック項目の行・節の全文）に分ける */
@@ -244,6 +306,73 @@ export function verifySteps({ root = DEFAULT_ROOT, catalog = defaultCatalog } = 
     section.rows.forEach((row, i) => {
       if (!lineToItem.has(i)) problems.push(`${step.id}: 対応する項目が無い行: ${row.slice(0, 60)}`);
     });
+  }
+
+  const textCache = new Map();
+  const readText = (file) => {
+    if (!textCache.has(file)) {
+      const p = join(root, file);
+      textCache.set(file, existsSync(p) ? readFileSync(p, "utf8") : null);
+    }
+    return textCache.get(file);
+  };
+
+  // (g) 実行の順番
+  const runOrder = catalog.RUN_ORDER;
+  if (runOrder !== undefined) {
+    if (!Array.isArray(runOrder)) {
+      problems.push("RUN_ORDER が配列ではない");
+    } else {
+      const readme = readText(README);
+      if (readme === null) problems.push(`RUN_ORDER: ${README} が無い`);
+      const seen = new Set();
+      for (const entry of runOrder) {
+        const where = `RUN_ORDER ${entry?.id ?? "(id なし)"}`;
+        if (!entry?.id) problems.push(`${where}: id が無い`);
+        else if (seen.has(entry.id)) problems.push(`${where}: id が重複している`);
+        else seen.add(entry.id);
+        if (typeof entry?.note !== "string" || entry.note === "") problems.push(`${where}: note が空`);
+        if (!Array.isArray(entry?.steps)) problems.push(`${where}: steps が配列ではない`);
+        else for (const s of entry.steps) if (!catalogIds.includes(s)) problems.push(`${where}: steps の ${s} が STEPS に無い`);
+        if (readme === null) continue;
+        if (entry?.command === null) {
+          if (typeof entry.note === "string" && entry.note !== "" && !readme.includes(entry.note)) {
+            problems.push(`${where}: 人の手順の note が ${README} に無い: ${entry.note}`);
+          }
+        } else if (typeof entry?.command !== "string" || entry.command === "") {
+          problems.push(`${where}: command が空（人の手順なら null にする）`);
+        } else if (!mentionsCommand(readme, entry.command)) {
+          problems.push(`${where}: command が ${README} の行の先頭に無い: ${entry.command}`);
+        }
+      }
+    }
+  }
+
+  // (h) 段階のコマンド
+  const overviewText = readText(OVERVIEW) ?? "";
+  for (const step of STEPS) {
+    if (step.commands === undefined) continue;
+    if (!Array.isArray(step.commands)) { problems.push(`${step.id}: commands が配列ではない`); continue; }
+    for (const command of step.commands) {
+      if (typeof command !== "string" || command === "") { problems.push(`${step.id}: commands に空のものがある`); continue; }
+      if (!mentionsCommand(overviewText, command) && !mentionsCommand(readText(README) ?? "", command)) {
+        problems.push(`${step.id}: コマンドが ${OVERVIEW} にも ${README} にも書いていない: ${command}`);
+      }
+    }
+  }
+
+  // (i) 止まる id が早見表にある
+  const stopIds = STEPS.flatMap((step) => step.items.filter((it) => it.stopId).map((it) => ({ where: `${step.id} ${it.id}`, stopId: it.stopId })));
+  if (stopIds.length > 0) {
+    const manual = readText(MANUAL);
+    const known = manual === null ? null : stopTableIds(manual);
+    if (known === null) {
+      problems.push(`${MANUAL} に早見表（${STOP_TABLE_HEADING}）が無い`);
+    } else {
+      for (const { where, stopId } of stopIds) {
+        if (!known.has(stopId)) problems.push(`${where}: stopId ${stopId} が ${MANUAL} の早見表の 1 列目に無い`);
+      }
+    }
   }
 
   // 出す (key, 段階) のうち、どのカタログの項目からも引かれていないもの（注意だけ。失敗にはしない）

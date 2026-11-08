@@ -1008,13 +1008,27 @@ aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/
 RunTask でサービスのタスク定義のコマンドを上書きする場合の書式（Chatwoot の例）:
 
 ```bash
+# 変数を用意する（4.8 と同じ関数。関数の定義と変数の設定は行を分ける。端末を開き直したら、ここからやり直す）
+REGION=ap-northeast-1
+OUT() {
+  aws cloudformation describe-stacks \
+    --region "$REGION" \
+    --stack-name comegin-prod \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
+}
+CLUSTER=$(OUT ClusterName)
+SUBNETS=$(OUT PrivateSubnetIds)
 CHATWOOT_SG=$(OUT ChatwootWebSecurityGroupId)
-TASK=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition comegin-prod-chatwoot-web \
+# 3 つとも空でないことを確かめてから進む（認証切れ・別アカウント・権限不足でも空になる）
+echo "CLUSTER=$CLUSTER SUBNETS=$SUBNETS CHATWOOT_SG=$CHATWOOT_SG"
+
+TASK=$(aws ecs run-task --region "$REGION" --cluster "$CLUSTER" --launch-type FARGATE --task-definition comegin-prod-chatwoot-web \
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$CHATWOOT_SG],assignPublicIp=DISABLED}" \
   --overrides '{"containerOverrides":[{"name":"chatwoot","command":["bundle","exec","rails","db:chatwoot_prepare"]}]}' \
   --query 'tasks[0].taskArn' --output text)
-aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
-aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].exitCode'   # 0 であること
+aws ecs wait tasks-stopped --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK"
+aws ecs describe-tasks --region "$REGION" --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].exitCode'   # 0 であること
 ```
 
 | サービス | 手順 |
