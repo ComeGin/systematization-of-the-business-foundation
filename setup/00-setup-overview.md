@@ -331,7 +331,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | 管理ポリシー 2 本（`comegin-prod-deploy`・`comegin-prod-control-plane`）の付与先 | 配信用は警告（`cloud` の段階 `apps`・`operate`）、監視アプリ用は**止める**（`next-js-prod:principal`。キーの主体まで確かめる） | 配信の手順 3 で切り替える主体が無い／監視アプリが 403 でハートビートと写しを送れない | cloud 4.5.1・4.5.2 |
 | 監視アプリの本番の設定・常駐・定期実行の有効化 | **止める・行う**（`next-js-prod`。段階 `operate`。定期実行の有効化とハートビートのアラームは警告） | アラーム `onprem-heartbeat` が ALARM のまま・E-15 の写しが 0 件・改善の提案が 1 件も出ない | P14 |
 | 設定の状況の主体（`comegin-prod-status-reader`）と、参照専用の GitHub のトークン | **止める**（`next-js-prod:status-principal`・`status-github`。キーの主体・付いているポリシーまで確かめる。トークンは fine-grained PAT で読めることまで。Read-only かは確かめられない）。有効なキーの数は警告（`cloud` の段階 `operate`） | 監視アプリの「設定の状況」が 403 で確認できない（画面が `?`）／知らせのメールが届かない／書き込みできるトークンが渡る（Read-only かは人が選ぶ。機械では確かめられない） | cloud 4.5.3・P14 |
-| 本番の設定の状況（`/setup-status`）が常に確かめること | **監視アプリが 10 分ごとに確かめる**（`--check` の `items` とカタログ〈`setup/status/steps.mjs`〉。製品の API は 1 時間に 1 回）。5.3 のずれ（チェックアウトが `origin/main` より遅れている・ビルドが古い・本番の n8n が JSON と違う・公開サイトの再配信が要る）も「更新が必要」で出す。記事の公開と再配信のずれは確かめず、◇ で出す | 人が `git fetch` や `--check` を実行しないとずれに気づけない（PR のマージ・再配信・n8n の公開し直しの忘れ） | 仕様 5.3・P12・P14 |
+| 本番の設定の状況（`/setup-status`）が常に確かめること | **監視アプリが 1 時間ごとに確かめる**（`--check` の `items` とカタログ〈`setup/status/steps.mjs`〉。製品の API も 1 時間に 1 回。2026-11-04 に 10 分から改めた。すぐ見たいときは画面の「今すぐ確かめる」）。5.3 のずれ（チェックアウトが `origin/main` より遅れている・ビルドが古い・本番の n8n が JSON と違う・公開サイトの再配信が要る）も「更新が必要」で出す。記事の公開と再配信のずれは確かめず、◇ で出す | 人が `git fetch` や `--check` を実行しないとずれに気づけない（PR のマージ・再配信・n8n の公開し直しの忘れ） | 仕様 5.3・P12・P14 |
 | 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
 
 ## 5. 申告制のフラグ（`prod.conf`）

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ControlPlane, JobStatus } from "control-plane";
-import { createFakePlane, type FakePlane } from "../../../helpers/control-plane";
+import type { ControlPlane, JobStatus, RunObservations } from "control-plane";
+import { createFakePlane, type FakePlane, makeJob, makeObservations, makeRun, SAMPLE_RUN_ID } from "../../../helpers/control-plane";
 import { asElement } from "../../../helpers/page";
 
 type State = { plane: ControlPlane; error: null } | { plane: null; error: string };
@@ -24,7 +24,7 @@ vi.mock("@/components/common/ConfigErrorView", () => ({ ConfigErrorView: mocks.C
 import JobsPage from "@/app/(console)/jobs/page";
 
 let plane: FakePlane;
-const render = async () => asElement<{ jobs: JobStatus[] }>(await JobsPage());
+const render = async () => asElement<{ jobs: JobStatus[]; observations: Record<string, RunObservations> }>(await JobsPage());
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -40,6 +40,25 @@ describe("/jobs（ジョブの一覧のページ）", () => {
       const element = await render();
       expect(element.type).toBe(mocks.JobsListView);
       expect(element.props.jobs).toBe(jobs);
+    });
+
+    it("直近の実行の runId で listRunObservations を 1 回呼び、runId ごとの観測を渡す", async () => {
+      const withRun = makeJob("daily-seo", "seo-auditor");
+      withRun.lastRun = makeRun();
+      plane.listJobs.mockResolvedValue([withRun, makeJob("heartbeat", null)]);
+      const observed = makeObservations();
+      plane.listRunObservations.mockResolvedValue([observed]);
+      const element = await render();
+      expect(plane.listRunObservations).toHaveBeenCalledTimes(1);
+      expect(plane.listRunObservations).toHaveBeenCalledWith([SAMPLE_RUN_ID]);
+      expect(element.props.observations).toEqual({ [SAMPLE_RUN_ID]: observed });
+    });
+
+    it("空入力: 直近の実行がどれにも無ければ観測を読まない", async () => {
+      plane.listJobs.mockResolvedValue([makeJob("heartbeat", null)]);
+      const element = await render();
+      expect(plane.listRunObservations).not.toHaveBeenCalled();
+      expect(element.props.observations).toEqual({});
     });
 
     it("空入力: ジョブが 0 件なら空の一覧を渡す", async () => {

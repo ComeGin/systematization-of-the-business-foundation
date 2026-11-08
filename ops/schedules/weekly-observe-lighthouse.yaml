@@ -18,3 +18,16 @@ prompt: |
   gsc・serp・site_audit は処理しない。
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  計測（weekly-lighthouse）が当日に成功で終わるのを待って、Agent seo-auditor を起動する。.lighthouse/manifest.json の代表の回（3 回計測の中央値）を URL ごとに読み、LH-seo・LH-performance・LH-a11y・LH-best-practices を E-12（source: lighthouse）に正規化し、前回比を本文に書く。
+stage: observe
+io:
+  reads:
+    - "作業ツリーの frontend/verdant-virgo/.lighthouse/（manifest.json と結果）"
+    - "前回の E-12（docs/audits/lighthouse/）"
+  writes:
+    - "E-12（docs/audits/lighthouse/。作業ツリー）"
+  does_not_write:
+    - "本番の製品"
+    - "ほかの source（gsc・serp・site_audit）"

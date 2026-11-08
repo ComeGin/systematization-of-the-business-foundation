@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ControlPlane, RunRecord } from "control-plane";
-import { createFakePlane, makeRun, SAMPLE_RUN_ID, type FakePlane } from "../../../helpers/control-plane";
+import type { ControlPlane, RunObservations, RunRecord } from "control-plane";
+import { createFakePlane, makeObservations, makeRun, SAMPLE_RUN_ID, type FakePlane } from "../../../helpers/control-plane";
 import { asElement } from "../../../helpers/page";
 
 type State = { plane: ControlPlane; error: null } | { plane: null; error: string };
-type ListProps = { runs: RunRecord[]; hasOlder: boolean; outcome: string | null; before: string | null; pageSize: number };
+type ListProps = {
+  runs: RunRecord[];
+  hasOlder: boolean;
+  outcome: string | null;
+  before: string | null;
+  pageSize: number;
+  observations: Record<string, RunObservations>;
+};
 
 const mocks = vi.hoisted(() => ({
   requirePageSession: vi.fn(async (): Promise<unknown> => ({ user: { name: "管理者" } })),
@@ -60,6 +67,24 @@ describe("/runs（実行記録の一覧のページ）", () => {
       const element = await render();
       expect(element.props.runs).toHaveLength(50);
       expect(element.props.hasOlder).toBe(false);
+    });
+
+    it("表示する実行の runId で listRunObservations を 1 回呼び、runId ごとの観測を渡す", async () => {
+      const rows = [makeRun({ runId: "01J9ZK3M4N5P6Q7R8S9T0V1W2A" }), makeRun({ runId: "01J9ZK3M4N5P6Q7R8S9T0V1W2B" })];
+      plane.listRuns.mockResolvedValue(rows);
+      const observed = makeObservations({ runId: "01J9ZK3M4N5P6Q7R8S9T0V1W2B" });
+      plane.listRunObservations.mockResolvedValue([observed]);
+      const element = await render();
+      expect(plane.listRunObservations).toHaveBeenCalledTimes(1);
+      expect(plane.listRunObservations).toHaveBeenCalledWith(["01J9ZK3M4N5P6Q7R8S9T0V1W2A", "01J9ZK3M4N5P6Q7R8S9T0V1W2B"]);
+      expect(element.props.observations).toEqual({ "01J9ZK3M4N5P6Q7R8S9T0V1W2B": observed });
+    });
+
+    it("51 件目（次のページの有無を知るための 1 件）の観測は読まない", async () => {
+      const rows = runs(51).map((run, i) => ({ ...run, runId: `01J9ZK3M4N5P6Q7R8S9T0V${String(i).padStart(4, "0")}` }));
+      plane.listRuns.mockResolvedValue(rows);
+      await render();
+      expect(plane.listRunObservations.mock.calls[0]![0]).toHaveLength(50);
     });
 
     it("51 件読めたら 50 件だけ出し、さらに古いページがあるとする", async () => {

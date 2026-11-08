@@ -7,3 +7,16 @@ agent: null
 builtin: i13-file
 after: []
 timeout_sec: 600
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理（I-13）。作業ツリーの E-13 のうち、承認の状態が draft で PR がまだ無いものから、GitHub にブランチ・コミット・PR を作ってレビュアーを付け、PR 番号を E-13 に書き戻す。GITHUB_TOKEN などの設定が無ければ見送る。
+stage: file
+io:
+  reads:
+    - "作業ツリーの E-13（docs/proposals/PRP-*.md の draft）"
+  writes:
+    - "GitHub のブランチ・コミット・PR（レビュアーの指定）"
+    - "E-13 の change.diff_ref（PR 番号。作業ツリー）"
+  does_not_write:
+    - "PR の承認・マージ"
+    - "ローカルの Git の状態"

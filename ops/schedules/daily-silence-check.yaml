@@ -7,3 +7,17 @@ agent: null
 builtin: silence-check
 after: []
 timeout_sec: 300
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理。当日の実行記録と成果物を照らし合わせ、「成功した Agent の実行があるのに、その Agent が書くはずの当日の E-12 が無い」「有効なジョブが起動の時刻を過ぎても実行されていない」を探す。見つかれば一部のみ（partial）として要約に書く。
+stage: check
+io:
+  reads:
+    - "当日の実行記録（E-15）"
+    - "作業ツリーの E-12（docs/audits/<source>/）"
+    - "ジョブの定義（ops/schedules/）"
+  writes:
+    - "この実行の記録（沈黙の疑いの要約）"
+  does_not_write:
+    - "監視アプリ自身や機械の停止の検出（ハートビートとアラームの役目）"
+    - "成果物の中身の正しさの判断"

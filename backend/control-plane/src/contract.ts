@@ -79,6 +79,17 @@ export type BuiltinJob =
   | "runlog-flush"
   | "n8n-export";
 
+/** 改善ループの中の段階（ops/schedules の stage。画面の表示名は next-js が持つ）。 */
+export type JobStage = "measure" | "observe" | "propose" | "file" | "create" | "check" | "maintain" | "monitor";
+
+/** ジョブの入出力（ops/schedules の io。人が書き起こした文。1 行 1 つ）。 */
+export interface JobIo {
+  reads: string[];
+  writes: string[];
+  /** 書かないもの（誤解されやすいものだけ）。yaml では does_not_write */
+  doesNotWrite: string[];
+}
+
 /** 定期実行の定義（承認済み main のチェックアウトから読んだもの）。 */
 export interface JobDefinition {
   id: string;
@@ -91,6 +102,69 @@ export interface JobDefinition {
   after: string[];
   timeoutSec: number;
   maxTurns: number | null;
+  /** kind=agent のときの Agent への指示（画面に出す）。builtin では null */
+  prompt: string | null;
+  /** 処理の概要（2〜4 文）。書かれていなければ null */
+  overview: string | null;
+  stage: JobStage | null;
+  /** 入出力。書かれていなければ null */
+  io: JobIo | null;
+}
+
+/** ツールの参照／書き込みの目安（表示だけに使う。権限の判定には使わない）。 */
+export type ToolAccess = "read" | "write" | "unknown";
+
+/** Agent のツールを接続先ごとにまとめたもの。 */
+export interface AgentToolGroup {
+  /** null は組み込みのツール（Read・Write など） */
+  server: string | null;
+  /** 登録表（ops/mcp-registry.yaml）の access_level。組み込みと登録表に無い接続先は null */
+  accessLevel: string | null;
+  /** name は完全名（mcp__…）か組み込みの名前。定義に書かれた順 */
+  tools: { name: string; access: ToolAccess }[];
+}
+
+/** Agent の定義（承認済み main の .claude/agents/<name>.md）と、それを使うジョブ。 */
+export interface AgentInfo {
+  name: string;
+  description: string;
+  model: string | null;
+  disallowedTools: string[];
+  /** 組み込みを先頭に、MCP は接続先の名前の順 */
+  toolGroups: AgentToolGroup[];
+  /** frontmatter を除いた本文（手順） */
+  body: string;
+  /** この Agent を agent に持つジョブの id（id の順） */
+  jobIds: string[];
+}
+
+export interface AgentListing {
+  /** 名前の順 */
+  agents: AgentInfo[];
+  /** 読めない定義（ファイル名と理由。値は含めない） */
+  errors: { file: string; reason: string }[];
+}
+
+/** 観測（E-12）1 件の要約（frontmatter だけ。本文は読まない）。 */
+export interface ObservationSummary {
+  auditId: string;
+  source: string | null;
+  createdBy: string | null;
+  /** fetch.outcome をそのまま（9 値以外も捨てない）。読めなければ null */
+  outcome: string | null;
+  /** fetch.note（エージェントが書いた理由の文） */
+  note: string | null;
+  /** fetch.measured_at */
+  measuredAt: string | null;
+  /** ファイルが見つかったか（対象にした観測で、作業ツリーにも main にも無ければ false） */
+  found: boolean;
+}
+
+/** 1 回の実行の観測。written は fetch.correlation_id が runId と一致するもの、referenced は targetIds だけにあるもの。 */
+export interface RunObservations {
+  runId: Ulid;
+  written: ObservationSummary[];
+  referenced: ObservationSummary[];
 }
 
 export interface JobStatus {
@@ -188,6 +262,12 @@ export interface ControlPlane {
   listRuns(query?: ListRunsQuery): Promise<RunRecord[]>;
   getRun(runId: Ulid): Promise<RunRecord | null>;
   listJobs(): Promise<JobStatus[]>;
+  /** 実行ごとの観測。入力の順。ULID でない id・E-15 に無い run は含めない。先頭の 200 件まで。 */
+  listRunObservations(runIds: Ulid[]): Promise<RunObservations[]>;
+  /** Agent の定義の一覧（承認済み main）。 */
+  listAgents(): Promise<AgentListing>;
+  /** Agent 1 件。名前が不正・定義が無い・読めないときは null。 */
+  getAgent(name: string): Promise<AgentInfo | null>;
   listMiswriteCandidates(): Promise<MiswriteCandidate[]>;
   /** 設定の状況（直近の確認結果）。無効のときは enabled=false で steps は空。 */
   getSetupStatus(): Promise<SetupStatusView>;

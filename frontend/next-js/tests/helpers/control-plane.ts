@@ -1,6 +1,6 @@
 // Route Handler のテストで使う control-plane の差し替え。実体（dist/）は読み込まない
 import { vi } from "vitest";
-import type { ControlPlane, RunRecord } from "control-plane";
+import type { AgentInfo, ControlPlane, JobDefinition, JobStatus, ObservationSummary, RunObservations, RunRecord } from "control-plane";
 
 export const SAMPLE_RUN_ID = "01J9ZK3M4N5P6Q7R8S9T0V1W2X";
 
@@ -12,6 +12,9 @@ export function createFakePlane() {
     listRuns: vi.fn<ControlPlane["listRuns"]>(async () => []),
     getRun: vi.fn<ControlPlane["getRun"]>(async () => null),
     listJobs: vi.fn<ControlPlane["listJobs"]>(async () => []),
+    listRunObservations: vi.fn<ControlPlane["listRunObservations"]>(async () => []),
+    listAgents: vi.fn<ControlPlane["listAgents"]>(async () => ({ agents: [], errors: [] })),
+    getAgent: vi.fn<ControlPlane["getAgent"]>(async () => null),
     listMiswriteCandidates: vi.fn<ControlPlane["listMiswriteCandidates"]>(async () => []),
     getSetupStatus: vi.fn<ControlPlane["getSetupStatus"]>(async () => ({
       enabled: false,
@@ -59,5 +62,59 @@ export function sameOriginInit(body: unknown): { method: string; headers: Record
     method: "POST",
     headers: { host: "127.0.0.1:3200", origin: "http://127.0.0.1:3200", "content-type": "application/json" },
     body: typeof body === "string" ? body : JSON.stringify(body),
+  };
+}
+
+export function makeObservation(overrides: Partial<ObservationSummary> = {}): ObservationSummary {
+  return {
+    auditId: "AUD-2026-1106-gsc-0001",
+    source: "gsc",
+    createdBy: "agent/seo-auditor",
+    outcome: "ok",
+    note: null,
+    measuredAt: "2026-11-06T04:00:40+09:00",
+    found: true,
+    ...overrides,
+  };
+}
+
+export function makeObservations(overrides: Partial<RunObservations> = {}): RunObservations {
+  return { runId: SAMPLE_RUN_ID, written: [], referenced: [], ...overrides };
+}
+
+export function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
+  return {
+    name: "seo-auditor",
+    description: "GSC の実績を E-12 に正規化する観測エージェント。提案はしない。",
+    model: "sonnet",
+    disallowedTools: [],
+    toolGroups: [],
+    body: "手順",
+    jobIds: [],
+    ...overrides,
+  };
+}
+
+export function makeJob(id: string, agent: string | null, overrides: Partial<JobDefinition> = {}): JobStatus {
+  return {
+    definition: {
+      id,
+      description: `${id} の説明`,
+      enabled: true,
+      cron: "0 4 * * *",
+      kind: agent ? "agent" : "builtin",
+      agent,
+      builtin: agent ? null : "heartbeat",
+      after: [],
+      timeoutSec: 600,
+      maxTurns: null,
+      prompt: agent ? "指示" : null,
+      overview: null,
+      stage: null,
+      io: null,
+      ...overrides,
+    },
+    nextRunAt: null,
+    lastRun: null,
   };
 }

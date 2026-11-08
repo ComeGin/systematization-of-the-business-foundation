@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@cloudscape-design/components/status-indicator", () => ({ default: mocks.StatusIndicator }));
 
-import { EnabledStatus, jobKindLabel, schedulerDescription } from "@/components/jobs/job-format";
+import { dependentsOf, EnabledStatus, ioItems, jobKindLabel, schedulerDescription, STAGES, stageLabel } from "@/components/jobs/job-format";
 
 type Element = { type: unknown; props: { type: string; children: unknown } };
 
@@ -26,6 +26,10 @@ function definition(overrides: Partial<JobDefinition> = {}): JobDefinition {
     after: [],
     timeoutSec: 600,
     maxTurns: 30,
+    prompt: null,
+    overview: null,
+    stage: null,
+    io: null,
     ...overrides,
   };
 }
@@ -97,6 +101,50 @@ describe("schedulerDescription", () => {
   describe("異常系", () => {
     it("空入力: ジョブが 0 件なら、有効なジョブが無い旨を出す", () => {
       expect(schedulerDescription([])).toBe(NO_ENABLED_JOB);
+    });
+  });
+});
+
+describe("STAGES と stageLabel", () => {
+  describe("正常系", () => {
+    it("STAGES は 8 値をこの順で持つ", () => {
+      expect(STAGES).toEqual(["measure", "observe", "propose", "file", "create", "check", "maintain", "monitor"]);
+    });
+    it("表示名は 計測・観測・提案・起票・制作・点検・保守・監視", () => {
+      expect(STAGES.map((stage) => stageLabel(stage))).toEqual(["計測", "観測", "提案", "起票", "制作", "点検", "保守", "監視"]);
+    });
+    it("空入力: stageLabel(null) は（定義に書かれていない）", () => {
+      expect(stageLabel(null)).toBe("（定義に書かれていない）");
+    });
+  });
+});
+
+describe("dependentsOf", () => {
+  describe("正常系", () => {
+    it("after にその id を持つジョブを id の順に返す", () => {
+      const jobs = [
+        definition({ id: "z-propose", after: ["a-observe", "b-observe"] }),
+        definition({ id: "a-observe" }),
+        definition({ id: "m-propose", after: ["a-observe"] }),
+      ];
+      expect(dependentsOf("a-observe", jobs)).toEqual(["m-propose", "z-propose"]);
+    });
+    it("空入力: 待たれるジョブが無ければ []", () => {
+      expect(dependentsOf("a-observe", [definition({ id: "a-observe" })])).toEqual([]);
+    });
+  });
+});
+
+describe("ioItems", () => {
+  describe("正常系", () => {
+    it("io があれば、その欄の配列を返す", () => {
+      expect(ioItems({ reads: ["A"], writes: [], doesNotWrite: [] }, "reads")).toEqual({ kind: "items", items: ["A"] });
+    });
+    it("空入力: io があって欄が [] なら none（「なし」と出す）", () => {
+      expect(ioItems({ reads: [], writes: [], doesNotWrite: [] }, "reads")).toEqual({ kind: "none" });
+    });
+    it("空入力: io が null なら notWritten（「（定義に書かれていない）」と出す）", () => {
+      expect(ioItems(null, "writes")).toEqual({ kind: "notWritten" });
     });
   });
 });

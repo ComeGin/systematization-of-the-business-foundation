@@ -37,9 +37,10 @@ export const test = base.extend<{ traffic: Traffic; cleanup: Cleanup }>({
     { auto: true },
   ],
 
-  cleanup: async ({}, use) => {
+  // 第 2 引数の名前を use にすると、eslint の react-hooks/rules-of-hooks が React の use と取り違える（2026-11-09）
+  cleanup: async ({}, provide) => {
     const tasks: [string, () => Promise<void>][] = [];
-    await use({ add: (label, fn) => tasks.push([label, fn]) });
+    await provide({ add: (label, fn) => tasks.push([label, fn]) });
     const failures: string[] = [];
     for (const [label, fn] of tasks.reverse()) {
       await fn().catch((error: unknown) => failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`));

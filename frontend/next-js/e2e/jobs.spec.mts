@@ -1,7 +1,7 @@
 // 定期実行のジョブ（定義はサンドボックスの承認済み main の ops/schedules/*.yaml。sandbox.mjs が作る）。
 // 一覧 → 詳細 → 手動で起動 → 実行の詳細 → ジョブの詳細の実行記録、までを画面だけで通す。
 import { asAdmin, expect, openHydrated, test } from "./support/fixtures.mjs";
-import { JOBS } from "./support/sandbox.mjs";
+import { AGENT, AGENT_JOB_IO, AGENT_JOB_OVERVIEW, JOBS } from "./support/sandbox.mjs";
 
 test.use(asAdmin);
 
@@ -34,6 +34,29 @@ test.describe("定期実行のジョブ", () => {
       await page.getByRole("link", { name: new RegExp(`^${JOBS.published}`) }).first().click();
       await expect(page).toHaveURL(new RegExp(`/jobs/${JOBS.published}$`));
       await expect(page.getByRole("link", { name: runId })).toBeVisible();
+    });
+  });
+
+  test.describe("正常系（概要・入出力・Agent）", () => {
+    test("Agent のジョブの詳細に概要・段階・入出力・Agent へのリンクと指示が出る", async ({ page }) => {
+      await openHydrated(page, `/jobs/${JOBS.agent}`);
+      await expect(page.getByRole("heading", { level: 1, name: JOBS.agent })).toBeVisible();
+      await expect(page.getByText(AGENT_JOB_OVERVIEW)).toBeVisible();
+      await expect(page.getByText("改善ループの中の段階:")).toContainText("観測");
+      for (const text of Object.values(AGENT_JOB_IO)) await expect(page.getByText(text, { exact: true })).toBeVisible();
+      await page.getByText("Agent への指示（yaml の prompt）を見る").click();
+      await expect(page.getByText("E2E の確認です。何もしないでください。")).toBeVisible();
+      await page.getByRole("link", { name: AGENT, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/agents/${AGENT}$`));
+    });
+
+    test("overview の無いジョブは（定義に書かれていない）と出て、一覧の段階も同じ", async ({ page }) => {
+      await page.goto(`/jobs/${JOBS.published}`);
+      await expect(page.getByRole("heading", { level: 1, name: JOBS.published })).toBeVisible();
+      await expect(page.getByText("（定義に書かれていない）").first()).toBeVisible();
+      await page.goto("/jobs");
+      await expect(page.getByRole("row").filter({ hasText: JOBS.published })).toContainText("（定義に書かれていない）");
+      await expect(page.getByRole("row").filter({ hasText: JOBS.agent })).toContainText("観測");
     });
   });
 

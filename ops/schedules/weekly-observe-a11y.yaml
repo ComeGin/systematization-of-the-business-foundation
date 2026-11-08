@@ -18,3 +18,16 @@ prompt: |
   - E-12 はサイト全体で 1 ファイル（target_ref: "E-05 url_path=*"）。同じ target_ref の直前の項目 6 の E-12 と比べた前回比を本文に書く
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  検査（weekly-a11y）が当日に成功で終わるのを待って、Agent quality-checker を起動し、検査の項目 6（WCAG の機械検査）だけを行う。.a11y/summary.json の合計を QC-a11y-* としてサイト全体で 1 件の E-12（source: quality）にし、前回比を書く。今日の結果でなければ「判定不能」（unreachable）にする。
+stage: observe
+io:
+  reads:
+    - "作業ツリーの frontend/verdant-virgo/.a11y/summary.json"
+    - "前回の項目 6 の E-12（docs/audits/quality/）"
+  writes:
+    - "E-12（docs/audits/quality/。QC-a11y-*。作業ツリー）"
+  does_not_write:
+    - "本番の Strapi（このジョブでは読まない）"
+    - "検査の項目 1〜5"

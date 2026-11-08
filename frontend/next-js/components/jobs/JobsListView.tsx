@@ -1,16 +1,18 @@
 "use client";
 
+import Box from "@cloudscape-design/components/box";
 import Header from "@cloudscape-design/components/header";
 import Link from "@cloudscape-design/components/link";
 import Table from "@cloudscape-design/components/table";
-import type { JobStatus } from "control-plane";
+import type { JobStatus, RunObservations } from "control-plane";
 import { formatTime, useFollow } from "@/components/common/navigation";
 import { InfoLink } from "@/components/layout/tools-context";
+import { ContentStatus } from "@/components/runs/ContentStatus";
 import { RunStatus } from "@/components/runs/RunStatus";
-import { EnabledStatus, jobKindLabel, schedulerDescription } from "./job-format";
+import { EnabledStatus, jobKindLabel, schedulerDescription, stageLabel } from "./job-format";
 
-/** 一覧: 定期実行のジョブ。定義は承認済み main のチェックアウトから読んだもの。 */
-export function JobsListView({ jobs }: { jobs: JobStatus[] }) {
+/** 一覧: 定期実行のジョブ。定義は承認済み main のチェックアウトから読んだもの。observations は直近の実行の runId → 観測 */
+export function JobsListView({ jobs, observations }: { jobs: JobStatus[]; observations: Record<string, RunObservations> }) {
   const follow = useFollow();
   return (
     <Table
@@ -29,11 +31,19 @@ export function JobsListView({ jobs }: { jobs: JobStatus[] }) {
           id: "id",
           header: "ID",
           cell: (job) => (
-            <Link href={`/jobs/${encodeURIComponent(job.definition.id)}`} onFollow={follow}>
-              {job.definition.id}
-            </Link>
+            <div>
+              <Link href={`/jobs/${encodeURIComponent(job.definition.id)}`} onFollow={follow}>
+                {job.definition.id}
+              </Link>
+              {job.definition.description ? (
+                <Box variant="small" color="text-body-secondary" display="block">
+                  {job.definition.description}
+                </Box>
+              ) : null}
+            </div>
           ),
         },
+        { id: "stage", header: "段階", cell: (job) => stageLabel(job.definition.stage) },
         { id: "enabled", header: "有効", cell: (job) => <EnabledStatus enabled={job.definition.enabled} /> },
         { id: "cron", header: "cron（Asia/Tokyo）", cell: (job) => job.definition.cron },
         { id: "kind", header: "種類", cell: (job) => jobKindLabel(job.definition) },
@@ -51,7 +61,13 @@ export function JobsListView({ jobs }: { jobs: JobStatus[] }) {
               "-"
             ),
         },
+        {
+          id: "content",
+          header: "直近の中身",
+          cell: (job) => (job.lastRun ? <ContentStatus observations={observations[job.lastRun.runId]} /> : "-"),
+        },
       ]}
+      wrapLines
     />
   );
 }

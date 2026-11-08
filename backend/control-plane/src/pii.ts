@@ -17,6 +17,23 @@ export interface RedactedSummary {
   redacted: boolean;
 }
 
+/**
+ * メールアドレスと電話番号の形だけを伏せ字にする。空白・長さは変えない（観測の理由〈fetch.note〉を画面に出す前に使う。2026-11-09）
+ */
+export function redactPii(source: string): RedactedSummary {
+  let text = source;
+  let redacted = false;
+  const replace = (pattern: RegExp, label: string) => {
+    text = text.replace(pattern, () => {
+      redacted = true;
+      return label;
+    });
+  };
+  replace(EMAIL, "[redacted:email]");
+  for (const pattern of PHONE_PATTERNS) replace(pattern, "[redacted:phone]");
+  return { text, redacted };
+}
+
 export function redactSummary(summary: string): RedactedSummary {
   let text = summary.trim().replace(/\s+/g, " ");
   let redacted = false;

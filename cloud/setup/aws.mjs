@@ -130,7 +130,7 @@ export async function serviceCounts(ctx, main, svc, param) {
 
 /** 動いているべきなのに running が 0 のサービスへの警告文（夜間の停止の可能性を添える） */
 export function notRunningNote(c) {
-  return `comegin-${ENV_NAME}-${c.svc} は DesiredCount ${c.desiredParam} だが、動いているタスクが 0（ECS の desiredCount ${c.desired}。0 なら夜間の停止〈既定 22 時〜翌 8 時〉の最中。昼なら ECS のサービスのイベントとタスク数のアラームを見る）`;
+  return `comegin-${ENV_NAME}-${c.svc} は DesiredCount ${c.desiredParam} だが、動いているタスクが 0（ECS の desiredCount ${c.desired}。0 なら夜間の停止〈既定 22 時〜翌 3 時 45 分〉の最中。昼なら ECS のサービスのイベントとタスク数のアラームを見る）`;
 }
 
 /** DesiredCount を上げるときの案内（samconfig.toml に書いて sam deploy。ECS を直接変えない） */

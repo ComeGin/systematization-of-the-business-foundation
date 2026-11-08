@@ -7,3 +7,12 @@ agent: null
 builtin: heartbeat
 after: []
 timeout_sec: 60
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  監視アプリの生存を CloudWatch に 1 点送る。ふだんは監視アプリの内部のタイマーが 5 分ごとに送るので、この定義は無効のまま置いてある（手動で送るときに使う）。ハートビートが途絶えると、アラーム comegin-prod-onprem-heartbeat が鳴る。
+stage: monitor
+io:
+  reads: []
+  writes:
+    - "CloudWatch のメトリクス（ハートビート）"
+  does_not_write: []

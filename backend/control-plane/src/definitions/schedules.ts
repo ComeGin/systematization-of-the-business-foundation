@@ -6,7 +6,7 @@ import { Cron } from "croner";
 import { parse as parseYaml } from "yaml";
 import * as z from "zod/v4";
 import { SCHEDULES_DIR } from "../constants/paths.js";
-import type { BuiltinJob, JobDefinition } from "../contract.js";
+import type { BuiltinJob, JobDefinition, JobStage } from "../contract.js";
 import { logLine } from "../log.js";
 import { TIMEZONE } from "../time.js";
 
@@ -21,6 +21,9 @@ const BUILTIN_JOBS = [
   "runlog-flush",
   "n8n-export",
 ] as const satisfies readonly BuiltinJob[];
+
+/** 改善ループの中の段階（設計 2026-11-06 の 4 節。画面ではこの順に並べる） */
+export const JOB_STAGES = ["measure", "observe", "propose", "file", "create", "check", "maintain", "monitor"] as const satisfies readonly JobStage[];
 
 const KEBAB_CASE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
@@ -47,6 +50,11 @@ const ScheduleFileSchema = z
     prompt: z.string().nullable().default(null),
     timeout_sec: z.number().int().positive().default(900),
     max_turns: z.number().int().positive().nullable().default(null),
+    // 画面に出す説明（2026-11-06）。すべて任意（main に入る順番に依存させない）。
+    // 表示のためだけの欄なので、ここでは形を問わず、下の displayFields で欄ごとに検査する（誤りでジョブを止めない。2026-11-09）
+    overview: z.unknown().optional(),
+    stage: z.unknown().optional(),
+    io: z.unknown().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.kind === "agent") {
@@ -57,10 +65,38 @@ const ScheduleFileSchema = z
     }
   });
 
-/** 公開の JobDefinition に、内部で使う prompt を足したもの（契約の型は変えない）。 */
-export interface ScheduleDefinition extends JobDefinition {
-  prompt: string | null;
+const OverviewSchema = z.string().nullable();
+const StageSchema = z.enum(JOB_STAGES).nullable();
+const IoSchema = z
+  .object({
+    reads: z.array(z.string()).default([]),
+    writes: z.array(z.string()).default([]),
+    does_not_write: z.array(z.string()).default([]),
+  })
+  .nullable();
+
+/**
+ * 表示のための欄（overview・stage・io）。形が違う欄は null にして WARN に欄の名前だけを出す（値は出さない）。
+ * 誤りで定義ごと読めなくなると、本番のジョブが黙って止まるため（2026-11-09。最終レビューの指摘）
+ */
+function displayFields(file: string, value: { overview?: unknown; stage?: unknown; io?: unknown }): Pick<JobDefinition, "overview" | "stage" | "io"> {
+  const warn = (field: string) => logLine("WARN", "schedules", `${file}: 表示のための欄 ${field} を読めないので出さない（ジョブは動かす）`);
+  const overview = OverviewSchema.safeParse(value.overview ?? null);
+  if (!overview.success) warn("overview");
+  const stage = StageSchema.safeParse(value.stage ?? null);
+  if (!stage.success) warn("stage");
+  const io = IoSchema.safeParse(value.io ?? null);
+  if (!io.success) warn("io");
+  const text = overview.success ? overview.data?.trim() : "";
+  return {
+    overview: text ? text : null,
+    stage: stage.success ? stage.data : null,
+    io: io.success && io.data ? { reads: io.data.reads, writes: io.data.writes, doesNotWrite: io.data.does_not_write } : null,
+  };
 }
+
+/** 読み込んだ定義。prompt も画面に出すので、公開の JobDefinition と同じ形（2026-11-06） */
+export type ScheduleDefinition = JobDefinition;
 
 export interface LoadedSchedules {
   jobs: ScheduleDefinition[];
@@ -105,6 +141,7 @@ export async function loadSchedules(mainCheckout: string): Promise<LoadedSchedul
         timeoutSec: value.timeout_sec,
         maxTurns: value.max_turns,
         prompt: value.kind === "agent" ? value.prompt : null,
+        ...displayFields(file, value),
       });
     } catch (error) {
       errors.push({ file, reason: error instanceof Error ? error.message : "読み込みに失敗しました" });

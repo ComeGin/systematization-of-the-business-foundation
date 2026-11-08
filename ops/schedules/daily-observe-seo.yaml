@@ -17,3 +17,14 @@ prompt: |
   lighthouse・serp・site_audit は処理しない（別の定期実行が担う）。
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  Agent seo-auditor を起動し、OpenSEO 経由で Google Search Console の実績（ページごと。今日の 3 日前までの 35 日分）を読み、E-12（source: gsc）に正規化する。URL 検査・Lighthouse・順位・サイト監査は扱わない（別のジョブが担う）。提案はしない（daily-propose が行う）。
+stage: observe
+io:
+  reads:
+    - "OpenSEO 経由の GSC の実績（comegin.com のプロジェクト。get_search_console_performance）"
+  writes:
+    - "E-12 を 1 件以上（docs/audits/gsc/。作業ツリー）"
+  does_not_write:
+    - "本番の製品（Strapi・Mautic・Chatwoot）。既存の E-12 は書き換えない。費用の出る OpenSEO のツールは使わない"

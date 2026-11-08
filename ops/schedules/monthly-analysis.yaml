@@ -18,3 +18,16 @@ prompt: |
   - 状態は draft のまま。approval・applied_at・verification は起票時の固定値のままにする
 timeout_sec: 900
 max_turns: 40
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  月に 1 回、Agent proposal-writer を起動し、gsc・serp・analytics の E-12 を前月と比べて、順位・流入・CVR に実在する悪化や不足があるかを判断する。根拠は取得に成功した 14 日以内の E-12 だけ。悪化や不足があり、起票前チェック 15 項目をすべて通ったときだけ E-13（draft）を書く。
+stage: propose
+io:
+  reads:
+    - "E-12（docs/audits/ の gsc・serp・analytics）"
+    - "E-13（docs/proposals/）"
+  writes:
+    - "E-13 の draft（docs/proposals/PRP-*.md。作業ツリー）"
+  does_not_write:
+    - "既存の E-13（書き換え・削除をしない）"
+    - "承認・適用・コミット・PR"

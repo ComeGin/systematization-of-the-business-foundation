@@ -46,6 +46,14 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 | エージェント定義 `.claude/agents/<name>.md`、`ops/schedules/*.yaml`、`ops/mcp-registry.yaml` | `CONTROL_MAIN_CHECKOUT` | 承認済み main だけが実行に効く（ADR-18） |
 | 起票の対象 `docs/proposals/*.md`（draft）、`docs/audits/<source>/` | `CONTROL_WORKTREE` | 未コミットの成果物を読む |
 | 突き合わせ (a) の承認済み提案 | `CONTROL_MAIN_CHECKOUT` | 作業ツリーの未承認の書き換えで「対応あり」にされないため |
+| 監視アプリに出す観測（`listRunObservations`。`docs/audits/<source>/<audit_id>.md` の frontmatter だけ） | `CONTROL_WORKTREE` → `CONTROL_MAIN_CHECKOUT`（同じ `audit_id` は作業ツリーを優先） | エージェントが書いた未コミットの観測も、コミット済みの観測も出す |
+| 監視アプリに出す Agent（`listAgents`・`getAgent`）と、その接続先の `access_level` | `CONTROL_MAIN_CHECKOUT` | 定義と同じく承認済み main だけ（ADR-18） |
+
+### 監視アプリに説明を出すための読み込み（2026-11-06。設計は `docs/superpowers/specs/2026-11-06-job-agent-info-design.md`）
+
+- `listJobs()` の定義に `prompt`（kind=agent のときの指示）と、`ops/schedules/*.yaml` の任意の欄 `overview`・`stage`・`io` を含める（書かれていなければ null）
+- `listRunObservations(runIds)`: 実行ごとに、**書いた観測**（`fetch.correlation_id` が `runId` と一致）と**対象にした観測**（`targetIds` にあって書いた観測でないもの）を返す。`targetIds` はエージェントが自分で書く値で当てにならない（2026-11-06 の `daily-observe-ops` は観測を書いたのに `[]`）ので、「書いた」は `correlation_id` で決める。観測の ID の形（`AUD-YYYY-MMDD-<source>-NNNN`）に合わない値はファイルを開かない。キャッシュは持たず、呼ぶたびに読むが、読むのは実行の開始日（JST）とその翌日・`targetIds` の観測の日付のファイルだけ（`src/definitions/audits.ts` の `auditDatesForRuns`）。`fetch.note` はメールアドレスと電話番号の形を伏せ字にしてから返す（`pii.ts` の `redactPii`）。frontmatter が壊れた観測・読めない（`EACCES` など）観測は `outcome: null` として返し、画面ごと落とさない
+- `listAgents()`・`getAgent(name)`: 定義と、それを使うジョブの id、ツールを接続先ごとにまとめたもの。ツールの「参照／書き込み」は**表示のための目安**で、権限の判定には使わない（`src/definitions/agent-catalog.ts` の `classifyTool`。登録表で `read_only` の接続先はすべて参照、それ以外は製品名の接頭辞を外した名前の先頭の動詞で分ける）。登録表が壊れていても画面は出す（`access_level` を出さないだけ）
 
 ## 環境変数（`.env.example` が正本）
 

@@ -9,3 +9,14 @@ agent: null
 builtin: a11y
 after: []
 timeout_sec: 1800
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理。承認済み main のチェックアウトの frontend/verdant-virgo で pnpm a11y:ci（astro build から axe の検査まで）を実行し、結果の JSON を作業ツリーの .a11y/ に写す。違反があっても検査として成功にする（違反の判断は weekly-observe-a11y）。Chromium が無ければ見送る。
+stage: measure
+io:
+  reads:
+    - "承認済み main の frontend/verdant-virgo"
+  writes:
+    - "作業ツリーの frontend/verdant-virgo/.a11y/*.json"
+  does_not_write:
+    - "E-12（weekly-observe-a11y が書く）"

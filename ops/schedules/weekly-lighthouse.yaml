@@ -7,3 +7,14 @@ agent: null
 builtin: lighthouse
 after: []
 timeout_sec: 1800
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理。承認済み main のチェックアウトの frontend/verdant-virgo で pnpm lh（ビルドと Lighthouse の 3 回計測）を実行し、結果の JSON を作業ツリーの .lighthouse/ に写す。E-12 にするのは weekly-observe-lighthouse。
+stage: measure
+io:
+  reads:
+    - "承認済み main の frontend/verdant-virgo（記事の中身はビルドのときに本番の Strapi から読む）"
+  writes:
+    - "作業ツリーの frontend/verdant-virgo/.lighthouse/"
+  does_not_write:
+    - "E-12（weekly-observe-lighthouse が書く）"

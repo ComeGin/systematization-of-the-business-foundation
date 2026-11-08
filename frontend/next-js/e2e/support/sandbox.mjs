@@ -35,6 +35,14 @@ export const GOOGLE_CLIENT_ID = "e2e-client-id.apps.googleusercontent.com";
 
 /** サンドボックスの承認済み main に置く定義 */
 export const AGENT = "e2e-probe";
+/**
+ * E2E の Agent のツール。接続先 e2e-prod（read_write）と e2e-ro（read_only）は登録表にだけあり、接続はしない
+ * （Agent は ANTHROPIC_API_KEY が無いので起動の前に見送る）。画面の「参照／書き込み」の分け方を確かめるためのもの
+ */
+export const AGENT_TOOLS = "Read, Write, mcp__e2e-prod__e2e_list_items, mcp__e2e-prod__e2e_add_note, mcp__e2e-ro__e2e_run_report";
+/** JOBS.agent の yaml に書く説明（overview・stage・io）。画面の ①② の確認に使う */
+export const AGENT_JOB_OVERVIEW = "E2E: Agent e2e-probe を起動し、何もしないで終える。";
+export const AGENT_JOB_IO = { reads: "E2E: 読むもの", writes: "E2E: 書くもの", doesNotWrite: "E2E: 書かないもの" };
 export const JOBS = {
   /** builtin published-article-check。実行すると「未実装のため見送った」（skipped）で終わる */
   published: "e2e-published-check",
@@ -127,7 +135,25 @@ export function prepareSandbox() {
 
   writeAt(
     `.claude/agents/${AGENT}.md`,
-    `---\nname: ${AGENT}\ndescription: E2E 用のエージェント（起動はしない）\ntools: Read, Grep, Glob\n---\n\nE2E 用の本文。\n`,
+    `---\nname: ${AGENT}\ndescription: E2E 用のエージェント（起動はしない）。2 文目。\ntools: ${AGENT_TOOLS}\n---\n\n## E2E の手順\n\nE2E 用の本文。\n`,
+  );
+  writeAt(
+    "ops/mcp-registry.yaml",
+    [
+      "version: 1",
+      "servers:",
+      "  - name: e2e-prod",
+      "    env: prod",
+      "    transport: http",
+      "    url: http://127.0.0.1:9/mcp",
+      "    access_level: read_write",
+      "  - name: e2e-ro",
+      "    env: prod",
+      "    transport: http",
+      "    url: http://127.0.0.1:9/mcp",
+      "    access_level: read_only",
+      "",
+    ].join("\n"),
   );
   const base = { enabled: false, cron: "0 3 * * *", after: [], timeout_sec: 120 };
   writeAt(
@@ -144,8 +170,45 @@ export function prepareSandbox() {
   );
   writeAt(
     `ops/schedules/${JOBS.agent}.yaml`,
-    `${schedule({ id: JOBS.agent, description: "E2E: エージェントの定期実行（ANTHROPIC_API_KEY が無いので見送る）", ...base, kind: "agent", agent: AGENT, builtin: null })}prompt: "E2E の確認です。何もしないでください。"\nmax_turns: 2\n`,
+    `${schedule({ id: JOBS.agent, description: "E2E: エージェントの定期実行（ANTHROPIC_API_KEY が無いので見送る）", ...base, kind: "agent", agent: AGENT, builtin: null })}prompt: "E2E の確認です。何もしないでください。"\nmax_turns: 2\noverview: ${JSON.stringify(AGENT_JOB_OVERVIEW)}\nstage: observe\nio:\n  reads: [${JSON.stringify(AGENT_JOB_IO.reads)}]\n  writes: [${JSON.stringify(AGENT_JOB_IO.writes)}]\n  does_not_write: [${JSON.stringify(AGENT_JOB_IO.doesNotWrite)}]\n`,
   );
+}
+
+/**
+ * 実行の開始時刻（ISO）から、その日（JST）の観測の ID を作る。control-plane は実行の開始日とその翌日の日付の観測だけを探すので、
+ * 固定の日付にすると日がたつと見つからなくなる（2026-11-09）
+ */
+export function auditIdFor(startedAt, source, seq) {
+  const jst = new Date(Date.parse(startedAt) + 9 * 60 * 60 * 1000).toISOString();
+  return `AUD-${jst.slice(0, 4)}-${jst.slice(5, 7)}${jst.slice(8, 10)}-${source}-${String(seq).padStart(4, "0")}`;
+}
+
+/**
+ * 作業ツリーに観測（E-12）を 1 件置く（frontmatter だけ）。correlationId を実行の相関 ID にすると「その実行が書いた観測」になる。
+ * 置いたファイルのパスを返す（後片付けで消す）
+ */
+export function writeObservation({ auditId, source, correlationId, outcome, note }) {
+  const file = join(WORKTREE, "docs/audits", source, `${auditId}.md`);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [
+      "---",
+      `audit_id: ${auditId}`,
+      `source: ${source}`,
+      "created_by: agent/e2e-probe",
+      "fetch:",
+      `  outcome: ${outcome}`,
+      "  attempts: 1",
+      `  correlation_id: ${correlationId}`,
+      "  measured_at: 2026-11-06T04:00:40+09:00",
+      `  note: ${JSON.stringify(note)}`,
+      "---",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  return file;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === "prepare") prepareSandbox();

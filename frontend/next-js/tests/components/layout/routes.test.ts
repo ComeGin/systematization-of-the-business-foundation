@@ -60,6 +60,24 @@ describe("resolveRoute", () => {
       expect(resolveRoute("/jobs/new").help).toBe("job-detail");
     });
 
+    it("/agents は Agent の一覧（表）", () => {
+      expect(resolveRoute("/agents")).toEqual({
+        breadcrumbs: [ROOT, { text: "Agent", href: "/agents" }],
+        activeHref: "/agents",
+        help: "agents-list",
+        contentType: "table",
+      });
+    });
+
+    it("/agents/<name> は Agent の詳細で、パンくずの末尾は名前、ナビゲーションは一覧を選ぶ", () => {
+      expect(resolveRoute("/agents/seo-auditor")).toEqual({
+        breadcrumbs: [ROOT, { text: "Agent", href: "/agents" }, { text: "seo-auditor", href: "/agents/seo-auditor" }],
+        activeHref: "/agents",
+        help: "agent-detail",
+        contentType: "default",
+      });
+    });
+
     it("/miswrite-candidates は誤った書き込みの候補の一覧（表）。下の階層があっても一覧として扱う", () => {
       const expected = {
         breadcrumbs: [ROOT, { text: "誤った書き込みの候補", href: "/miswrite-candidates" }],
@@ -107,8 +125,9 @@ describe("resolveRoute", () => {
 
 describe("NAVIGATION_ITEMS", () => {
   describe("正常系", () => {
-    it("サイドのナビゲーションは設定の状況・実行記録・手動の起動・ジョブ・候補の順で、すべてアプリ内のパス", () => {
-      expect(NAVIGATION_ITEMS.map((item) => item.href)).toEqual(["/setup-status", "/runs", "/runs/new", "/jobs", "/miswrite-candidates"]);
+    it("サイドのナビゲーションは設定の状況・実行記録・手動の起動・ジョブ・Agent・候補の順で、すべてアプリ内のパス", () => {
+      expect(NAVIGATION_ITEMS.map((item) => item.href)).toEqual(["/setup-status", "/runs", "/runs/new", "/jobs", "/agents", "/miswrite-candidates"]);
+      expect(NAVIGATION_ITEMS[4]!.text).toBe("Agent");
       for (const item of NAVIGATION_ITEMS) expect(item.text).not.toBe("");
     });
 

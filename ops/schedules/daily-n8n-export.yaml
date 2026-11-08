@@ -7,3 +7,17 @@ agent: null
 builtin: n8n-export
 after: []
 timeout_sec: 600
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理。本番の n8n のワークフローを Public API で読み、揮発する欄を除いて承認済み main の middleware/n8n/workflows/ と比べ、差分があれば GitHub に PR（chore/n8n-export-YYYYMMDD）を作る。設定が無ければ見送る。
+stage: maintain
+io:
+  reads:
+    - "本番の n8n のワークフロー（Public API）"
+    - "承認済み main の middleware/n8n/workflows/"
+  writes:
+    - "GitHub のブランチ・コミット・PR"
+  does_not_write:
+    - "作業ツリー"
+    - "本番の n8n（読むだけ）"
+    - "main にあって n8n に無いファイルの削除"

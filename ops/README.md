@@ -28,6 +28,11 @@ ops/
 | `kind` | `agent`（`agent` と `prompt` が必須）／ `builtin`（`builtin` が必須） |
 | `after` | 先に当日 `success` で終わっている必要がある job の id。満たさなければ見送って `skipped` を記録する |
 | `prompt` | **取得の範囲（期間・件数・上限）をここに固定する。** エージェントに決めさせない（実行のたびに範囲が変わると `E-13` の `evidence` が比較できなくなる） |
+| `overview` | 任意。監視アプリのジョブの画面の「① 処理の概要」。2〜4 文で、何を起動し、何を読んで何をまとめるか、何をしないか。**事実だけ**（Agent の `.md`・`prompt`・builtin のコードに書いてあること）。時刻は書かない（`cron` が正本） |
+| `stage` | 任意。改善ループの中の段階。`measure`（計測）・`observe`（観測）・`propose`（提案）・`file`（起票）・`create`（制作）・`check`（点検）・`maintain`（保守）・`monitor`（監視）のどれか |
+| `io` | 任意。「② 入出力」。`reads`（読むもの）・`writes`（書くもの）・`does_not_write`（書かないもの。誤解されやすいものだけ）の文字列の配列。待つ／待たれるジョブは `after` から画面が作るので書かない |
+
+- `overview`・`stage`・`io` は 2026-11-06 に足した（設計は `docs/superpowers/specs/2026-11-06-job-agent-info-design.md` の 4 節）。**すべて任意**で、無くても定義は読める。**形が違う（8 値以外の `stage`、文字列でない `io` の要素など）ときは、その欄だけ画面に出さず、ジョブは動かす**（監視アプリのログに WARN で欄の名前だけが出る。2026-11-09。表示のための欄の誤りで本番のジョブを止めないため）。定義の中身（何をするか）を変えたときは、この 3 つも同じ PR で直す
 
 前回の実行が終わっていなければ、起動を見送って `skipped` を理由つきで記録する。
 
@@ -80,6 +85,7 @@ ops/
 | 0〜8 時の 15 分ごと | `runlog-flush`（E-15 の写しの送り直し。最後は 07:45） | 07:50 |
 
 - **改善ループの本体はすべて 06:25 までに終わる**（最長の上限）。8 時までの残り 1 時間半は、機械の遅れや手動の再実行のための余白。`runlog-flush` も 07:50 までに終わる
+- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と mautic-cron は 22 時〜翌 3 時 45 分に止まっている**（`cloud/template.yaml` の `NightlyStopSchedule`・`NightlyStartSchedule`。`cloud/README.md` の 4.11 の「夜間の停止」）。止まっているあいだ、Chatwoot への要求は ALB の 503 になる（control-plane の分類では `invalid_response`）。**Chatwoot を読む定期実行（`daily-observe-conversations`・`daily-miswrite-check`）は 03:45 より後に置く。** 2026-11-04 まで再開が 8 時で、この 2 本が毎晩失敗していたので、再開を 3 時 45 分に早めた。mautic-web は止めないので、Mautic を読む `daily-observe-analytics` は時刻を選ばない
 - **03:00〜03:30 を空けてある。** RDS の保守の窓（`cloud/stacks/data.yaml` の `DbMaintenanceWindow`。日曜 18:00 UTC＝**月曜 03:00 JST**）と重ねない。日次バックアップ（02:00〜02:30 JST）は書き込みを止めないので重なってもよいが、週次の書き込み（02:30〜）はその後に置いた
 - 順序は以前と同じ（月曜の計測 → 週次の観測 → 日次の観測 → 提案 → 起票・突き合わせ）。`after` は「当日（JST の 0 時から）`success`」なので、0 時より後に並べれば崩れない。`monthly-analysis` は以前は `daily-i13-file` と同時刻（08:00）で起票が翌日に回っていたが、i13 の前に置いたので当日に PR になる
 - 観測の取得範囲は「3 日前まで」「直近 24 時間」の相対指定なので、起動を早めても範囲は変わらない

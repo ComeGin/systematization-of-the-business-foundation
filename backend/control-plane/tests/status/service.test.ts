@@ -6,7 +6,7 @@ import type { ControlPlaneConfig } from "../../src/config.js";
 import type { Catalog } from "../../src/status/catalog.js";
 import { CatalogError } from "../../src/status/catalog.js";
 import type { SetupCheckReport, SetupScript } from "../../src/status/run-check.js";
-import { DISABLED_REASON, SetupStatusService, type SetupStatusDeps } from "../../src/status/service.js";
+import { CHECK_INTERVAL_MS, DISABLED_REASON, SetupStatusService, type SetupStatusDeps } from "../../src/status/service.js";
 import { StatusStore } from "../../src/status/store.js";
 import { tempDir } from "../helpers/runner.js";
 
@@ -172,7 +172,7 @@ const item = (service: SetupStatusService, id: string) =>
 
 describe("SetupStatusService", () => {
   describe("正常系", () => {
-    it("入力: 起動の 30 秒後に 1 回確かめ、以後 10 分ごと（nextCheckAt は次の予定）", async () => {
+    it("入力: 起動の 30 秒後に 1 回確かめ、以後 1 時間ごと（nextCheckAt は次の予定）", async () => {
       const service = create();
       service.start();
       expect(service.view().nextCheckAt).toBe("2026-11-03T10:00:30.000+09:00");
@@ -182,9 +182,11 @@ describe("SetupStatusService", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(deps.fetchMain).toHaveBeenCalledTimes(1);
       expect(deps.runSetupCheck).toHaveBeenCalledTimes(2);
-      expect(service.view().nextCheckAt).toBe("2026-11-03T10:10:30.000+09:00");
+      expect(service.view().nextCheckAt).toBe("2026-11-03T11:00:30.000+09:00");
       expect(service.view().steps.map((s) => s.id)).toEqual(["P2", "P7", "P12"]);
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS - 1_000);
+      expect(deps.fetchMain).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(deps.fetchMain).toHaveBeenCalledTimes(2);
       service.stop();
     });
@@ -243,28 +245,29 @@ describe("SetupStatusService", () => {
       expect(deps.checkN8nWorkflows).toHaveBeenCalledTimes(1);
       expect(item(service, "P14.n8n")).toMatchObject({ level: "ok", evidence: "一致", checkedAt: "2026-11-03T10:00:30.000+09:00" });
 
-      // 10:10:30（定期）: 呼ばずに引き継ぐ。公開サイトの再配信（製品の API ではない）は毎回確かめる
+      // 「今すぐ確かめる」は 1 時間以内でも呼ぶ（10:12）
       deps.checkN8nWorkflows.mockResolvedValue({ id: "n8n-workflows", level: "action", evidence: "違う" });
-      clock = new Date(T0.getTime() + 10 * 60 * 1000 + 30_000);
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-      expect(deps.checkN8nWorkflows).toHaveBeenCalledTimes(1);
-      expect(deps.checkSiteRedeploy).toHaveBeenCalledTimes(2);
-      expect(item(service, "P14.n8n")).toMatchObject({ level: "ok", evidence: "一致", checkedAt: "2026-11-03T10:00:30.000+09:00" });
-      expect(new StatusStore(join(root, "data")).load()?.driftResults?.find((d) => d.id === "n8n-workflows")?.checkedAt).toBe(
-        "2026-11-03T10:00:30.000+09:00",
-      );
-
-      // 「今すぐ確かめる」は 1 時間以内でも呼ぶ
       clock = new Date(T0.getTime() + 12 * 60 * 1000);
       service.refresh();
       await settle();
       expect(deps.checkN8nWorkflows).toHaveBeenCalledTimes(2);
       expect(item(service, "P14.n8n")).toMatchObject({ level: "action", checkedAt: "2026-11-03T10:12:00.000+09:00" });
 
-      // 11:12:00 以降の定期の回（1 時間たった）: また呼ぶ
-      clock = new Date(T0.getTime() + 72 * 60 * 1000 + 30_000);
-      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
-      expect(deps.checkN8nWorkflows.mock.calls.length).toBeGreaterThanOrEqual(3);
+      // 11:00:30（定期）: 10:12 から 1 時間たっていないので呼ばずに引き継ぐ。公開サイトの再配信（製品の API ではない）は毎回確かめる
+      deps.checkN8nWorkflows.mockResolvedValue({ id: "n8n-workflows", level: "ok", evidence: "一致" });
+      clock = new Date(T0.getTime() + 60 * 60 * 1000 + 30_000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+      expect(deps.checkN8nWorkflows).toHaveBeenCalledTimes(2);
+      expect(deps.checkSiteRedeploy).toHaveBeenCalledTimes(3);
+      expect(item(service, "P14.n8n")).toMatchObject({ level: "action", evidence: "違う", checkedAt: "2026-11-03T10:12:00.000+09:00" });
+      expect(new StatusStore(join(root, "data")).load()?.driftResults?.find((d) => d.id === "n8n-workflows")?.checkedAt).toBe(
+        "2026-11-03T10:12:00.000+09:00",
+      );
+
+      // 12:00:30（定期。10:12 から 1 時間たった）: また呼ぶ
+      clock = new Date(T0.getTime() + 120 * 60 * 1000 + 30_000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+      expect(deps.checkN8nWorkflows).toHaveBeenCalledTimes(3);
       service.stop();
     });
 
@@ -285,13 +288,14 @@ describe("SetupStatusService", () => {
 
     it("入力: 1 時間以内の定期の確認では製品の API のモジュールを飛ばし、前回の結果をその時の checkedAt のまま引き継ぐ", async () => {
       const service = create();
-      service.start();
-      await vi.advanceTimersByTimeAsync(30_000); // 1 回目（10:00）。製品の API も確かめる
+      service.refresh(); // 1 回目（10:00。「今すぐ確かめる」）。製品の API も確かめる
+      await settle();
       expect((deps.runSetupCheck.mock.calls[0]![0] as { skip: string[] }).skip).toEqual([]);
       const first = item(service, "P7.ecs").checkedAt;
 
-      clock = new Date(T0.getTime() + 10 * 60 * 1000);
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000); // 2 回目（10:10）
+      clock = new Date(T0.getTime() + 20 * 60 * 1000);
+      service.start();
+      await vi.advanceTimersByTimeAsync(30_000); // 2 回目（10:20 の定期。1 時間たっていない）
       const second = deps.runSetupCheck.mock.calls.slice(2).map((c) => c[0] as { script: string; skip: string[] });
       expect(second.find((c) => c.script === "setup/setup.mjs")!.skip).toEqual(["chatwoot-prod"]);
       // frontend.mjs には chatwoot-prod が無いので渡さない（無い id を --skip に渡すと止まる）
@@ -310,6 +314,22 @@ describe("SetupStatusService", () => {
       await vi.advanceTimersByTimeAsync(30_000);
       const last = deps.runSetupCheck.mock.calls.at(-2)![0] as { script: string; skip: string[] };
       expect(last).toMatchObject({ script: "setup/setup.mjs", skip: [] });
+      service.stop();
+    });
+
+    it.each([
+      ["ちょうど 1 時間", 60 * 60 * 1000, []],
+      ["1 分足りない（59 分。タイマーの揺れを許す）", 59 * 60 * 1000, []],
+      ["1 分を超えて足りない（58 分 59 秒）", 58 * 60 * 1000 + 59_000, ["chatwoot-prod"]],
+    ])("入力: 前回の製品の API から %s の定期の回の skip", async (_label, elapsed, skip) => {
+      const service = create();
+      service.refresh(); // 10:00 に製品の API も確かめた
+      await settle();
+      clock = new Date(T0.getTime() + elapsed);
+      service.start();
+      await vi.advanceTimersByTimeAsync(30_000);
+      const last = deps.runSetupCheck.mock.calls.at(-2)![0] as { script: string; skip: string[] };
+      expect(last).toMatchObject({ script: "setup/setup.mjs", skip });
       service.stop();
     });
 
@@ -431,7 +451,7 @@ describe("SetupStatusService", () => {
         running: false,
       });
       expect(deps.fetchMain).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
       expect(service.view().reason).toBeNull();
       expect(service.view().steps).toHaveLength(3);
       service.stop();
@@ -463,7 +483,7 @@ describe("SetupStatusService", () => {
       const service = create();
       service.start();
       await vi.advanceTimersByTimeAsync(30_000);
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
       expect(deps.fetchMain).toHaveBeenCalledTimes(1);
       release();
       await settle();
@@ -542,9 +562,9 @@ describe("SetupStatusService", () => {
       expect(item(service, "P7.ecs").level).toBe("unknown");
       expect(new StatusStore(join(root, "data")).load()?.productApiCheckedAt).toBe("2026-11-03T11:01:00.000+09:00");
 
-      // 11:11 の定期の回: 1 時間たっていないので飛ばし、10:00 の結果を引き継ぐ
+      // 次の定期の回（時計は 11:11 に置く）: 11:01 の失敗から 1 時間たっていないので飛ばし、10:00 の結果を引き継ぐ
       clock = new Date(T0.getTime() + 71 * 60 * 1000);
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
       const next = deps.runSetupCheck.mock.calls.at(-2)![0] as { script: string; skip: string[] };
       expect(next).toMatchObject({ script: "setup/setup.mjs", skip: ["chatwoot-prod"] });
       expect(item(service, "P7.ecs")).toMatchObject({ level: "ok", checkedAt: firstChecked });

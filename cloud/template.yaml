@@ -272,8 +272,11 @@ Parameters:
     AllowedPattern: ^(?!latest$).+$
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
-  # 夜間の停止（2026-10-26。ユーザーの決定）。chatwoot-web・chatwoot-worker・mautic-cron を毎日 22 時〜翌 8 時（日本時間）に 0 台にする。
-  # mautic-web は止めない（夜間の公開サイトのフォームの申し込みを取りこぼさないため）。費用は月 $37 前後下がる（README の 3.1）
+  # 夜間の停止（2026-10-26。ユーザーの決定）。chatwoot-web・chatwoot-worker・mautic-cron を毎日 22 時〜翌 3 時 45 分（日本時間）に 0 台にする。
+  # mautic-web は止めない（夜間の公開サイトのフォームの申し込みを取りこぼさないため）。費用は月 $22 前後下がる（README の 3.1）
+  # 再開は 2026-11-04 に 8 時から 3 時 45 分へ早めた（ユーザーの決定）。改善ループの定期実行（ops/schedules。0〜8 時）のうち
+  # Chatwoot を読む 04:00 の daily-observe-conversations と 05:45 の daily-miswrite-check が、停止中の ALB の 503 で毎晩失敗していたため。
+  # 03:00〜03:30（月曜の RDS の保守の窓）の後に起こし、04:00 までにタスクの起動とヘルスチェック（2 分ほど）を終える。
   NightlyStopEnabled:
     Type: String
     Default: 'true'
@@ -285,7 +288,7 @@ Parameters:
     Default: cron(0 22 * * ? *)
   NightlyStartSchedule:
     Type: String
-    Default: cron(0 8 * * ? *)
+    Default: cron(45 3 * * ? *)
   NightlyStopTimezone:
     Type: String
     Default: Asia/Tokyo

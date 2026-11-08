@@ -64,7 +64,13 @@ export async function loadAgentDefinition(mainCheckout: string, agentName: strin
 
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
   if (!match) throw new AgentDefinitionError(`frontmatter が無い: ${agentName}`);
-  const front = parseYaml(match[1] ?? "") as Record<string, unknown> | null;
+  let front: Record<string, unknown> | null;
+  try {
+    front = parseYaml(match[1] ?? "") as Record<string, unknown> | null;
+  } catch {
+    // YAML の構文エラー（キーの重複・閉じない括弧など）。値は出さない（監視アプリの「読めない定義」に名前だけ出す。2026-11-06）
+    throw new AgentDefinitionError(`frontmatter を解釈できない: ${agentName}`);
+  }
   if (!front || typeof front !== "object") throw new AgentDefinitionError(`frontmatter が不正: ${agentName}`);
   if (front.name !== agentName) throw new AgentDefinitionError(`frontmatter の name がファイル名と一致しない: ${agentName}`);
 
