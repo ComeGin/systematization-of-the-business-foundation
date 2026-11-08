@@ -267,7 +267,7 @@ export const STEPS = [
         overviewText: "管理者でログインし、右上の歯車 → Configuration で設定する", probe: mod("mautic-prod", "apps"), docs: cloud("4.10", "4.9.5", "7.4"), stopId: "mautic-prod:settings" },
       { id: "P8.setup-client", title: "初期設定用の API 認証情報を作り、MAUTIC_PROD_SETTINGS_DONE=yes", who: "人・画面", kind: "申告",
         overviewText: "初期設定用の API 認証情報を作る", probe: NONE, docs: cloud("7.4"), stopId: "mautic-prod:settings" },
-      { id: "P8.apply", title: "mautic-prod を実行する（カスタム項目・フォーム consult・自動返信・セグメント mql）", who: "人・端末", kind: "検査",
+      { id: "P8.apply", title: "mautic-prod を実行する（カスタム項目・フォーム consult・自動返信・社内通知・セグメント mql）", who: "人・端末", kind: "検査",
         overviewText: "`node setup/setup.mjs --target prod --only mautic-prod`", probe: mod("mautic-prod", "apps"), docs: [] },
       { id: "P8.cron-count", title: "MauticCronDesiredCount を 1 にして sam deploy", who: "人・端末", kind: "検査",
         overviewText: "`MauticCronDesiredCount=1`", probe: mod("mautic-prod", "apps"), docs: cloud("4.11"), stopId: "mautic-prod:ecs-cron" },

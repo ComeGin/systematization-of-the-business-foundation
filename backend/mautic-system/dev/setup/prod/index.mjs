@@ -1,7 +1,7 @@
 // Mautic（本番。ECS の mautic-web。https://mkt.comegin.com）の初期設定。setup/lib/core.mjs の契約に従う。--target prod だけ。
 //
 // 開発のモジュール（../index.mjs）の API の ensure* を、接続先（ctx.mauticBase）を差し替えてそのまま使う
-// （カスタム項目 3 つ・フォーム consult・その自動返信・セグメント mql。定義の正本は開発のモジュールの定数）。
+// （カスタム項目 3 つ・フォーム consult・その自動返信と社内通知・セグメント mql。定義の正本は開発のモジュールの定数）。
 // 使うのは REST API（/api/*・/oauth/v2/token。本番の ALB の機械向けのルール 202 を通る）だけで、AWS には書き込まない。
 //
 // 人が行うもの（止まって案内する）。本番は ECS の中で動き、config/local.php は EFS にあるので、開発のように PHP で書き換えない:
@@ -12,9 +12,9 @@
 //   - 最初に mautic-web の DesiredCount（親のパラメータ）が 1 か。0 ならインストールの画面が開かないので、上げる手順を案内して止まる
 //   - 最後に mautic-cron の DesiredCount が 1 か。cron はインストールが終わるまで待つので、初期設定の後に上げる（2 つ動くとメールが二重になるので 1 に固定）
 import { isAwsUnavailable, notRunningNote, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../../cloud/setup/aws.mjs";
-import { apiEnabled, ensureAutoReply, ensureContactFields, ensureForms, ensureSegment, fetchToken } from "../index.mjs";
+import { apiEnabled, ensureAutoReply, ensureContactFields, ensureForms, ensureSegment, ensureStaffNotice, fetchToken } from "../index.mjs";
 
-export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・セグメント）", targets: ["prod"], phases: ["apps"], after: [] };
+export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・社内通知・セグメント）", targets: ["prod"], phases: ["apps"], after: [] };
 
 const DEFAULT_BASE_URL = "https://mkt.comegin.com";
 // オンプレの n8n の Webhook の受け口（WireGuard のアドレス。cloud/template.yaml の OnpremPeerAddress）。変えたら prod.conf の ONPREM_WEBHOOK_HOST
@@ -23,11 +23,12 @@ const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
 
 const baseOf = (ctx) => String(ctx.conf.MAUTIC_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 
-// 初期設定（ensure*）が最後まで済むと、作ったものの ID がこの 3 つとして状態に入る。
+// 初期設定（ensure*）が最後まで済むと、作ったものの ID がこの 4 つとして状態に入る。
 // 済んだ後は、初期設定用の API 認証情報（MAUTIC_SETUP_CLIENT_*）を prod.conf と画面から消す決まり（setup/00-setup-overview.md の P15。
-// cloud の段階 operate が残りを警告する）。消した後に「無い」で止めると P15 と矛盾するので、3 つがそろっていれば初期設定を飛ばす。
+// cloud の段階 operate が残りを警告する）。消した後に「無い」で止めると P15 と矛盾するので、4 つがそろっていれば初期設定を飛ばす。
 // 作り直したいとき（画面でフォームを消したなど）は、初期設定用の認証情報を作り直して prod.conf に書けば、ensure* が名前で探して直す。
-const SETUP_RESULT_KEYS = ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL", "MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY"];
+// 定義を足したとき（2026-11-09 の社内通知。MAUTIC_FORM_ACTION_ID_CONSULT_NOTICE）は、その ID が状態に無いので、認証情報の作り直しだけを案内して止まる（manualSetupClient）。
+const SETUP_RESULT_KEYS = ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL", "MAUTIC_EMAIL_ID_CONSULT_AUTO_REPLY", "MAUTIC_FORM_ACTION_ID_CONSULT_NOTICE"];
 const setupFinished = (ctx) => SETUP_RESULT_KEYS.every((key) => ctx.state.has(key));
 
 /** 未認証で /api を叩いて状態を見る。未インストールは /installer への 302、API が無効は 403 api_disabled、有効は 401、それ以外（ALB の 502・503 など）は abnormal */
@@ -80,7 +81,8 @@ export async function check(ctx) {
   const id = ctx.conf.MAUTIC_SETUP_CLIENT_ID;
   const secret = ctx.conf.MAUTIC_SETUP_CLIENT_SECRET;
   if (!id || !secret) {
-    mark(setupFinished(ctx), "初期設定は済み（初期設定用の API 認証情報は prod.conf から消してある。P15 のとおり。やり直すときだけ書き直す）", "MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET が prod.conf に無い");
+    const missing = SETUP_RESULT_KEYS.filter((key) => !ctx.state.has(key));
+    mark(setupFinished(ctx), "初期設定は済み（初期設定用の API 認証情報は prod.conf から消してある。P15 のとおり。やり直すときだけ書き直す）", ctx.state.has("MAUTIC_FORM_ID_CONSULT") ? `初期設定に足した定義がまだ（${missing.join("・")} が状態に無い）。初期設定用の API 認証情報を作り直して prod.conf に書き、apply する` : "MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET が prod.conf に無い");
   } else if (state === "enabled") mark(Boolean(await fetchToken({ ...ctx, mauticBase: baseOf(ctx) }, id, secret)), "初期設定用の API 認証情報でトークンを取れる", "初期設定用の API 認証情報でトークンを取れない");
   for (const key of ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL"]) mark(ctx.state.has(key), `${key} は状態にある（${ctx.state.get(key)}）`, `${key} がまだ状態に無い（apply で作る）`);
   return settleAwsUnavailable({ ok, notes }, awsDown);
@@ -107,8 +109,18 @@ export async function apply(ctx) {
   const hasSetupClient = Boolean(id && secret);
   if (settingsDone && !hasSetupClient && setupFinished(ctx)) {
     // P15 で初期設定用の値を消した後。初期設定は済んでいるので、cron の台数だけを確かめる
-    ctx.log("初期設定は済み（フォーム consult・自動返信・セグメント mql の ID は状態にある）。初期設定用の API 認証情報が prod.conf に無いので、初期設定は飛ばす（やり直すときは作り直して書く）");
+    ctx.log("初期設定は済み（フォーム consult・自動返信・社内通知・セグメント mql の ID は状態にある）。初期設定用の API 認証情報が prod.conf に無いので、初期設定は飛ばす（やり直すときは作り直して書く）");
   } else {
+    if (settingsDone && !hasSetupClient && ctx.state.has("MAUTIC_FORM_ID_CONSULT")) {
+      // インストールと初期設定は済んでいて、P15 で認証情報を消した後に定義を足した（社内通知など）。画面の設定はやり直さない
+      const missing = SETUP_RESULT_KEYS.filter((key) => !ctx.state.has(key));
+      ctx.manual("setup-client", `本番の Mautic の初期設定に足した定義を反映する（${missing.join("・")} が状態に無い）`, [
+        `${baseOf(ctx)}/s/credentials（設定 > API 認証情報）を管理者で開き、New で OAuth 2 の認証情報を作る（名前 comegin-prod-setup。Redirect URI は https://localhost。client_credentials では使わない）`,
+        "Public Key と Secret Key を ~/.config/comegin/setup/prod.conf の MAUTIC_SETUP_CLIENT_ID=・MAUTIC_SETUP_CLIENT_SECRET= に書く（chmod 600）",
+        "node setup/setup.mjs --target prod --only mautic-prod を実行し直す（作り済みのものは名前で見つけて飛ばし、足りないものだけを作る）",
+        "終わったら、P15 のとおり prod.conf の 2 行を消し、画面の comegin-prod-setup も消す（setup/00-setup-overview.md の P15）",
+      ]);
+    }
     if (!settingsDone || !hasSetupClient) {
       ctx.manual("settings", "本番の Mautic をインストールし、画面で設定して、初期設定用の API 認証情報を prod.conf に書く", settingsSteps(ctx));
     }
@@ -120,6 +132,7 @@ export async function apply(ctx) {
     await ensureContactFields(c, token);
     await ensureForms(c, token);
     await ensureAutoReply(c, token);
+    await ensureStaffNotice(c, token);
     await ensureSegment(c, token);
     ctx.log("フォーム consult とセグメント mql の ID を prod の状態に置いた（MAUTIC_FORM_ID_CONSULT は node setup/frontend.mjs --target prod の .env.production が読む）");
     ctx.log("Mautic から n8n（I-11）への Webhook は、オンプレの本番の n8n の provision（n8n-prod）が作る（宛先 http://10.99.0.2:5680/webhook/mautic-event）");

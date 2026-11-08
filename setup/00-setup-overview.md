@@ -180,7 +180,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
   - **SES が本番アクセスの前（サンドボックス）のあいだは、宛先も検証済みの ID だけ**。ドメイン `comegin.com` を検証済みなので `@comegin.com` 宛てなら届き、外部の宛先は SES が拒否する（上限は 24 時間で 200 通・毎秒 1 通）。本番アクセスの申請は P12
 - [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — cloud 7.4
   - `prod.conf` は `chmod 600`（ほかのユーザーが読めるとスクリプトが警告する）
-- [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・セグメント mql。作り済みのものは名前で見つけて飛ばす）
+- [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・社内通知〈`kamegin4@comegin.com` へ。個人情報を載せない。2026-11-09〉・セグメント mql。作り済みのものは名前で見つけて飛ばす）
 - [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `sam deploy`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
 
 インストーラーで 1045 になったときのコマンド（秘密値は画面にもシェルの履歴にも出ない。コンテナの中の環境変数で書き直す）:
@@ -299,7 +299,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」
 - [ ] 〔警告〕**人・端末** 初期設定が終わったら、`prod.conf` から `CHATWOOT_ADMIN_TOKEN` と `MAUTIC_SETUP_CLIENT_*` を消し、Mautic の初期設定用の API 認証情報を画面で消す — cloud 7.3・7.4
   - 〔未検査〕スクリプトが確かめるのは `prod.conf` から消えたことだけ。Mautic の画面（歯車 → API Credentials）から消したかは確かめない（消した後は、その値で読み取りを試せない）。一覧に `comegin-prod-n8n`・エージェント用・参照専用だけが残っていることを、目で見て確かめる。`CHATWOOT_ADMIN_TOKEN` は、`chatwoot-prod`・`n8n-prod` を再実行するときだけ一時的に戻す
-  - `MAUTIC_SETUP_CLIENT_*` を消した後も、`mautic-prod` は止まらない（フォーム consult・自動返信・セグメント mql の ID が状態にそろっていれば、初期設定を飛ばして cron の台数だけを確かめる。2026-11-03 に直した。以前は「`prod.conf` に無い」で `mautic-prod:settings` に止まり、この手順と矛盾していた）。初期設定をやり直すときだけ、認証情報を作り直して書く — cloud 7.4
+  - `MAUTIC_SETUP_CLIENT_*` を消した後も、`mautic-prod` は止まらない（フォーム consult・自動返信・社内通知・セグメント mql の ID が状態にそろっていれば、初期設定を飛ばして cron の台数だけを確かめる。2026-11-03 に直した。以前は「`prod.conf` に無い」で `mautic-prod:settings` に止まり、この手順と矛盾していた）。初期設定をやり直すときと、初期設定に定義を足したとき（2026-11-09 の社内通知。`mautic-prod:setup-client` で止まる）だけ、認証情報を作り直して書き、終わったらまた消す — cloud 7.4
 - [ ] 〔警告〕**人・画面** SES の本番アクセス（P12 で申請したもの）が承認されている — cloud 4.9.2
 - [ ] 〔未検査〕**人・画面** ほかの担当者を Chatwoot の受信箱「Web サイト」のメンバーにし、各自のプロフィールで「新しい会話が作成されたとき」のメール通知を有効にする（2026-11-03 の時点で、ユーザーは管理者とエージェント専用ユーザーの 2 人だけ。担当者を足したときに行う）— cloud 4.17 の 5・cloud 7.3
 - [ ] **判断** [6 節](#6-判断が残っている項目r1)の項目

@@ -1650,10 +1650,10 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 
 ### 7.4 本番の Mautic（`mautic-prod`）
 
-開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
+開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・社内通知・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
 
 - インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
-- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉だけ、作り直して書く）
+- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・社内通知・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉と、初期設定に定義を足したとき〈2026-11-09 の社内通知。`mautic-prod:setup-client` で止まる〉だけ、作り直して書く）
 - 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
 
 画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`setup/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。

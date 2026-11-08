@@ -290,6 +290,26 @@ export const CONSULT_AUTO_REPLY = {
     ["ComeGin"],
   ],
 };
+// 無料相談の受付を社内（R3）へ知らせるメール。フォーム consult のアクション「フォームの結果を送る」（form.email）で、Mautic から SES で直接送る
+// （2026-11-09 のユーザーの決定。I-21〈SNS comegin-lead-alert〉はオンプレの n8n が止まっていると届かないので、その間の受け漏れを防ぐ。両方動いていれば 1 件で 2 通届く）。
+// 載せる範囲は I-21 と同じ DA-05 の 1.3 に従い、氏名・メールアドレス・相談内容を載せない。会社名（1.3 では載せてよい）も載せない:
+// FormSubscriber::onFormSubmitActionSendEmail は入力の値を html_entity_decode して HTML の本文に差し込むので、自由入力を入れると社内の受信箱に任意の HTML・リンクを送らせられる。
+// 載せるのは Mautic が採番したコンタクトの ID（{contactfield=id}。件名でも置き換わる）と、管理画面へのリンクだけ。会社名は SNS の通知（平文）か管理画面で見る。
+// 返信先を送信者にしない（set_replyto: false。検証していない入力のアドレスへ、通知メールの返信で社内の文面が出ていかないように）
+export const CONSULT_STAFF_NOTICE = {
+  stateKey: "MAUTIC_FORM_ACTION_ID_CONSULT_NOTICE",
+  formStateKey: "MAUTIC_FORM_ID_CONSULT",
+  name: "社内通知（受付）",
+  to: "kamegin4@comegin.com",
+  subject: "[ComeGin] 無料相談の申し込み（contact {contactfield=id}）",
+};
+// site は管理画面のオリジン（本番は https://mkt.comegin.com。admin-auth の内側）
+const staffNoticeHtml = (site, formId) =>
+  [
+    "<p>無料相談のフォーム（consult）に新しい申し込みがありました。</p>",
+    `<p>Mautic のコンタクト ID: {contactfield=id}<br>コンタクトの画面: ${site}/s/contacts/view/{contactfield=id}<br>フォームの送信の一覧: ${site}/s/forms/results/${formId}</p>`,
+    "<p>氏名・メールアドレス・相談内容・会社名は、このメールに載せていません（docs/RequirementDefinition/DA/05-data-governance.md の 1.3）。上の画面で確かめてください。</p>",
+  ].join("");
 const autoReplyPlainText = (def) => def.paragraphs.map((p) => p.join("\n")).join("\n\n");
 const autoReplyHtml = (def) =>
   `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>${def.subject}</title></head><body style="font-family: sans-serif; line-height: 1.75; color: #1a2b3c;">${def.paragraphs.map((p) => `<p>${p.join("<br>")}</p>`).join("")}</body></html>`;
@@ -353,6 +373,36 @@ export async function ensureAutoReply(ctx, token) {
     json: { actions: [{ name: "自動返信（受付確認）", type: "email.send.lead", order: 1, properties: { email: email.id } }] },
   });
   ctx.log(`フォーム consult の送信の後に自動返信（メール ID ${email.id}）を送るようにした`);
+}
+
+// フォーム consult に、社内通知のアクション（form.email）を付ける。名前で探し、宛先・件名・本文などが定義と違えば id を付けた PATCH で直す（画面で直した分は上書きされる）
+export async function ensureStaffNotice(ctx, token) {
+  const def = CONSULT_STAFF_NOTICE;
+  const formId = ctx.state.get(def.formStateKey);
+  const { form } = await api(ctx, token, "Mautic フォーム取得（consult）", `/forms/${formId}`);
+  const site = String(ctx.mauticBase ?? SITE_URL).replace(/\/+$/, "");
+  // はい・いいえの項目（YesNoButtonGroupType）は "0"・"1" で送る。JSON の false は null として保存され、set_replyto が null だと
+  // FormSubscriber は「未設定（2.13.0 より前の互換）」とみなして返信先を送信者にする（2026-11-09 に開発環境で確かめた）
+  const properties = { to: def.to, cc: "", bcc: "", subject: def.subject, message: staffNoticeHtml(site, formId), copy_lead: "0", set_replyto: "0", email_to_owner: "0", immediately: "0" };
+  const actions = form.actions ?? [];
+  const current = actions.find((a) => a.type === "form.email" && a.name === def.name);
+  // 保存された値は 1・0・"1"・"0"・null で返ってくるので、揃えてから比べる（null と 0 は区別する。上の理由で意味が違う）
+  const norm = (v) => ([true, 1, "1"].includes(v) ? "1" : [false, 0, "0"].includes(v) ? "0" : v == null ? "" : String(v));
+  const same = (a) => Object.entries(properties).every(([k, v]) => norm(a.properties?.[k]) === norm(v));
+  if (current && same(current)) {
+    ctx.state.set(def.stateKey, String(current.id));
+    ctx.log(`フォーム consult の送信を ${def.to} へ知らせる（設定済み）`);
+    return;
+  }
+  const order = current?.order ?? Math.max(0, ...actions.map((a) => Number(a.order) || 0)) + 1;
+  const body = await api(ctx, token, "Mautic フォームのアクション追加（consult の社内通知）", `/forms/${formId}/edit`, {
+    method: "PATCH",
+    json: { actions: [{ ...(current ? { id: current.id } : {}), name: def.name, type: "form.email", order, properties }] },
+  });
+  const saved = (body.form?.actions ?? []).find((a) => a.type === "form.email" && a.name === def.name);
+  if (!saved) throw new Error("フォーム consult に社内通知のアクションを付けたはずが、応答に見当たらない。Mautic の画面（フォーム > consult > アクション）を確かめる");
+  ctx.state.set(def.stateKey, String(saved.id));
+  ctx.log(current ? `フォーム consult の社内通知（${def.to}）を定義に合わせた（アクション ID ${saved.id}）` : `フォーム consult の送信を ${def.to} へ知らせるようにした（アクション ID ${saved.id}）`);
 }
 
 export async function ensureSegment(ctx, token) {
@@ -425,6 +475,7 @@ export async function apply(ctx) {
   await ensureContactFields(ctx, token);
   await ensureForms(ctx, token);
   await ensureAutoReply(ctx, token);
+  await ensureStaffNotice(ctx, token);
   await ensureSegment(ctx, token);
   ctx.log("終わった。フォームとセグメントの ID は状態に置いた（--show MAUTIC_FORM_ID_CONSULT など）");
 }
