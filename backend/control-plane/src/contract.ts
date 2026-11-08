@@ -243,6 +243,46 @@ export interface SetupStatusView {
   /** 直近の知らせの送信の失敗（種類だけ） */
   notifyError: string | null;
   steps: SetupStatusStepView[];
+  /**
+   * 実行の順番と、止まったときの案内（承認済み main の setup/status/steps.mjs と setup/manual-steps.md から、見るたびに読む）。
+   * 確認の結果ではないので保存しない。無効のとき・カタログを読めないときは null（古いカタログで RUN_ORDER が無ければ runOrder は空）
+   */
+  guide?: SetupGuide | null;
+}
+
+/** 実行の順番の 1 行（setup/README.md の「本番の段階」のコマンド） */
+export interface SetupRunOrderEntry {
+  id: string;
+  /** 実行するコマンド。人が行う手順（配信）は null */
+  command: string | null;
+  /** 何をするか */
+  note: string;
+  /** そのコマンドで進める段階の id */
+  steps: string[];
+  /** steps の判定のうち最も重いもの（steps が空・まだ確かめていなければ null） */
+  level: SetupStatusLevel | null;
+}
+
+/** 止まったときの案内（setup/manual-steps.md の 0 節の早見表の 1 行。どれも Markdown の 1 行で、リンクは文字にしてある） */
+export interface SetupStopGuide {
+  /** 1 列目（同じ行にまとめた id） */
+  ids: string;
+  /** いつ止まるか */
+  when: string;
+  /** 何をするか */
+  what: string;
+  /** 正本の節 */
+  section: string;
+}
+
+export interface SetupGuide {
+  runOrder: SetupRunOrderEntry[];
+  /** 段階の id → その段階を進める（止まったあとにやり直す）コマンド。空の配列は人だけが行う段階。古いカタログで commands の無い段階は入らない */
+  stepCommands: Record<string, string[]>;
+  /** 止まる id（例 cloud:secrets）→ 早見表の行 */
+  stopGuides: Record<string, SetupStopGuide>;
+  /** 早見表を読めなかった理由（読めたら null） */
+  stopTableError: string | null;
 }
 
 /** 手順書（Markdown）の 1 節。 */

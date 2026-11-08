@@ -48,7 +48,17 @@ const ItemSchema = z.object({
 const StepSchema = z.object({
   id: nonEmpty,
   title: nonEmpty,
+  // 2026-11-09 に足した。古いカタログ（main が先に進んでいない）には無いので省略できる
+  commands: z.array(nonEmpty).optional(),
   items: z.array(ItemSchema),
+});
+
+/** 実行の順番の 1 行（steps.mjs の RUN_ORDER） */
+const RunOrderSchema = z.object({
+  id: nonEmpty,
+  command: nonEmpty.nullable(),
+  note: nonEmpty,
+  steps: z.array(nonEmpty),
 });
 
 const CatalogSchema = z
@@ -56,6 +66,8 @@ const CatalogSchema = z
     version: z.literal(SUPPORTED_CATALOG_VERSION),
     productApiModules: z.array(nonEmpty),
     steps: z.array(StepSchema).min(1),
+    // 2026-11-09 に足した。古いカタログには無い
+    runOrder: z.array(RunOrderSchema).optional(),
   })
   .superRefine((catalog, ctx) => {
     // id の重複は、画面の key と評価結果の対応を壊す
@@ -69,12 +81,21 @@ const CatalogSchema = z
         itemIds.add(item.id);
       });
     });
+    const runIds = new Set<string>();
+    catalog.runOrder?.forEach((entry, i) => {
+      if (runIds.has(entry.id)) ctx.addIssue({ code: "custom", message: "実行の順番の id が重複している", path: ["runOrder", i, "id"] });
+      runIds.add(entry.id);
+      entry.steps.forEach((stepId, j) => {
+        if (!stepIds.has(stepId)) ctx.addIssue({ code: "custom", message: "実行の順番の段階が steps に無い", path: ["runOrder", i, "steps", j] });
+      });
+    });
   });
 
 export type CatalogProbe = z.infer<typeof ProbeSchema>;
 export type CatalogDocRef = z.infer<typeof DocRefSchema>;
 export type CatalogItem = z.infer<typeof ItemSchema>;
 export type CatalogStep = z.infer<typeof StepSchema>;
+export type CatalogRunOrderEntry = z.infer<typeof RunOrderSchema>;
 export type Catalog = z.infer<typeof CatalogSchema>;
 
 /** カタログの docs に現れるファイルの集合（手順書の読み出しの許可リスト）。 */
@@ -125,6 +146,7 @@ export async function loadCatalog(mainCheckout: string): Promise<Catalog> {
     version: mod.CATALOG_VERSION,
     productApiModules: mod.PRODUCT_API_MODULES,
     steps: mod.STEPS,
+    runOrder: mod.RUN_ORDER,
   });
   if (!parsed.success) throw new CatalogError(`カタログ（${CATALOG_FILE}）の形が不正: ${describeIssues(parsed.error)}`);
   return parsed.data;

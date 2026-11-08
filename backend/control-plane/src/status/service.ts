@@ -7,13 +7,13 @@
 // ログは logLine("setup-status") に、値を含めずに出す。
 import { homedir } from "node:os";
 import type { ControlPlaneConfig } from "../config.js";
-import type { SetupDocSection, SetupStatusView } from "../contract.js";
+import type { SetupDocSection, SetupGuide, SetupStatusLevel, SetupStatusView } from "../contract.js";
 import { logLine } from "../log.js";
 import { toIsoJst } from "../time.js";
 import { type Catalog, CatalogError, catalogDocFiles, loadCatalog } from "./catalog.js";
 import { readDocSection } from "./docs.js";
 import { type DriftResult, checkN8nWorkflows, checkSiteRedeploy } from "./drift.js";
-import { type EvaluatedStatus, type ModuleResultWithTime, evaluate, mergeModuleResults, zeroCounts } from "./evaluate.js";
+import { type EvaluatedStatus, type ModuleResultWithTime, evaluate, mergeModuleResults, worstLevel, zeroCounts } from "./evaluate.js";
 import { fetchMain } from "./git-fetch.js";
 import {
   type CatalogBrokenState,
@@ -25,6 +25,7 @@ import {
 } from "./notify.js";
 import { collectSecrets, redact } from "./redact.js";
 import { type SetupCheckReport, type SetupScript, SETUP_SCRIPTS, runSetupCheck } from "./run-check.js";
+import { readStopGuides } from "./stop-guide.js";
 import { StatusStore, type StoredDrift, type StoredStatus } from "./store.js";
 
 export const FIRST_CHECK_DELAY_MS = 30 * 1000;
@@ -49,6 +50,7 @@ export interface SetupStatusDeps {
   checkN8nWorkflows: typeof checkN8nWorkflows;
   collectSecrets: typeof collectSecrets;
   readDocSection: typeof readDocSection;
+  readStopGuides: typeof readStopGuides;
   sendNotifications: typeof sendNotifications;
   store: Pick<StatusStore, "load" | "save">;
   home: string;
@@ -120,6 +122,7 @@ export class SetupStatusService {
       checkN8nWorkflows,
       collectSecrets,
       readDocSection,
+      readStopGuides,
       sendNotifications,
       store: deps.store ?? new StatusStore(config.dataDir),
       home: homedir(),
@@ -192,6 +195,42 @@ export class SetupStatusService {
     };
     if (this.catalogError !== null) return { ...common, reason: this.catalogError, counts: zeroCounts(), steps: [] };
     return { ...common, reason: null, counts: snapshot?.counts ?? zeroCounts(), steps: snapshot?.steps ?? [] };
+  }
+
+  /**
+   * 実行の順番と止まったときの案内（画面の guide）。確認の結果ではなく手順書なので保存せず、見るたびに承認済み main から読む。
+   * 実行の順番の状態は、渡した view の段階の判定から決める。無効・カタログを読めないときは null。投げない。
+   */
+  async guide(view: SetupStatusView): Promise<SetupGuide | null> {
+    if (!view.enabled) return null;
+    let catalog: Catalog;
+    try {
+      catalog = await this.deps.loadCatalog(this.config.mainCheckout);
+    } catch {
+      // 理由は確認のたびに view.reason（catalogError）に出る
+      return null;
+    }
+    const levelOf = new Map<string, SetupStatusLevel>(view.steps.map((step) => [step.id, step.level]));
+    const runOrder = (catalog.runOrder ?? []).map((entry) => {
+      const levels = entry.steps.map((id) => levelOf.get(id)).filter((level): level is SetupStatusLevel => level !== undefined);
+      return {
+        id: entry.id,
+        command: entry.command,
+        note: entry.note,
+        steps: [...entry.steps],
+        level: levels.length > 0 ? worstLevel(levels) : null,
+      };
+    });
+    // commands を持たない段階（古いカタログ）は入れない（画面は「スクリプトでは進めない段階」と区別できなくなる）
+    const stepCommands: Record<string, string[]> = {};
+    for (const step of catalog.steps) if (step.commands !== undefined) stepCommands[step.id] = [...step.commands];
+    let stop: Awaited<ReturnType<typeof readStopGuides>>;
+    try {
+      stop = await this.deps.readStopGuides(this.config.mainCheckout);
+    } catch (error) {
+      stop = { guides: {}, error: `早見表を読めない（${errorName(error)}）` };
+    }
+    return { runOrder, stepCommands, stopGuides: stop.guides, stopTableError: stop.error };
   }
 
   /**

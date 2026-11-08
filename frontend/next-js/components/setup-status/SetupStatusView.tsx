@@ -14,6 +14,7 @@ import { AutoRefresh } from "@/components/common/AutoRefresh";
 import { formatTime } from "@/components/common/navigation";
 import { InfoLink } from "@/components/layout/tools-context";
 import { LevelStatus } from "./LevelStatus";
+import { RunOrderPanel } from "./RunOrderPanel";
 import { StepDetail } from "./StepDetail";
 import { StepList } from "./StepList";
 import { LEVEL_ORDER } from "./status-format";
@@ -21,7 +22,10 @@ import { LEVEL_ORDER } from "./status-format";
 /** 「今すぐ確かめる」のあと、結果が入れ替わるのを待つ上限（これを過ぎたら自動の読み直しをやめる） */
 const WAIT_LIMIT_MS = 120_000;
 
-/** 設定の状況。上に最後の確認・次の予定・件数・「今すぐ確かめる」、左に段階の地図、右に選んだ段階の項目。 */
+/**
+ * 設定の状況。上に最後の確認・次の予定・件数・「今すぐ確かめる」と実行の順番（setup/README.md の「本番の段階」）、
+ * 左に段階の地図、右に選んだ段階のコマンド・止まったときの操作・項目。
+ */
 export function SetupStatusView({ view, selectedStepId }: { view: SetupStatusData; selectedStepId: string | null }) {
   const router = useRouter();
   // 押した時点の checkedAt。結果の checkedAt が変わるまで（または上限まで）待つ
@@ -110,9 +114,11 @@ export function SetupStatusView({ view, selectedStepId }: { view: SetupStatusDat
           ))}
         </SpaceBetween>
 
+        {view.guide && view.guide.runOrder.length > 0 ? <RunOrderPanel entries={view.guide.runOrder} steps={view.steps} /> : null}
+
         <Grid gridDefinition={[{ colspan: { default: 12, m: 5, l: 4 } }, { colspan: { default: 12, m: 7, l: 8 } }]}>
           <StepList steps={view.steps} selectedStepId={selectedStep?.id ?? null} />
-          <StepDetail step={selectedStep} />
+          <StepDetail step={selectedStep} guide={view.guide ?? null} />
         </Grid>
       </SpaceBetween>
     </ContentLayout>
