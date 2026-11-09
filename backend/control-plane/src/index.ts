@@ -8,6 +8,9 @@ import type {
   AgentListing,
   ControlPlane,
   CreateControlPlane,
+  CycleId,
+  CycleRow,
+  CycleView,
   JobStatus,
   ListRunsQuery,
   ManualRunAccepted,
@@ -24,13 +27,16 @@ import { AGENT_NAME_PATTERN, AgentDefinitionError, loadAgentDefinition } from ".
 import { type McpRegistry, loadMcpRegistry } from "./definitions/registry.js";
 import { auditDatesForRuns, loadAuditIndex, observationsForRun } from "./definitions/audits.js";
 import { type LoadedSchedules } from "./definitions/schedules.js";
+import { CycleService } from "./cycle/service.js";
 import { Engine } from "./engine.js";
+import { ControlPlaneInputError } from "./errors.js";
 import { createCloudWatchClient, putHeartbeat } from "./integrations/aws.js";
 import { RunLogCopier } from "./integrations/runlog.js";
 import { logLine } from "./log.js";
 import { Scheduler, nextRunAt } from "./scheduler.js";
 import { SetupStatusService } from "./status/service.js";
 import { openE15Database } from "./store/db.js";
+import { CycleStore } from "./store/cycles.js";
 import { KvStore } from "./store/kv.js";
 import { LeaseStore } from "./store/leases.js";
 import { MiswriteStore } from "./store/miswrite.js";
@@ -45,13 +51,8 @@ export { openAuthDatabase } from "./store/db.js";
 /** Agent の名前の形。next-js の lib/ids.ts の写しが同じかをテストで確かめるために公開する（2026-11-09） */
 export { AGENT_NAME_PATTERN } from "./definitions/agent-def.js";
 
-/** 手動の起動の入力が不正（呼び出し側の誤り。画面・API では 4xx にする）。 */
-export class ControlPlaneInputError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ControlPlaneInputError";
-  }
-}
+/** 手動の起動・画面の操作の入力が不正（呼び出し側の誤り）。実体は errors.ts（cycle/service.ts と共有するため） */
+export { ControlPlaneInputError } from "./errors.js";
 
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 const RUNLOG_FLUSH_INTERVAL_MS = 10 * 60 * 1000;
@@ -67,6 +68,7 @@ class ControlPlaneImpl implements ControlPlane {
   private readonly engine: Engine;
   private readonly scheduler: Scheduler;
   private readonly setupStatus: SetupStatusService;
+  private readonly cycleService: CycleService;
   private readonly timers: NodeJS.Timeout[] = [];
   private started = false;
   private schedulesCache: { at: number; value: LoadedSchedules } | null = null;
@@ -79,6 +81,7 @@ class ControlPlaneImpl implements ControlPlane {
       runs,
       leases: new LeaseStore(this.db),
       kv: new KvStore(this.db),
+      cycles: new CycleStore(this.db),
       miswrite: new MiswriteStore(this.db),
       loadSchedules: () => this.loadSchedules(),
       copier: config.aws ? new RunLogCopier(runs, config.aws) : null,
@@ -86,6 +89,7 @@ class ControlPlaneImpl implements ControlPlane {
     this.engine = new Engine(this.ctx);
     this.scheduler = new Scheduler(this.ctx, this.engine);
     this.setupStatus = new SetupStatusService(config);
+    this.cycleService = new CycleService(this.ctx);
   }
 
   private async loadSchedules(fresh = false): Promise<LoadedSchedules> {
@@ -145,6 +149,7 @@ class ControlPlaneImpl implements ControlPlane {
     for (const timer of this.timers.splice(0)) clearInterval(timer);
     this.scheduler.stop();
     this.setupStatus.stop();
+    this.cycleService.stop();
     await this.engine.stopAll();
     if (wasStarted) logLine("INFO", "control-plane", "停止");
   }
@@ -263,6 +268,32 @@ class ControlPlaneImpl implements ControlPlane {
 
   async readSetupDoc(file: string, heading: string): Promise<SetupDocSection | null> {
     return this.setupStatus.readDoc(file, heading);
+  }
+
+  // ---- 改善ループ（実体は cycle/service.ts） ----
+
+  async getCycle(cycleId?: CycleId): Promise<CycleView> {
+    return this.cycleService.getCycle(cycleId);
+  }
+
+  async listCycles(): Promise<CycleRow[]> {
+    return this.cycleService.listCycles();
+  }
+
+  async approveCycleItem(itemId: Ulid, checked: string[], actor: string, expectedUpdatedAt: string): Promise<CycleView> {
+    return this.cycleService.approveCycleItem(itemId, checked, actor, expectedUpdatedAt);
+  }
+
+  async rejectCycleItem(itemId: Ulid, reason: string, actor: string): Promise<CycleView> {
+    return this.cycleService.rejectCycleItem(itemId, reason, actor);
+  }
+
+  async markCycleItemExecuted(itemId: Ulid, actor: string): Promise<{ accepted: boolean }> {
+    return this.cycleService.markCycleItemExecuted(itemId, actor);
+  }
+
+  async startCycle(actor: string): Promise<CycleView> {
+    return this.cycleService.startCycle(actor);
   }
 }
 

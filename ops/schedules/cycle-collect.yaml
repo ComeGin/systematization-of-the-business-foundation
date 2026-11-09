@@ -1,0 +1,26 @@
+id: cycle-collect
+description: "改善ループの項目の集約。作業場と E-15 から、この周の項目（記事・キャンペーン・コード・配信・提案・手作業）を集め、状態を確かめて更新する（エージェントは使わない）"
+enabled: false
+# 毎日 07:00。起動 + 600 秒 = 07:10 で、8 時より前。前の日の作用のジョブ（cycle-apply-*・article-cover は 06:50 までに終わる）の結果を拾う。Chatwoot は読まないので夜間停止（22〜3:45）とは関係ない
+cron: "0 7 * * *"
+kind: builtin
+agent: null
+builtin: cycle-collect
+after: []
+timeout_sec: 600
+overview: |
+  エージェントを使わない決まった処理。作業場（CONTROL_WORKTREE）の E-13 と成果物、E-15 の実行記録、本番の Strapi・Mautic（参照専用の認証情報）から、この周の項目を集めて状態（準備中・OK 待ち・承認済み・実行済み・確認済み・却下・確認で不合格）を更新し、作業場に周の要約（docs/cycles/<周 ID>.md）を書く。最初に、期間が終わって閉じていない周があれば閉じる。作用のジョブが失敗・見送りで終わった準備中の項目は「確認で不合格」にする。CONTROL_CYCLE_ANCHOR が無ければ見送る。Mautic の認証情報が無いときは campaign の項目の中身を埋めず、理由を出す（ほかの項目は動かす）。
+stage: monitor
+io:
+  reads:
+    - "作業場の docs/proposals・docs/audits・docs/cycles と、コード・記事・キャンペーンの成果物"
+    - "E-15（実行記録・周・項目）"
+    - "本番の Strapi（CONTROL_STRAPI_READ_TOKEN。記事の状態）"
+    - "本番の Mautic（参照専用の認証情報。メールとキャンペーンの状態・セグメントの件数だけ。個々のコンタクトは読まない）"
+    - "公開サイト（配信の確認）"
+  writes:
+    - "E-15 の項目（状態・要約。画面に出す文字は PII 検査を通す）"
+    - "作業場の docs/cycles/<周 ID>.md（項目と差し戻しの理由の要約）"
+  does_not_write:
+    - "本番の Strapi・Mautic・公開サイト（読むだけ）"
+    - "配信・公開・送信の実行（コマンドを画面に出すだけで、人が行う）"

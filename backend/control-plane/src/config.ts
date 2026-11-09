@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import * as z from "zod/v4";
+import { isMondayJst } from "./cycle/calendar.js";
 import { logLine } from "./log.js";
 
 // env ファイルに `VAR=` と書かれた空の値は未設定として扱う
@@ -33,6 +34,8 @@ const RawSchema = z.object({
   CONTROL_WORKTREE: requiredPath,
   CONTROL_SCHEDULER_ENABLED: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).default("false")),
   CONTROL_AGENT_HOME: optionalPath,
+  // 改善ループの周（14 日）の起点。JST の月曜の日付（YYYY-MM-DD）。未設定なら cycle_days のジョブは skipped
+  CONTROL_CYCLE_ANCHOR: optionalString,
   // エージェントに渡す唯一の秘密値
   ANTHROPIC_API_KEY: optionalString,
   // Lighthouse CI（builtin lighthouse）の計測対象。astro build が必須とする SITE_URL を、子プロセスに渡す
@@ -59,6 +62,31 @@ const RawSchema = z.object({
   // 本番の n8n のワークフローの書き出し（builtin n8n-export）。2 つ揃ったときだけ有効（片方だけなら skipped）
   CONTROL_N8N_EXPORT_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   CONTROL_N8N_EXPORT_API_KEY: optionalString,
+  // 本番の Strapi（builtin published-article-check の読み取りと、cover・配布ファイルの書き込み）。URL と読み取りトークンはグループ
+  CONTROL_STRAPI_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  CONTROL_STRAPI_READ_TOKEN: optionalString,
+  // 書き込みトークン（任意。article-cover・campaign-asset-upload だけが使う）。無ければ書き込みは行わず skipped
+  CONTROL_STRAPI_WRITE_TOKEN: optionalString,
+  // アイキャッチ画像の生成（builtin article-cover。OpenAI の Images API）。キーが無ければ article-cover は skipped
+  OPENAI_API_KEY: optionalString,
+  // 画像のモデルと横長のサイズ。既定は下の定数（2026-11-09 に OpenAI の公式ドキュメントで確認）
+  CONTROL_OPENAI_IMAGE_MODEL: optionalString,
+  CONTROL_OPENAI_IMAGE_SIZE: z.preprocess(
+    emptyToUndefined,
+    z.string().regex(/^\d{3,4}x\d{3,4}$/, "幅x高さ（例 1536x1024）の形にしてください").optional(),
+  ),
+  // 1 回の実行で作る枚数の上限（費用の上限）。1〜10
+  CONTROL_COVER_MAX_PER_RUN: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(10).default(3)),
+  // 配信（deploy の項目に出す aws のコマンドの埋め込み先）。3 つともグループ
+  CONTROL_DEPLOY_BUCKET: optionalString,
+  CONTROL_DEPLOY_DISTRIBUTION_ID: optionalString,
+  CONTROL_DEPLOY_AWS_PROFILE: optionalString,
+  // 本番の Mautic の読み取り（cycle-collect が campaign の項目の中身と送信の確認に使う。参照専用ロールの API 認証情報）。3 つともグループ
+  CONTROL_MAUTIC_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  CONTROL_MAUTIC_CLIENT_ID: optionalString,
+  CONTROL_MAUTIC_CLIENT_SECRET: optionalString,
+  // cycle-open が周の始まりに作業場（CONTROL_WORKTREE）を origin/main に合わせるか。既定 true（未コミットの変更があれば合わせない）
+  CONTROL_WORKTREE_SYNC: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).default("true")),
   // 設定の状況（設定の状況の画面）。CONTROL_SETUP_STATUS_ENABLED=true のときだけ、残りと AWS_REGION・SITE_URL が必須。
   // ここでは文字列として受けるだけにし、形の検査は transform で行う（誤りがあっても ConfigError にせず、この機能だけを止める。spec 7）
   CONTROL_SETUP_STATUS_ENABLED: optionalString,
@@ -81,6 +109,8 @@ export interface ControlPlaneConfig {
   schedulerEnabled: boolean;
   /** SDK の子プロセスに HOME として渡すディレクトリ。null なら実ホーム */
   agentHome: string | null;
+  /** 周の起点（JST の月曜の日付 YYYY-MM-DD）。未設定なら null（cycle_days のジョブは skipped） */
+  cycleAnchor: string | null;
   anthropic: { apiKey: string } | null;
   /** Lighthouse CI の子プロセスに渡す SITE_URL（無ければ渡さない） */
   siteUrl: string | null;
@@ -89,6 +119,16 @@ export interface ControlPlaneConfig {
   miswrite: { baseUrl: string; accountId: number; apiToken: string; agentUserId: number } | null;
   /** 本番の n8n の Public API（読み取り）。どちらかが未設定なら null（n8n-export は skipped）。キーはエージェントに渡さない */
   n8nExport: { baseUrl: string; apiKey: string } | null;
+  /** 本番の Strapi。URL と読み取りトークンが揃ったときだけ非 null。トークンはエージェントに渡さない。writeToken は書き込む builtin だけが使う */
+  strapi: { baseUrl: string; readToken: string; writeToken: string | null } | null;
+  /** アイキャッチ画像の生成（OpenAI）。OPENAI_API_KEY があるときだけ非 null。キーはエージェントに渡さない */
+  openai: { apiKey: string; imageModel: string; imageSize: string; maxPerRun: number } | null;
+  /** 配信の埋め込み先（バケット・ディストリビューション ID・aws の SSO プロファイル）。3 つ揃ったときだけ非 null */
+  deploy: { bucket: string; distributionId: string; awsProfile: string } | null;
+  /** 本番の Mautic の読み取り（参照専用ロールの OAuth2 client_credentials）。3 つ揃ったときだけ非 null。エージェントには渡さない */
+  mautic: { baseUrl: string; clientId: string; clientSecret: string } | null;
+  /** cycle-open が周の始まりに作業場を origin/main に合わせるか（CONTROL_WORKTREE_SYNC。既定 true） */
+  worktreeSync: boolean;
   /**
    * 設定の状況（setup/status）。CONTROL_SETUP_STATUS_ENABLED=true のときだけ非 null。
    * 資格情報・トークンは「ファイルの場所」だけを持つ（値は確認のたびにファイルから読む。ここには置かない）。
@@ -110,6 +150,12 @@ export interface ControlPlaneConfig {
    */
   statusConfigError: string | null;
 }
+
+// アイキャッチ画像の既定（2026-11-09 に OpenAI の公式ドキュメントで確認）。確認したのは Images API のリファレンス（POST /images/generations）と Image prompting のガイド。
+// モデル: GPT Image 2.5 の品質重視の base モデル `gpt-image-2.5-sunburst`（速度重視の小さいモデルは `gpt-image-2.5-flare`。`gpt-image-1` は 2026-10-23 に提供終了）。
+// サイズ: `1536x1024`（GPT Image の全モデルが対応する標準の横長 3:2。記事の OGP の 1200x630 へ切り出しやすい）。応答は常に base64（b64_json）。
+const DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2.5-sunburst";
+const DEFAULT_OPENAI_IMAGE_SIZE = "1536x1024";
 
 /** 同じグループの変数は、全部未設定（そのグループは無効）か、全部設定のどちらか。全部設定なら true。 */
 function groupIssues(
@@ -207,6 +253,32 @@ const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
     addIssue("RUNLOG_BUCKET", "AWS_PROFILE が設定されているため必須です");
   }
 
+  const strapiOk = groupIssues("Strapi", env, ["CONTROL_STRAPI_URL", "CONTROL_STRAPI_READ_TOKEN"], addIssue);
+  // 書き込みトークンだけが設定されていて読み取りが無いのは設定漏れ
+  if (env.CONTROL_STRAPI_WRITE_TOKEN !== undefined && !strapiOk) {
+    addIssue("CONTROL_STRAPI_URL", "CONTROL_STRAPI_WRITE_TOKEN が設定されているため必須です");
+    addIssue("CONTROL_STRAPI_READ_TOKEN", "CONTROL_STRAPI_WRITE_TOKEN が設定されているため必須です");
+  }
+  const deployOk = groupIssues(
+    "配信",
+    env,
+    ["CONTROL_DEPLOY_BUCKET", "CONTROL_DEPLOY_DISTRIBUTION_ID", "CONTROL_DEPLOY_AWS_PROFILE"],
+    addIssue,
+  );
+
+  const mauticOk = groupIssues(
+    "Mautic の読み取り",
+    env,
+    ["CONTROL_MAUTIC_URL", "CONTROL_MAUTIC_CLIENT_ID", "CONTROL_MAUTIC_CLIENT_SECRET"],
+    addIssue,
+  );
+
+  const cycleAnchor = env.CONTROL_CYCLE_ANCHOR?.trim() || undefined;
+  if (cycleAnchor !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cycleAnchor)) addIssue("CONTROL_CYCLE_ANCHOR", "YYYY-MM-DD の形にしてください");
+    else if (!isMondayJst(cycleAnchor)) addIssue("CONTROL_CYCLE_ANCHOR", "月曜の日付にしてください");
+  }
+
   const { status, statusConfigError } = statusGroup(env);
 
   return {
@@ -215,6 +287,7 @@ const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
     worktree: env.CONTROL_WORKTREE,
     schedulerEnabled: env.CONTROL_SCHEDULER_ENABLED === "true",
     agentHome: env.CONTROL_AGENT_HOME ?? null,
+    cycleAnchor: cycleAnchor ?? null,
     anthropic,
     siteUrl: env.SITE_URL ?? null,
     github: githubOk
@@ -247,6 +320,36 @@ const Schema = RawSchema.transform((env, ctx): ControlPlaneConfig => {
       env.CONTROL_N8N_EXPORT_URL !== undefined && env.CONTROL_N8N_EXPORT_API_KEY !== undefined
         ? { baseUrl: env.CONTROL_N8N_EXPORT_URL.replace(/\/+$/, ""), apiKey: env.CONTROL_N8N_EXPORT_API_KEY }
         : null,
+    strapi: strapiOk
+      ? {
+          baseUrl: env.CONTROL_STRAPI_URL!.replace(/\/+$/, ""),
+          readToken: env.CONTROL_STRAPI_READ_TOKEN!,
+          writeToken: env.CONTROL_STRAPI_WRITE_TOKEN ?? null,
+        }
+      : null,
+    openai: env.OPENAI_API_KEY
+      ? {
+          apiKey: env.OPENAI_API_KEY,
+          imageModel: env.CONTROL_OPENAI_IMAGE_MODEL ?? DEFAULT_OPENAI_IMAGE_MODEL,
+          imageSize: env.CONTROL_OPENAI_IMAGE_SIZE ?? DEFAULT_OPENAI_IMAGE_SIZE,
+          maxPerRun: env.CONTROL_COVER_MAX_PER_RUN,
+        }
+      : null,
+    deploy: deployOk
+      ? {
+          bucket: env.CONTROL_DEPLOY_BUCKET!,
+          distributionId: env.CONTROL_DEPLOY_DISTRIBUTION_ID!,
+          awsProfile: env.CONTROL_DEPLOY_AWS_PROFILE!,
+        }
+      : null,
+    mautic: mauticOk
+      ? {
+          baseUrl: env.CONTROL_MAUTIC_URL!.replace(/\/+$/, ""),
+          clientId: env.CONTROL_MAUTIC_CLIENT_ID!,
+          clientSecret: env.CONTROL_MAUTIC_CLIENT_SECRET!,
+        }
+      : null,
+    worktreeSync: env.CONTROL_WORKTREE_SYNC === "true",
     status,
     statusConfigError,
   };

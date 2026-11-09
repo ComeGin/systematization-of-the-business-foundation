@@ -13,6 +13,16 @@
 //   4b. 「設定の状況」(/setup-status) の読み取り専用の主体: IAM ユーザー comegin-prod-status-reader（管理ポリシー comegin-prod-status-reader だけ）と、
 //       そのキーの資格情報ファイル（600）、参照専用の GitHub トークンのファイル（600。fine-grained PAT〈github_pat_〉でリポジトリの読み取りが 200・X-OAuth-Scopes なし。読み取り専用かは機械で確かめられない）。
 //       どちらも作成・発行は人（cloud/README.md の 4.5.3）。ファイルの置き場は ~/.config/comegin/status-reader/
+//   4c. 改善の周（14 日）の設定（2026-11-09。docs/superpowers/specs/2026-11-09-improvement-cycle-design.md の 6 節）。止まる id は次のとおり:
+//       agent-worktree（エージェント専用の作業場 CONTROL_WORKTREE。開発のリポジトリ・main のチェックアウトと 3 つとも別の場所）・
+//       cycle（CONTROL_CYCLE_ANCHOR が無い・月曜でない）・strapi-tokens（本番の Strapi の URL と読み取りトークン。書き込みトークンは任意）・
+//       deploy-values（配信のコマンドに埋める 3 つ。バケットとディストリビューション ID は prod.conf に無ければスタックの出力から）・
+//       openai（OPENAI_API_KEY。任意の機能。無ければ警告だけ。あって形が違うときだけ止まる）・
+//       mautic-reader（Mautic の参照専用の認証情報。任意の機能。無ければ警告だけ。一部だけ・ほかと同じ値のときだけ止まる）。
+//       周を回すのに要るのは cycle・strapi-tokens の読み取り・deploy-values・agent-worktree。**その値の欠落で止まるのは、周のジョブ
+//       （CYCLE_JOB_IDS）が main のチェックアウトの ops/schedules で 1 本でも enabled: true のときだけ**（すべて無効なら警告。Ruling 29）。
+//       形の誤り・グループの片方だけ・同じ値の使い回し・作業場が main や開発のリポジトリと同じ場所、は常に止まる。OpenAI・Strapi の書き込みトークン・Mautic の参照用は、
+//       アイキャッチ・配布ファイルのアップロード・キャンペーンの確認を有効にする（無いと該当の builtin は skipped）
 //   5. 本番の値（prod.conf と状態）がそろっていること → チェックアウトの .env に書く（600。値は表示しない。設定の状況の 6 変数も）
 //   6. systemd のユニット comegin-control が、このチェックアウトで動いていて、.env を書いた後に起動していること（/etc は人が書く）
 //   7. 127.0.0.1:3200 が応答し、Google ログインを始められること（開発のモジュールと同じ確かめ方）
@@ -33,10 +43,16 @@
 //         CONTROL_STATUS_GITHUB_TOKEN_FILE（既定 ~/.config/comegin/status-reader/github-token）・
 //         GITHUB_TOKEN・GITHUB_REPOSITORY（既定は origin の URL から）・GITHUB_BASE_BRANCH・I13_ISSUE_NUMBER・I13_REVIEWER・
 //         CONTROL_N8N_EXPORT_URL・CONTROL_N8N_EXPORT_API_KEY（キーのスコープを人が判断してから）
+//   改善の周（2026-11-09）: CONTROL_WORKTREE（必須。エージェント専用の作業場）・CONTROL_CYCLE_ANCHOR（必須。月曜）・
+//         CONTROL_STRAPI_READ_TOKEN（必須）・CONTROL_STRAPI_URL（既定 http://127.0.0.1:1338）・CONTROL_STRAPI_WRITE_TOKEN（任意）・
+//         CONTROL_DEPLOY_AWS_PROFILE（必須。人の SSO のプロファイル名）・CONTROL_DEPLOY_BUCKET・CONTROL_DEPLOY_DISTRIBUTION_ID（空ならスタックの出力 AstroBucketName・DistributionId）・
+//         OPENAI_API_KEY（任意）・CONTROL_OPENAI_IMAGE_MODEL・CONTROL_OPENAI_IMAGE_SIZE・CONTROL_COVER_MAX_PER_RUN（任意）・
+//         CONTROL_MAUTIC_CLIENT_ID・CONTROL_MAUTIC_CLIENT_SECRET（任意。2 つで 1 組）・CONTROL_MAUTIC_URL（既定は MAUTIC_BASE_URL、無ければ https://mkt.comegin.com）・
+//         CONTROL_WORKTREE_SYNC（任意）
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { REGION, STACK, awsJson, outputOf, requireMainStack } from "../../../../cloud/setup/aws.mjs";
+import { REGION, STACK, awsJson, describeStack, outputOf, requireMainStack } from "../../../../cloud/setup/aws.mjs";
 import { registerSecret } from "../../../../setup/lib/core.mjs";
 import { DEFAULT_HOSTED_DOMAIN, GROUPS, LOCAL_URL, probe, publicUrlOf, validateGroups, verifyGoogle } from "../index.mjs";
 
@@ -108,7 +124,9 @@ async function git(ctx, args) {
 async function checkoutProblem(ctx, main) {
   if (!main) return "CONTROL_MAIN_CHECKOUT（承認済みの main のチェックアウトの絶対パス）が prod.conf に無い";
   if (!main.startsWith("/") || !existsSync(join(main, "frontend/next-js/package.json"))) return `CONTROL_MAIN_CHECKOUT（${main}）に frontend/next-js が無い（絶対パスか、正しいチェックアウトかを確かめる）`;
-  if (realpathSync(main) === realpathSync(ctx.conf.CONTROL_WORKTREE || ctx.WORKTREE)) return "CONTROL_MAIN_CHECKOUT が作業ツリーと同じ場所（ADR-18。本番は承認済みの main のチェックアウトから動かす）";
+  const mainReal = realpathSync(main);
+  // prod.conf の CONTROL_WORKTREE が存在しないパスでも例外にしない（agent-worktree の案内に届くように、ここでは null として比べない）
+  if (mainReal === realpathOrNull(ctx.conf.CONTROL_WORKTREE || ctx.WORKTREE) || mainReal === realpathOrNull(ctx.WORKTREE)) return "CONTROL_MAIN_CHECKOUT が作業ツリーと同じ場所（ADR-18。本番は承認済みの main のチェックアウトから動かす）";
   const head = await git(ctx, ["-C", main, "rev-parse", "HEAD"]);
   const origin = await git(ctx, ["-C", ctx.WORKTREE, "rev-parse", "origin/main"]);
   if (head !== origin) return `チェックアウトが origin/main（${origin.slice(0, 8)}）ではなく ${head.slice(0, 8)} を指している`;
@@ -325,6 +343,8 @@ export async function prodValues(ctx, main, file) {
   const alertTopic = outputOf(stack, "OpsAlertTopicArn");
   if (!alertTopic) missing.push(`スタック ${STACK} の出力 OpsAlertTopicArn（設定の状況の知らせの送り先。cloud/README.md の 4.4）`);
 
+  // 改善の周（2026-11-09）。スタックの出力（配信のバケット・ディストリビューション ID）は、prod.conf に無いときの既定
+  const cycle = cycleSettings(ctx, stack, null, enabledCycleJobs(main).length > 0);
   const values = {
     BETTER_AUTH_URL: publicUrl,
     GOOGLE_CLIENT_ID: googleId,
@@ -353,6 +373,7 @@ export async function prodValues(ctx, main, file) {
     MISWRITE_AGENT_USER_ID: agentUserId ? String(agentUserId) : undefined,
   };
   for (const k of ["CONTROL_DATA_DIR", "CONTROL_AGENT_HOME", "GOOGLE_HOSTED_DOMAIN", "CONTROL_N8N_EXPORT_URL", "CONTROL_N8N_EXPORT_API_KEY"]) if (ctx.conf[k]) values[k] = ctx.conf[k];
+  Object.assign(values, cycle.values);
   // I-13 の起票（GitHub）。1 つでも書いたら全部要る。リポジトリは origin から補う
   const github = ["GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_BASE_BRANCH", "I13_ISSUE_NUMBER", "I13_REVIEWER"];
   if (github.some((k) => ctx.conf[k])) {
@@ -362,7 +383,213 @@ export async function prodValues(ctx, main, file) {
   const groupKeys = GROUPS["I-13 の起票"];
   const set = groupKeys.filter((k) => values[k]);
   if (set.length && set.length < groupKeys.length) missing.push(`${groupKeys.filter((k) => !values[k]).join("・")}（I-13 の起票。1 つでも書いたら 4 つとも要る。fine-grained PAT は Contents と Pull requests を Read and write）`);
-  return { values, missing };
+  return { values, missing, cycle };
+}
+
+// ---------------------------------------------------------------------------
+// 改善の周（2026-11-09）の設定。止まる id: agent-worktree・cycle・strapi-tokens・deploy-values・openai・mautic-reader
+// ---------------------------------------------------------------------------
+
+const DEFAULT_STRAPI_URL = "http://127.0.0.1:1338";
+const DEFAULT_MAUTIC_URL = "https://mkt.comegin.com";
+const CYCLE_IDS = ["cycle", "strapi-tokens", "deploy-values", "openai", "mautic-reader"];
+
+/** 実在する日付で、月曜か（暦の日付なのでタイムゾーンに依らず曜日が決まる） */
+function isMondayDate(text) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const d = new Date(`${text}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === text && d.getUTCDay() === 1;
+}
+
+function realpathOrNull(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** 周のジョブ（定期実行の定義の id）。1 本でも enabled: true なら、周の設定の欠落で止める（Ruling 29） */
+export const CYCLE_JOB_IDS = [
+  "cycle-open",
+  "cycle-collect",
+  "cycle-close",
+  "cycle-apply-content",
+  "cycle-apply-code",
+  "cycle-campaign",
+  "article-cover",
+  "campaign-asset-upload",
+];
+
+/** main のチェックアウトの ops/schedules で enabled: true の周のジョブ（無ければ空） */
+export function enabledCycleJobs(main) {
+  return enabledSchedules(main).filter((id) => CYCLE_JOB_IDS.includes(id));
+}
+
+/**
+ * 開発のリポジトリ（作業ツリー）・承認済み main のチェックアウト・エージェント専用の作業場の 3 つが、互いに別の場所か。
+ * 返すのは { text, lack }（問題の文と、値の欠落か）。lack=true は「無い・git のチェックアウトでない」で、周のジョブが無効なら止めない。
+ * 別の場所でない・絶対パスでないのは誤りで、常に止める。問題が無ければ null
+ */
+export function agentWorktreeIssue(ctx, main) {
+  const wt = ctx.conf.CONTROL_WORKTREE;
+  if (!wt) return { lack: true, text: "CONTROL_WORKTREE（エージェント専用の作業場の絶対パス）が prod.conf に無い。無いと、エージェントが開発のリポジトリ（作業ツリー）に書き、夜中の差分が開発中の変更と混ざる" };
+  if (!wt.startsWith("/")) return { lack: false, text: `CONTROL_WORKTREE（${wt}）が絶対パスではない` };
+  const real = realpathOrNull(wt);
+  if (real !== null && real === realpathOrNull(main)) return { lack: false, text: "CONTROL_WORKTREE が承認済みの main のチェックアウトと同じ場所（エージェントが書いた未承認の変更が、実行条件を読む場所に入る。ADR-18）" };
+  if (real !== null && real === realpathOrNull(ctx.WORKTREE)) return { lack: false, text: "CONTROL_WORKTREE が開発のリポジトリ（作業ツリー）と同じ場所。エージェント専用の 3 本目のチェックアウトにする（夜中の差分が開発中の変更と混ざる）" };
+  if (!existsSync(join(wt, ".git"))) return { lack: true, text: `CONTROL_WORKTREE（${wt}）が git のチェックアウトではない（無いか、.git が無い）。git worktree add で作る` };
+  return null;
+}
+
+/** agentWorktreeIssue の文だけ（無ければ null。互換用） */
+export function agentWorktreeProblem(ctx, main) {
+  return agentWorktreeIssue(ctx, main)?.text ?? null;
+}
+
+function agentWorktreeSteps(problem) {
+  return [
+    `いまの状態: ${problem}`,
+    "人が自分の端末で作る（setup は git を書き換えない。setup/manual-steps.md の 6.2）: git -C <開発のリポジトリ> fetch origin && git -C <開発のリポジトリ> worktree add --detach ~/ComeGin/agent-worktree origin/main",
+    "prod.conf に CONTROL_WORKTREE=<その絶対パス> を書く。開発のリポジトリ・承認済みの main のチェックアウト・この作業場の 3 つは、互いに別の場所にする",
+    "同じコマンドを実行し直す",
+  ];
+}
+
+const URL_OK = (text) => {
+  try {
+    const u = new URL(text);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 改善の周の設定を prod.conf から読む。values は .env に書く 1 組で、秘密値を含むので表示しない（無い任意の値は空にして、.env に古い値を残さない）。
+ * stops は止まる理由（id ごと）、warns は止めない警告（その機能が無効になるだけ）。メッセージに値は入れない。
+ * stack は describeStack の結果（読めなければ null）、stackError は読めなかった理由（読めなかったのと、スタックに出力が無いのを区別する）。
+ */
+export function cycleSettings(ctx, stack, stackError = null, required = true) {
+  const c = ctx.conf;
+  const stops = Object.fromEntries(CYCLE_IDS.map((id) => [id, []]));
+  const warns = Object.fromEntries(CYCLE_IDS.map((id) => [id, []]));
+  const values = {};
+  let deployUnknown = false;
+  // 値の欠落（lack）は、周のジョブが 1 本でも有効（required）なら止め、すべて無効なら警告だけ。形の誤り・片方だけ・同じ値の使い回しは常に止める（Ruling 29）
+  const lack = (id, text) => (required ? stops[id] : warns[id]).push(required ? text : `${text}（周のジョブがすべて無効なので止めない。有効にする前に書く）`);
+
+  // cycle: 周の起点
+  const anchor = c.CONTROL_CYCLE_ANCHOR?.trim();
+  if (!anchor) lack("cycle", "CONTROL_CYCLE_ANCHOR（周の起点。JST の月曜の日付 YYYY-MM-DD）が prod.conf に無い");
+  else if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) stops.cycle.push("CONTROL_CYCLE_ANCHOR が YYYY-MM-DD の形ではない");
+  else if (!isMondayDate(anchor)) stops.cycle.push("CONTROL_CYCLE_ANCHOR が月曜の日付ではない（実在しない日付を含む）");
+  values.CONTROL_CYCLE_ANCHOR = anchor ?? "";
+  values.CONTROL_WORKTREE_SYNC = c.CONTROL_WORKTREE_SYNC ?? "";
+
+  // strapi-tokens: 本番の Strapi。URL と読み取りトークンは必須、書き込みトークンは任意
+  const strapiUrl = (c.CONTROL_STRAPI_URL || DEFAULT_STRAPI_URL).replace(/\/+$/, "");
+  if (!URL_OK(strapiUrl)) stops["strapi-tokens"].push("CONTROL_STRAPI_URL が http(s) の URL ではない");
+  else if (/^https?:\/\/(127\.0\.0\.1|localhost):1337(\/|$)/.test(strapiUrl)) stops["strapi-tokens"].push("CONTROL_STRAPI_URL が開発の Strapi（:1337）を指している。本番はオンプレの Strapi（http://127.0.0.1:1338）");
+  const readToken = c.CONTROL_STRAPI_READ_TOKEN;
+  const writeToken = c.CONTROL_STRAPI_WRITE_TOKEN;
+  if (!readToken) lack("strapi-tokens", "CONTROL_STRAPI_READ_TOKEN（読み取り専用の API トークン）が prod.conf に無い");
+  // 読み取りトークンが無いのに書き込みトークンだけ、は control-plane が起動時に例外にする（config.ts のグループ規則）。常に止める
+  if (!readToken && writeToken) stops["strapi-tokens"].push("CONTROL_STRAPI_WRITE_TOKEN だけがあり、CONTROL_STRAPI_READ_TOKEN が無い（書き込みだけの設定は監視アプリが起動時に例外にする。読み取りも書く）");
+  if (writeToken && (writeToken === readToken || writeToken === c.STRAPI_PROD_TOKEN)) {
+    stops["strapi-tokens"].push("CONTROL_STRAPI_WRITE_TOKEN が読み取りのトークン（または MCP の STRAPI_PROD_TOKEN）と同じ値。書き込み用は専用の API トークンを別に発行する");
+  }
+  if (!writeToken) warns["strapi-tokens"].push("CONTROL_STRAPI_WRITE_TOKEN が無い。article-cover と campaign-asset-upload は skipped になる（記事の下書き・周の項目は動く）");
+  // URL と読み取りトークンは 2 つで 1 組（config.ts）。読み取りトークンが無い間は URL も書かない（片方だけだと監視アプリが起動時に例外にする）
+  values.CONTROL_STRAPI_URL = readToken ? strapiUrl : "";
+  values.CONTROL_STRAPI_READ_TOKEN = readToken ?? "";
+  values.CONTROL_STRAPI_WRITE_TOKEN = readToken ? (writeToken ?? "") : "";
+
+  // deploy-values: 配信のコマンドに埋める値。バケットとディストリビューション ID は prod.conf、無ければスタックの出力
+  const bucket = c.CONTROL_DEPLOY_BUCKET || outputOf(stack, "AstroBucketName");
+  const dist = c.CONTROL_DEPLOY_DISTRIBUTION_ID || outputOf(stack, "DistributionId");
+  const profile = c.CONTROL_DEPLOY_AWS_PROFILE;
+  if (!profile) lack("deploy-values", "CONTROL_DEPLOY_AWS_PROFILE（人の SSO のプロファイル名。許可セット ComeginProdDeploy で aws sso login するときの名前）が prod.conf に無い");
+  for (const [name, v, out] of [["CONTROL_DEPLOY_BUCKET", bucket, "AstroBucketName"], ["CONTROL_DEPLOY_DISTRIBUTION_ID", dist, "DistributionId"]]) {
+    if (v) continue;
+    if (stackError) deployUnknown = true;
+    lack("deploy-values", stackError ? `${name} を確かめられない（スタック ${STACK} の出力 ${out} を読めなかった: ${stackError}）` : `${name} が prod.conf に無く、スタック ${STACK} の出力 ${out} も無い`);
+  }
+  // 3 つで 1 組（config.ts）。1 つでも欠けるときは 3 つとも空にする（一部だけだと監視アプリが起動時に例外にする）
+  const deployComplete = Boolean(bucket && dist && profile);
+  values.CONTROL_DEPLOY_BUCKET = deployComplete ? bucket : "";
+  values.CONTROL_DEPLOY_DISTRIBUTION_ID = deployComplete ? dist : "";
+  values.CONTROL_DEPLOY_AWS_PROFILE = deployComplete ? profile : "";
+
+  // openai: アイキャッチ。任意の機能（キーが無ければ警告だけ）
+  const key = c.OPENAI_API_KEY;
+  if (!key) warns.openai.push("OPENAI_API_KEY が無い。article-cover は skipped になる（アイキャッチ画像が作られない）");
+  else {
+    // キーの形は OpenAI が変えうるので、止めずに警告にする（誤りなら生成が認証で失敗する）
+    if (!key.startsWith("sk-")) warns.openai.push("OPENAI_API_KEY が sk- で始まらない（OpenAI の API キーの形ではない可能性がある。書き間違いなら article-cover が認証で失敗する）");
+    if (!writeToken) warns.openai.push("CONTROL_STRAPI_WRITE_TOKEN が無いので、OPENAI_API_KEY があっても article-cover は skipped になる（費用は出ない）");
+  }
+  if (c.CONTROL_OPENAI_IMAGE_SIZE && !/^\d{3,4}x\d{3,4}$/.test(c.CONTROL_OPENAI_IMAGE_SIZE)) stops.openai.push("CONTROL_OPENAI_IMAGE_SIZE が 幅x高さ（例 1536x1024）の形ではない");
+  if (c.CONTROL_COVER_MAX_PER_RUN) {
+    const n = Number(c.CONTROL_COVER_MAX_PER_RUN);
+    if (!Number.isInteger(n) || n < 1 || n > 10) stops.openai.push("CONTROL_COVER_MAX_PER_RUN が 1〜10 の整数ではない（上げるなら ops/schedules/article-cover.yaml の timeout_sec も上げる。ops/README.md）");
+  }
+  values.OPENAI_API_KEY = key ?? "";
+  values.CONTROL_OPENAI_IMAGE_MODEL = c.CONTROL_OPENAI_IMAGE_MODEL ?? "";
+  values.CONTROL_OPENAI_IMAGE_SIZE = c.CONTROL_OPENAI_IMAGE_SIZE ?? "";
+  values.CONTROL_COVER_MAX_PER_RUN = c.CONTROL_COVER_MAX_PER_RUN ?? "";
+
+  // mautic-reader: 参照専用ロールの認証情報（control-plane 用に別に発行）。任意の機能。URL・ID・シークレットは 3 つで 1 組
+  const mid = c.CONTROL_MAUTIC_CLIENT_ID;
+  const msecret = c.CONTROL_MAUTIC_CLIENT_SECRET;
+  const mautic = (c.CONTROL_MAUTIC_URL || c.MAUTIC_BASE_URL || DEFAULT_MAUTIC_URL).replace(/\/+$/, "");
+  if (!mid && !msecret) warns["mautic-reader"].push("CONTROL_MAUTIC_CLIENT_ID・CONTROL_MAUTIC_CLIENT_SECRET が無い。cycle-collect は campaign の項目の中身を埋めず、送信の開始も確かめない（理由を項目に出す。ほかは動く）");
+  else {
+    if (!mid || !msecret) stops["mautic-reader"].push(`${mid ? "CONTROL_MAUTIC_CLIENT_SECRET" : "CONTROL_MAUTIC_CLIENT_ID"} が無い（2 つで 1 組。片方だけだと監視アプリが起動時に例外にする）`);
+    if (!URL_OK(mautic)) stops["mautic-reader"].push("CONTROL_MAUTIC_URL が http(s) の URL ではない");
+    if (mid && [c.MAUTIC_CLIENT_ID, c.MAUTIC_RO_CLIENT_ID, c.MAUTIC_SETUP_CLIENT_ID, c.N8N_MAUTIC_CLIENT_ID].includes(mid)) {
+      stops["mautic-reader"].push("CONTROL_MAUTIC_CLIENT_ID がほかの用途（エージェント・mautic-prod-ro・初期設定・n8n）の API 認証情報と同じ。control-plane 用に別に発行する（片方を失効しても、もう片方を止めないため）");
+    }
+  }
+  values.CONTROL_MAUTIC_URL = mid && msecret ? mautic : "";
+  values.CONTROL_MAUTIC_CLIENT_ID = mid ?? "";
+  values.CONTROL_MAUTIC_CLIENT_SECRET = msecret ?? "";
+
+  return { values, stops, warns, deployUnknown };
+}
+
+/** スタックの出力を読む。読めなかったら stack=null と理由（AWS に届かない・スタックが無い）を返し、例外にしない（check を止めない） */
+async function readStackSafe(ctx) {
+  try {
+    const stack = await describeStack(ctx);
+    return stack ? { stack, error: null } : { stack: null, error: `スタック ${STACK} が無い` };
+  } catch (e) {
+    return { stack: null, error: String(e.message).split("\n")[0] };
+  }
+}
+
+const CYCLE_TITLES = {
+  cycle: "改善の周の起点（CONTROL_CYCLE_ANCHOR。月曜の日付）を決める",
+  "strapi-tokens": "本番の Strapi の読み取りトークン（と任意の書き込みトークン）を発行して書く",
+  "deploy-values": "配信のコマンドに埋める値（バケット・ディストリビューション ID・SSO のプロファイル名）を書く",
+  openai: "OpenAI の API キー（アイキャッチ画像用）を直す",
+  "mautic-reader": "Mautic の参照専用の API 認証情報（control-plane 用）を直す",
+};
+const CYCLE_MANUAL = {
+  cycle: "setup/manual-steps.md の 7.10",
+  "strapi-tokens": "setup/manual-steps.md の 7.8（読み取りは article と category の find・findOne〈下書きを含む〉、書き込みはアップロードと article の更新だけで公開は付けない。発行した後、開発の Strapi で書き込みトークンが公開できないことを確かめる）",
+  "deploy-values": "cloud/README.md の 4.14（バケットは親スタックの出力 AstroBucketName、ディストリビューション ID は DistributionId。プロファイル名は人が SSO で使っているもの。監視アプリはコマンドに埋めるだけで配信しない）",
+  openai: "setup/manual-steps.md の 7.7",
+  "mautic-reader": "setup/manual-steps.md の 7.9（参照専用ロール〈mautic-prod-ro と同じ権限〉の API 認証情報を、control-plane 用に別に発行する）",
+};
+
+function cycleSteps(id, problems) {
+  return [
+    ...problems.map((p) => `いまの状態: ${p}`),
+    `手順: ${CYCLE_MANUAL[id]}`,
+    "~/.config/comegin/setup/prod.conf に書く（chmod 600。値は画面に出さない。エディタで書く）",
+    "同じコマンドを実行し直す",
+  ];
 }
 
 /** 6. systemd のユニットの状態。起動した時刻（ミリ秒）は MainPID の経過時間から */
@@ -447,6 +674,12 @@ const ITEM_TITLES = {
   principal: "監視アプリの主体（IAM ユーザー comegin-prod-control-plane と資格情報ファイルのキー）",
   "status-principal": "設定の状況の主体（IAM ユーザー comegin-prod-status-reader と資格情報ファイルのキー）",
   "status-github": "設定の状況用の GitHub のトークン（fine-grained PAT。読み取り専用かは人が確かめる）",
+  "agent-worktree": "エージェント専用の作業場（開発のリポジトリ・main のチェックアウトとは別の場所）",
+  cycle: "改善の周の起点（CONTROL_CYCLE_ANCHOR。月曜の日付）",
+  "strapi-tokens": "本番の Strapi の読み取りトークン（書き込みトークンは任意。無いとアイキャッチと配布ファイルは動かない）",
+  "deploy-values": "配信のコマンドに埋める値（バケット・ディストリビューション ID・SSO のプロファイル名）",
+  openai: "OpenAI の API キー（任意。無いとアイキャッチ画像は作られない）",
+  "mautic-reader": "Mautic の参照専用の API 認証情報（任意。無いとキャンペーンの中身と送信の確認が出ない）",
   "prod-values": "チェックアウトの環境変数ファイルが本番の値",
   systemd: "systemd のユニット comegin-control（チェックアウトで常駐）",
   respond: "監視アプリが 127.0.0.1:3200 で応答する",
@@ -532,6 +765,40 @@ export async function check(ctx) {
   else if (originWarning) item("status-github", "warn", originWarning);
   else item("status-github", "ok", `fine-grained PAT（github_pat_）でリポジトリ ${statusRepositoryOf(ctx)} を読め、classic の印（X-OAuth-Scopes）は無い。読み取り専用（Contents と Pull requests が Read-only）かは機械で確かめられない。人が作るときに選ぶ（onprem/README.md の「設定の状況を有効にする」）`);
 
+  // 改善の周（2026-11-09）。作業場・起点・Strapi の読み取り・配信の値は、周のジョブが 1 本でも有効（enabled: true）なら必須（欠落で止める）、
+  // すべて無効なら警告だけ（Ruling 29）。OpenAI・書き込みトークン・Mautic の参照用は常に任意。形の誤り・片方だけ・同じ値の使い回しは常に止める
+  const cycleJobs = enabledCycleJobs(main);
+  const cycleRequired = cycleJobs.length > 0;
+  const awi = agentWorktreeIssue(ctx, main);
+  if (awi && (cycleRequired || !awi.lack)) {
+    bad(awi.text);
+    item("agent-worktree", "action", awi.text, "agent-worktree");
+  } else if (awi) {
+    notes.push(`! ${awi.text}（周のジョブがすべて無効なので止めない）`);
+    item("agent-worktree", "warn", `${awi.text}（周のジョブがすべて無効なので止めない。有効にする前に作る）`);
+  } else {
+    notes.push(`エージェント専用の作業場 ${ctx.conf.CONTROL_WORKTREE} は、開発のリポジトリ・main のチェックアウトと別の場所`);
+    item("agent-worktree", "ok", `エージェント専用の作業場 ${ctx.conf.CONTROL_WORKTREE} は、開発のリポジトリ・承認済みの main のチェックアウトとは別の場所`);
+  }
+  const needStack = !ctx.conf.CONTROL_DEPLOY_BUCKET || !ctx.conf.CONTROL_DEPLOY_DISTRIBUTION_ID;
+  const { stack: cycleStack, error: stackError } = needStack ? await readStackSafe(ctx) : { stack: null, error: null };
+  const cs = cycleSettings(ctx, cycleStack, stackError, cycleRequired);
+  for (const id of CYCLE_IDS) {
+    const stopsOf = cs.stops[id];
+    const warnsOf = cs.warns[id];
+    if (stopsOf.length && id === "deploy-values" && cs.deployUnknown) {
+      item(id, "unknown", stopsOf.join("／"));
+    } else if (stopsOf.length) {
+      for (const m of stopsOf) bad(m);
+      item(id, "action", stopsOf.join("／"), id);
+    } else if (warnsOf.length) {
+      for (const m of warnsOf) notes.push(`! ${m}`);
+      item(id, "warn", warnsOf.join("／"));
+    } else {
+      item(id, "ok", `${ITEM_TITLES[id]}: 設定がそろっている`);
+    }
+  }
+
   const envPath = join(appDirOf(main), ".env");
   const valueProblems = [];
   let exposed;
@@ -616,6 +883,12 @@ export async function apply(ctx) {
   }
   ctx.log(`チェックアウト ${main} は origin/main と同じ`);
 
+  // 1b. エージェント専用の作業場（開発のリポジトリ・main のチェックアウトと 3 つとも別の場所）。欠落は周のジョブが 1 本でも有効なときだけ止める（誤りは常に止める）
+  const awi = agentWorktreeIssue(ctx, main);
+  if (awi && (!awi.lack || enabledCycleJobs(main).length > 0)) ctx.manual("agent-worktree", "エージェント専用の作業場（git worktree）を作り、CONTROL_WORKTREE に書く", agentWorktreeSteps(awi.text));
+  if (awi) ctx.warn(`${awi.text}（周のジョブがすべて無効なので止めない。有効にする前に作る）`);
+  else ctx.log(`エージェント専用の作業場 ${ctx.conf.CONTROL_WORKTREE} は、開発のリポジトリ・承認済みの main のチェックアウトと別の場所`);
+
   // 2. ビルド
   const builds = await buildProblems(ctx, main);
   if (builds.length) ctx.manual("build", "チェックアウトで control-plane と監視アプリをビルドする", buildSteps(main, builds));
@@ -640,7 +913,12 @@ export async function apply(ctx) {
   ctx.log("設定の状況用の GitHub のトークン（fine-grained PAT）でリポジトリを読めることを確かめた（読み取り専用かは確かめられない。人が Read-only を選ぶ。トークンは表示しない）");
 
   // 5. 本番の値 → チェックアウトの .env
-  const { values, missing } = await prodValues(ctx, main, file);
+  const { values, missing, cycle } = await prodValues(ctx, main, file);
+  // 改善の周の設定。止まるのは、形の誤り・片方だけ・同じ値の使い回しと、周のジョブが 1 本でも有効なときの値の欠落（起点・Strapi の読み取り・配信の値）。ほかは警告
+  for (const id of CYCLE_IDS) {
+    if (cycle.stops[id].length) ctx.manual(id, CYCLE_TITLES[id], cycleSteps(id, cycle.stops[id]));
+  }
+  for (const id of CYCLE_IDS) for (const w of cycle.warns[id]) ctx.warn(w);
   if (missing.length) {
     ctx.manual("prod-values", "監視アプリの本番の値を prod.conf に書く", [
       ...missing.map((m) => `足りない: ${m}`),

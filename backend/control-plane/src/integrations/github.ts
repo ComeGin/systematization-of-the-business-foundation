@@ -162,6 +162,50 @@ export class GitHubClient {
     return result.data.number;
   }
 
+  /**
+   * PR の状態（改善ループの proposal・code の項目）。approved は、レビューした人ごとの最新のレビューに APPROVED があり、
+   * CHANGES_REQUESTED が無いとき（先頭の 100 件のレビューから）。mergeCommitSha はマージ済みのときだけ。無い PR は null。
+   * 出典: https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request 、https://docs.github.com/en/rest/pulls/reviews#list-reviews-for-a-pull-request
+   */
+  async getPullRequest(
+    pullNumber: number,
+  ): Promise<{ state: "open" | "closed"; merged: boolean; approved: boolean; mergeCommitSha: string | null } | null> {
+    const pull = await this.call<{ state?: string; merged?: boolean; merge_commit_sha?: string | null }>("GET", `/pulls/${pullNumber}`);
+    if (pull.status === 404) return null;
+    requireSuccess(pull, "GitHub: PR の取得");
+    const state = pull.data?.state;
+    if (state !== "open" && state !== "closed") throw new IntegrationError("invalid_response", "GitHub: PR の状態を読めなかった");
+    const merged = pull.data?.merged === true;
+
+    const reviews = await this.call<{ state?: string; user?: { login?: string } | null }[]>(
+      "GET",
+      `/pulls/${pullNumber}/reviews?per_page=100`,
+    );
+    requireSuccess(reviews, "GitHub: PR のレビューの一覧");
+    // コメントだけのレビュー（COMMENTED）は承認の判定を変えない
+    const latest = new Map<string, string>();
+    for (const review of reviews.data ?? []) {
+      const login = review.user?.login;
+      if (!login || (review.state !== "APPROVED" && review.state !== "CHANGES_REQUESTED" && review.state !== "DISMISSED")) continue;
+      latest.set(login, review.state);
+    }
+    const states = [...latest.values()];
+    const approved = states.includes("APPROVED") && !states.includes("CHANGES_REQUESTED");
+    return { state, merged, approved, mergeCommitSha: merged ? (pull.data?.merge_commit_sha ?? null) : null };
+  }
+
+  /**
+   * ancestor のコミットが descendant に含まれるか（同じか祖先）。どちらかのコミットが無ければ false。
+   * 出典: https://docs.github.com/en/rest/commits/commits#compare-two-commits （status が ahead か identical）
+   */
+  async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+    if (!/^[0-9a-f]{7,40}$/.test(ancestor) || !/^[0-9a-f]{7,40}$/.test(descendant)) return false;
+    const result = await this.call<{ status?: string }>("GET", `/compare/${ancestor}...${descendant}?per_page=1`);
+    if (result.status === 404) return false;
+    requireSuccess(result, "GitHub: コミットの比較");
+    return result.data?.status === "ahead" || result.data?.status === "identical";
+  }
+
   /** Reviewer の指定。失敗しても PR は残るため、呼び出し側は例外を握りつぶさず結果で扱う。 */
   async requestReviewer(pullNumber: number, reviewer: string): Promise<boolean> {
     const result = await this.call("POST", `/pulls/${pullNumber}/requested_reviewers`, { reviewers: [reviewer] });

@@ -1,8 +1,11 @@
 // 記事の取得と整形（DD-05 の 1.2・1.3）。
 // - 公開済み（publishedAt あり）だけを取る。0 件ならビルドを失敗させる（空のサイトを公開しない）。
 // - 1 回のビルドで 1 度だけ取得し、一覧・カテゴリ・記事のページで使い回す。
-// - 公開サイトに出すメディアが画像でなければビルドを失敗させる（1.5.3）。
+// - 公開サイトに出すメディアが画像でなければビルドを失敗させる（1.5.3）。ただし shared.media の zip・PDF は配布ファイルとして取り込む
+//   （20 MB まで。ビルドで dist/files/ に置く。lib/files.ts）。動画などは従来どおり失敗させる。
 import { strapiGet, StrapiBuildError } from './strapi';
+import { isDistributionMime, toDistributionFile } from './files';
+import { toAbsoluteMediaUrl } from './media';
 import { BLOG_CATEGORIES, findBlogCategory } from './categories';
 import type { Article, ArticleBlock, SearchIntent, StrapiMedia } from './types';
 
@@ -34,9 +37,22 @@ interface ListResponse {
 function assertImage(media: StrapiMedia | null | undefined, where: string): StrapiMedia | null {
   if (!media) return null;
   if (!media.mime?.startsWith('image/')) {
-    throw new StrapiBuildError(`${where} のメディアが画像ではありません（${media.mime}）。公開サイトでは画像だけを使えます。`);
+    throw new StrapiBuildError(
+      `${where} のメディアが画像ではありません（${media.mime}）。公開サイトで使えるのは画像と、記事の media ブロックの zip・PDF（20 MB まで）だけです。`,
+    );
   }
   return media;
+}
+
+/** shared.media のファイル。画像はそのまま、zip・PDF は配布ファイルにする。ほかの mime は失敗させる */
+function normalizeMediaBlock(block: Extract<ArticleBlock, { __component: 'shared.media' }>, slug: string): ArticleBlock {
+  const where = `記事「${slug}」の media`;
+  const file = block.file;
+  if (!file) return { ...block, file: null };
+  if (isDistributionMime(file.mime)) {
+    return { ...block, file: null, download: toDistributionFile(file, file.mime, where, toAbsoluteMediaUrl) };
+  }
+  return { ...block, file: assertImage(file, where) };
 }
 
 function normalizeBlock(block: ArticleBlock, slug: string): ArticleBlock {
@@ -45,7 +61,7 @@ function normalizeBlock(block: ArticleBlock, slug: string): ArticleBlock {
     case 'shared.quote':
       return block;
     case 'shared.media':
-      return { ...block, file: assertImage(block.file, `記事「${slug}」の media`) };
+      return normalizeMediaBlock(block, slug);
     case 'shared.slider':
       return { ...block, files: (block.files ?? []).map((file) => assertImage(file, `記事「${slug}」の slider`)!) };
     default:

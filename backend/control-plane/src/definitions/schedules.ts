@@ -8,6 +8,7 @@ import * as z from "zod/v4";
 import { SCHEDULES_DIR } from "../constants/paths.js";
 import type { BuiltinJob, JobDefinition, JobStage } from "../contract.js";
 import { logLine } from "../log.js";
+import { PROPOSAL_KINDS } from "./proposal.js";
 import { TIMEZONE } from "../time.js";
 
 const BUILTIN_JOBS = [
@@ -20,6 +21,11 @@ const BUILTIN_JOBS = [
   "published-article-check",
   "runlog-flush",
   "n8n-export",
+  "cycle-open",
+  "cycle-collect",
+  "cycle-close",
+  "article-cover",
+  "campaign-asset-upload",
 ] as const satisfies readonly BuiltinJob[];
 
 /** 改善ループの中の段階（設計 2026-11-06 の 4 節。画面ではこの順に並べる） */
@@ -50,6 +56,10 @@ const ScheduleFileSchema = z
     prompt: z.string().nullable().default(null),
     timeout_sec: z.number().int().positive().default(900),
     max_turns: z.number().int().positive().nullable().default(null),
+    // 周の何日目（0〜13）に起動するか。無ければ周を見ない（定期実行のときだけ。手動の起動は見ない）
+    cycle_days: z.array(z.number().int().min(0).max(13)).nullable().default(null),
+    // 起票してよい E-13 の change.kind（kind=agent のときだけ）
+    proposal_kinds: z.array(z.enum(PROPOSAL_KINDS)).nullable().default(null),
     // 画面に出す説明（2026-11-06）。すべて任意（main に入る順番に依存させない）。
     // 表示のためだけの欄なので、ここでは形を問わず、下の displayFields で欄ごとに検査する（誤りでジョブを止めない。2026-11-09）
     overview: z.unknown().optional(),
@@ -62,6 +72,9 @@ const ScheduleFileSchema = z
       if (!value.prompt?.trim()) ctx.addIssue({ code: "custom", message: "kind=agent では必須です", path: ["prompt"] });
     } else if (!value.builtin) {
       ctx.addIssue({ code: "custom", message: "kind=builtin では必須です", path: ["builtin"] });
+    }
+    if (value.kind !== "agent" && value.proposal_kinds !== null) {
+      ctx.addIssue({ code: "custom", message: "kind=agent のときだけ書けます", path: ["proposal_kinds"] });
     }
   });
 
@@ -141,6 +154,8 @@ export async function loadSchedules(mainCheckout: string): Promise<LoadedSchedul
         timeoutSec: value.timeout_sec,
         maxTurns: value.max_turns,
         prompt: value.kind === "agent" ? value.prompt : null,
+        cycleDays: value.cycle_days,
+        proposalKinds: value.kind === "agent" ? value.proposal_kinds : null,
         ...displayFields(file, value),
       });
     } catch (error) {

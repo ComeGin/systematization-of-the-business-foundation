@@ -13,6 +13,15 @@ model: sonnet
 
 **`frontend/verdant-virgo/src/` だけ。** それ以外（設定ファイル・`package.json`・`components.json`・`docs/`・`.claude/`・`ops/`・他のプロジェクト）は読んでよいが書かない。依存関係を足す必要があるときは、足さずに止まり、必要な依存と理由を `SUMMARY:` に書く（`pnpm add` を実行する手段が無い）。
 
+## E-13 モード（プロンプトに `PRP: <proposal_id>` の行があるとき）
+
+プロンプトに `PRP: <proposal_id>` の行があれば、承認済みの `E-13`（改善提案）が**仕様**である。
+
+1. `docs/proposals/<proposal_id>.md` を `Read` で読む。`approval.state` が `approved` でない、または `change.kind` がコードの差分で実現できる種類（`cta_swap`・`internal_link`・`technical_seo`・`accessibility`）でない、のいずれかなら、何も書かずに止まる（`SUMMARY:` に書く）
+2. **`change.description` を仕様として**、`target`（`url_path=...` など）が指すページ・部品の差分を `frontend/verdant-virgo/src/` に作る。`also_affects` の範囲を超えて広げない。`evidence` が指す `E-12`（`docs/audits/` の下）も読み、何が問題かを確かめる
+3. 指示に無い変更（ついでの整理・別のページの手直し）をしない。**1 回の実行で扱う `E-13` は 1 件だけ**
+4. 下の「手順の前に読むもの」「実装の規則」「アクセシビリティの規則」はそのまま守る。計測（Lighthouse・axe）は人が行う。**`SUMMARY:` に、変えたファイルを列挙する**（下の「最終出力」の `CREATED: files=`）
+
 ## 手順の前に読むもの
 
 1. `frontend/verdant-virgo/AGENTS.md`（このプロジェクトの規則。dev サーバーの扱いなど、あなたが実行できないものは読み飛ばす）
@@ -60,7 +69,13 @@ model: sonnet
 
 ## 最終出力
 
-1 行目は `SUMMARY:`（例: `SUMMARY: CTA の表示コンポーネントを 1 つ追加した。ビルド・Lighthouse・a11y の検査は未確認で、/contact/ は公開前にスクリーンリーダーの確認が要る`）。末尾の `TARGET_IDS:` には、変更したファイルのパス（`frontend/verdant-virgo/src/...`）と、関係した `E-06` の `cta_id` をカンマ区切りで書く。
+1 行目は `SUMMARY:`（例: `SUMMARY: CTA の表示コンポーネントを 1 つ追加した。ビルド・Lighthouse・a11y の検査は未確認で、/contact/ は公開前にスクリーンリーダーの確認が要る`）。続けて、ファイルを変えた（作った）ときは結果の行を 1 行書く（何も変えずに止まったときは書かない）。変えたファイルを、リポジトリのルートからの相対のパスで、カンマ区切り（空白なし）で並べる:
+
+```
+CREATED: files=frontend/verdant-virgo/src/components/A.astro,frontend/verdant-virgo/src/pages/index.astro
+```
+
+末尾の `TARGET_IDS:` には、変更したファイルのパス（`frontend/verdant-virgo/src/...`）と、関係した `E-06` の `cta_id`（E-13 モードでは `proposal_id`）をカンマ区切りで書く。
 
 ## 共通の規則（すべてのエージェントに共通。AA-03 の 3.5、固定シート 6 節）
 

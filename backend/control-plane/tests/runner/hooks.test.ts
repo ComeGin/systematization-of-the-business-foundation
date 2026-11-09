@@ -32,6 +32,7 @@ beforeEach(() => {
     mainCheckout: join(root, "main"),
     realHome: join(root, "home"),
     agentHome: join(root, "agenthome"),
+    agentName: null,
   };
 });
 

@@ -8,7 +8,15 @@
 import { join } from "node:path";
 import type { BuiltinHandler, RunResult } from "../context.js";
 import { VERDANT_VIRGO_DIR } from "../constants/paths.js";
-import { childEnv, copyResults, exists, logChildFailure, runPnpmScript, withChildHome } from "./checkout-job.js";
+import {
+  childEnv,
+  copyResults,
+  exists,
+  logChildFailure,
+  runPnpmScript,
+  withCheckoutBuildLease,
+  withChildHome,
+} from "./checkout-job.js";
 
 const SCRIPT = "lh";
 const RESULT_DIR = ".lighthouse";
@@ -32,33 +40,35 @@ export const lighthouse: BuiltinHandler = async ({ ctx, runId, signal, timeoutSe
     };
   }
 
-  const startedAt = Date.now();
-  const run = await withChildHome(config.agentHome, "comegin-lighthouse-", (home) =>
-    runPnpmScript({ cwd, script: SCRIPT, env: lighthouseEnv(home, config.siteUrl), timeoutSec, signal }),
-  );
+  return withCheckoutBuildLease(ctx.leases, runId, timeoutSec, async () => {
+    const startedAt = Date.now();
+    const run = await withChildHome(config.agentHome, "comegin-lighthouse-", (home) =>
+      runPnpmScript({ cwd, script: SCRIPT, env: lighthouseEnv(home, config.siteUrl), timeoutSec, signal }),
+    );
 
-  if (run.code !== 0) {
-    logChildFailure("lighthouse", SCRIPT, run, runId);
+    if (run.code !== 0) {
+      logChildFailure("lighthouse", SCRIPT, run, runId);
+      return {
+        outcome: "failure",
+        summary: run.timedOut ? "Lighthouse CI がタイムアウトした" : `Lighthouse CI が終了コード ${run.code} で失敗した`,
+        targetIds: [],
+        failureClass: run.timedOut || signal.aborted ? "timeout" : run.code === -1 ? "unreachable" : "invalid_response",
+      };
+    }
+
+    // 結果を作業ツリー側へ写す（seo-auditor は作業ツリーの中しか読めない）
+    const copied = await copyResults(join(cwd, RESULT_DIR), join(config.worktree, VERDANT_VIRGO_DIR, RESULT_DIR), startedAt, {
+      accept: RESULT_FILE,
+      alwaysFresh: (name) => name === "manifest.json",
+    });
     return {
-      outcome: "failure",
-      summary: run.timedOut ? "Lighthouse CI がタイムアウトした" : `Lighthouse CI が終了コード ${run.code} で失敗した`,
+      outcome: copied > 0 ? "success" : "partial",
+      summary:
+        copied > 0
+          ? `Lighthouse CI を main のチェックアウトで実行し、結果の JSON ${copied} 件を作業ツリーに写した`
+          : "Lighthouse CI は終了したが、写すべき結果の JSON が見つからなかった",
       targetIds: [],
-      failureClass: run.timedOut || signal.aborted ? "timeout" : run.code === -1 ? "unreachable" : "invalid_response",
+      failureClass: copied > 0 ? null : "empty_but_ok",
     };
-  }
-
-  // 結果を作業ツリー側へ写す（seo-auditor は作業ツリーの中しか読めない）
-  const copied = await copyResults(join(cwd, RESULT_DIR), join(config.worktree, VERDANT_VIRGO_DIR, RESULT_DIR), startedAt, {
-    accept: RESULT_FILE,
-    alwaysFresh: (name) => name === "manifest.json",
   });
-  return {
-    outcome: copied > 0 ? "success" : "partial",
-    summary:
-      copied > 0
-        ? `Lighthouse CI を main のチェックアウトで実行し、結果の JSON ${copied} 件を作業ツリーに写した`
-        : "Lighthouse CI は終了したが、写すべき結果の JSON が見つからなかった",
-    targetIds: [],
-    failureClass: copied > 0 ? null : "empty_but_ok",
-  };
 };

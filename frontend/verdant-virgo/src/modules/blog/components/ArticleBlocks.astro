@@ -4,7 +4,9 @@
 // slot は not-typeset の枠で包み、本文の見た目を受けないかわりに上下 32px の余白をここで取る。
 // h2 が無い記事では本文の後に置く。
 // slider は JS を使わず、画像を縦に並べる（計画書 P-4）。
+// media が zip・PDF のときは、ビルドで dist/files/ に取り込んだファイルへのダウンロードのリンクにする（DD-05 の 1.5.3。src/pages/files/）。
 import StrapiImage from './StrapiImage.astro';
+import { formatFileSize } from '../lib/files';
 import type { PreparedBlock, PreparedBody } from '../lib/body';
 
 interface Props {
@@ -31,6 +33,15 @@ const groups: PreparedBlock[][] = [body.lead, body.rest];
               <p>{block.body}</p>
               {block.title && <footer>{block.title}</footer>}
             </blockquote>
+          ) : block.kind === 'download' ? (
+            <p>
+              <a href={block.file.href} download={block.file.name}>
+                {block.file.name}
+                <span>
+                  {`（${block.file.mime === 'application/zip' ? 'ZIP' : 'PDF'}${formatFileSize(block.file.sizeKb) ? `・${formatFileSize(block.file.sizeKb)}` : ''}）`}
+                </span>
+              </a>
+            </p>
           ) : block.kind === 'media' ? (
             <figure>
               <StrapiImage media={block.media} context={`記事「${slug}」の media`} />

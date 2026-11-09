@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BuiltinInput } from "../../src/context.js";
 import type { RunLogCopier } from "../../src/integrations/runlog.js";
-import { heartbeat, publishedArticleCheck, runlogFlush } from "../../src/builtin/simple.js";
+import { heartbeat, runlogFlush } from "../../src/builtin/simple.js";
 import { makeConfig, makeCtx } from "../helpers/runner.js";
 
 const awsMock = vi.hoisted(() => ({
@@ -97,21 +97,6 @@ describe("runlogFlush", () => {
         copier: { flush: vi.fn(async () => Promise.reject(new Error("SQLITE_BUSY"))) } as unknown as RunLogCopier,
       });
       await expect(runlogFlush(input(ctx))).rejects.toThrow("SQLITE_BUSY");
-    });
-  });
-});
-
-describe("publishedArticleCheck", () => {
-  describe("正常系", () => {
-    it("未実装のため skipped（理由つき）を返す", async () => {
-      const result = await publishedArticleCheck(input(makeCtx(makeConfig())));
-      expect(result.outcome).toBe("skipped");
-      expect(result.skipReason).toContain("未実装");
-    });
-
-    it("空入力: 設定が何も無くても skipped を返す（設定を読まない）", async () => {
-      const result = await publishedArticleCheck(input(makeCtx(makeConfig({ aws: null, github: null }))));
-      expect(result).toMatchObject({ outcome: "skipped", targetIds: [] });
     });
   });
 });

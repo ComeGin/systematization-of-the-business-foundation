@@ -1,19 +1,26 @@
 id: published-article-check
-description: "公開された記事の確認。本番の Strapi を読み、前回から公開された記事があればビルドと計測を起こす（TA-07 の 3.5・7 節）。確認の間隔は暫定。夜間〈0〜8 時〉に 1 回だけ（2026-11-03）"
+description: "公開された記事の確認。本番の Strapi の公開済みの記事の一覧と frontend/verdant-virgo の変更を、最後に確かめた配信と比べ、変わっていれば本番の値でビルドと計測を行い、周の deploy の項目（OK 待ち）にする（配信は人が行う）。夜間〈0〜8 時〉に 1 回だけ（2026-11-03）"
 enabled: true
 cron: "0 0 * * *"
 kind: builtin
 agent: null
 builtin: published-article-check
 after: []
-timeout_sec: 600
-# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+# pnpm lh（ビルドと Lighthouse の 3 回計測）が終わる長さ。00:00 + 1500 秒 = 00:25 で、月曜 00:30 の weekly-lighthouse が checkout-build のリースを取れる（2026-11-09）
+timeout_sec: 1500
+# 監視アプリに出す説明（2026-11-09。docs/superpowers/specs/2026-11-09-improvement-cycle-design.md の 5.6）
 overview: |
-  まだ実装されていない雛形で、いまは毎回「未実装のため見送った」で終わる。予定では、本番の Strapi を読み、前回から公開された記事があれば公開サイトのビルドと計測を起こす。
+  エージェントを使わない決まった処理。本番の Strapi の公開済みの記事の一覧を、最後に確かめた配信（deploy の項目の確認が通ったときの一覧）と比べ、新規・更新・削除があったとき、または最後に確かめた配信のコミットから frontend/verdant-virgo に変更があったときだけ、承認済み main のチェックアウトで pnpm lh（本番の Strapi と SITE_URL を渡したビルドと Lighthouse の計測）を動かす。同じ差分（frontend/verdant-virgo を最後に変えたコミットと記事の一覧が同じ）の項目が既にあれば、どの状態でもビルドしない。結果（コミット・Lighthouse の 4 指標・変更した記事の URL）と、配る dist の写し（CONTROL_DATA_DIR の下）を、周の deploy の項目（OK 待ち）にする。新しい項目を作ったら、承認前の古い配信の項目は置き換えて差し戻す。OK 済み・実行済み・確かめられなかった（failed_check）の項目があるあいだは、新しい項目を作らず見送る（failed_check は人が差し戻すまで残る。同じ差分を配信し直すなら、差し戻さずに（failed_check のまま）この項目で「実行した」を押し直す。差し戻した場合は、新しい記事の公開か公開サイト（frontend/verdant-virgo）の変更があったときだけ、次の夜に新しい配信の項目が作られる（変更が無いあいだは作られない）。）。配信そのものは行わず、コマンドを画面に出して人が行う。Strapi の URL と読み取りトークン・SITE_URL・CONTROL_CYCLE_ANCHOR が無いときは見送る。
 stage: monitor
 io:
   reads:
-    - "（未実装）予定: 本番の Strapi の公開済みの記事"
+    - "本番の Strapi の公開済みの記事の一覧（CONTROL_STRAPI_READ_TOKEN）"
+    - "承認済み main のチェックアウトの HEAD と frontend/verdant-virgo"
+    - "E-15 の kv（最後に確かめた配信の記事の一覧とコミット・配信の項目ごとの記事の一覧）"
   writes:
-    - "（未実装）予定: 公開サイトのビルドと計測の起動"
-  does_not_write: []
+    - "承認済み main のチェックアウトの frontend/verdant-virgo/dist（ビルドの出力）と .lighthouse/"
+    - "<CONTROL_DATA_DIR>/deploy/<コミット>-<一覧のハッシュ>/dist（配るための dist の写し。新しい順に 3 件だけ残す）"
+    - "E-15 の周の deploy の項目（OK 待ち。承認前の古い項目は置き換えて差し戻す）と、項目ごとの記事の一覧（kv）"
+  does_not_write:
+    - "配信（S3 への同期・CloudFront の無効化。人が行う）"
+    - "本番の Strapi（読むだけ。書き込みトークンはビルドに渡さない）"

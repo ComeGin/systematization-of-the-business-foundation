@@ -69,11 +69,11 @@ describe("next-js-prod の check", () => {
       expect(itemsByKey(r)["next-js-prod.checkout"].level).toBe("ok");
     });
 
-    it("入力: 10 個の key をすべて P14 で返し、問題のある項目には今止まる id が付く", async () => {
+    it("入力: 16 個の key をすべて P14 で返し、問題のある項目には今止まる id が付く", async () => {
       const { run } = gitRun({ head: "a".repeat(40), origin: "a".repeat(40) });
       const r = await nextJs.check(nextCtx({ repo: checkout, wt: worktree, run }));
       const by = itemsByKey(r);
-      expect(r.items.map((i) => i.key)).toEqual(["checkout", "build", "principal", "status-principal", "status-github", "prod-values", "systemd", "respond", "heartbeat-alarm", "schedules-enabled"].map((n) => `next-js-prod.${n}`));
+      expect(r.items.map((i) => i.key)).toEqual(["checkout", "build", "principal", "status-principal", "status-github", "agent-worktree", "cycle", "strapi-tokens", "deploy-values", "openai", "mautic-reader", "prod-values", "systemd", "respond", "heartbeat-alarm", "schedules-enabled"].map((n) => `next-js-prod.${n}`));
       expect(r.items.every((i) => i.step === "P14")).toBe(true);
       expect(by["next-js-prod.build"]).toMatchObject({ level: "action", stopId: "next-js-prod:build" });
       expect(by["next-js-prod.principal"]).toMatchObject({ level: "action", stopId: "next-js-prod:principal" });
@@ -106,7 +106,7 @@ describe("next-js-prod の check", () => {
       expect(r.notes).toEqual([expect.stringContaining("作業ツリーと同じ場所")]);
       const by = itemsByKey(r);
       expect(by["next-js-prod.checkout"]).toMatchObject({ level: "action", stopId: "next-js-prod:checkout" });
-      expect(r.items.filter((i) => i.level === "unknown")).toHaveLength(9);
+      expect(r.items.filter((i) => i.level === "unknown")).toHaveLength(15);
     });
 
     it("サーバ: チェックアウトの HEAD が WORKTREE の origin/main と違うと checkout が action（コミットの先頭 8 文字だけが出る）", async () => {

@@ -1,4 +1,4 @@
-// 小さな builtin（heartbeat・runlog-flush・published-article-check）。lighthouse・a11y は子プロセスを起動するため別ファイル。
+// 小さな builtin（heartbeat・runlog-flush）。lighthouse・a11y は子プロセスを起動するため別ファイル。
 import type { BuiltinHandler } from "../context.js";
 import { classifyAwsError, createCloudWatchClient, putHeartbeat } from "../integrations/aws.js";
 
@@ -36,15 +36,3 @@ export const runlogFlush: BuiltinHandler = async ({ ctx, signal }) => {
     targetIds: [],
   };
 };
-
-/**
- * 公開された記事の確認（雛形）。
- * TODO: 本番の Strapi を読み、前回から公開された記事があればビルドと計測を起こす（TA-07 の 3.5、DD-05 の 3.2）。
- * 非公開化と削除の検知（TA-07 の 9 節）と、Strapi を読む資格情報の置き場もあわせて決める。
- */
-export const publishedArticleCheck: BuiltinHandler = async () => ({
-  outcome: "skipped",
-  summary: "公開された記事の確認は未実装のため見送った",
-  targetIds: [],
-  skipReason: "published-article-check は未実装（TA-07 の 3.5・DD-05 の 3.2）",
-});

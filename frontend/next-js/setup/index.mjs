@@ -28,6 +28,10 @@ export const GROUPS = {
   "I-13 の起票": ["GITHUB_TOKEN", "GITHUB_REPOSITORY", "I13_ISSUE_NUMBER", "I13_REVIEWER"],
   "S3 への写し": ["AWS_REGION", "RUNLOG_BUCKET"],
   "誤った書き込みの突き合わせ": ["MISWRITE_CHATWOOT_BASE_URL", "MISWRITE_CHATWOOT_ACCOUNT_ID", "MISWRITE_CHATWOOT_API_TOKEN", "MISWRITE_AGENT_USER_ID"],
+  // 改善の周（2026-11-09）。どれも「全部空か、全部ある」（backend/control-plane/src/config.ts の groupIssues）
+  "本番の Strapi": ["CONTROL_STRAPI_URL", "CONTROL_STRAPI_READ_TOKEN"],
+  "配信": ["CONTROL_DEPLOY_BUCKET", "CONTROL_DEPLOY_DISTRIBUTION_ID", "CONTROL_DEPLOY_AWS_PROFILE"],
+  "Mautic の読み取り": ["CONTROL_MAUTIC_URL", "CONTROL_MAUTIC_CLIENT_ID", "CONTROL_MAUTIC_CLIENT_SECRET"],
 };
 
 const dirOf = (ctx) => join(ctx.W, "frontend/next-js");
@@ -141,6 +145,9 @@ export async function check(ctx) {
   const missing = need.filter((k) => !env[k]);
   mark(missing.length === 0, `環境変数ファイルに ${need.join("・")} がある`, `環境変数ファイルに無いキー: ${missing.join("・")}`);
   if (!env.ANTHROPIC_API_KEY) notes.push("ANTHROPIC_API_KEY が空（エージェントの起動は skipped になる。画面からの手動の指示も動かない）");
+  if (env.CONTROL_WORKTREE_SYNC !== "false") {
+    notes.push("CONTROL_WORKTREE_SYNC が false でない（開発では false にする。cycle-open を手で起動すると作業場を origin/main に合わせうる。名前のあるブランチにいる作業場は合わせない）");
+  }
   try {
     validateGroups(env);
   } catch (e) {
@@ -194,8 +201,15 @@ export async function apply(ctx) {
   if (realpathSync(main) === realpathSync(worktree)) {
     ctx.warn("CONTROL_MAIN_CHECKOUT と CONTROL_WORKTREE が同じ場所。作業ツリーで書き換えた定義が次の実行に効いてしまう（ADR-18 の分離が働かない）。別のチェックアウトにする");
   }
+  // 開発のリポジトリ（ctx.REPO）・main のチェックアウト・エージェント専用の作業場（CONTROL_WORKTREE。本番は 3 本目を使う。setup/manual-steps.md の 6.2）は互いに別の場所。
+  // 開発では CONTROL_WORKTREE が開発のリポジトリ自身でもよい（既定。定期実行は動かさない）ので、そこは警告しない
+  if (realpathSync(main) !== realpathSync(worktree) && realpathSync(main) === realpathSync(ctx.REPO)) {
+    ctx.warn("CONTROL_MAIN_CHECKOUT が開発のリポジトリ（作業ツリー）と同じ場所。承認済み main の別チェックアウトにする（ADR-18）");
+  }
 
-  const values = { CONTROL_MAIN_CHECKOUT: main, CONTROL_WORKTREE: worktree };
+  // 開発の作業場の既定は開発のリポジトリそのものなので、cycle-open を手で起動しても origin/main に合わせない（Ruling 34）。
+  // 空のときだけ書く（設定で true を明示したとき・既に値があるときはそのまま）
+  const values = { CONTROL_MAIN_CHECKOUT: main, CONTROL_WORKTREE: worktree, CONTROL_WORKTREE_SYNC: ctx.conf.CONTROL_WORKTREE_SYNC || "false" };
   for (const k of OPTIONAL_KEYS) if (ctx.conf[k]) values[k] = ctx.conf[k];
   // 誤った書き込みの突き合わせ: 設定に無ければ、chatwoot モジュールの状態（エージェント専用ユーザー）から全部そろうときだけ埋める
   const miswrite = {

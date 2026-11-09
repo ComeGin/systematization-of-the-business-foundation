@@ -129,10 +129,10 @@ flowchart TB
 | 毎日 | `cycle-apply-content`（agent `content-writer` の E-13 モード）: R2 が承認した `content_rewrite` の E-13 から、対象の記事の下書きを更新する | 新規 |
 | 毎日 | `cycle-apply-code`（agent `design-implementer`）: R2 が承認したコードの E-13（`technical_seo`・`accessibility`・`cta_swap`・`internal_link`）から、作業ツリーに差分を作る | 新規 |
 | 周の 2 週目に 1 回（`cycle_days`） | `cycle-campaign`（新しい agent `campaign-planner`）: 承認済みの `email_campaign` の E-13 から、キャンペーン一式（キャンペーンの記事の下書き・記事へのリンクを載せた未公開のメールとキャンペーン・配布ファイルの原稿）を作る | 新規 |
-| `cycle-campaign` の後（`after`） | `campaign-asset-upload`（builtin）: 配布ファイルの原稿を zip／PDF にまとめ、本番の Strapi のメディアに上げてキャンペーンの記事に結ぶ | 新規 |
-| 毎日 00:00 | `published-article-check`（builtin。**雛形を実装する**）: 本番の Strapi の公開の差分と `main` の更新を見つけたら、ビルドと Lighthouse を起こし、配信の項目を作る | 既存の雛形を実装 |
+| `cycle-campaign` の後（`after`） | `campaign-asset-upload`（builtin）: 配布ファイルの原稿を zip／PDF にまとめ、本番の Strapi のメディアに上げてキャンペーンの記事に結ぶ（2026-11-09 の実装時の判断で変更: `after` を外して毎日 06:00 に動かす。アップロードに失敗しても次の日に再試行するため、対象が無ければ何もしない。ADR-31） | 新規 |
+| 毎日 00:00 | `published-article-check`（builtin。**雛形を実装する**）: 本番の Strapi の公開の差分と `main` の更新を見つけたら、ビルドと Lighthouse を起こし、配信の項目を作る（2026-11-09 の実装時の判断で変更: 比べる相手は「最後に確かめた配信」で、`main` の更新は `frontend/verdant-virgo` の変更に絞る。`timeout_sec` は 1500 秒〈ビルドと Lighthouse の 3 回計測が終わる長さ。00:25 に終わり、月曜 00:30 の `weekly-lighthouse` と重ならない〉。ADR-31） | 既存の雛形を実装 |
 | 毎日 | `cycle-collect`（builtin）: 上の成果物を周の「項目」として集め、確認項目を付けて画面に出す（5.3） | 新規 |
-| 13 日目（日） | `cycle-close`（builtin）: 反映の件数を数え、0 件なら知らせる | 新規 |
+| 13 日目（日） | `cycle-close`（builtin）: 反映の件数を数え、0 件なら知らせる（2026-11-09 の実装時の判断で変更: 月曜 00:05 に動き、期間が終わった周を閉じる。日曜の集約の後に確かめた反映も、その周に数えるため。ADR-31 の Ruling 32） | 新規 |
 
 - **E-13 を待つ理由**: AA-04 の 2.1「E-13 を経由しない変更を作らない」を守る。下書き・差分は承認済みの E-13（PR が承認された＝`main` の `docs/proposals/` で `approval.state: approved`）からだけ作る。既存のキーワードの経路の記事（企画の承認は R2 が Strapi で行う）はこの例外として今までどおり動き、画面には「キーワード由来の記事」として出す。
 - **作業ツリーの差分の扱い**: 作業ツリーはエージェント専用の作業場（4 節の 10）。`cycle-apply-code` は 1 回の実行で 1 件の E-13 だけを扱い、`frontend/verdant-virgo/src` に未コミットの差分が残っているときは見送る（`skipped`。差分が混ざらないように）。人がコミットして PR を作れば、次の E-13 に進む。
@@ -215,7 +215,7 @@ flowchart TB
       - `manifest.yaml`: 配布ファイルの名前・説明・形式（`zip` か `pdf`）・結ぶ記事の `documentId`
   - 書かない: 公開・送信・既存のメールやキャンペーンや記事の更新・削除・コンタクトの変更。作業ツリーの `campaign-assets/` 以外のファイル。
   - 守りは 2 重にする: エージェント定義の `tools` の許可リストに加え、control-plane の PreToolUse フックで、このエージェントの `mautic_create_record` は `emails`・`campaigns` だけ、`isPublished` が true の入力を拒否する。ファイルの書き込みは `campaign-assets/` の下だけ許す。
-- builtin `campaign-asset-upload`（`campaign-planner` の後に `after` で動く）:
+- builtin `campaign-asset-upload`（`campaign-planner` の後に `after` で動く。2026-11-09 の実装時の判断で変更: `after` を外して毎日 06:00 に動かす。5.2 の表の注記。ADR-31）:
   - `manifest.yaml` に従い、ソースコードは zip に、`summary.md` は PDF にまとめる（PDF にする手段は作る人が選ぶ。リポジトリに既にある Playwright の Chromium で印刷する案が有力）。
   - **本番の Strapi のメディアライブラリ**にアップロードし、キャンペーンの記事の下書きに結ぶ（5.7 のアップロード用のトークンを共用。結べないトークンしか作れない場合は 5.7 と同じく、アップロードまでにして手順に「記事に結ぶ」を足す）。記事の本文からのダウンロードのリンクの置き方（`shared.media` のブロックか、新しい部品か）は作る人が Strapi のスキーマと Astro の描画を見て決める。
   - 原稿（`campaign-assets/`）は作業ツリーに残り、人が他の差分と同じくコミットして PR で残す（配布物の元を Git に残すため）。

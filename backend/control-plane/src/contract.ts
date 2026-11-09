@@ -77,7 +77,26 @@ export type BuiltinJob =
   | "a11y"
   | "published-article-check"
   | "runlog-flush"
-  | "n8n-export";
+  | "n8n-export"
+  | "cycle-open"
+  | "cycle-collect"
+  | "cycle-close"
+  | "article-cover"
+  | "campaign-asset-upload";
+
+/** 改善ループの周の ID（C-<起点の日付>。例 C-2026-11-16。周は 14 日） */
+export type CycleId = string;
+
+/** E-13 の change.kind（docs/proposals/README.md）。実体の一覧は definitions/proposal.ts の PROPOSAL_KINDS */
+export type ProposalKind =
+  | "content_rewrite"
+  | "cta_swap"
+  | "internal_link"
+  | "technical_seo"
+  | "experiment_start"
+  | "config_change"
+  | "accessibility"
+  | "email_campaign";
 
 /** 改善ループの中の段階（ops/schedules の stage。画面の表示名は next-js が持つ）。 */
 export type JobStage = "measure" | "observe" | "propose" | "file" | "create" | "check" | "maintain" | "monitor";
@@ -104,6 +123,10 @@ export interface JobDefinition {
   maxTurns: number | null;
   /** kind=agent のときの Agent への指示（画面に出す）。builtin では null */
   prompt: string | null;
+  /** 周の何日目（0〜13）に起動するか。null なら周を見ない。定期実行のときだけ見る（手動は見ない） */
+  cycleDays: number[] | null;
+  /** kind=agent のとき、起票してよい E-13 の change.kind。null なら制限しない */
+  proposalKinds: ProposalKind[] | null;
   /** 処理の概要（2〜4 文）。書かれていなければ null */
   overview: string | null;
   stage: JobStage | null;
@@ -292,6 +315,153 @@ export interface SetupDocSection {
   markdown: string;
 }
 
+// ---- 改善ループ（14 日の周）の項目と承認 ----
+
+/** 周の項目の種類。manual は config_change（人が行う作業。spec 5.11 の 4） */
+export type CycleItemKind = "article" | "campaign" | "code" | "deploy" | "proposal" | "manual";
+
+/** 項目の状態（spec 5.3） */
+export type CycleItemState =
+  | "preparing"
+  | "awaiting_review"
+  | "approved"
+  | "executed"
+  | "confirmed"
+  | "rejected"
+  | "failed_check";
+
+/** 周の中の段階（画面の ①〜⑦） */
+export type CycleStage = "collect" | "propose" | "draft" | "review" | "publish" | "evaluate" | "deploy";
+
+/** 項目の種類ごとの確認用の内容。pending は準備中（まだ中身が無い）の項目に使う */
+export type CycleItemPreview =
+  | { kind: "pending" }
+  | {
+      kind: "article";
+      documentId: string;
+      slug: string;
+      titleText: string;
+      description: string;
+      coverUrl: string | null;
+      bodyMarkdown: string;
+      /** アップロード済みで cover に結べていない画像のファイル ID（article-cover の cover-pending。手順に「表紙に結ぶ」を出す）。無ければ null か省略 */
+      coverPendingFileId?: number | null;
+      /** 中身を作ったときの下書きの updatedAt（公開の確認と反映の基準。Ruling 35）。この欄を足す前に作った項目では欠ける */
+      draftUpdatedAt?: string;
+    }
+  | {
+      kind: "campaign";
+      articleDocumentId: string;
+      linkUrl: string;
+      emailId: number;
+      emailSubject: string;
+      emailBody: string;
+      campaignId: number;
+      segmentName: string;
+      segmentCount: number;
+      /** url は公開サイトでの配布ファイルの URL。記事にまだ結ばれていなければ null（手順に「記事に結ぶ」を出す） */
+      assets: { name: string; url: string | null }[];
+      /** キャンペーンの記事の、cover に結べていない画像のファイル ID（article と同じ） */
+      coverPendingFileId?: number | null;
+      /** キャンペーンの記事のアイキャッチ画像の URL（無ければ null。承認の条件。この欄を足す前に作った項目では欠ける） */
+      coverUrl?: string | null;
+    }
+  | { kind: "code"; proposalId: string; files: string[]; diffStat: string }
+  | {
+      kind: "deploy";
+      commitSha: string;
+      distPath: string;
+      lighthouse: { performance: number; accessibility: number; bestPractices: number; seo: number };
+      changes: string[];
+      blocked: string | null;
+    }
+  | {
+      kind: "proposal";
+      prNumber: number | null;
+      prState: "open" | "approved" | "merged" | "closed" | null;
+      /** PR の URL（GitHub の設定があり、PR の番号があるときだけ。無ければ null。この欄を足す前に作った項目では欠ける） */
+      prUrl: string | null;
+    }
+  | { kind: "manual"; description: string };
+
+export interface CycleItem {
+  itemId: Ulid;
+  cycleId: CycleId;
+  kind: CycleItemKind;
+  stage: CycleStage;
+  /** 項目の同一性を決める参照。例 "PRP-2026-0012"・"strapi:article:<documentId>"・"deploy:<sha>" */
+  sourceRef: string;
+  proposalId: string | null;
+  title: string;
+  summary: string;
+  evidence: { auditId: string; summary: string }[];
+  preview: CycleItemPreview;
+  state: CycleItemState;
+  stateReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reflectedAt: string | null;
+}
+
+/** 項目への人の操作の記録 */
+export interface CycleApproval {
+  itemId: Ulid;
+  action: "approve" | "reject" | "execute";
+  actor: string;
+  checked: string[];
+  reason: string | null;
+  at: string;
+}
+
+/** 周の締めの結果 */
+export interface CycleCloseResult {
+  reflectedFromProposals: number;
+  reflectedFromKeywords: number;
+  stuck: Record<"no_proposal" | "pr_not_approved" | "awaiting_review" | "not_executed" | "not_deployed", number>;
+}
+
+export interface CycleRow {
+  cycleId: CycleId;
+  startsAt: string;
+  endsAt: string;
+  manual: boolean;
+  closedAt: string | null;
+  close: CycleCloseResult | null;
+}
+
+/** 画面の「改善ループ」の 1 周分。cycle が null のときは reason に理由（設定が無い・まだ開かれていない）が入り、ほかは空 */
+export interface CycleView {
+  cycle: CycleRow | null;
+  /**
+   * cycle が null の理由。cycle があるときは、確認項目の定義を読めない（承認できない）などの警告があれば入る。無ければ null
+   */
+  reason: string | null;
+  /** 7 段階すべて（collect → deploy の順）。count はその段階の項目の数。jobIds は定期実行の定義にある、その段階のジョブの id */
+  stages: { stage: CycleStage; status: "done" | "awaiting" | "not_started" | "stuck"; count: number; jobIds: string[] }[];
+  items: (CycleItem & {
+    /** その種類の確認項目（ops/approval-checklists.yaml。OK は全部入れたときだけ押せる） */
+    checklist: { id: string; label: string }[];
+    /** OK の後に表示する手順（コピーできるコマンド付き） */
+    steps: { text: string; command: string | null }[];
+    approvals: CycleApproval[];
+  })[];
+  summary: {
+    /** この周の項目に結びつく E-13 の数（改修案から作った項目。manual・proposal の項目は除く） */
+    proposals: number;
+    /** 反映の日がこの周の期間に入る E-13 の数（周をまたいで起票したものを含む。cycle-close と同じ数え方） */
+    reflected: number;
+    /** 準備中・OK 待ちの E-13 の数 */
+    awaiting: number;
+    rejected: number;
+    /** 確かめられなかった（failed_check）か、確認の途中で理由が付いている E-13 の数 */
+    stuck: number;
+    /** 反映の日がこの周の期間に入る、E-13 に結びつかない記事（キーワード由来）の数 */
+    keywordReflected: number;
+  };
+  /** 前の周に反映した E-13 の、30 日後の判定（承認済み main の E-13 の verification） */
+  previousVerification: { proposalId: string; state: string; result: string | null }[];
+}
+
 export interface ControlPlane {
   /** スケジューラとハートビートを開始する（CONTROL_SCHEDULER_ENABLED=false ならハートビートと写しの再送だけ）。冪等。 */
   start(): Promise<void>;
@@ -315,6 +485,22 @@ export interface ControlPlane {
   refreshSetupStatus(): Promise<{ accepted: boolean }>;
   /** カタログの docs に現れる手順書の 1 節。許可されないファイル・見つからない見出しは null。 */
   readSetupDoc(file: string, heading: string): Promise<SetupDocSection | null>;
+  /** 改善ループの 1 周分。cycleId を省くと今日の周（C-YYYY-MM-DD 以外は ControlPlaneInputError）。 */
+  getCycle(cycleId?: CycleId): Promise<CycleView>;
+  /** 周の一覧（新しい周から）。 */
+  listCycles(): Promise<CycleRow[]>;
+  /**
+   * 項目の OK。awaiting_review の項目だけ。checked は種類の確認項目の id の集合と過不足なく一致させる
+   * （違えば ControlPlaneInputError）。proposal の項目・配信できない deploy の項目は受け付けない。actor は承認した人（メール）。
+   * expectedUpdatedAt は画面で見た項目の updatedAt。確認の後に項目の中身が差し替えられていれば ControlPlaneInputError
+   */
+  approveCycleItem(itemId: Ulid, checked: string[], actor: string, expectedUpdatedAt: string): Promise<CycleView>;
+  /** 差し戻し。理由は 1〜500 文字（PII 検査を通して保存）。awaiting_review・approved・failed_check の項目だけ */
+  rejectCycleItem(itemId: Ulid, reason: string, actor: string): Promise<CycleView>;
+  /** 「実行した」。approved・failed_check の項目を executed にし、確かめを非同期で始める（完了は待たない） */
+  markCycleItemExecuted(itemId: Ulid, actor: string): Promise<{ accepted: boolean }>;
+  /** 今日の周を手動で開く（既に開いていれば何もしない）。 */
+  startCycle(actor: string): Promise<CycleView>;
 }
 
 /**

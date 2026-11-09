@@ -25,7 +25,7 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | 本番はどちらも ALB 配下の Lambda（VPC の中。ADR-26。2026-10-12）。consent-api は DB を持たず Valkey だけ。admin-auth は Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にし、運用（migrate・ALB の登録）は別の Lambda（admin-auth-ops） |
 | 自作（サービス。2026-10-11 着手） | `backend/faq-bot` | Chatwoot の受信箱「Web サイト」で FAQ に答えるエージェントボット。**本番は Lambda（VPC の外。関数 URL。ADR-26）**、開発は Node の HTTP サーバー（3107）。FAQ は Astro の `faq.json`（`frontend/verdant-virgo/src/modules/faq-export`）を読む。データの置き場は持たない |
 | 自作（管制。2026-10-04 着手） | `backend/control-plane`（ライブラリ）＋ `frontend/next-js`（監視アプリ） | `E-15` の記録（作業ツリーの外の SQLite）・定期実行・Agent SDK でのエージェント起動・`I-13` の起票。**control-plane は next-js が取り込んで 1 プロセスで動かす**。境界の型は `backend/control-plane/src/contract.ts` |
-| 自作（IaC・定義） | `cloud/`（AWS SAM。クラウドに置く製品と例外とデータの置き場。デプロイ手順は `cloud/README.md`）、`onprem/`（ADR-21。オンプレの本番の Strapi・n8n と WireGuard の構成）、`middleware/n8n/workflows/`（ワークフローの JSON）、`ops/`（定期実行の定義と MCP の登録表）、リポジトリ直下の `.claude/agents/`（エージェント定義 12 本） | 定期実行の定義とエージェント定義は、監視アプリが**承認済みの `main` のチェックアウトから**読む（ADR-18）。作業ツリーで書き換えても次の実行には効かない |
+| 自作（IaC・定義） | `cloud/`（AWS SAM。クラウドに置く製品と例外とデータの置き場。デプロイ手順は `cloud/README.md`）、`onprem/`（ADR-21。オンプレの本番の Strapi・n8n と WireGuard の構成）、`middleware/n8n/workflows/`（ワークフローの JSON）、`ops/`（定期実行の定義と MCP の登録表）、リポジトリ直下の `.claude/agents/`（エージェント定義 13 本） | 定期実行の定義とエージェント定義は、監視アプリが**承認済みの `main` のチェックアウトから**読む（ADR-18）。作業ツリーで書き換えても次の実行には効かない |
 
 命名規則: `<プロダクト>-system` = そのプロダクトの実体を動かす場所、`<プロダクト>-mcp` = その API を MCP ツールとして公開する自作サーバ。
 

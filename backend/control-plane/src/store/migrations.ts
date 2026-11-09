@@ -51,6 +51,48 @@ const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX miswrite_found_at ON miswrite_candidates (found_at);
   `,
+  // 改善ループ（14 日の周・周の項目・人の承認の記録）
+  `
+  CREATE TABLE cycles (
+    cycle_id TEXT PRIMARY KEY,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    manual INTEGER NOT NULL DEFAULT 0,
+    closed_at TEXT,
+    close_json TEXT
+  );
+
+  CREATE TABLE cycle_items (
+    item_id TEXT PRIMARY KEY,
+    cycle_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('article', 'campaign', 'code', 'deploy', 'proposal', 'manual')),
+    stage TEXT NOT NULL CHECK (stage IN ('collect', 'propose', 'draft', 'review', 'publish', 'evaluate', 'deploy')),
+    source_ref TEXT NOT NULL,
+    proposal_id TEXT,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    preview_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('preparing', 'awaiting_review', 'approved', 'executed', 'confirmed', 'rejected', 'failed_check')),
+    state_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    reflected_at TEXT,
+    UNIQUE (kind, source_ref)
+  );
+  CREATE INDEX cycle_items_cycle ON cycle_items (cycle_id, item_id);
+
+  CREATE TABLE cycle_approvals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('approve', 'reject', 'execute')),
+    actor TEXT NOT NULL,
+    checked_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT,
+    at TEXT NOT NULL
+  );
+  CREATE INDEX cycle_approvals_item ON cycle_approvals (item_id, id);
+  `,
 ];
 
 export function migrate(db: DatabaseSync): void {

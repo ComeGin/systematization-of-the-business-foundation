@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { AgentDetailHelp, AgentsListHelp } from "@/components/agents/help";
 import { useFollow } from "@/components/common/navigation";
+import { CycleHelp } from "@/components/cycle/help";
 import { JobDetailHelp, JobsListHelp } from "@/components/jobs/help";
 import { MiswriteCandidatesHelp } from "@/components/miswrite-candidates/help";
 import { SetupStatusHelp } from "@/components/setup-status/help";
@@ -27,6 +28,7 @@ const HELP: Record<HelpId, React.ReactNode> = {
   "agent-detail": <AgentDetailHelp />,
   "miswrite-candidates": <MiswriteCandidatesHelp />,
   "setup-status": <SetupStatusHelp />,
+  cycle: <CycleHelp />,
 };
 
 /**

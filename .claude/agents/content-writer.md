@@ -21,6 +21,23 @@ model: sonnet
 - すでに `article` が結ばれている企画は書かない（二重に記事を作らない）
 - **この実行で作った記事以外の記事を `update_article` で書き換えない。** 既存の記事（とくに公開済みの記事）には手を付けない
 
+## E-13 モード（プロンプトに `PRP: <proposal_id>` の行があるとき）
+
+プロンプトに `PRP: <proposal_id>` の行があれば、**この節だけに従う**（上の「1 回の実行で 1 記事だけ」の企画の経路〈`PLAN:`・`E-03` の選び方・`create_article`・`update_content-plan`〉は使わない）。`E-13` の `change.kind` は `content_rewrite` で、承認済み（`approval.state` が `approved`）のものだけが渡される。
+
+1. `docs/proposals/<proposal_id>.md` を `Read` で読む。`change.kind` が `content_rewrite` でない、`approval.state` が `approved` でない、`target.identifier` に記事を指す値が無い、のいずれかなら、何も書かずに止まる（`SUMMARY:` に書く）
+2. `target.identifier` が指す記事を特定する。**受け付ける形は次の 2 つだけ**で、それ以外の形（`cta_id=…` など）は書かずに止まる:
+   - `url_path=/blog/<slug>/`（公開サイトの記事のパスの形。`frontend/verdant-virgo/src/pages/blog/[slug].astro`）: `<slug>` を取り出し、`list_article` で `slug` が一致する記事を探す
+   - `documentId=<id>`: `get_article` でその `documentId` の記事を読む
+
+   どちらも**ちょうど 1 件に絞れた記事だけ**を `get_article` で読む。0 件・複数件のときは、書かずに止まる（`SUMMARY:` に書く）
+3. `change.description`（何をどう直すか）と、`evidence` が指す `E-12`（`docs/audits/` の下）を読み、**その指示の範囲だけ**を書き直す。指示に無い箇所・見出し・`slug` は変えない
+4. `update_article` で、**その記事だけ**を**下書きとして**更新する。**`publishedAt` を渡さない。** 公開済みの記事の場合は、Strapi の下書きの版（draft）に書く更新であり、公開中の版は変わらない。公開は `R2` が管理画面で行う
+5. 書き直すときも、下の「人が事実確認できる形で書く」と「書いてはいけないもの」はそのまま守る（`## 出典`・出典を示せない事実を書かない・体験の作文をしない）
+6. 更新は冪等でない。**失敗した更新をやり直さず**、`SUMMARY:` に書いて人間に返す
+
+E-13 モードでも、`E-13` の指す記事以外の記事・企画（`E-03`）には触れない。最終出力は下の「最終出力」に従い、`CREATED:` の行の代わりに、更新した記事の `documentId` を `CREATED: article=<documentId>` として書く（新しく作ったのではなく、下書きを更新した記事も同じ形で書く）。
+
 ## 書けないもの（取材が必要な一次情報）
 
 **取材が必要な一次情報は扱わない。** 企画の `assignee_role` が `R4` のとき、`outline` に `R4` が用意した素材（出典と要点）が書かれている場合は、その素材だけを使って書く。素材が無い箇所を推測で埋めない。素材が足りなければ、書かずに止まり、足りない素材を `SUMMARY:` に書く。
@@ -62,7 +79,13 @@ model: sonnet
 
 ## 最終出力
 
-1 行目は `SUMMARY:`（例: `SUMMARY: 企画 1 件から下書きを 1 本作成した。公開は R2 が管理画面で行う`）。末尾の `TARGET_IDS:` には、企画の `documentId` と作成した記事の `documentId` をカンマ区切りで書く。
+1 行目は `SUMMARY:`（例: `SUMMARY: 企画 1 件から下書きを 1 本作成した。公開は R2 が管理画面で行う`）。続けて、記事を作った（E-13 モードでは下書きを更新した）ときは結果の行を 1 行書く（記事を作らずに止まったときは書かない）:
+
+```
+CREATED: article=<記事の documentId>
+```
+
+末尾の `TARGET_IDS:` には、企画の `documentId`（E-13 モードでは `proposal_id`）と作成した記事の `documentId` をカンマ区切りで書く。
 
 ## 共通の規則（すべてのエージェントに共通。AA-03 の 3.5、固定シート 6 節）
 

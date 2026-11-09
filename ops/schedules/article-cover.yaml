@@ -1,0 +1,24 @@
+id: article-cover
+description: "記事のアイキャッチ画像の生成。cover の無い下書きの記事に OpenAI の Images API で画像を作り、Strapi にアップロードして cover に設定する（エージェントは使わない。公開はしない）"
+enabled: false
+# 月曜以外の 03:00（日・火〜土）。月曜 03:00〜03:30 の RDS の保守の窓（cloud/stacks/data.yaml の DbMaintenanceWindow）を避ける。
+# 起動 + 1200 秒 = 03:20 で、8 時より前。1 回の実行の枚数の上限（CONTROL_COVER_MAX_PER_RUN。既定 3）を 10 に上げるなら、1 枚あたりの所要から timeout_sec も上げる（ops/README.md）
+cron: "0 3 * * 0,2-6"
+kind: builtin
+agent: null
+builtin: article-cover
+after: []
+timeout_sec: 1200
+overview: |
+  エージェントを使わない決まった処理。アイキャッチ（cover）の無い記事の下書きを本番の Strapi から古い順に探し、ops/prompts/article-cover.md の雛形（タイトルと要約を入れる）で OpenAI の Images API に画像を作らせ、Strapi にアップロードして cover に設定する。1 回の実行で作る枚数は CONTROL_COVER_MAX_PER_RUN（既定 3）まで。OPENAI_API_KEY・Strapi の URL と読み取り・書き込みのトークンのどれかが無ければ、費用を出す前に見送る。記事の公開はしない。
+stage: create
+io:
+  reads:
+    - "本番の Strapi の記事（cover の無い下書き）"
+    - "ops/prompts/article-cover.md（承認済み main のチェックアウト）"
+  writes:
+    - "OpenAI の Images API への画像の生成の依頼（費用が出る。1 回の実行で CONTROL_COVER_MAX_PER_RUN 枚まで）"
+    - "本番の Strapi のメディア（画像）と、記事の cover"
+    - "E-15 の kv（記事ごとの連続失敗の回数）"
+  does_not_write:
+    - "記事の公開（publishedAt）・本文・タイトルの更新"

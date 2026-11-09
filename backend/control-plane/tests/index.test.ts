@@ -131,12 +131,12 @@ describe("runNow", () => {
     });
 
     it("enabled: false の定義も手動では起動できる", async () => {
-      writeSchedule("manual-only", 'enabled: false\ncron: "0 6 * * *"\nkind: builtin\nbuiltin: published-article-check\n');
+      writeSchedule("manual-only", 'enabled: false\ncron: "0 6 * * *"\nkind: builtin\nbuiltin: silence-check\n');
       const plane = createControlPlane({ env: baseEnv() });
       const result = await plane.runNow({ target: { kind: "job", jobId: "manual-only" } });
       expect(result.accepted).toBe(true);
       await vi.waitFor(async () => expect((await plane.getRun(result.runId))?.status).toBe("finished"));
-      expect(await plane.getRun(result.runId)).toMatchObject({ jobId: "manual-only", trigger: "manual", outcome: "skipped" });
+      expect(await plane.getRun(result.runId)).toMatchObject({ jobId: "manual-only", trigger: "manual", outcome: "success" });
     });
 
     it("プロンプトの前後の空白は長さの上限に数えない（落としてから数える）", async () => {
@@ -147,7 +147,7 @@ describe("runNow", () => {
     it("手動の起動は定義を毎回読み直す（キャッシュの古い定義で起動しない）", async () => {
       const plane = createControlPlane({ env: baseEnv() });
       expect(await plane.listJobs()).toEqual([]);
-      writeSchedule("added", 'enabled: true\ncron: "0 6 * * *"\nkind: builtin\nbuiltin: published-article-check\n');
+      writeSchedule("added", 'enabled: true\ncron: "0 6 * * *"\nkind: builtin\nbuiltin: silence-check\n');
       expect((await plane.runNow({ target: { kind: "job", jobId: "added" } })).accepted).toBe(true);
     });
   });

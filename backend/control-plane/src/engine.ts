@@ -10,21 +10,32 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BUILTIN_HANDLERS, missingConfigFor } from "./builtin/index.js";
 import type { EngineContext, RunResult } from "./context.js";
-import { PROPOSALS_DIR } from "./constants/paths.js";
+import { PROPOSALS_DIR, VERDANT_VIRGO_DIR } from "./constants/paths.js";
 import { MANUAL_AGENT_DEFAULTS } from "./constants/timeouts.js";
-import type { BuiltinJob, ManualRunAccepted, RunTrigger } from "./contract.js";
+import type { BuiltinJob, ManualRunAccepted, ProposalKind, RunTrigger } from "./contract.js";
+import { shellQuote } from "./cycle/commands.js";
+import { runGit } from "./cycle/git.js";
 import { AgentDefinitionError, loadAgentDefinition } from "./definitions/agent-def.js";
+import type { Proposal } from "./definitions/proposal.js";
 import type { ScheduleDefinition } from "./definitions/schedules.js";
 import { logLine } from "./log.js";
 import { redactSummary } from "./pii.js";
 import { runAgent } from "./runner/agent.js";
+import { cycleOf } from "./cycle/calendar.js";
+import { itemShapeOf, listApprovedProposals, pickNextProposal } from "./cycle/proposals.js";
 import { jstDayStart, toIsoJst } from "./time.js";
 import { ulid } from "./ulid.js";
 
 /** リースの余裕。リース時間 = timeout_sec + この値（実行中の印が先に切れて二重起動しないため） */
 const LEASE_GRACE_MS = 60_000;
+/** 項目の題・要約に使う、E-13 の change.description の先頭の文字数 */
+const ITEM_TITLE_MAX = 100;
 /** stop() が実行中の終了を待つ上限 */
 const STOP_WAIT_MS = 10_000;
+/** 作業場の git status の打ち切り */
+const GIT_STATUS_TIMEOUT_MS = 30_000;
+/** code の項目を作る E-13 の種類（proposals.ts の itemShapeOf で code になるもの） */
+const CODE_PROPOSAL_KINDS: readonly ProposalKind[] = ["technical_seo", "accessibility", "cta_swap", "internal_link"];
 
 export interface StartRequest {
   trigger: RunTrigger;
@@ -38,6 +49,8 @@ interface Prepared {
   jobId: string | null;
   agentName: string | null;
   builtin: BuiltinJob | null;
+  /** E-15 に残す起動の種類。承認済みの E-13 を渡して起動したときだけ "proposal"（無ければ request.trigger） */
+  trigger?: RunTrigger;
   leaseKey: string;
   timeoutSec: number;
   execute: (runId: string, signal: AbortSignal, startedAt: string) => Promise<RunResult>;
@@ -75,7 +88,7 @@ export class Engine {
         jobId: prepared.jobId,
         agentName: prepared.agentName,
         builtin: prepared.builtin,
-        trigger: request.trigger,
+        trigger: prepared.trigger ?? request.trigger,
         startedAt,
       });
     } catch (error) {
@@ -128,6 +141,13 @@ export class Engine {
       if (unmet.length > 0) return { skip: `after が未達（当日に success が無い: ${unmet.join(", ")}）` };
     }
 
+    // cycle_days: 周の何日目に動かすか。手動の起動は人の判断なので対象外
+    if (job && request.trigger === "schedule" && job.cycleDays) {
+      if (!config.cycleAnchor) return { skip: "CONTROL_CYCLE_ANCHOR が無いため見送った" };
+      const { day } = cycleOf(new Date(), config.cycleAnchor);
+      if (!job.cycleDays.includes(day)) return { skip: `周の ${day} 日目は対象外` };
+    }
+
     if (job?.kind === "builtin" || (job === undefined && !request.adHoc)) {
       const builtin = job?.builtin;
       if (!builtin) return { skip: "builtin の指定が無い" };
@@ -159,15 +179,45 @@ export class Engine {
     }
     const timeoutSec = job?.timeoutSec ?? MANUAL_AGENT_DEFAULTS.timeoutSec;
     const maxTurns = job?.maxTurns ?? MANUAL_AGENT_DEFAULTS.maxTurns;
+
+    // proposal_kinds: 作用のジョブ。承認済みで、まだ項目が無い E-13 を 1 件だけ選んで渡す（選ぶのはエージェントではなくここ）
+    let picked: Proposal | null = null;
+    if (job?.proposalKinds) {
+      // 起点が無いと項目を作れず、同じ E-13 が毎回選ばれる（I3）。手動の起動でも見送る
+      if (!config.cycleAnchor) return { skip: "CONTROL_CYCLE_ANCHOR が無いため見送った" };
+      // コードの種類を扱うジョブ（cycle-apply-code）は、作業場の公開サイトのソースに未コミットの差分があれば見送る（spec 5.2。I1）。
+      // 前の差分の上に次の E-13 の差分を重ねると、code の項目のファイルと PR がずれる
+      if (job.proposalKinds.some((kind) => CODE_PROPOSAL_KINDS.includes(kind))) {
+        const status = await runGit(config.worktree, ["status", "--porcelain", "--", `${VERDANT_VIRGO_DIR}/src`], { timeoutMs: GIT_STATUS_TIMEOUT_MS });
+        if (!status.ok) return { skip: `作業場の git status を読めなかったため見送った（${VERDANT_VIRGO_DIR}/src の未コミットの差分を確かめられない）` };
+        if (status.stdout.trim() !== "") {
+          return {
+            skip:
+              `作業場の ${VERDANT_VIRGO_DIR}/src に未コミットの差分がある。人がコミットするか、code の項目を差し戻して作業場の差分を捨ててから` +
+              `（git -C ${shellQuote(config.worktree)} restore --source=HEAD --staged --worktree -- ${VERDANT_VIRGO_DIR}/src と、未追跡のファイルの削除）、次の E-13 に進む`,
+          };
+        }
+      }
+      const proposals = await listApprovedProposals(config.mainCheckout);
+      picked = pickNextProposal(proposals, job.proposalKinds, this.ctx.cycles.listProposalIdsWithItems());
+      if (!picked) return { skip: "承認済みで未着手の E-13 が無い" };
+    }
+
     return {
       jobId: job?.id ?? null,
       agentName: agent,
       builtin: null,
+      trigger: picked ? "proposal" : undefined,
       leaseKey: job ? `job:${job.id}` : `agent:${agent}`,
       timeoutSec,
       execute: async (runId, signal, startedAt) => {
+        if (picked) this.openPreparingItem(picked, runId);
         const proposalsBefore = agent === "proposal-writer" ? await this.countProposals() : 0;
-        const result = await runAgent({ ctx: this.ctx, runId, startedAt, definition, prompt, timeoutSec, maxTurns, signal });
+        const withProposal = picked ? `${prompt}\n\nPRP: ${picked.proposal_id}` : prompt;
+        // 公開サイトのベース URL（メールのリンクなどに使う）。設定があるときだけ、末尾の / を除いて全エージェントに渡す
+        const siteUrl = config.siteUrl?.replace(/\/+$/, "");
+        const agentPrompt = siteUrl ? `${withProposal}\n\nSITE_URL: ${siteUrl}` : withProposal;
+        const result = await runAgent({ ctx: this.ctx, runId, startedAt, definition, prompt: agentPrompt, timeoutSec, maxTurns, signal });
         // 起票前チェックで止めた事実を skipped として残す（DD-06 の 1.2）。
         // 判定は決定論的に行う: proposal-writer が success で終わったのに E-13 が 1 件も増えていない。
         if (agent === "proposal-writer" && result.outcome === "success" && (await this.countProposals()) <= proposalsBefore) {
@@ -176,6 +226,37 @@ export class Engine {
         return result;
       },
     };
+  }
+
+  /**
+   * 作用のジョブの起動時に、準備中（preparing）の項目を作る。中身は作用のジョブが完成させる。
+   * 起点（CONTROL_CYCLE_ANCHOR）が無いときは prepare で見送るので、ここには来ない（念のため作らずに返す）。作れなくても起動は止めない。
+   * 画面に出す文字なので、要約と同じ PII 検査を通す。
+   */
+  private openPreparingItem(proposal: Proposal, runId: string): void {
+    const { config, cycles } = this.ctx;
+    const shape = itemShapeOf(proposal.change.kind);
+    if (!shape) return;
+    if (!config.cycleAnchor) {
+      logLine("WARN", "engine", "CONTROL_CYCLE_ANCHOR が無いため、項目を作らずに起動する", runId);
+      return;
+    }
+    try {
+      const text = redactSummary(Array.from(proposal.change.description).slice(0, ITEM_TITLE_MAX).join("")).text;
+      cycles.upsertItem({
+        cycleId: cycleOf(new Date(), config.cycleAnchor).cycleId,
+        kind: shape.kind,
+        stage: shape.stage,
+        sourceRef: proposal.proposal_id,
+        proposalId: proposal.proposal_id,
+        title: text,
+        summary: text,
+        evidence: proposal.evidence.map((e) => ({ auditId: e.audit_id, summary: redactSummary(e.summary).text })),
+        preview: { kind: "pending" },
+      });
+    } catch (error) {
+      logLine("WARN", "engine", `項目を作れなかった: ${error instanceof Error ? error.name : "不明"}`, runId);
+    }
   }
 
   private async countProposals(): Promise<number> {

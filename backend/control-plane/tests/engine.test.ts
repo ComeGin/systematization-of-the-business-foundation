@@ -32,6 +32,12 @@ const BUILTINS: BuiltinJob[] = [
   "published-article-check",
   "runlog-flush",
   "n8n-export",
+  "a11y",
+  "article-cover",
+  "campaign-asset-upload",
+  "cycle-open",
+  "cycle-collect",
+  "cycle-close",
 ];
 
 let root: string;

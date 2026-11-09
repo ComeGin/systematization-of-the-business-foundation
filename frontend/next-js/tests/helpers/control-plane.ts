@@ -1,8 +1,18 @@
 // Route Handler のテストで使う control-plane の差し替え。実体（dist/）は読み込まない
 import { vi } from "vitest";
-import type { AgentInfo, ControlPlane, JobDefinition, JobStatus, ObservationSummary, RunObservations, RunRecord } from "control-plane";
+import type { AgentInfo, ControlPlane, CycleView, JobDefinition, JobStatus, ObservationSummary, RunObservations, RunRecord } from "control-plane";
 
 export const SAMPLE_RUN_ID = "01J9ZK3M4N5P6Q7R8S9T0V1W2X";
+
+/** 周が無いときの画面（改善ループの差し替えの既定） */
+const EMPTY_CYCLE_VIEW: CycleView = {
+  cycle: null,
+  reason: "テスト",
+  stages: [],
+  items: [],
+  summary: { proposals: 0, reflected: 0, awaiting: 0, rejected: 0, stuck: 0, keywordReflected: 0 },
+  previousVerification: [],
+};
 
 export function createFakePlane() {
   return {
@@ -28,6 +38,12 @@ export function createFakePlane() {
     })),
     refreshSetupStatus: vi.fn<ControlPlane["refreshSetupStatus"]>(async () => ({ accepted: false })),
     readSetupDoc: vi.fn<ControlPlane["readSetupDoc"]>(async () => null),
+    getCycle: vi.fn<ControlPlane["getCycle"]>(async () => EMPTY_CYCLE_VIEW),
+    listCycles: vi.fn<ControlPlane["listCycles"]>(async () => []),
+    approveCycleItem: vi.fn<ControlPlane["approveCycleItem"]>(async () => EMPTY_CYCLE_VIEW),
+    rejectCycleItem: vi.fn<ControlPlane["rejectCycleItem"]>(async () => EMPTY_CYCLE_VIEW),
+    markCycleItemExecuted: vi.fn<ControlPlane["markCycleItemExecuted"]>(async () => ({ accepted: true })),
+    startCycle: vi.fn<ControlPlane["startCycle"]>(async () => EMPTY_CYCLE_VIEW),
   } satisfies ControlPlane;
 }
 
@@ -112,6 +128,8 @@ export function makeJob(id: string, agent: string | null, overrides: Partial<Job
       overview: null,
       stage: null,
       io: null,
+      cycleDays: null,
+      proposalKinds: null,
       ...overrides,
     },
     nextRunAt: null,
