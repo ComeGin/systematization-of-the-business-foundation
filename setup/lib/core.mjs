@@ -25,6 +25,12 @@
 //   （check は読むだけ。確かめた結果を残したいときは、状態ではなく check の戻り値の items に載せる。ctx.writeEnvFile も同じく
 //   「check の中で環境変数ファイルを書こうとした: <パス>」を投げる）
 //
+// 「!」の使い分け（2026-11-10。人の確認を入れる）:
+//   - await ctx.confirm(id, 題名, 手順[]): 人の作業が残っている・任意の値が空など、人が判断することすべて。手順を表示し、
+//     yes と入力されたときだけ進む（それ以外は終了コード 3 で止まる。端末でないときも止まる）。apply の中だけで使う
+//   - ctx.warn(文): 止めずに進む。変数・キー・ファイルの削除（消し忘れ）の注意だけ
+//   - ctx.log(文): スクリプトが自分で直したこと（コンテナを上げ直した・トークンを取り直した）の報告。「!」を付けない
+//
 // 秘密値の扱い:
 //   - 秘密値は ctx.state.set(key, value, { secret: true }) で状態ファイルに置く。ctx.log などの出力からは自動で伏せる
 //   - 状態ファイル: ~/.config/comegin/setup/<target>.state.json（600）。ユーザーが `--show <key>` で 1 つだけ表示できる
@@ -44,12 +50,31 @@ export const REPO = W;
 export const CONFIG_DIR = join(homedir(), ".config/comegin");
 const TIMEOUT_MS = 20_000;
 
-/** 画面の操作を人に頼んで止まるときに投げる。setup.mjs が受けて、案内を表示して終わる */
+/**
+ * 画面の操作を人に頼んで止まるときに投げる。setup.mjs が受けて、案内を表示して終わる。
+ * kind は "manual"（画面の操作。案内の手順を表示する）か "confirm"（ctx.confirm で yes が入力されなかった。手順は表示済み）
+ */
 export class ManualStepRequired extends Error {
-  constructor(id, title, steps) {
+  constructor(id, title, steps, { kind = "manual" } = {}) {
     super(title);
     this.id = id;
     this.steps = steps;
+    this.kind = kind;
+  }
+}
+
+/**
+ * 人に yes を入力してもらう（ctx.confirm が使う）。端末につながっていない（入力できない）ときは null を返す。
+ * 質問は標準出力に出す（--json は --check だけで、--check は聞かないので、標準出力の JSON と混ざらない）
+ */
+export async function askOnTerminal(question) {
+  if (!process.stdin.isTTY) return null;
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim();
+  } finally {
+    rl.close();
   }
 }
 
@@ -108,10 +133,11 @@ export function loadConfig(target, path) {
     if (path !== undefined && path !== null) throw new Error(`--config の ${file} が無い（setup.conf.example を写して作る）`);
     return { file, conf: {} };
   }
-  if ((statSync(file).mode & 0o077) !== 0) console.error(`  ! ${file} はほかのユーザーも読める。chmod 600 を推奨`);
+  // ほかのユーザーも読める権限なら insecure: true（親スクリプトが --check では「!」を表示し、apply では手順を出して yes を待つ）
+  const insecure = (statSync(file).mode & 0o077) !== 0;
   const conf = parseKeyValue(readFileSync(file, "utf8"));
   for (const [k, v] of Object.entries(conf)) if (/SECRET|PASSWORD|TOKEN|KEY/i.test(k)) registerSecret(v);
-  return { file, conf };
+  return { file, conf, insecure };
 }
 
 export class State {
@@ -291,8 +317,9 @@ function writeEnvFileInCheck(path) {
   throw new Error(`check の中で環境変数ファイルを書こうとした: ${relative(REPO, path)}`);
 }
 
-export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" || phase === "operate", checkOnly = false }) {
+export function createContext({ target, conf, state, moduleId, phase = null, siteRouted = phase === "google" || phase === "operate", checkOnly = false, ask = askOnTerminal }) {
   const prefix = `  [${moduleId}]`;
+  const print = (msg) => console.log(mask(`${prefix} ${msg}`));
   return {
     target,
     phase, // 本番の段階（冒頭の説明）
@@ -304,8 +331,29 @@ export function createContext({ target, conf, state, moduleId, phase = null, sit
     REPO,
     WORKTREE: resolveWorktree(), // 追跡しないファイルと突き合わせの基点（冒頭の説明）
     CONFIG_DIR,
-    log: (msg) => console.log(mask(`${prefix} ${msg}`)),
+    log: print,
+    /**
+     * 止めずに進む「!」。変数・キー・ファイルの削除（消し忘れ）の注意だけに使う（2026-11-10。それ以外の「!」は ctx.confirm）。
+     * スクリプトが自分で直したことの報告は ctx.log にする
+     */
     warn: (msg) => console.error(mask(`${prefix} ! ${msg}`)),
+    /**
+     * 人の確認が要る「!」（2026-11-10）。題名と詳しい手順を表示し、yes と入力されたときだけ先へ進む。
+     * それ以外の入力・端末につながっていない（入力できない）ときは、ManualStepRequired（kind: confirm）を投げて止める
+     * （親スクリプトが再実行のコマンドを案内して終了コード 3 で終わる）。yes は覚えない（再実行すると、残っていればまた聞く）。
+     * id はモジュールの中で一意な短い名前（案内に「<モジュール>:<id>」で出る）、steps は手順の文字列の配列
+     */
+    confirm: async (id, title, steps = []) => {
+      if (checkOnly) throw new Error(`check の中で確認を求めた: ${id}`);
+      console.error(mask(`${prefix} ! ${title}`));
+      steps.forEach((s, i) => console.error(mask(`${prefix}     ${i + 1}. ${s}`)));
+      const answer = await ask(mask(`${prefix} ! 上の手順を済ませた（または、この状態のまま進めると判断した）なら yes と入力する。それ以外は止める: `));
+      if (answer === "yes") {
+        print(`! 確認済み（yes）: ${title}`);
+        return;
+      }
+      throw new ManualStepRequired(`${moduleId}:${id}`, title, steps, { kind: "confirm" });
+    },
     http,
     run,
     commandExists,

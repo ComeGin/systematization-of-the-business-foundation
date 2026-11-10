@@ -141,7 +141,7 @@ sudo install -m 644 systemd/comegin-openseo.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now comegin-openseo.service
 systemctl status comegin-openseo   # active (exited) なら正しい（Type=oneshot。コンテナは Docker が動かしている）
-# 2. 確かめる（止めずに警告だけ出す。ユニット・コンテナ・本番のプロジェクトと接続を見る）
+# 2. 確かめる（ユニット・コンテナ・本番のプロジェクトと接続を見る。足りなければ手順を出して yes を待つ）
 node setup/setup.mjs --target prod --phase operate --only openseo
 ```
 

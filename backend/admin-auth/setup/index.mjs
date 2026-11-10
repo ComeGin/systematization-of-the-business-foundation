@@ -134,7 +134,7 @@ export async function apply(ctx) {
     // POSTGRES_PASSWORD は DB ボリュームの初期化時にしか反映されない。ボリュームを作った後に環境変数ファイルの
     // DATABASE_PASSWORD が変わると、migrate が "password authentication failed" で落ちる。データを消さずに、
     // DB のユーザーのパスワードを環境変数ファイルの値（= 作り直された postgres コンテナの POSTGRES_PASSWORD）にそろえる
-    ctx.warn("DB のパスワードが環境変数ファイルと食い違っている（ボリュームの作成後に DATABASE_PASSWORD が変わった）。DB 側を環境変数ファイルの値にそろえて起動し直す");
+    ctx.log("DB のパスワードが環境変数ファイルと食い違っている（ボリュームの作成後に DATABASE_PASSWORD が変わった）。DB 側を環境変数ファイルの値にそろえて起動し直す");
     await syncDbPassword(ctx, dir);
     await ctx.run("docker", ["compose", "up", "-d", "--build"], { cwd: dir });
   }
@@ -149,12 +149,15 @@ export async function apply(ctx) {
   if (!jwks?.keys?.length) throw new Error("admin-auth の JWKS に鍵が無い");
   ctx.log(`discovery と JWKS を確認した（issuer ${doc.issuer}。署名鍵 ${jwks.keys.length} 本）`);
 
-  // 5. Google ログイン。無くても discovery と JWKS は返るので、止めずに案内だけ出す（ログインを試すときに要る）
+  // 5. Google ログイン。無くても discovery と JWKS は返るが、ログインを試すときに要るので、手順を出して yes を待つ（2026-11-10）
   const env = ctx.readEnvFile(envPath);
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-    ctx.warn("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が空。ログインを試すときだけ要る（discovery と JWKS には不要）。用意する手順:");
-    ctx.warn("  1. Google Cloud Console → API とサービス → 認証情報 → OAuth クライアント ID（ウェブアプリケーション）を作る。同意画面のユーザータイプは「内部」");
-    ctx.warn(`  2. 承認済みのリダイレクト URI に ${env.BETTER_AUTH_URL || "http://localhost:3103"}/api/auth/callback/google を入れる`);
-    ctx.warn("  3. ~/.config/comegin/setup/dev.conf に GOOGLE_CLIENT_ID=… と GOOGLE_CLIENT_SECRET=… を書き、再実行する");
+    await ctx.confirm("google-client", "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が空。ログインを試すときだけ要る（discovery と JWKS には不要）", [
+      "Google Cloud Console（https://console.cloud.google.com）で開発用のプロジェクトを選ぶ → API とサービス → OAuth 同意画面: ユーザータイプは「内部」（Workspace の外の人が入れないように）",
+      "API とサービス → 認証情報 → 認証情報を作成 → OAuth クライアント ID → アプリケーションの種類「ウェブ アプリケーション」（名前は例 comegin-dev-admin-auth）",
+      `承認済みのリダイレクト URI に ${env.BETTER_AUTH_URL || "http://localhost:3103"}/api/auth/callback/google を入れて作成する（末尾にスラッシュを付けない）`,
+      "表示されたクライアント ID とシークレットを ~/.config/comegin/setup/dev.conf にエディタで GOOGLE_CLIENT_ID=… と GOOGLE_CLIENT_SECRET=… として書く（chmod 600。echo で書かない）",
+      "同じコマンドを実行し直す。開発で管理画面のログインを試さない（discovery と JWKS だけでよい）と判断したときだけ yes",
+    ]);
   }
 }

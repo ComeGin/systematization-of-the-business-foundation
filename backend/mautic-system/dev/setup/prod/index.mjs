@@ -11,7 +11,7 @@
 // ECS の台数は順番があるので、2 か所で読み取りだけで確かめる（cloud/README.md の 4.10・4.11）:
 //   - 最初に mautic-web の DesiredCount（親のパラメータ）が 1 か。0 ならインストールの画面が開かないので、上げる手順を案内して止まる
 //   - 最後に mautic-cron の DesiredCount が 1 か。cron はインストールが終わるまで待つので、初期設定の後に上げる（2 つ動くとメールが二重になるので 1 に固定）
-import { isAwsUnavailable, notRunningNote, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../../cloud/setup/aws.mjs";
+import { isAwsUnavailable, notRunningNote, notRunningSteps, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../../cloud/setup/aws.mjs";
 import { apiEnabled, ensureAutoReply, ensureContactFields, ensureForms, ensureSegment, ensureStaffNotice, fetchToken } from "../index.mjs";
 
 export const meta = { id: "mautic-prod", title: "Mautic（本番。項目・フォーム consult・自動返信・社内通知・セグメント）", targets: ["prod"], phases: ["apps"], after: [] };
@@ -97,7 +97,7 @@ export async function apply(ctx) {
       "移行の RunTask は要らない（公式の entrypoint が、インストール済みなら起動のたびに移行する。cloud/README.md の 4.10）",
     ]));
   }
-  if (web.running === 0) ctx.warn(notRunningNote(web));
+  if (web.running === 0) await ctx.confirm("not-running-web", notRunningNote(web), notRunningSteps(web));
 
   const state = await apiState(ctx);
   if (state === "abnormal") throw new Error(`本番の Mautic（${baseOf(ctx)}/api）の応答が異常。mautic-web の DesiredCount・タスク数のアラーム・ALB のターゲットの状態を見る（cloud/README.md の 4.11）`);
@@ -144,5 +144,5 @@ export async function apply(ctx) {
       "インストールと初期設定は済んだので、cron を上げる（1 に固定。2 つ動くとキャンペーンとメールが二重になる。cloud/README.md の 4.11）",
     ]));
   }
-  if (cron.running === 0) ctx.warn(notRunningNote(cron));
+  if (cron.running === 0) await ctx.confirm("not-running-cron", notRunningNote(cron), notRunningSteps(cron));
 }

@@ -63,6 +63,7 @@ function makeCtx({ routes = {}, values = {}, conf = {} } = {}) {
       randomSecret: () => "Aa1".repeat(6),
       log: (m) => log.push(m),
       warn: (m) => log.push(`! ${m}`),
+      confirm: async (id, m, steps = []) => log.push(`confirm ${id} ${m} ${steps.join("／")}`),
       value: (k) => conf[k] || values[k] || state.get(k),
       require: (k, hint) => {
         const v = conf[k] || values[k];
@@ -200,17 +201,34 @@ describe("apply", () => {
       expect(args.conf).not.toHaveProperty("UNRELATED_KEY");
     });
 
-    it("provision の出力は ctx.log・ctx.warn に流し、先頭の改行を除く", async () => {
+    it("provision の出力は ctx.log に流して先頭の改行を除き、warn（人の確認）は手順ごと ctx.confirm に渡す（2026-11-10）", async () => {
       const { ctx, log } = makeCtx({ routes: healthyRoutes(), values: applyValues });
       await apply(ctx);
       const { io } = calls.provision[0];
       io.log("\n■ Data Table");
-      io.warn("注意");
-      expect(log).toEqual(expect.arrayContaining(["■ Data Table", "! 注意"]));
+      await io.warn("注意", ["手順 1", "手順 2"]);
+      expect(log).toEqual(expect.arrayContaining(["■ Data Table", "confirm provision 注意 手順 1／手順 2"]));
+      expect(log).not.toContain("! 注意");
+    });
+
+    it("空入力: provision の warn に手順が無くても ctx.confirm に渡す", async () => {
+      const { ctx, log } = makeCtx({ routes: healthyRoutes(), values: applyValues });
+      await apply(ctx);
+      await calls.provision[0].io.warn("注意だけ");
+      expect(log).toContain("confirm provision 注意だけ ");
     });
   });
 
   describe("異常系", () => {
+    it("入力: ctx.confirm が止まる（yes 以外）と、provision の warn もその例外で止まる（provision が先へ進まない）", async () => {
+      const { ctx } = makeCtx({ routes: healthyRoutes(), values: applyValues });
+      await apply(ctx);
+      ctx.confirm = async (id, m) => {
+        throw Object.assign(new Error(m), { id: `n8n:${id}`, kind: "confirm" });
+      };
+      await expect(calls.provision[0].io.warn("注意", [])).rejects.toMatchObject({ id: "n8n:provision", kind: "confirm" });
+    });
+
     it("サーバ: compose up の後に /healthz が応答しなければ、ログを見る場所を示して止まる（provision を呼ばない）", async () => {
       const { ctx } = makeCtx({ routes: healthyRoutes(), values: applyValues });
       ctx.waitForHttp = async () => false;

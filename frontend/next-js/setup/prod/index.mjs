@@ -641,25 +641,70 @@ function enabledSchedules(main) {
 }
 
 /**
- * 8. 警告（止めない）。warnings は人向けの文の全部（ハートビートのアラーム → 定期実行の順）。
- * alarm・schedules は監視アプリの項目用（alarm.unknown はアラームを読めなかったとき）
+ * 8. 人の確認（apply では手順を出して yes を待つ。2026-11-10）。warnings は人向けの文の全部（ハートビートのアラーム → 定期実行の順）、
+ * entries は apply が ctx.confirm に渡す { id, text, steps }。alarm・schedules は監視アプリの項目用（alarm.unknown はアラームを読めなかったとき）
  */
 async function operateWarnings(ctx, main) {
   const alarmWarnings = [];
+  const entries = [];
   let alarmUnknown = false;
+  const alarmState = `aws cloudwatch describe-alarms --region ${REGION} --alarm-names ${HEARTBEAT_ALARM} --query 'MetricAlarms[0].[StateValue,StateReason]' --output text`;
   try {
     const alarm = (await awsJson(ctx, ["cloudwatch", "describe-alarms", "--region", REGION, "--alarm-names", HEARTBEAT_ALARM]))?.MetricAlarms?.[0];
-    if (!alarm) alarmWarnings.push(`アラーム ${HEARTBEAT_ALARM} が無い（スタックを確かめる）`);
-    else if (alarm.StateValue !== "OK") alarmWarnings.push(`アラーム ${HEARTBEAT_ALARM} が ${alarm.StateValue}（${alarm.StateUpdatedTimestamp} から）。起動から 15 分ほどで OK に戻る。戻らなければ journalctl -u ${UNIT} の heartbeat の行と、資格情報ファイル・RUNLOG_BUCKET・AWS_REGION を確かめる（cloud/README.md の 4.13）`);
+    if (!alarm) {
+      const text = `アラーム ${HEARTBEAT_ALARM} が無い（スタックを確かめる）`;
+      alarmWarnings.push(text);
+      entries.push({ id: "heartbeat-alarm", text, steps: [
+        `本番スタックの状態を見る: aws cloudformation describe-stacks --region ${REGION} --stack-name comegin-prod --query 'Stacks[0].StackStatus' --output text（*_COMPLETE であること）`,
+        `アラームの名前を探す: aws cloudwatch describe-alarms --region ${REGION} --alarm-name-prefix comegin-prod-onprem --query 'MetricAlarms[].AlarmName' --output text`,
+        "無ければ cloud/stacks/alarms.yaml のハートビートのアラームを確かめ、人が cd cloud && sam build && sam deploy する（cloud/README.md の 4.10・4.13）",
+        "アラームが無いと、監視アプリが止まっても知らせが届かない。デプロイを後で行うと決めたときだけ yes",
+      ] });
+    } else if (alarm.StateValue !== "OK") {
+      const text = `アラーム ${HEARTBEAT_ALARM} が ${alarm.StateValue}（${alarm.StateUpdatedTimestamp} から）。起動から 15 分ほどで OK に戻る。戻らなければ journalctl -u ${UNIT} の heartbeat の行と、資格情報ファイル・RUNLOG_BUCKET・AWS_REGION を確かめる（cloud/README.md の 4.13）`;
+      alarmWarnings.push(text);
+      entries.push({ id: "heartbeat-alarm", text, steps: [
+        `起動から 15 分ほど待ってから状態を見る: ${alarmState}（OK になれば済み）`,
+        `OK にならなければ、送り手のログを見る: journalctl -u ${UNIT} -n 200 | grep -i heartbeat（「開始 scheduler=on heartbeat=on」が出ているか。heartbeat=off なら AWS の値が読めていない）`,
+        `チェックアウトの .env の AWS_SHARED_CREDENTIALS_FILE・RUNLOG_BUCKET・AWS_REGION が空でないかを、値を出さずに確かめる: grep -c '^\\(AWS_SHARED_CREDENTIALS_FILE\\|RUNLOG_BUCKET\\|AWS_REGION\\)=.' <チェックアウト>/frontend/next-js/.env（3 が出る）`,
+        "資格情報ファイルのキーが有効かは、この設定スクリプトの手順 3・4（監視アプリの主体）で確かめ済み。キーを入れ替えたなら sudo systemctl restart comegin-control",
+        "OK になった（または、起動の直後で OK に戻るのを待つだけと判断した）なら yes",
+      ] });
+    }
   } catch (e) {
-    alarmWarnings.push(`アラーム ${HEARTBEAT_ALARM} を確かめられない（${e.message.split("\n")[0]}）`);
+    const text = `アラーム ${HEARTBEAT_ALARM} を確かめられない（${e.message.split("\n")[0]}）`;
+    alarmWarnings.push(text);
     alarmUnknown = true;
+    entries.push({ id: "heartbeat-alarm-unknown", text, steps: [
+      "AWS の認証を確かめる: aws sts get-caller-identity（期限切れなら aws sso login。AWS_PROFILE が本番の管理者を指しているか）",
+      `手で状態を見る: ${alarmState}`,
+      "確かめられないまま進めてよいと判断したときだけ yes",
+    ] });
   }
   const warnings = [];
   const enabled = enabledSchedules(main);
-  if (enabled.includes("heartbeat")) warnings.push("ops/schedules/heartbeat.yaml が enabled: true。ハートビートは定義に関係なく起動時から送られるので、二重に送り、E-15 に 1 日 288 件の記録が増える。false に戻す PR を出す");
-  if (!enabled.length) warnings.push(`有効な定期実行が 0 本（ops/schedules/*.yaml はすべて enabled: false）。改善ループはまだ動かない。人が PR で段階的に enabled: true にする（${MANUAL} の手順 5）`);
-  return { warnings: [...alarmWarnings, ...warnings], enabled, alarm: { warnings: alarmWarnings, unknown: alarmUnknown }, schedules: { warnings } };
+  if (enabled.includes("heartbeat")) {
+    const text = "ops/schedules/heartbeat.yaml が enabled: true。ハートビートは定義に関係なく起動時から送られるので、二重に送り、E-15 に 1 日 288 件の記録が増える。false に戻す PR を出す";
+    warnings.push(text);
+    entries.push({ id: "heartbeat-schedule", text, steps: [
+      "開発のリポジトリでブランチを切り（<Issue番号>-feature-<名前>）、ops/schedules/heartbeat.yaml の enabled を false にする",
+      "コミットして PR を出し、レビューしてから main にマージする（定義は承認済みの main のチェックアウトから読まれる。ADR-18）",
+      `承認済みの main のチェックアウト（${main}）を origin/main に合わせる: git -C <作業ツリー> fetch origin && git -C ${main} checkout --detach origin/main`,
+      "同じコマンドを実行し直す（PR を出して、マージを待つあいだ進めると判断したときだけ yes）",
+    ] });
+  }
+  if (!enabled.length) {
+    const text = `有効な定期実行が 0 本（ops/schedules/*.yaml はすべて enabled: false）。改善ループはまだ動かない。人が PR で段階的に enabled: true にする（${MANUAL} の手順 5）`;
+    warnings.push(text);
+    entries.push({ id: "schedules-none", text, steps: [
+      "動かす定期実行を決める（観測のジョブから 1〜2 本ずつ。時刻は JST 0〜8 時の窓。ops/README.md の表）",
+      "開発のリポジトリでブランチを切り、ops/schedules/<名前>.yaml の enabled を true にして PR を出し、レビューしてから main にマージする（heartbeat.yaml は true にしない）",
+      `承認済みの main のチェックアウト（${main}）を origin/main に合わせる: git -C <作業ツリー> fetch origin && git -C ${main} checkout --detach origin/main（定義は次の実行から効く。再起動は要らない）`,
+      `監視アプリ（http://127.0.0.1:3200）の「ジョブ」で、有効になったことと次の実行の時刻を確かめる（${MANUAL} の手順 5）`,
+      "改善ループをまだ動かさない（定期実行は 0 本のまま運用を始める）と判断したときは、PR を出さずに yes",
+    ] });
+  }
+  return { warnings: [...alarmWarnings, ...warnings], entries, enabled, alarm: { warnings: alarmWarnings, unknown: alarmUnknown }, schedules: { warnings } };
 }
 
 // ---------------------------------------------------------------------------
@@ -886,7 +931,11 @@ export async function apply(ctx) {
   // 1b. エージェント専用の作業場（開発のリポジトリ・main のチェックアウトと 3 つとも別の場所）。欠落は周のジョブが 1 本でも有効なときだけ止める（誤りは常に止める）
   const awi = agentWorktreeIssue(ctx, main);
   if (awi && (!awi.lack || enabledCycleJobs(main).length > 0)) ctx.manual("agent-worktree", "エージェント専用の作業場（git worktree）を作り、CONTROL_WORKTREE に書く", agentWorktreeSteps(awi.text));
-  if (awi) ctx.warn(`${awi.text}（周のジョブがすべて無効なので止めない。有効にする前に作る）`);
+  if (awi)
+    await ctx.confirm("agent-worktree-later", `${awi.text}（周のジョブがすべて無効。有効にする前に作る）`, [
+      ...agentWorktreeSteps(awi.text).slice(0, -1),
+      "同じコマンドを実行し直す。周のジョブ（ops/schedules/cycle-*.yaml）をまだ有効にしないなら、作らずに yes で進めてよい（有効にする PR の前に作る）",
+    ]);
   else ctx.log(`エージェント専用の作業場 ${ctx.conf.CONTROL_WORKTREE} は、開発のリポジトリ・承認済みの main のチェックアウトと別の場所`);
 
   // 2. ビルド
@@ -908,7 +957,13 @@ export async function apply(ctx) {
   const githubFile = statusGithubTokenOf(ctx);
   const githubProblem = await statusGithubProblem(ctx, githubFile);
   const originWarning = await statusOriginWarning(ctx);
-  if (originWarning) ctx.warn(originWarning);
+  if (originWarning)
+    await ctx.confirm("status-origin", originWarning, [
+      `今の値を見る: git -C ${ctx.WORKTREE} remote get-url origin`,
+      `人が自分の端末で直す: git -C ${ctx.WORKTREE} remote set-url origin https://github.com/${statusRepositoryOf(ctx)}.git`,
+      `つながることを確かめる: git -C ${ctx.WORKTREE} fetch origin（エラーが出ない）。承認済みの main のチェックアウトが別のクローンなら、そちらも同じく直す`,
+      "直さずに進めると、監視アプリは毎回の起動で GitHub の API を 1 回多く呼ぶ（同じリポジトリなら動く）。そのままでよいと判断したときだけ yes（onprem/README.md の「設定の状況を有効にする」）",
+    ]);
   if (githubProblem) ctx.manual("status-github", "設定の状況用の GitHub のトークン（参照専用）を作り、ファイルに書く", statusGithubSteps(githubProblem, githubFile));
   ctx.log("設定の状況用の GitHub のトークン（fine-grained PAT）でリポジトリを読めることを確かめた（読み取り専用かは確かめられない。人が Read-only を選ぶ。トークンは表示しない）");
 
@@ -918,7 +973,13 @@ export async function apply(ctx) {
   for (const id of CYCLE_IDS) {
     if (cycle.stops[id].length) ctx.manual(id, CYCLE_TITLES[id], cycleSteps(id, cycle.stops[id]));
   }
-  for (const id of CYCLE_IDS) for (const w of cycle.warns[id]) ctx.warn(w);
+  for (const id of CYCLE_IDS) {
+    if (!cycle.warns[id].length) continue;
+    await ctx.confirm(`${id}-optional`, `${CYCLE_TITLES[id]}: ${cycle.warns[id].join("／")}`, [
+      ...cycleSteps(id, cycle.warns[id]).slice(0, -1),
+      "同じコマンドを実行し直す。この機能をまだ使わない（skipped のままでよい）と判断したときだけ、書かずに yes",
+    ]);
+  }
   if (missing.length) {
     ctx.manual("prod-values", "監視アプリの本番の値を prod.conf に書く", [
       ...missing.map((m) => `足りない: ${m}`),
@@ -935,7 +996,13 @@ export async function apply(ctx) {
   const changed = ctx.writeEnvFile(envPath, values, { template: join(dir, ".env.example"), onlyIfEmpty: false });
   ctx.log(`${envPath} を本番の値にした（600。今回書いたキー: ${changed.join("・") || "なし"}）`);
   const env = ctx.readEnvFile(envPath);
-  if (!env.GITHUB_TOKEN) ctx.warn("GITHUB_TOKEN などが無い。I-13 の起票（daily-i13-file）は skipped になる（改善の提案が PR にならない）");
+  if (!env.GITHUB_TOKEN)
+    await ctx.confirm("i13-github", "GITHUB_TOKEN などが無い。I-13 の起票（daily-i13-file）は skipped になる（改善の提案が PR にならない）", [
+      `人が自分の端末で、GitHub の fine-grained personal access token を作る: Repository access は ${statusRepositoryOf(ctx)} だけ、Repository permissions は Contents と Pull requests を Read and write（設定の状況用の参照専用のトークンとは別のトークン）`,
+      "~/.config/comegin/setup/prod.conf にエディタで 4 つを書く: GITHUB_TOKEN=<トークン>、GITHUB_REPOSITORY=<所有者/名前。空なら origin から>、I13_ISSUE_NUMBER=<起票をまとめる Issue の番号>、I13_REVIEWER=<レビュアーの GitHub のユーザー名>（1 つでも書いたら 4 つとも要る。echo で書かない）",
+      "同じコマンドを実行し直す（.env に写り、restart を案内される）。詳しくは onprem/README.md の表と backend/control-plane/README.md の I-13",
+      "改善の提案を PR にしない（起票を skipped のままにする）と判断したときだけ、書かずに yes",
+    ]);
   if (!env.CONTROL_N8N_EXPORT_API_KEY) ctx.log("n8n の書き出し（daily-n8n-export）は未設定（キーのスコープを人が判断してから CONTROL_N8N_EXPORT_* を prod.conf に書く）");
 
   // 6. systemd
@@ -959,10 +1026,17 @@ export async function apply(ctx) {
   if (!google.ok) throw new Error(`監視アプリの Google ログインを始められない: ${google.reason}`);
   ctx.log(`Google ログインを始められる（リダイレクト URI ${google.redirect}。Google のクライアントにこの URI が登録されていること）`);
   const exposed = exposureWarning(publicUrl);
-  if (exposed) ctx.warn(exposed);
+  if (exposed)
+    await ctx.confirm("exposed", exposed, [
+      "~/.config/comegin/setup/prod.conf の CONTROL_PUBLIC_URL の行を消す（既定の http://127.0.0.1:3200 になる）か、手元の URL に書き換える",
+      "ngrok などのトンネルを 3200 に張っていたら止める（本番の監視アプリは外に出さない。ADR-23 の見直しの条件）",
+      `別の端末から使うときは ssh -L 3200:127.0.0.1:3200 <このマシン> で入り、${LOCAL_URL} を開く（${OPEN_MANUAL}）`,
+      "Google の OAuth クライアントの承認済みのリダイレクト URI に http://127.0.0.1:3200/api/auth/callback/google があることを確かめる",
+      "同じコマンドを実行し直す（.env を書き直して restart を案内される）。外に出す理由があり、それを承知で進めるときだけ yes",
+    ]);
 
-  // 8. 警告
-  const { warnings, enabled } = await operateWarnings(ctx, main);
-  for (const w of warnings) ctx.warn(w);
+  // 8. 人の確認
+  const { warnings, enabled, entries } = await operateWarnings(ctx, main);
+  for (const e of entries) await ctx.confirm(e.id, e.text, e.steps);
   ctx.log(`有効な定期実行: ${enabled.length ? enabled.join("・") : "なし"}。ログイン: ${publicUrl}/login`);
 }

@@ -1,9 +1,10 @@
 // ops/setup/index.mjs（モジュール mcp-prod）の check が返す items（mcp-prod.dist・mcp-prod.values。どちらも P10）の単体テスト。
 // git（node:child_process の execFileSync）は偽物に差し替える。ファイルは一時ディレクトリだけに置く。各 MCP への通信は、prod.conf の値が足りない状態で走らせるので起きない。
-import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeCtx, itemsByKey } from "../helpers/fake-ctx.mjs";
+import { writeEnvFile } from "../../lib/core.mjs";
+import { fakeCtx, itemsByKey, recordingConfirm } from "../helpers/fake-ctx.mjs";
 import { makeTempDir, removeTempDir } from "../helpers/temp-home.mjs";
 
 // commitTime: --first-parent で引いたときの時刻（main に入った時刻。マージコミットの時刻）。
@@ -19,7 +20,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
   },
 }));
 
-const { check } = await import("../../../ops/setup/index.mjs");
+const { check, apply } = await import("../../../ops/setup/index.mjs");
 
 let checkout;
 let config;
@@ -110,6 +111,102 @@ describe("mcp-prod の items", () => {
     it("入力: prod.conf に MCP の値が足りないと mcp-prod.values が action で、止まる id は mcp-prod:prod-values", async () => {
       const r = await check(mcpCtx({ CONTROL_MAIN_CHECKOUT: checkout }));
       expect(itemsByKey(r)["mcp-prod.values"]).toMatchObject({ level: "action", stopId: "mcp-prod:prod-values", evidence: expect.stringContaining("prod.conf に無いキー") });
+    });
+  });
+});
+
+// n8n の MCP に「人間だけが行う操作」のツールが出るときの「!」（2026-11-10）。check は notes に「!」、apply は手順付きで確認する。
+// 各 MCP（Chatwoot・Mautic は ctx.http、Strapi・n8n の MCP は fetch）は偽物。実際のネットワークには出ない
+describe("mcp-prod の n8n の人間だけの操作のツール", () => {
+  const VALUES = {
+    CHATWOOT_AGENT_TOKEN: "agent-token-0123456789",
+    CHATWOOT_ACCOUNT_ID: "1",
+    MAUTIC_CLIENT_ID: "rw-client-id",
+    MAUTIC_CLIENT_SECRET: "rw-client-secret",
+    MAUTIC_RO_CLIENT_ID: "ro-client-id",
+    MAUTIC_RO_CLIENT_SECRET: "ro-client-secret",
+    STRAPI_PROD_TOKEN: "strapi-prod-token-0123",
+    N8N_PROD_TOKEN: "n8n-prod-token-0123",
+    POSTHOG_PROD_API_KEY: "phx_0123456789",
+    POSTHOG_PROD_PROJECT_ID: "123",
+  };
+  let n8nTools;
+
+  /** MCP（Streamable HTTP）の偽物。initialize・notifications/initialized・tools/list・DELETE に答える */
+  function stubMcp() {
+    vi.stubGlobal("fetch", async (url, init) => {
+      if (init.method === "DELETE") return new Response(null, { status: 200 });
+      const body = JSON.parse(init.body);
+      if (!("id" in body)) return new Response(null, { status: 202 });
+      const result = body.method === "initialize" ? {} : { tools: (String(url).includes(":5679") ? n8nTools : ["create_article"]).map((name) => ({ name })) };
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+  }
+
+  const http = async (_label, url) => {
+    if (url.endsWith("/api/v1/profile")) return { accounts: [{ id: 1, role: "agent" }] };
+    if (url.endsWith("/oauth/v2/token")) return { access_token: "access" };
+    return {};
+  };
+
+  const ctxFor = (answer, phaseOverrides = {}) => {
+    const rec = recordingConfirm(answer);
+    const ctx = fakeCtx({
+      conf: VALUES,
+      overrides: {
+        phase: "apps",
+        CONFIG_DIR: config,
+        http,
+        writeEnvFile,
+        // dist の確かめ（CONTROL_MAIN_CHECKOUT が無い）で止まる。確認の後まで進んだことの目印にする
+        manual: (id) => {
+          throw Object.assign(new Error(`manual: ${id}`), { manualId: id });
+        },
+        ...rec.overrides,
+        ...phaseOverrides,
+      },
+    });
+    return { ctx, rec };
+  };
+
+  beforeEach(() => {
+    n8nTools = ["search_workflows", "publish_workflow", "execute_workflow"];
+    stubMcp();
+  });
+
+  describe("正常系", () => {
+    it("サーバ: check は notes に「!」で出し、聞かない", async () => {
+      const r = await check(fakeCtx({ conf: VALUES, overrides: { phase: "apps", CONFIG_DIR: config, http } }));
+      expect(r.notes).toContain("! n8n-prod に人間だけが行う操作のツールが出ている（publish_workflow, execute_workflow）。n8n のトークンでは絞れない。これらを tools に含むエージェント定義は control-plane が起動しない（src/runner/agent.ts の HUMAN_ONLY_PROD_TOOLS。TA-07 の 3.3）");
+      expect(r.notes).toContain("n8n-prod: ツール 3 本");
+    });
+
+    it("サーバ: apply は、エージェント定義を探す手順を付けて確認し、yes なら env ファイルを書いて先へ進む", async () => {
+      const { ctx, rec } = ctxFor("yes");
+      const err = await apply(ctx).catch((e) => e);
+      expect(rec.asked.map((a) => a.id)).toEqual(["n8n-human-only"]);
+      expect(rec.asked[0].steps[0]).toContain('rg -n "mcp__n8n-prod__(publish_workflow|execute_workflow)" .claude/agents');
+      expect(rec.asked[0].steps.join("\n")).toContain("HUMAN_ONLY_PROD_TOOLS");
+      expect(existsSync(join(config, "mcp", "n8n-prod.env"))).toBe(true);
+      expect(err.manualId).toBe("finish");
+    });
+
+    it("空入力: 人間だけの操作のツールが出なければ、確認しない", async () => {
+      n8nTools = ["search_workflows"];
+      const { ctx, rec } = ctxFor("no");
+      const err = await apply(ctx).catch((e) => e);
+      expect(rec.asked).toEqual([]);
+      expect(err.manualId).toBe("finish");
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: yes 以外なら確認で止まり、env ファイルを書かない", async () => {
+      const { ctx, rec } = ctxFor("no");
+      const err = await apply(ctx).catch((e) => e);
+      expect(err).toMatchObject({ id: "n8n-human-only", kind: "confirm" });
+      expect(rec.asked).toHaveLength(1);
+      expect(existsSync(join(config, "mcp", "n8n-prod.env"))).toBe(false);
     });
   });
 });

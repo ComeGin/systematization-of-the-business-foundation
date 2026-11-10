@@ -35,7 +35,7 @@
 | `strapi:start-dev`／`next-js:start-app`／`next-js:restart-app` | 開発サーバーが動いていない／環境変数を書き換えた | 別の端末で起動（し直し）したままにする | [5](#5-常駐させる開発サーバーの起動) |
 | （next-js の失敗）`CONTROL_MAIN_CHECKOUT が無い` | 承認済みの `main` のチェックアウトが無い | `git worktree` で作る | [6](#6-監視アプリの承認済みの-main-のチェックアウト) |
 | `next-js:google-client` | 監視アプリの Google ログインの OAuth クライアントが無い | **Google Cloud Console で作る**（必須。ADR-23） | [7.2](#72-監視アプリの-google-ログイン必須) |
-| （警告だけ） | admin-auth の Google の資格情報・Anthropic の API キーが無い | 試すときだけ作る | [7](#7-外部サービスの資格情報) |
+| `admin-auth:google-client`・`next-js:anthropic-key`（`!` で `yes` を待つ） | admin-auth の Google の資格情報・Anthropic の API キーが無い | 試すときだけ作る。作らないなら `yes` | [7](#7-外部サービスの資格情報) |
 | `verdant-virgo:restart-dev` | 公開サイトの環境変数を書き換えたが、dev サーバーを `astro dev stop` で止められない（別の端末の前景の `pnpm dev`） | その端末で Ctrl+C で止めて、`node setup/frontend.mjs --target dev` を実行し直す（`astro dev --background` で起動する） | [5](#5-常駐させる開発サーバーの起動) |
 | （verdant-virgo の失敗）`PUBLIC_GA4_MEASUREMENT_ID` がある | 開発の Astro の環境変数ファイルに測定 ID が書かれている | ga4 と同じ。その行を消して `node setup/frontend.mjs --target dev --from verdant-virgo` | [7.5](#75-ga4adr-25) |
 | `verdant-virgo:prod-values`（`--target prod`） | 本番の公開サイトのビルドの値が `prod.conf` に足りない（ビルドを行う承認済みの `main` のチェックアウト `SITE_BUILD_CHECKOUT` が無い・作業ツリーと同じときは失敗として止まる） | 表示されたキーを `prod.conf` に書く（雛形は `setup/setup.conf.example` の「公開サイト」） | `setup/README.md` の「フロントエンド全体」 |
@@ -56,7 +56,7 @@
 | `mautic-prod:settings`（`--target prod`） | 本番の Mautic が未インストール・API が無効・画面の設定を申告していない・初期設定用の API 認証情報が無い | インストールして画面で設定し、`MAUTIC_SETUP_CLIENT_*` と `MAUTIC_PROD_SETTINGS_DONE=yes` を書く | [cloud 7.4](../cloud/README.md#74-本番の-mauticmautic-prod) |
 | `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く／dist は main のチェックアウトでパッケージごとにビルドする | [onprem「本番の MCP」](../onprem/README.md#本番の-mcpmcp-prod)・[「MCP サーバの dist」](../onprem/README.md#mcp-サーバの-dist-をビルドするmcp-prodfinish) |
 | `next-js-prod:checkout`／`build`／`principal`／`status-principal`／`status-github`／`agent-worktree`／`cycle`／`strapi-tokens`／`deploy-values`／`openai`／`mautic-reader`／`prod-values`／`systemd`／`systemd-dir`／`restart`／`start`（`--target prod`。段階 `operate`） | 監視アプリ（改善ループ）を本番の値で常駐させる前提が足りない（チェックアウト・ビルド・IAM の主体とキー・設定の状況の読み取り専用の主体〈`status-principal`〉と GitHub の参照専用のトークン〈`status-github`〉・**改善の周の設定**。**`agent-worktree`・`cycle`・`strapi-tokens`・`deploy-values` の「無い」は、周のジョブ〈`ops/schedules` の `cycle-*`・`article-cover`・`campaign-asset-upload`〉を 1 本でも `enabled: true` にした後に止まる**〈すべて無効なら警告だけ〉。形の誤り・片方だけ・同じ値は常に止まる: `agent-worktree`＝エージェント専用の作業場が無い・開発のリポジトリや main のチェックアウトと同じ場所／`cycle`＝`CONTROL_CYCLE_ANCHOR` が無い・月曜でない／`strapi-tokens`＝本番の Strapi の読み取りトークンが無い・書き込みトークンが読み取りと同じ／`deploy-values`＝配信の SSO のプロファイル名などが無い／`openai`＝OpenAI の上限・サイズが違う〈キーの無い・形が違うは警告〉／`mautic-reader`＝Mautic の参照用の認証情報が片方だけ・ほかの用途と同じ値〈無いだけなら警告〉〉・`prod.conf` の値・systemd のユニット） | 表示のとおり。どれも人が自分の端末で行う（`agent-worktree` は [6.2](#62-エージェント専用の作業場agent-worktree)、`cycle` は [7.10](#710-改善の周の起点control_cycle_anchor)、`strapi-tokens` は [7.8](#78-本番の-strapi-の-api-トークン2-つ)、`deploy-values` は [cloud 4.14](../cloud/README.md#414-astro-の配信)、`openai` は [7.7](#77-openai-の-api-キーアイキャッチ画像)、`mautic-reader` は [7.9](#79-mautic-の参照専用の-api-認証情報control-plane-用)、`status-principal` は [cloud 4.5.3](../cloud/README.md#453-設定の状況の主体statusreaderpolicyarnを作りキーを発行する1-回だけ)、`status-github` は onprem「設定の状況を有効にする」） | [onprem「監視アプリ（改善ループ）を本番で動かす」](../onprem/README.md#監視アプリ改善ループを本番で動かす)・[「設定の状況を有効にする」](../onprem/README.md#設定の状況を有効にするsetup-status) |
-| （`cloud` の警告。段階 `operate`） | 配信用の主体が無い・IAM ユーザーに古いキーが残っている・`prod.conf` に初期設定用の値が残っている・SES がサンドボックス | 止めない。`setup/00-setup-overview.md` の P15 | [cloud 4.5](../cloud/README.md#45-iam-の管理ポリシーを付けるオンプレの-iam-ユーザーのキーを発行する) |
+| （`cloud` の `!`。段階 `operate`） | 配信用の主体が無い・IAM ユーザーに古いキーが残っている・`prod.conf` に初期設定用の値が残っている・SES がサンドボックス | 配信用の主体と SES は手順を出して `yes` を待つ。古いキーと `prod.conf` の値は削除の注意で止めない。`setup/00-setup-overview.md` の P15 | [cloud 4.5](../cloud/README.md#45-iam-の管理ポリシーを付けるオンプレの-iam-ユーザーのキーを発行する) |
 
 ## 1. 設定ファイルの書き方（全節で共通）
 
@@ -381,7 +381,7 @@ OpenSEO は**オンプレの道具**（TA-07 の 3.7。正本のデータは持�
    node setup/setup.mjs --target prod --phase operate --only openseo
    ```
 
-   止めずに警告だけ出す。コンテナが止まっていれば `docker compose up -d` で上げ直す（環境変数ファイルは変えない）。それ以外の欠け（ユニットが無い・enabled でない・active でない・`WorkingDirectory` が違う、再起動の設定、プロジェクト・接続）は表示に従って直す。`--phase operate` を丸ごと実行したときも、同じ確認が入る（`setup/00-setup-overview.md` の P14）。
+   足りないものがあれば手順を出して `yes` を待つ（2026-11-10 から。それまでは警告だけ）。コンテナが止まっていれば `docker compose up -d` で上げ直す（環境変数ファイルは変えない）。それ以外の欠け（ユニットが無い・enabled でない・active でない・`WorkingDirectory` が違う、再起動の設定、プロジェクト・接続）は表示に従って直す。`--phase operate` を丸ごと実行したときも、同じ確認が入る（`setup/00-setup-overview.md` の P14）。
 
 #### スクリプトが確かめること
 

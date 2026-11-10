@@ -108,7 +108,13 @@ export async function apply(ctx) {
   const envPath = join(dir, ".env");
   const changed = ctx.writeEnvFile(envPath, envUpdates(ctx, envPath), { template: join(dir, ".env.example"), onlyIfEmpty: false });
   ctx.log(changed.length ? `.env に書いた: ${changed.join(", ")}` : ".env は用意できている");
-  if (PLACEHOLDER.test(ctx.readEnvFile(envPath).POSTHOG_PROJECT_TOKEN ?? "")) ctx.warn("POSTHOG_PROJECT_TOKEN が雛形の値のまま（イベントは PostHog に届かない。必要なら設定に POSTHOG_PROJECT_TOKEN を書いて再実行）");
+  if (PLACEHOLDER.test(ctx.readEnvFile(envPath).POSTHOG_PROJECT_TOKEN ?? ""))
+    await ctx.confirm("posthog", "POSTHOG_PROJECT_TOKEN が雛形の値のまま（イベントは PostHog に届かない。必要なら設定に POSTHOG_PROJECT_TOKEN を書いて再実行）", [
+      "PostHog にログイン → 開発のプロジェクトを選ぶ（本番のプロジェクトのトークンを使わない）→ Settings → Project → General の Project token（phc_ で始まる）をコピーする",
+      "~/.config/comegin/setup/dev.conf にエディタで POSTHOG_PROJECT_TOKEN=<トークン> を書く（echo で書かない）",
+      "同じコマンドを実行し直す（環境変数ファイルに写る）。その後、Strapi の開発サーバーを起動し直す",
+      "開発で記事のイベント（article_created など）を PostHog に送らないと判断したときだけ yes",
+    ]);
 
   // 2. 依存パッケージ（lockfile のとおりに入れる。lockfile は変えない）
   await ctx.run("pnpm", ["install", "--frozen-lockfile"], { cwd: dir });
@@ -119,7 +125,7 @@ export async function apply(ctx) {
   if (!up) {
     ctx.manual("start-dev", "Strapi の開発サーバーを起動する", [`別の端末で: cd ${dir} && pnpm dev`, `${BASE}/_health が 204 を返したら（数十秒かかる）、同じコマンドを実行し直す`]);
   }
-  if (changed.some((k) => k !== "POSTHOG_PROJECT_TOKEN")) ctx.warn("起動中のサーバーは書き換え前の値で動いている。次に pnpm dev を起動し直したとき、新しい値になる");
+  if (changed.some((k) => k !== "POSTHOG_PROJECT_TOKEN")) ctx.log("起動中のサーバーは書き換え前の値で動いている。次に pnpm dev を起動し直したとき、新しい値になる");
 
   // 4. 管理者
   const email = ctx.value("STRAPI_ADMIN_EMAIL") || ctx.require("ADMIN_EMAIL");
@@ -164,9 +170,18 @@ export async function apply(ctx) {
       if (uids.length === 0) throw new Error("一覧が空");
       existing = new Set(uids);
       const missing = [...WRITABLE, ...SINGLES].filter((u) => !existing.has(u));
-      if (missing.length) ctx.warn(`開発サーバーに無いコンテンツタイプは権限から外す: ${missing.join(", ")}（サーバーを再起動して再実行すれば入る）`);
+      if (missing.length)
+        await ctx.confirm("content-types", `開発サーバーに無いコンテンツタイプは権限から外す: ${missing.join(", ")}（サーバーを再起動して再実行すれば入る）`, [
+          `src/api の下に ${missing.join("・")} の schema.json があるかを見る（無ければ、ブランチが古い。git -C ${ctx.REPO} status で確かめる）`,
+          `開発サーバーを起動し直す: pnpm dev の端末で Ctrl+C → cd ${dir} && pnpm dev（${BASE}/_health が 204 になるまで待つ）（コンテンツタイプは起動したときに読まれる）`,
+          "同じコマンドを実行し直す（MCP 用のトークンに権限が付く）。その型を MCP で使わないと判断したときだけ yes",
+        ]);
     } catch (e) {
-      ctx.warn(`コンテンツタイプの一覧を取れなかった（${e.message}）。全部の型に権限を付ける`);
+      await ctx.confirm("content-types-unknown", `コンテンツタイプの一覧を取れなかった（${e.message}）。全部の型に権限を付ける`, [
+        `開発サーバーのログ（pnpm dev の端末）にエラーが出ていないかを見る。${BASE}/_health が 204 を返すか: curl -s -o /dev/null -w '%{http_code}\\n' ${BASE}/_health`,
+        `開発サーバーを起動し直す: pnpm dev の端末で Ctrl+C → cd ${dir} && pnpm dev（${BASE}/_health が 204 になるまで待つ）`,
+        "同じコマンドを実行し直す。全部の型に権限を付けて進めてよい（無い型の権限は Strapi が無視する）と判断したときだけ yes",
+      ]);
       existing = null;
     }
     const permissions = mcpPermissions(scope, existing);
@@ -192,9 +207,21 @@ export async function apply(ctx) {
     const publish = tools.filter((n) => /^(publish|unpublish)_/.test(n));
     const del = tools.filter((n) => n.startsWith("delete_"));
     ctx.log(`MCP のツール ${tools.length} 個（create_article: ${tools.includes("create_article") ? "あり" : "なし"}／公開系: ${publish.length}／削除系: ${del.length}）`);
-    if (scopeOf(ctx) === "draft" && (publish.length || del.length)) ctx.warn(`下書きまでのはずなのに公開・削除のツールが出ている: ${[...publish, ...del].join(", ")}（権限の絞りが効いていない。本番の前に調べる）`);
+    if (scopeOf(ctx) === "draft" && (publish.length || del.length))
+      await ctx.confirm("mcp-scope", `下書きまでのはずなのに公開・削除のツールが出ている: ${[...publish, ...del].join(", ")}（権限の絞りが効いていない。本番の前に調べる）`, [
+        `${BASE}/admin にログイン → Settings → Administration Panel の API tokens（Admin トークン）→ ${MCP_TOKEN_NAME} を開き、Publish・Delete の権限が付いていないかを見る`,
+        "付いていれば、そのトークンを消してから同じコマンドを実行し直す（下書きまでの権限で作り直す）",
+        "付いていないのに出るなら、strapi-mcp のプラグインが権限でツールを絞っていない（backend/strapi-system の MCP の設定を調べる。本番の strapi-prod も同じになる。TA-07 の 9 節）",
+        "~/.config/comegin/setup/dev.conf に STRAPI_DEV_TOKEN_SCOPE=full を書いていないかも確かめる（full なら公開・削除が出るのが正しい）",
+        "開発だけの問題で、本番の前に調べると決めたときだけ yes",
+      ]);
   } catch (e) {
-    ctx.warn(`MCP のツール一覧を取れなかった（${e.message}）。strapi-mcp の接続は手で確かめる`);
+    await ctx.confirm("mcp-tools", `MCP のツール一覧を取れなかった（${e.message}）。strapi-mcp の接続は手で確かめる`, [
+      `開発サーバーが動いているか: curl -s -o /dev/null -w '%{http_code}\\n' ${BASE}/_health（204）`,
+      "Claude Code の /mcp で strapi-mcp（開発）が connected かを見る（トークンは ~/.config/comegin/mcp/strapi-dev.env）",
+      "つながらなければ、開発サーバーのログで /mcp のエラーを見て、同じコマンドを実行し直す（トークンを作り直す）",
+      "開発で strapi-mcp を使わないと判断したときだけ yes",
+    ]);
   }
 }
 

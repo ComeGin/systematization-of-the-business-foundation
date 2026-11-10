@@ -268,29 +268,34 @@ async function missingDbInit(ctx, main, opts) {
 }
 
 /**
- * 止めない確認（警告）の集め方。確認ごとに項目（key・step。監視アプリの「設定の状況」が読む）を持ち、人向けの文（texts）は今までどおり順番に集める。
+ * 人の作業の確認（「!」）の集め方。確認ごとに項目（key・step。監視アプリの「設定の状況」が読む）を持ち、人向けの文（texts）は順番に集める。
+ * apply は entries（文・手順・削除系か）を順に見て、削除系は ctx.warn（止めない）、それ以外は ctx.confirm（yes で進む。2026-11-10）にする。
  * 項目の level: 警告の文があれば warn、確かめられなかったものだけなら unknown、どちらも無ければ ok
  */
 function findings() {
   const texts = [];
+  const entries = [];
   const handles = [];
   const list = (h) => [].concat(h);
   const self = {
     texts,
+    entries,
     item(key, step, title, okEvidence) {
       const h = { key, step, title, okEvidence, warns: [], unknowns: [] };
       handles.push(h);
       return h;
     },
-    /** 警告の文を足す（人向けの文にも出る） */
-    warn(h, text) {
+    /** 警告の文を足す（人向けの文にも出る）。steps は詳しい操作の手順、deletion は変数・キーの削除（消し忘れ）の注意なら true（止めない） */
+    warn(h, text, steps = [], { deletion = false } = {}) {
       h.warns.push(text);
       texts.push(text);
+      entries.push({ id: h.key.replace(/^cloud\./, ""), text, steps, deletion });
     },
     /** 確かめられなかった（人向けの文に 1 回だけ出し、項目のすべてに付ける） */
     unknown(h, text) {
       for (const x of list(h)) x.unknowns.push(text);
       texts.push(text);
+      entries.push({ id: `${list(h)[0].key.replace(/^cloud\./, "")}-unknown`, text, steps: unknownSteps(), deletion: false });
     },
     /** 人向けの文には出さず、項目だけを「確かめられなかった」にする（確かめる対象そのものが無かったとき） */
     quiet(h, text) {
@@ -315,7 +320,181 @@ function findings() {
   return self;
 }
 
-/** 止めはしないが、済んでいなければ知らせる人の作業。文は「何が・どうなる・どこを見る」。{ warnings: 人向けの文, items: 項目 } を返す */
+/** findings の entries を apply で表示する。削除系は止めずに「!」、それ以外は yes の入力を待つ（yes 以外なら止まる） */
+async function settleEntries(ctx, entries) {
+  for (const e of entries) {
+    if (e.deletion) ctx.warn(`${e.text}（削除の注意。止めずに進む）`);
+    else await ctx.confirm(e.id, e.text, e.steps);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 「!」の詳しい手順（2026-11-10。どれも人が自分の端末か AWS のコンソールで行う。Claude Code の実行環境では行わない）
+// ---------------------------------------------------------------------------
+
+const OUT_FN = `OUT() { aws cloudformation describe-stacks --region ${REGION} --stack-name ${STACK} --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }`;
+
+function unknownSteps() {
+  return [
+    "AWS の認証を確かめる: aws sts get-caller-identity（期限切れなら aws sso login --profile <管理者のプロファイル>。AWS_PROFILE が本番の管理者を指しているか）",
+    "上の文の「（…）」にある AWS のエラーを読む。AccessDenied なら、実行している主体に読み取りの権限（cloudformation・sns・sesv2・iam・secretsmanager）があるかを確かめる",
+    "直したら同じコマンドを実行し直す。確かめられないまま進めてよい（後で node setup/setup.mjs --target prod --phase apps --only cloud --check で確かめ直す）と判断したときだけ yes",
+  ];
+}
+
+function globalSecondSteps() {
+  return [
+    `本番スタックの出力 DistributionArn を取る: ${OUT_FN} のあと OUT DistributionArn`,
+    "cloud/samconfig.toml の [global.deploy.parameters] の parameter_overrides に \"DistributionArn=<上の ARN>\" を足す（エディタで。値は秘密ではない）",
+    "cd cloud && sam deploy --config-env global（us-east-1。PlanTier の既定 FREE は即時に有効で $0。cloud/README.md の 4.3）",
+    `確かめる: aws cloudformation describe-stacks --region ${GLOBAL_REGION} --stack-name ${GLOBAL_STACK} --query "Stacks[0].Parameters[?ParameterKey=='DistributionArn'].ParameterValue" --output text が空でない`,
+    "購読できない（Free Tier のアカウントなど）ので従量課金（CloudFront と WAF の費用）のまま運用すると決めたときだけ、手順を飛ばして yes",
+  ];
+}
+
+function snsSubscribeSteps(arn, { unsubscribeArn } = {}) {
+  return [
+    ...(unsubscribeArn ? [`確認に認証が付いていない購読を解除する: aws sns unsubscribe --region ${REGION} --subscription-arn ${unsubscribeArn}`] : []),
+    `購読を申し込む: aws sns subscribe --region ${REGION} --topic-arn ${arn} --protocol email --notification-endpoint <通知を受けるメールアドレス>`,
+    "届いた確認メールのリンクは開かない（開くと認証なしで確認され、だれでも解除できる購読になる）。「Confirm subscription」のリンクの URL をコピーし、Token= の後ろ（& の前まで）を写す",
+    `認証付きで確認する: aws sns confirm-subscription --region ${REGION} --topic-arn ${arn} --token <写した Token> --authenticate-on-unsubscribe true`,
+    `確かめる: aws sns list-subscriptions-by-topic --region ${REGION} --topic-arn ${arn} --query 'Subscriptions[].SubscriptionArn' --output text が arn: で始まる（PendingConfirmation ではない）。cloud/README.md の 4.4`,
+  ];
+}
+
+function sesProductionSteps({ beforeSite }) {
+  return [
+    ...(beforeSite
+      ? ["公開サイト https://comegin.com をまだ配信していないなら、今は申請しない（審査で Web サイトを見る。2026-10-28 の決定）。配信（cloud/README.md の 4.14）の後に申請すると決めて yes で進めてよい。配信済みなら次へ"]
+      : []),
+    "SES のコンソールを開く（リージョンは アジアパシフィック（東京）。ほかのリージョンの状態は関係ない）→ 左の Account dashboard",
+    "「Your Amazon SES account is in the sandbox」の右の View Get set up page → Request production access",
+    "Mail type: Transactional／Website URL: https://comegin.com／Additional contacts: SES からの連絡を受ける運用のアドレス／Preferred contact language: Japanese／Acknowledgement: 同意 → Submit request",
+    `（CLI なら）aws sesv2 put-account-details --region ${REGION} --production-access-enabled --mail-type TRANSACTIONAL --website-url https://comegin.com --contact-language JA --additional-contact-email-addresses <連絡先のアドレス>`,
+    "審査は最初の応答まで最大 96 時間。使い方の説明を求められたら、サポートセンターのそのケースに cloud/README.md の 4.9.2 の文案で返信する",
+    `状態を見る: aws sesv2 get-account --region ${REGION} --query '{Production:ProductionAccessEnabled, Review:Details.ReviewDetails.Status, Suppression:SuppressionAttributes.SuppressedReasons}'（Production が true で解除。Suppression は ["BOUNCE","COMPLAINT"]）`,
+    "審査中は顧客にメールが届かない（検証済みの宛先だけ）。申請して審査を待つあいだは yes で進めてよい",
+  ];
+}
+
+function sesIdentityMissingSteps(domain) {
+  return [
+    `確かめる: aws sesv2 get-email-identity --region ${REGION} --email-identity ${domain}（NotFoundException なら無い）`,
+    `本番スタックの状態を見る: aws cloudformation describe-stacks --region ${REGION} --stack-name ${STACK} --query 'Stacks[0].StackStatus' --output text（*_COMPLETE であること）`,
+    "ses.yaml の DomainName（samconfig.toml の DomainName）が上のドメインと同じかを確かめ、違えば直して cd cloud && sam build && sam deploy（cloud/README.md の 4.2）",
+    "同じコマンドを実行し直す",
+  ];
+}
+
+function sesVerifySteps(domain, mailFrom) {
+  return [
+    `状態を見る: aws sesv2 get-email-identity --region ${REGION} --email-identity ${domain} --query '{Sendable:VerifiedForSendingStatus, Dkim:DkimAttributes.Status, MailFrom:MailFromAttributes.MailFromDomainStatus}'`,
+    "PENDING なら、DNS が行き渡るのを待つ（数分〜72 時間。Route 53 のレコードは ses.yaml が作っている）",
+    `72 時間を過ぎても PENDING か、FAILED なら、Route 53 のホストゾーン ${domain} にレコードがあるかを見る: dig CNAME <トークン>._domainkey.${domain}（トークンは get-email-identity の DkimAttributes.Tokens）、dig MX ${mailFrom ?? `bounce.${domain}`}、dig TXT ${mailFrom ?? `bounce.${domain}`}`,
+    "レコードが無ければ cd cloud && sam deploy で作り直す。あるのに通らなければ SES のコンソール（東京）→ Verified identities → ドメイン → DKIM の Retry",
+    "SUCCESS になるまで顧客にメールを送れない。待つあいだ進めてよいと判断したら yes（cloud/README.md の 4.9.1）",
+  ];
+}
+
+function dmarcSteps(domain, { strict }) {
+  return strict
+    ? [
+        `今の値を見る: dig +short TXT _dmarc.${domain}`,
+        `Route 53 のコンソール → ホストゾーン ${domain} → レコード _dmarc（TXT）を編集し、aspf=s と adkim=s を消す（p= と rua= はそのまま。Google Workspace と共有のレコードなので、ほかの部分は変えない）`,
+        `数分後に dig +short TXT _dmarc.${domain} で、aspf=s・adkim=s が無いことを確かめる（cloud/README.md の 4.9.6）`,
+      ]
+    : [
+        `無いことを確かめる: dig +short TXT _dmarc.${domain}（何も出ない）`,
+        `Route 53 のコンソール → ホストゾーン ${domain} → レコードを作成: レコード名 _dmarc／タイプ TXT／値 "v=DMARC1; p=none; rua=mailto:<集計レポートを受けるアドレス>"（まず p=none。aspf=s・adkim=s は入れない）`,
+        `数分後に dig +short TXT _dmarc.${domain} で v=DMARC1 が出ることを確かめる`,
+        "apex の SPF（Google Workspace のもの）には触らない（cloud/README.md の 4.9.6）",
+      ];
+}
+
+function amiSteps() {
+  return [
+    `今の EC2 の AMI を取る: ${OUT_FN} のあと aws ec2 describe-instances --region ${REGION} --instance-ids "$(OUT WireguardInstanceId)" --query 'Reservations[0].Instances[0].ImageId' --output text`,
+    "cloud/samconfig.toml の [default.deploy.parameters] の parameter_overrides に \"WireguardFixedAmiId=<上の ami-…>\" を足す（エディタで）",
+    "次の sam deploy で反映される（急がなくてよいが、新しい AMI が出る前に行う。cd cloud && sam build && sam deploy）",
+    "反映を確かめる: node setup/setup.mjs --target prod --phase apps --only cloud --check で WireGuard の AMI の「!」が消える（cloud/README.md の 4.2.1 の手順 3）",
+    "samconfig.toml に書いた（デプロイは後で行う）なら yes",
+  ];
+}
+
+function onpremKeySteps(user, use) {
+  const strapi = /strapi/.test(user);
+  const file = strapi ? "~/strapi-media.key" : "~/n8n-sns.key";
+  return [
+    `人が自分の端末で、管理者で実行する: ( umask 077; aws iam create-access-key --user-name ${user} --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > ${file} )（シークレットが返るのはこの 1 回だけ。画面に出さない）`,
+    strapi
+      ? `${file} の 2 つの値を onprem/strapi/.env の AWS_ACCESS_KEY_ID・AWS_SECRET_ACCESS_KEY にエディタで写す（vim なら :r ${file}。echo で書かない）→ cd onprem/strapi && docker compose up -d → 管理画面で画像を 1 枚アップロードできることを確かめる`
+      : `${file} の 2 つの値を ~/.config/comegin/setup/prod.conf の AWS_ACCESS_KEY_ID・AWS_SECRET_ACCESS_KEY にエディタで写す（echo で書かない）→ node setup/setup.mjs --target prod --only n8n-prod`,
+    `写したらキーのファイルを消す: shred -u ${file}`,
+    `確かめる: aws iam list-access-keys --user-name ${user} --query 'AccessKeyMetadata[].Status' --output text に Active が 1 つ（cloud/README.md の 4.5）`,
+    `${use}を使わない（まだ動かさない）と判断したときだけ、発行せずに yes`,
+  ];
+}
+
+/** 値の無い任意の Secret（SMTP）を製品ごとにまとめる（USERNAME と PASSWORD で 2 回聞かないため）。{ product, text } の配列 */
+function smtpGroups(missing) {
+  const groups = [];
+  for (const product of ["chatwoot", "mautic"]) {
+    const names = missing.filter((m) => !m.required && m.name.startsWith(`${product}/`)).map((m) => `comegin/${ENV_NAME}/${m.name}`);
+    if (!names.length) continue;
+    const label = product === "mautic" ? "Mautic" : "Chatwoot";
+    groups.push({ product, text: `${label} 用の SES の SMTP 認証情報の Secret に値が無い: ${names.join("・")}。${label} の DesiredCount を上げる前に入れる` });
+  }
+  return groups;
+}
+
+function smtpSecretSteps(product) {
+  return [
+    "SES のコンソール（東京）→ 左の SMTP settings。SMTP endpoint が email-smtp.ap-northeast-1.amazonaws.com であることを確かめる",
+    `Create SMTP credentials → User Name に comegin-${ENV_NAME}-ses-smtp-${product} → Create user → Download .csv file でリポジトリの外（~/Downloads など）に保存する（Show で画面に出さない。閉じると二度と見られない）`,
+    "head -1 <CSV> で見出しだけを見て、列の順が「IAM のユーザー名, SMTP のユーザー名, SMTP のパスワード」かを確かめる",
+    `画面にも引数にも出さずに入れる（cloud/README.md の 4.9.4 の put_smtp 関数を定義してから）: put_smtp ~/Downloads/<CSV>.csv ${product} → shred -u ~/Downloads/<CSV>.csv`,
+    `確かめる: aws secretsmanager list-secret-version-ids --region ${REGION} --secret-id comegin/${ENV_NAME}/${product}/SMTP_PASSWORD --query 'Versions[].VersionStages' --output text に AWSCURRENT が出る（USERNAME も同じ）`,
+    `${product === "mautic" ? "Mautic" : "Chatwoot"} の DesiredCount を上げる前に入れる（cloud/README.md の 4.11）。まだ ${product === "mautic" ? "Mautic" : "Chatwoot"} を起動しない（DesiredCount が 0 のまま）なら yes で進めてよい`,
+  ];
+}
+
+function deployPrincipalSteps() {
+  return [
+    "人が自分の端末で、管理者（AdministratorAccess の SSO か comegin-iam）で行う。Claude Code の実行環境では行わない",
+    "IAM Identity Center に許可セット ComeginProdDeploy を作る（セッション PT1H。description は ASCII だけ）: aws sso-admin create-permission-set --region ap-northeast-1 --instance-arn <INSTANCE> --name ComeginProdDeploy --session-duration PT1H --description 'Astro deploy only: S3 sync and CloudFront invalidation (managed policy comegin-prod-deploy)'",
+    `管理ポリシーを参照させる: aws sso-admin attach-customer-managed-policy-reference-to-permission-set --region ap-northeast-1 --instance-arn <INSTANCE> --permission-set-arn <PS> --customer-managed-policy-reference Name=comegin-${ENV_NAME}-deploy,Path=/`,
+    "配信を行う人に割り当てる: aws sso-admin create-account-assignment … --permission-set-arn <PS> --principal-type USER --principal-id <USER_ID>（RequestId が SUCCEEDED になるまで待つ）",
+    "~/.aws/config に [profile comegin-prod-deploy]（sso_role_name = ComeginProdDeploy）を足す",
+    `確かめる: aws iam list-entities-for-policy --policy-arn arn:aws:iam::<アカウント>:policy/comegin-${ENV_NAME}-deploy --query 'PolicyRoles[].RoleName' --output text に AWSReservedSSO_ComeginProdDeploy_… が出る（コマンドの全文は cloud/README.md の 4.5.1）`,
+    "公開サイトの配信（4.14）の前に要る。配信をまだ行わないなら yes で進めてよい",
+  ];
+}
+
+function setupOnlySteps(left) {
+  return [
+    `~/.config/comegin/setup/prod.conf をエディタで開き、${left.map((k) => k.key).join("・")} の行を消す`,
+    ...(left.some((k) => k.key.startsWith("MAUTIC_SETUP_CLIENT"))
+      ? ["Mautic の管理画面 → 右上の歯車 → API Credentials で、初期設定用の認証情報を消す"]
+      : []),
+  ];
+}
+
+function oldKeySteps(user) {
+  return [
+    `使っている側に新しいキーが入っていることを確かめてから、古いキーを止める: aws iam list-access-keys --user-name ${user} → aws iam update-access-key --user-name ${user} --access-key-id <古いキーの ID> --status Inactive`,
+    `15〜30 分動くことを確かめてから消す: aws iam delete-access-key --user-name ${user} --access-key-id <古いキーの ID>（cloud/README.md の 4.5 の「古いキーを止めて消す」）`,
+  ];
+}
+
+function rollbackWarnSteps() {
+  return [
+    `原因を見る: aws cloudformation describe-stack-events --region ${REGION} --stack-name ${STACK} --max-items 40 --query "StackEvents[?contains(ResourceStatus,'FAILED')].[Timestamp,LogicalResourceId,ResourceStatusReason]" --output table`,
+    "原因（パラメータの誤り・権限・上限など）を直し、cd cloud && sam build && sam deploy をやり直す",
+    "前の版のまま進めてよい（今回の変更は後で入れ直す）と判断したときだけ yes",
+  ];
+}
+
+/** 済んでいなければ人に確かめる作業（apply では手順を出して yes を待つ。2026-11-10）。文は「何が・どうなる・どこを見る」。{ warnings: 人向けの文, entries, items: 項目 } を返す */
 async function appsWarnings(ctx, main) {
   const f = findings();
   const domain = parameterOf(main, "DomainName") || "comegin.com";
@@ -323,7 +502,7 @@ async function appsWarnings(ctx, main) {
   const second = f.item("cloud.global-second", "P2", "global の 2 回目（CloudFront のフラットレートプランの購読）", `${GLOBAL_STACK} の DistributionArn がある（購読済み）`);
   await f.attempt(second, "global の 2 回目", async () => {
     const global = await describeStack(ctx, GLOBAL_STACK, GLOBAL_REGION);
-    if (!parameterOf(global, "DistributionArn")) f.warn(second, `global の 2 回目が済んでいない（${GLOBAL_STACK} の DistributionArn が空。CloudFront のフラットレートプランを購読しておらず、従量課金のまま。cloud/README.md の 4.3）`);
+    if (!parameterOf(global, "DistributionArn")) f.warn(second, `global の 2 回目が済んでいない（${GLOBAL_STACK} の DistributionArn が空。CloudFront のフラットレートプランを購読しておらず、従量課金のまま。cloud/README.md の 4.3）`, globalSecondSteps());
   });
 
   const sns = f.item("cloud.sns-subscription", "P2", "SNS の購読（comegin-ops-alert・comegin-lead-alert）", "どちらのトピックにも確認済みの購読があり、解除に認証が要る");
@@ -337,12 +516,12 @@ async function appsWarnings(ctx, main) {
       const subs = (await awsJson(ctx, ["sns", "list-subscriptions-by-topic", "--region", REGION, "--topic-arn", arn]))?.Subscriptions ?? [];
       const confirmed = subs.filter((s) => s.SubscriptionArn?.startsWith("arn:"));
       if (!confirmed.length) {
-        f.warn(sns, `SNS ${topic} を誰も購読していない（確認待ち ${subs.length - confirmed.length} 件）。アラームが誰にも届かない（cloud/README.md の 4.4）`);
+        f.warn(sns, `SNS ${topic} を誰も購読していない（確認待ち ${subs.length - confirmed.length} 件）。アラームが誰にも届かない（cloud/README.md の 4.4）`, snsSubscribeSteps(arn));
         return;
       }
       for (const s of confirmed) {
         const attrs = (await awsJson(ctx, ["sns", "get-subscription-attributes", "--region", REGION, "--subscription-arn", s.SubscriptionArn]))?.Attributes ?? {};
-        if (attrs.ConfirmationWasAuthenticated !== "true") f.warn(sns, `SNS ${topic} の購読（${s.Protocol}）が --authenticate-on-unsubscribe true なしで確認されている。通知メールのリンクから誰でも解除できる（解除して、4.4 のとおり購読し直す）`);
+        if (attrs.ConfirmationWasAuthenticated !== "true") f.warn(sns, `SNS ${topic} の購読（${s.Protocol}）が --authenticate-on-unsubscribe true なしで確認されている。通知メールのリンクから誰でも解除できる（解除して、4.4 のとおり購読し直す）`, snsSubscribeSteps(arn, { unsubscribeArn: s.SubscriptionArn }));
       }
     });
   }
@@ -354,14 +533,14 @@ async function appsWarnings(ctx, main) {
   let sesPending = [sesProd, sesDomain];
   try {
     const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
-    if (account && account.ProductionAccessEnabled !== true) f.warn(sesProd, "SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。公開サイトを配信したらすぐ、Transactional で申請する（cloud/README.md の 4.9.2）");
+    if (account && account.ProductionAccessEnabled !== true) f.warn(sesProd, "SES はまだサンドボックス（本番アクセスを申請していないか審査中）。検証済みの宛先にしかメールを送れない。公開サイトを配信したらすぐ、Transactional で申請する（cloud/README.md の 4.9.2）", sesProductionSteps({ beforeSite: true }));
     else if (!account) f.quiet(sesProd, "SES のアカウントの情報を読めなかった");
     sesPending = [sesDomain];
     const id = await awsJson(ctx, ["sesv2", "get-email-identity", "--region", REGION, "--email-identity", domain]);
-    if (!id) f.warn(sesDomain, `SES のドメイン ID ${domain} が無い（ses.yaml。段階 deploy を確かめる）`);
+    if (!id) f.warn(sesDomain, `SES のドメイン ID ${domain} が無い（ses.yaml。段階 deploy を確かめる）`, sesIdentityMissingSteps(domain));
     else {
-      if (id.DkimAttributes?.Status !== "SUCCESS") f.warn(sesDomain, `SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9.1）`);
-      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") f.warn(sesDomain, `SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9.1）`);
+      if (id.DkimAttributes?.Status !== "SUCCESS") f.warn(sesDomain, `SES の DKIM が ${id.DkimAttributes?.Status ?? "不明"}（SUCCESS になるまで送れない。Route 53 のレコードは自動で作られる。cloud/README.md の 4.9.1）`, sesVerifySteps(domain, id.MailFromAttributes?.MailFromDomain));
+      if (id.MailFromAttributes?.MailFromDomainStatus !== "SUCCESS") f.warn(sesDomain, `SES の MAIL FROM（${id.MailFromAttributes?.MailFromDomain ?? "不明"}）が ${id.MailFromAttributes?.MailFromDomainStatus ?? "不明"}（cloud/README.md の 4.9.1）`, sesVerifySteps(domain, id.MailFromAttributes?.MailFromDomain));
     }
   } catch (e) {
     f.unknown(sesPending, `SESを確かめられない（${e.message.split("\n")[0]}）`);
@@ -372,12 +551,12 @@ async function appsWarnings(ctx, main) {
   await f.attempt(dmarcItem, `${domain} の DMARC`, async () => {
     const txt = async (name) => (await resolveTxt(name).catch((e) => (e.code === "ENODATA" || e.code === "ENOTFOUND" ? [] : Promise.reject(e)))).map((r) => r.join(""));
     const dmarc = (await txt(`_dmarc.${domain}`)).find((r) => r.startsWith("v=DMARC1"));
-    if (!dmarc) f.warn(dmarcItem, `_dmarc.${domain} に DMARC の TXT が無い（Gmail などで迷惑メールに入りやすい。p=none から始める。cloud/README.md の 4.9.6）`);
-    else if (/;\s*a(spf|dkim)\s*=\s*s\b/i.test(dmarc)) f.warn(dmarcItem, `_dmarc.${domain} の DMARC が厳しい照合（aspf=s か adkim=s）。MAIL FROM がサブドメインの SES のメールが照合に落ちる。外す（cloud/README.md の 4.9.6）`);
+    if (!dmarc) f.warn(dmarcItem, `_dmarc.${domain} に DMARC の TXT が無い（Gmail などで迷惑メールに入りやすい。p=none から始める。cloud/README.md の 4.9.6）`, dmarcSteps(domain, { strict: false }));
+    else if (/;\s*a(spf|dkim)\s*=\s*s\b/i.test(dmarc)) f.warn(dmarcItem, `_dmarc.${domain} の DMARC が厳しい照合（aspf=s か adkim=s）。MAIL FROM がサブドメインの SES のメールが照合に落ちる。外す（cloud/README.md の 4.9.6）`, dmarcSteps(domain, { strict: true }));
   });
 
   const ami = f.item("cloud.wireguard-ami", "P6", "WireGuard の AMI の固定", "WireguardFixedAmiId が入っている（AMI を固定済み）");
-  if (!parameterOf(main, "WireguardFixedAmiId")) f.warn(ami, "WireGuard の AMI が固定されていない（WireguardFixedAmiId が空）。新しい AMI が出た後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる。samconfig.toml に書く（cloud/README.md の 4.2.1 の手順 3）");
+  if (!parameterOf(main, "WireguardFixedAmiId")) f.warn(ami, "WireGuard の AMI が固定されていない（WireguardFixedAmiId が空）。新しい AMI が出た後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる。samconfig.toml に書く（cloud/README.md の 4.2.1 の手順 3）", amiSteps());
 
   const onpremKeys = f.item("cloud.onprem-keys", "P6", "オンプレ用の IAM ユーザーの有効なアクセスキー", "オンプレの Strapi（メディア）と n8n（SNS）の IAM ユーザーに有効なキーがある");
   let keyUsers = 0;
@@ -387,22 +566,22 @@ async function appsWarnings(ctx, main) {
     keyUsers++;
     await f.attempt(onpremKeys, `IAM ユーザー ${user} のキー`, async () => {
       const keys = (await awsJson(ctx, ["iam", "list-access-keys", "--user-name", user]))?.AccessKeyMetadata ?? [];
-      if (!keys.some((k) => k.Status === "Active")) f.warn(onpremKeys, `IAM ユーザー ${user} に有効なアクセスキーが無い。${use}が失敗する（人が発行する。cloud/README.md の 4.5）`);
+      if (!keys.some((k) => k.Status === "Active")) f.warn(onpremKeys, `IAM ユーザー ${user} に有効なアクセスキーが無い。${use}が失敗する（人が発行する。cloud/README.md の 4.5）`, onpremKeySteps(user, use));
     });
   }
   if (!keyUsers) f.quiet(onpremKeys, "スタックの出力に IAM ユーザー名（OnpremStrapiMediaUserName・OnpremN8nSnsUserName）が無く、キーを確かめていない");
 
   const smtp = f.item("cloud.smtp-secrets", "P4", "SMTP の Secret（Mautic・Chatwoot の送信用）", "Mautic・Chatwoot の SMTP の Secret（4 つ）に値が入っている");
   await f.attempt(smtp, "SMTP の Secret", async () => {
-    for (const s of (await missingSecrets(ctx)).filter((m) => !m.required)) f.warn(smtp, `Secret comegin/${ENV_NAME}/${s.name} に値が無い（${s.hint}）。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.9.3・4.9.4・4.11）`);
+    for (const g of smtpGroups(await missingSecrets(ctx))) f.warn(smtp, `${g.text}（cloud/README.md の 4.9.3・4.9.4・4.11）`, smtpSecretSteps(g.product));
   });
 
   const principal = f.item("cloud.deploy-principal", "P12", "配信用の主体（管理ポリシー comegin-prod-deploy の付与先）", `管理ポリシー comegin-${ENV_NAME}-deploy が主体に付いている`);
   await f.attempt(principal, "配信用の主体", async () => {
     const w = await deployPrincipalWarning(ctx);
-    if (w) f.warn(principal, w);
+    if (w) f.warn(principal, w, deployPrincipalSteps());
   });
-  return { warnings: f.texts, items: f.items() };
+  return { warnings: f.texts, entries: f.entries, items: f.items() };
 }
 
 /** 管理ポリシー comegin-<env>-deploy（DeployPolicyArn）の付与先が無ければ警告文。公開サイトの配信（P12）の前に要る */
@@ -420,13 +599,13 @@ const SETUP_ONLY_KEYS = [
   { key: "MAUTIC_SETUP_CLIENT_SECRET", how: "同上" },
 ];
 
-/** 段階 operate の警告（止めない）。運用開始の仕上げ（P15）と、配信用の主体・キーの残り。{ warnings: 人向けの文, items: 項目 } を返す */
+/** 段階 operate の確認。運用開始の仕上げ（P15）と、配信用の主体・キーの残り（キーの残りと prod.conf の初期設定用の値は削除の注意で、止めない）。{ warnings: 人向けの文, entries, items: 項目 } を返す */
 async function operateWarnings(ctx, main) {
   const f = findings();
   const principal = f.item("cloud.deploy-principal", "P15", "配信用の主体（管理ポリシー comegin-prod-deploy の付与先）", `管理ポリシー comegin-${ENV_NAME}-deploy が主体に付いている`);
   await f.attempt(principal, "配信用の主体", async () => {
     const w = await deployPrincipalWarning(ctx);
-    if (w) f.warn(principal, w);
+    if (w) f.warn(principal, w, deployPrincipalSteps());
   });
   // キーの入れ替えの後に古いキーが残っていないか（1 ユーザーに有効なキーは 1 つにする。cloud/README.md の 4.5 のローテーション）
   const oldKeys = f.item("cloud.old-keys", "P15", "IAM ユーザーの古いアクセスキーの残り", "どの IAM ユーザーも有効なキーは 1 つだけ");
@@ -435,19 +614,19 @@ async function operateWarnings(ctx, main) {
     await f.attempt(oldKeys, `IAM ユーザー ${user} のキー`, async () => {
       const keys = (await awsJson(ctx, ["iam", "list-access-keys", "--user-name", user]))?.AccessKeyMetadata ?? [];
       const active = keys.filter((k) => k.Status === "Active");
-      if (active.length > 1) f.warn(oldKeys, `IAM ユーザー ${user} に有効なアクセスキーが ${active.length} つある（作成 ${active.map((k) => k.CreateDate.slice(0, 10)).join("・")}）。使っているほうが動くことを確かめてから、古いキーを update-access-key --status Inactive → delete-access-key（cloud/README.md の 4.5）`);
+      if (active.length > 1) f.warn(oldKeys, `IAM ユーザー ${user} に有効なアクセスキーが ${active.length} つある（作成 ${active.map((k) => k.CreateDate.slice(0, 10)).join("・")}）。使っているほうが動くことを確かめてから、古いキーを update-access-key --status Inactive → delete-access-key（cloud/README.md の 4.5）`, oldKeySteps(user), { deletion: true });
     });
   }
   const setupOnly = f.item("cloud.setup-only-values", "P15", "prod.conf に残った初期設定用の値", "prod.conf に初期設定にだけ使う値（CHATWOOT_ADMIN_TOKEN・MAUTIC_SETUP_CLIENT_*）は残っていない");
   const left = SETUP_ONLY_KEYS.filter((k) => ctx.conf[k.key]);
-  if (left.length) f.warn(setupOnly, `初期設定にだけ使う値が prod.conf に残っている: ${left.map((k) => `${k.key}（${k.how}）`).join("、")}（setup/00-setup-overview.md の P15）`);
+  if (left.length) f.warn(setupOnly, `初期設定にだけ使う値が prod.conf に残っている: ${left.map((k) => `${k.key}（${k.how}）`).join("、")}（setup/00-setup-overview.md の P15）`, setupOnlySteps(left), { deletion: true });
   const sesProd = f.item("cloud.ses-production", "P15", "SES の本番アクセス（サンドボックスの解除）", "SES はサンドボックスではない（本番アクセスが有効）");
   await f.attempt(sesProd, "SES", async () => {
     const account = await awsJson(ctx, ["sesv2", "get-account", "--region", REGION]);
-    if (account && account.ProductionAccessEnabled !== true) f.warn(sesProd, "SES はまだサンドボックス。顧客にメールが届かない（cloud/README.md の 4.9.2。公開サイトの配信の後すぐに申請する）");
+    if (account && account.ProductionAccessEnabled !== true) f.warn(sesProd, "SES はまだサンドボックス。顧客にメールが届かない（cloud/README.md の 4.9.2。公開サイトの配信の後すぐに申請する）", sesProductionSteps({ beforeSite: false }));
     else if (!account) f.quiet(sesProd, "SES のアカウントの情報を読めなかった");
   });
-  return { warnings: f.texts, items: f.items() };
+  return { warnings: f.texts, entries: f.entries, items: f.items() };
 }
 
 // ---------------------------------------------------------------------------
@@ -544,11 +723,11 @@ export async function apply(ctx) {
       if (found.length) ctx.manual("leftovers", "前の作成の失敗で残ったリソースを消す", leftoverSteps(found));
     }
     if (mainProblem) ctx.manual("sam-deploy", `本番スタックを sam build → sam deploy する（${mainProblem}）`, mainSteps());
-    if (main.StackStatus === "UPDATE_ROLLBACK_COMPLETE") ctx.warn(`スタック ${STACK} の直近の更新は戻された（UPDATE_ROLLBACK_COMPLETE）。前の版のまま進む。CloudFormation のイベントで原因を確かめる`);
+    if (main.StackStatus === "UPDATE_ROLLBACK_COMPLETE") await ctx.confirm("update-rollback", `スタック ${STACK} の直近の更新は戻された（UPDATE_ROLLBACK_COMPLETE）。前の版のまま。CloudFormation のイベントで原因を確かめる`, rollbackWarnSteps());
     ctx.log(`スタック ${STACK}: ${main.StackStatus}（${main.LastUpdatedTime ?? main.CreationTime}）`);
 
     const missing = await missingSecrets(ctx);
-    for (const s of missing.filter((m) => !m.required)) ctx.warn(`Secret comegin/${ENV_NAME}/${s.name} に値が無い。${s.hint}。Chatwoot・Mautic の DesiredCount を上げる前に入れる（cloud/README.md の 4.11）`);
+    for (const g of smtpGroups(missing)) await ctx.confirm(`smtp-${g.product}`, `${g.text}（cloud/README.md の 4.11）`, smtpSecretSteps(g.product));
     const required = missing.filter((m) => m.required);
     if (required.length) ctx.manual("secrets", "人が入れる Secret の値を入れる", secretSteps(required));
     ctx.log("本番スタックと人が入れる Secret はそろっている。次は段階 images");
@@ -577,17 +756,17 @@ export async function apply(ctx) {
     const missing = await missingDbInit(ctx, main);
     if (missing.length) ctx.manual("db-init", "DB とアプリ用ユーザーを作る（ECS の RunTask。段階 apps のすべての前提）", dbInitSteps(missing));
     ctx.log(`DB 作成（${DB_ENGINES.map((e) => `db-init-${e}`).join("・")}）は今のスタックの作成の後に成功している`);
-    const { warnings } = await appsWarnings(ctx, main);
-    for (const w of warnings) ctx.warn(w);
-    ctx.log(warnings.length ? `人の作業が ${warnings.length} 件残っている（上の !。止めずに進む。setup/00-setup-overview.md の 4 節）` : "global の 2 回目・SNS の購読・SES・AMI の固定・IAM のキー・SMTP の Secret・配信用の主体は済んでいる");
+    const { warnings, entries } = await appsWarnings(ctx, main);
+    await settleEntries(ctx, entries);
+    ctx.log(warnings.length ? `人の作業が ${warnings.length} 件残っている（上の !。yes で確認済み。setup/00-setup-overview.md の 4 節）` : "global の 2 回目・SNS の購読・SES・AMI の固定・IAM のキー・SMTP の Secret・配信用の主体は済んでいる");
     return;
   }
 
   if (ctx.phase === "operate") {
     const main = await requireMainStack(ctx);
-    const { warnings } = await operateWarnings(ctx, main);
-    for (const w of warnings) ctx.warn(w);
-    ctx.log(warnings.length ? `運用開始の仕上げが ${warnings.length} 件残っている（上の !。止めずに進む。setup/00-setup-overview.md の P15）` : "運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる");
+    const { warnings, entries } = await operateWarnings(ctx, main);
+    await settleEntries(ctx, entries);
+    ctx.log(warnings.length ? `運用開始の仕上げが ${warnings.length} 件残っている（上の !。削除の注意のほかは yes で確認済み。setup/00-setup-overview.md の P15）` : "運用開始の仕上げ（配信用の主体・キーの残り・prod.conf の初期設定用の値・SES）は済んでいる");
     return;
   }
 

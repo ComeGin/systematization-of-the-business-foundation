@@ -133,6 +133,19 @@ export function notRunningNote(c) {
   return `comegin-${ENV_NAME}-${c.svc} は DesiredCount ${c.desiredParam} だが、動いているタスクが 0（ECS の desiredCount ${c.desired}。0 なら夜間の停止〈既定 22 時〜翌 3 時 45 分〉の最中。昼なら ECS のサービスのイベントとタスク数のアラームを見る）`;
 }
 
+/** notRunningNote の詳しい手順（apply の ctx.confirm に渡す。2026-11-10） */
+export function notRunningSteps(c) {
+  const svc = `comegin-${ENV_NAME}-${c.svc}`;
+  return [
+    `ECS の desiredCount が 0（今は ${c.desired}）で、時刻が 22 時〜翌 3 時 45 分なら夜間の停止の最中。3 時 45 分を過ぎてから同じコマンドを実行し直すか、このまま進めると判断して yes`,
+    `昼なら、サービスのイベントを見る: aws ecs describe-services --region ${REGION} --cluster ${STACK} --services ${svc} --query 'services[0].events[:10].[createdAt,message]' --output table`,
+    `止まったタスクの理由を見る: aws ecs list-tasks --region ${REGION} --cluster ${STACK} --service-name ${svc} --desired-status STOPPED --query 'taskArns[:3]' --output text → aws ecs describe-tasks --region ${REGION} --cluster ${STACK} --tasks <ARN> --query 'tasks[].[stoppedReason,containers[].reason]'`,
+    `ログを見る: aws logs tail /comegin/${ENV_NAME}/${c.svc} --region ${REGION} --since 30m（cloud/stacks/cluster.yaml のロググループ）`,
+    "よくある原因: Secret に値が無い（ResourceInitializationError）・イメージのタグが ECR に無い（CannotPullContainerError）・DB に届かない。直したら aws ecs update-service --region ap-northeast-1 --cluster comegin-prod --service <名前> --force-new-deployment（台数は変わらない。cloud/README.md の 4.11・4.13）",
+    "直して動いたら同じコマンドを実行し直す",
+  ];
+}
+
 /** DesiredCount を上げるときの案内（samconfig.toml に書いて sam deploy。ECS を直接変えない） */
 export function raiseCountSteps(params, before = []) {
   return [

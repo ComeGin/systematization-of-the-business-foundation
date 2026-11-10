@@ -22,7 +22,7 @@
 ### 見落としやすい 3 種類の手順
 
 - **〔未検査〕**: 設定スクリプトが**確かめない**手順。済ませていなくてもスクリプトは先へ進む（か、別の名前で止まる）ので、この文書の順で自分で済ませる。一覧は [4 節](#4-設定スクリプトが確かめる範囲)
-- **〔警告〕**: スクリプトが読み取りで確かめるが、**止めずに `!` の警告だけ出す**手順（済んでいなくても後の設定は進められるもの）。警告が消えるまでに済ませる
+- **〔警告〕**: スクリプトが読み取りで確かめ、済んでいなければ `!` と**詳しい手順**を出して **`yes` の入力を待つ**手順（2026-11-10 から。`yes` 以外なら終了コード 3 で止まる）。済ませてから `yes`、今は済ませられない（公開サイトの配信の後に行う SES の申請など）と判断したときだけ、済ませずに `yes` で進めてよい。**変数・キー・ファイルの削除の `!`（`prod.conf` の初期設定用の値・IAM の古いキー・作業ツリーの `.env.production`）だけは聞かずに進む**。詳しくは `setup/README.md` の「「!」の確認」
 - **〔申告〕**: スクリプトが外から確かめられないので、人が `prod.conf` に `...=yes` を書いて「済んだ」と伝える手順。書いたら信じて進むので、**済ませてから書く**。一覧は [5 節](#5-申告制のフラグprodconf)
 
 ### 設定スクリプトの基本の動き
@@ -32,6 +32,7 @@ node setup/setup.mjs --target <dev|prod> [--phase <段階>] [--check]
 ```
 
 - 止まったら（終了コード 3）、表示された手順を行い、**同じコマンドを実行し直す**。済んだ手順は飛ばす。
+- `!` と手順が出て `yes` を求められたら、手順を済ませてから `yes` と入力する（`yes` 以外は止まる。apply は端末から実行する。`setup/README.md` の「「!」の確認」）。
 - 止まったときの表示の id（例 `cloud:secrets`）は、[`setup/manual-steps.md`](manual-steps.md) の 0 節の早見表で引ける（本番の id は、そこから `cloud/README.md` の 7 節・`onprem/README.md` に飛ぶ）。
 - 人が書く値は `~/.config/comegin/setup/<dev|prod>.conf`（600）。スクリプトが作った値は `<dev|prod>.state.json` に入り、`--show <KEY>` で見る。
 
@@ -179,7 +180,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
   - Email Settings: Email DSN を Scheme `smtp`・Host `email-smtp.ap-northeast-1.amazonaws.com`・Port `587`・User と Password は Secret `comegin/prod/mautic/SMTP_*` の値（cloud 4.9.5 のコマンドで取り出し、入れたら端末を閉じる）。送信元は `@comegin.com` のアドレスと名前 → Save → Send test email
   - **SES が本番アクセスの前（サンドボックス）のあいだは、宛先も検証済みの ID だけ**。ドメイン `comegin.com` を検証済みなので `@comegin.com` 宛てなら届き、外部の宛先は SES が拒否する（上限は 24 時間で 200 通・毎秒 1 通）。本番アクセスの申請は P12
 - [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — cloud 7.4
-  - `prod.conf` は `chmod 600`（ほかのユーザーが読めるとスクリプトが警告する）
+  - `prod.conf` は `chmod 600`（ほかのユーザーが読めると、スクリプトが手順を出して `yes` を待つ）
 - [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・社内通知〈`kamegin4@comegin.com` へ。個人情報を載せない。2026-11-09〉・セグメント mql。作り済みのものは名前で見つけて飛ばす）
 - [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `sam deploy`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
 
@@ -299,7 +300,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 
 ### P15. 段階 `operate`: 運用開始の仕上げ
 
-同じ `--phase operate` の `cloud` が読み取りで確かめ、**止めずに警告だけ出す**（2026-11-02 から）。
+同じ `--phase operate` の `cloud` が読み取りで確かめ、済んでいなければ手順を出して **`yes` を待つ**（2026-11-10 から。それまでは止めずに警告だけだった）。**古いキーの残りと `prod.conf` の初期設定用の値は削除の注意なので、聞かずに進む**。
 
 - [ ] 〔警告〕**人・端末** 配信用の主体（許可セット `ComeginProdDeploy`）がある — cloud 4.5.1
 - [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」

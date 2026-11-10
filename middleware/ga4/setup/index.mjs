@@ -93,7 +93,7 @@ export async function apply(ctx) {
   if (isProd(ctx)) {
     const problems = configProblems(ctx);
     if (problems.length) {
-      for (const p of problems) ctx.warn(p);
+      for (const p of problems) ctx.log(`問題: ${p}`);
       ctx.manual("property", "本番の GA4 プロパティを作り（設定済みなら確かめ）、プロパティ ID と測定 ID を設定に書く", propertySteps());
     }
     ctx.log(`本番のプロパティ ${ctx.value("GA4_PROPERTY_ID")}／測定 ID ${ctx.value("GA4_MEASUREMENT_ID")}（形式は正しい。本番のビルドに PUBLIC_GA4_MEASUREMENT_ID として渡す。cloud/README.md の 4.14）`);

@@ -430,23 +430,33 @@ export async function check(ctx) {
   return { ok: ok && prod.ok, notes };
 }
 
-/** 段階 operate: 止まっていれば上げ直し、残りは警告だけ（止めない） */
+/** 段階 operate: 止まっていれば上げ直し、残りは手順を出して yes を待つ（2026-11-10） */
 async function applyOperate(ctx) {
   if (!(await ctx.commandExists("docker"))) throw new Error("docker が無い。Docker Engine（と Compose）を入れてから実行し直す");
   const residency = await inspectResidency(ctx);
   if (!residency.running) {
-    ctx.warn("OpenSEO のコンテナが動いていないので docker compose up -d で上げ直す（環境変数ファイルは変えない）");
+    ctx.log("OpenSEO のコンテナが動いていないので docker compose up -d で上げ直す（環境変数ファイルは変えない）");
     await ensureStack(ctx, false);
   }
   const health = await readHealth(ctx);
   if (!health) {
-    ctx.warn(`OpenSEO が ${BASE_URL} で応答しない。docker compose logs open-seo を見る（${DIR}）`);
+    await ctx.confirm("not-responding", `OpenSEO が ${BASE_URL} で応答しない。docker compose logs open-seo を見る（${DIR}）`, [
+      `コンテナの状態とログを見る: cd ${DIR} && docker compose ps && docker compose logs --tail 100 open-seo`,
+      `常駐のユニットを見る: systemctl status ${UNIT}（無ければ onprem/README.md の「常駐させる（OpenSEO）」で ${UNIT_TEMPLATE} を置く）`,
+      `直したら応答を確かめる: curl -s ${BASE_URL}/api/health（JSON が返る）`,
+      "同じコマンドを実行し直す。OpenSEO を使わずに運用を始めると判断したときだけ yes（エージェントの seo-auditor・keyword-researcher などが失敗する）",
+    ]);
     return;
   }
   const r = await inspectOperate(ctx, health);
-  for (const n of r.notes) (r.ok ? ctx.log : ctx.warn)(n);
+  for (const n of r.notes) ctx.log(n);
   if (r.ok) ctx.log(`常駐している（ユニット ${UNIT} が起動時に上げる）。本番のプロジェクトと Google の接続も揃っている`);
-  else ctx.warn("OpenSEO に足りないものがある（止めずに続ける）。onprem/README.md の「常駐させる（OpenSEO）」と setup/manual-steps.md の 7.4〜7.6");
+  else
+    await ctx.confirm("operate", "OpenSEO に足りないものがある（上の行）。onprem/README.md の「常駐させる（OpenSEO）」と setup/manual-steps.md の 7.4〜7.6", [
+      `常駐が足りないなら（ユニットが無い・enabled でない）: onprem/README.md の「常駐させる（OpenSEO）」のとおり、人が ${UNIT_TEMPLATE} を /etc/systemd/system に置いて sudo systemctl enable --now ${UNIT}`,
+      "Google の接続・プロジェクトが足りないなら: node setup/setup.mjs --target prod --phase google --only openseo を実行し、画面の操作の案内に従う（setup/manual-steps.md の 7.4〜7.6）",
+      "済んだら同じコマンドを実行し直す。足りないまま運用を始めると判断したときだけ yes",
+    ]);
 }
 
 export async function apply(ctx) {
@@ -482,7 +492,13 @@ export async function apply(ctx) {
   for (const n of prod.notes) ctx.log(n);
   if (prod.missing.gsc) ctx.manual("gsc-connect", "OpenSEO の画面で Google Search Console に接続する", gscConnectSteps());
   if (prod.missing.ga4) ctx.manual("ga4-connect", "OpenSEO の画面で GA4（本番のプロパティ）に接続する", ga4ConnectSteps());
-  if (!prod.ok) ctx.warn("接続しているプロパティが設計と違う（上の行）。OpenSEO の Project settings → Integrations で選び直す");
+  if (!prod.ok)
+    await ctx.confirm("property-mismatch", "接続しているプロパティが設計と違う（上の行）。OpenSEO の Project settings → Integrations で選び直す", [
+      `ブラウザで http://localhost:3001 を開き（127.0.0.1 ではなく localhost）、Domain が ${ctx.value("GSC_DOMAIN") || "comegin.com"} のプロジェクトを選ぶ`,
+      `Project settings（歯車）→ Integrations → Search Console で sc-domain:${ctx.value("GSC_DOMAIN") || "comegin.com"} を選び直す（URL プレフィックスのプロパティではない）`,
+      "同じ画面の Google Analytics で、本番の GA4 プロパティ（prod.conf の GA4_PROPERTY_ID と同じ番号）を選び直す",
+      "同じコマンドを実行し直す（スクリプトが MCP の無料のツールで確かめる）。違うプロパティのまま進めると判断したときだけ yes",
+    ]);
 
   ctx.log(`終わった。画面: ${BASE_URL}（認証なし。ループバックだけ）。常駐の確認は --phase operate で行う`);
 }

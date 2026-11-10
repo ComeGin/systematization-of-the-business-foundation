@@ -238,7 +238,18 @@ describe("provision（開発環境）", () => {
       await run();
       expect(out.warns.length).toBe(5);
       expect(out.warns[0]).toContain("値を入れ直せない");
+      // 画面で入れ直す手順を付ける（2026-11-10）
+      expect(out.warnSteps[0][0]).toContain("Credentials");
       allSecretsHidden(out.text());
+    });
+
+    it("入力: warn（人の確認）が止まると、provision もその例外で止まる（資格情報の更新の後ろへ進まない）", async () => {
+      await run();
+      const stopped = Object.assign(new Error("確認が必要"), { kind: "confirm" });
+      const io = { log: () => {}, warn: async () => Promise.reject(stopped) };
+      const before = up.state.requests.length;
+      await expect(provision({ target: "dev", conf: buildConf("dev", BASE_VALUES), io })).rejects.toBe(stopped);
+      expect(up.state.requests.length).toBeGreaterThan(before);
     });
 
     it("サーバ: n8n が API キーを拒む（401）なら、どの操作かと HTTP の状態を示して止まり、API キーは出さない", async () => {
@@ -361,16 +372,29 @@ describe("provision（本番）", () => {
   });
 
   describe("異常系", () => {
-    it("空入力: CHATWOOT_N8N_API_TOKEN が無ければ、管理者のトークンを入れることを警告する（値は出さない）", async () => {
+    it("空入力: CHATWOOT_N8N_API_TOKEN が無ければ、管理者のトークンを入れることを、専用ユーザーのトークンの作り方を付けて警告する（値は出さない）", async () => {
       await run("prod");
       expect(out.warns).toEqual([expect.stringContaining("CHATWOOT_N8N_API_TOKEN が空")]);
+      const steps = out.warnSteps[0].join("\n");
+      expect(steps).toContain("Access Token");
+      expect(steps).toContain("CHATWOOT_N8N_API_TOKEN=<トークン>");
+      expect(steps).toContain("--only n8n-prod");
       allSecretsHidden(out.text());
     });
 
-    it("入力: 本番で publish を付けると、R1 の判断であることを警告する", async () => {
+    it("入力: 本番で publish を付けると、R1 の判断であることを、公開で起きることの手順を付けて警告する", async () => {
       await run("prod", { publish: true, values: { CHATWOOT_N8N_API_TOKEN: SECRETS.CHATWOOT_N8N_API_TOKEN } });
       expect(out.warns).toEqual([expect.stringContaining("本番の親（I-11・I-12）を公開する")]);
+      expect(out.warnSteps[0].join("\n")).toContain("N8N_PUBLISH_PARENTS");
       for (const name of SCHEDULED_NAMES.slice(0, 2)) expect(wfByName(name).published, name).toBe(false);
+    });
+
+    it("入力: 本番の publish の確認が止まると（yes 以外）、n8n に何も送らずに止まる（公開しない）", async () => {
+      const stopped = Object.assign(new Error("確認が必要"), { kind: "confirm" });
+      const io = { log: () => {}, warn: async () => Promise.reject(stopped) };
+      const conf = buildConf("prod", { ...PROD_VALUES, CHATWOOT_N8N_API_TOKEN: SECRETS.CHATWOOT_N8N_API_TOKEN });
+      await expect(provision({ target: "prod", conf, publish: true, io })).rejects.toBe(stopped);
+      expect(up.state.requests).toEqual([]);
     });
   });
 });

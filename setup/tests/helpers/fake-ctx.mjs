@@ -24,6 +24,10 @@ export function fakeCtx({ conf = {}, stateValues = {}, overrides = {} } = {}) {
     CONFIG_DIR: "/nonexistent/config",
     log: () => {},
     warn: () => {},
+    // 本物と同じく、--check（checkOnly）では聞かずに例外にする。apply を試すテストは overrides で差し替える（recordingConfirm）
+    confirm: async (id) => {
+      throw new Error(`check の中で確認を求めた: ${id}`);
+    },
     http: async () => {
       throw Object.assign(new Error("偽の http が呼ばれた"), { status: 0 });
     },
@@ -45,6 +49,27 @@ export function fakeCtx({ conf = {}, stateValues = {}, overrides = {} } = {}) {
     ...overrides,
   };
   return ctx;
+}
+
+/**
+ * apply を試すときの ctx.confirm・ctx.warn の記録係（2026-11-10）。answer が "yes" なら進み、それ以外なら本物と同じく止まる
+ * （ManualStepRequired の代わりに kind: "confirm" を持つ Error を投げる）。asked・warned に呼ばれた順で残す
+ */
+export function recordingConfirm(answer = "yes") {
+  const asked = [];
+  const warned = [];
+  return {
+    asked,
+    warned,
+    overrides: {
+      checkOnly: false,
+      confirm: async (id, title, steps = []) => {
+        asked.push({ id, title, steps });
+        if (answer !== "yes") throw Object.assign(new Error(title), { id, kind: "confirm", steps });
+      },
+      warn: (msg) => warned.push(msg),
+    },
+  };
 }
 
 /** items を key で引く */
