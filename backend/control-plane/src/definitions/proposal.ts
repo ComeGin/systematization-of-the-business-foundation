@@ -1,7 +1,20 @@
 // E-13 ImprovementProposal の frontmatter（docs/proposals/README.md の形）を zod で検証する。
 import { parse as parseYaml } from "yaml";
 import * as z from "zod/v4";
+import type { ProposalKind } from "../contract.js";
 import { ULID_PATTERN } from "../ulid.js";
+
+/** E-13 の change.kind の全値。email_campaign は 2026-11-09 に追加（改善ループ）。experiment_start は値として残す */
+export const PROPOSAL_KINDS = [
+  "content_rewrite",
+  "cta_swap",
+  "internal_link",
+  "technical_seo",
+  "experiment_start",
+  "config_change",
+  "accessibility", // 2026-10-18 に追加（ADR-27。AA-04 の 2.2）
+  "email_campaign",
+] as const satisfies readonly ProposalKind[];
 
 const nullableString = z.string().nullable();
 
@@ -26,15 +39,7 @@ export const ProposalSchema = z.object({
     also_affects: z.array(z.string()).default([]),
   }),
   change: z.object({
-    kind: z.enum([
-      "content_rewrite",
-      "cta_swap",
-      "internal_link",
-      "technical_seo",
-      "experiment_start",
-      "config_change",
-      "accessibility", // 2026-10-18 に追加（ADR-27。AA-04 の 2.2）
-    ]),
+    kind: z.enum(PROPOSAL_KINDS),
     description: z.string().min(1),
     diff_ref: nullableString,
   }),

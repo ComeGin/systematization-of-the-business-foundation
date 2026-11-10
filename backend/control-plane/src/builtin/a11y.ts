@@ -24,6 +24,7 @@ import {
   isFreshResultFile,
   logChildFailure,
   runPnpmScript,
+  withCheckoutBuildLease,
   withChildHome,
 } from "./checkout-job.js";
 
@@ -98,60 +99,62 @@ export const a11y: BuiltinHandler = async ({ ctx, runId, signal, timeoutSec }): 
     return skipped("chromium not installed", "main のチェックアウトで pnpm exec playwright install chromium が要る");
   }
 
-  const startedAt = Date.now();
-  const run = await withChildHome(config.agentHome, "comegin-a11y-", (home) =>
-    runPnpmScript({ cwd, script: SCRIPT, env: a11yEnv(home, config.siteUrl, browsersPath), timeoutSec, signal }),
-  );
+  return withCheckoutBuildLease(ctx.leases, runId, timeoutSec, async () => {
+    const startedAt = Date.now();
+    const run = await withChildHome(config.agentHome, "comegin-a11y-", (home) =>
+      runPnpmScript({ cwd, script: SCRIPT, env: a11yEnv(home, config.siteUrl, browsersPath), timeoutSec, signal }),
+    );
 
-  if (run.timedOut || signal.aborted) {
-    logChildFailure("a11y", SCRIPT, run, runId);
-    return failed("a11y の検査がタイムアウトした", "timeout");
-  }
-  if (run.code === -1) {
-    logChildFailure("a11y", SCRIPT, run, runId);
-    return failed("a11y の検査を起動できなかった", "unreachable");
-  }
-  if (run.code !== 0 && run.code !== 1) {
-    logChildFailure("a11y", SCRIPT, run, runId);
-    return failed(`a11y の検査が終了コード ${run.code} で失敗した`, "invalid_response");
-  }
-
-  const report = await readReport(join(cwd, RESULT_DIR, A11Y_REPORT_FILE), startedAt);
-  if (report === "missing") {
-    if (run.code === 0) {
-      return {
-        outcome: "partial",
-        summary: "a11y の検査は終了したが、写すべき結果の JSON が見つからなかった",
-        targetIds: [],
-        failureClass: "empty_but_ok",
-      };
+    if (run.timedOut || signal.aborted) {
+      logChildFailure("a11y", SCRIPT, run, runId);
+      return failed("a11y の検査がタイムアウトした", "timeout");
     }
-    // build が先に走るので、レポートが無いまま終了コード 1 なら、検査の前（ビルド）で止まった
-    logChildFailure("a11y", SCRIPT, run, runId);
-    return failed("a11y の検査の前にビルドが失敗した（検査のレポートが作られなかった）", "invalid_response");
-  }
-  if (report === "invalid") {
-    logChildFailure("a11y", SCRIPT, run, runId);
-    return failed("a11y の検査のレポートを解釈できなかった", "invalid_response");
-  }
-  if (report.errors.length > 0) {
-    // テストの外のエラー（webServer の起動失敗・設定の誤りなど）。検査が走っていないので結果として扱わない
-    logChildFailure("a11y", SCRIPT, run, runId);
-    return failed(`a11y の検査を始められなかった（Playwright のエラー ${report.errors.length} 件）`, "invalid_response");
-  }
+    if (run.code === -1) {
+      logChildFailure("a11y", SCRIPT, run, runId);
+      return failed("a11y の検査を起動できなかった", "unreachable");
+    }
+    if (run.code !== 0 && run.code !== 1) {
+      logChildFailure("a11y", SCRIPT, run, runId);
+      return failed(`a11y の検査が終了コード ${run.code} で失敗した`, "invalid_response");
+    }
 
-  // 結果を作業ツリー側へ写す（quality-checker は作業ツリーの中しか読めない）
-  const copied = await copyResults(join(cwd, RESULT_DIR), join(config.worktree, VERDANT_VIRGO_DIR, RESULT_DIR), startedAt, {
-    accept: RESULT_FILE,
+    const report = await readReport(join(cwd, RESULT_DIR, A11Y_REPORT_FILE), startedAt);
+    if (report === "missing") {
+      if (run.code === 0) {
+        return {
+          outcome: "partial",
+          summary: "a11y の検査は終了したが、写すべき結果の JSON が見つからなかった",
+          targetIds: [],
+          failureClass: "empty_but_ok",
+        };
+      }
+      // build が先に走るので、レポートが無いまま終了コード 1 なら、検査の前（ビルド）で止まった
+      logChildFailure("a11y", SCRIPT, run, runId);
+      return failed("a11y の検査の前にビルドが失敗した（検査のレポートが作られなかった）", "invalid_response");
+    }
+    if (report === "invalid") {
+      logChildFailure("a11y", SCRIPT, run, runId);
+      return failed("a11y の検査のレポートを解釈できなかった", "invalid_response");
+    }
+    if (report.errors.length > 0) {
+      // テストの外のエラー（webServer の起動失敗・設定の誤りなど）。検査が走っていないので結果として扱わない
+      logChildFailure("a11y", SCRIPT, run, runId);
+      return failed(`a11y の検査を始められなかった（Playwright のエラー ${report.errors.length} 件）`, "invalid_response");
+    }
+
+    // 結果を作業ツリー側へ写す（quality-checker は作業ツリーの中しか読めない）
+    const copied = await copyResults(join(cwd, RESULT_DIR), join(config.worktree, VERDANT_VIRGO_DIR, RESULT_DIR), startedAt, {
+      accept: RESULT_FILE,
+    });
+    const { expected, unexpected } = report.stats;
+    return {
+      outcome: copied > 0 ? "success" : "partial",
+      summary:
+        copied > 0
+          ? `a11y の検査を main のチェックアウトで実行し、結果の JSON ${copied} 件を作業ツリーに写した（不合格 ${unexpected} 件・合格 ${expected} 件）`
+          : "a11y の検査は終了したが、写すべき結果の JSON が見つからなかった",
+      targetIds: [],
+      failureClass: copied > 0 ? null : "empty_but_ok",
+    };
   });
-  const { expected, unexpected } = report.stats;
-  return {
-    outcome: copied > 0 ? "success" : "partial",
-    summary:
-      copied > 0
-        ? `a11y の検査を main のチェックアウトで実行し、結果の JSON ${copied} 件を作業ツリーに写した（不合格 ${unexpected} 件・合格 ${expected} 件）`
-        : "a11y の検査は終了したが、写すべき結果の JSON が見つからなかった",
-    targetIds: [],
-    failureClass: copied > 0 ? null : "empty_but_ok",
-  };
 };

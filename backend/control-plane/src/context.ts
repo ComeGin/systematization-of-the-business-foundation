@@ -2,6 +2,7 @@ import type { ControlPlaneConfig } from "./config.js";
 import type { FailureClass, RunOutcome } from "./contract.js";
 import type { LoadedSchedules, ScheduleDefinition } from "./definitions/schedules.js";
 import type { RunLogCopier } from "./integrations/runlog.js";
+import type { CycleStore } from "./store/cycles.js";
 import type { KvStore } from "./store/kv.js";
 import type { LeaseStore } from "./store/leases.js";
 import type { MiswriteStore } from "./store/miswrite.js";
@@ -24,6 +25,7 @@ export interface EngineContext {
   runs: RunStore;
   leases: LeaseStore;
   kv: KvStore;
+  cycles: CycleStore;
   miswrite: MiswriteStore;
   loadSchedules(): Promise<LoadedSchedules>;
   /** AWS が無効なら null */

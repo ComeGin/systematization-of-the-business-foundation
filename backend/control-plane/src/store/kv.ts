@@ -18,4 +18,8 @@ export class KvStore {
       )
       .run(key, value, toIsoJst());
   }
+
+  delete(key: string): void {
+    this.db.prepare("DELETE FROM kv WHERE key = ?").run(key);
+  }
 }

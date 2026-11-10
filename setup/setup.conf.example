@@ -188,6 +188,33 @@ N8N_PROD_TOKEN=
 POSTHOG_PROD_API_KEY=
 POSTHOG_PROD_PROJECT_ID=
 
+# ---- 改善の周（prod.conf にだけ書く。--target prod の next-js-prod モジュール。onprem/README.md の「監視アプリ（改善ループ）を本番で動かす」。手順は setup/manual-steps.md の 6.2・7.7〜7.10） ----
+# エージェント専用の作業場（git worktree）の絶対パス（必須）。開発のリポジトリ・CONTROL_MAIN_CHECKOUT とは別の 3 本目。例 /home/<ユーザー>/ComeGin/agent-worktree
+CONTROL_WORKTREE=
+# 周（14 日）の起点。JST の月曜の日付 YYYY-MM-DD（必須。例 2026-11-16）
+CONTROL_CYCLE_ANCHOR=
+# 本番の Strapi の API トークン。読み取り（必須。article・category の find・findOne）と書き込み（任意。アップロードと article の更新だけ。公開の権限は付けない）。
+# URL は空なら http://127.0.0.1:1338（オンプレの本番の Strapi）
+CONTROL_STRAPI_URL=
+CONTROL_STRAPI_READ_TOKEN=
+CONTROL_STRAPI_WRITE_TOKEN=
+# 配信のコマンドに埋める値。プロファイル名は人が SSO で使っているもの（必須。許可セット ComeginProdDeploy）。
+# バケット名・ディストリビューション ID は空なら親スタックの出力 AstroBucketName・DistributionId（監視アプリは埋めるだけで配信しない）
+CONTROL_DEPLOY_AWS_PROFILE=
+CONTROL_DEPLOY_BUCKET=
+CONTROL_DEPLOY_DISTRIBUTION_ID=
+# アイキャッチ画像（任意。無ければ article-cover は skipped）。OpenAI の API キー（sk-）。モデル・サイズ・1 回の枚数（1〜10）は空なら既定
+OPENAI_API_KEY=
+CONTROL_OPENAI_IMAGE_MODEL=
+CONTROL_OPENAI_IMAGE_SIZE=
+CONTROL_COVER_MAX_PER_RUN=
+# Mautic の参照専用の API 認証情報（任意。control-plane 用に別に発行。ID とシークレットは 2 つで 1 組）。URL は空なら MAUTIC_BASE_URL、無ければ https://mkt.comegin.com
+CONTROL_MAUTIC_URL=
+CONTROL_MAUTIC_CLIENT_ID=
+CONTROL_MAUTIC_CLIENT_SECRET=
+# 周の始まりに作業場を origin/main に合わせるか（任意。true / false。空なら true）
+CONTROL_WORKTREE_SYNC=
+
 # ---- 本番の n8n（prod.conf にだけ書く。--target prod の n8n-prod モジュール。onprem/README.md の「本番の n8n」） ----
 # オーナー・公開 API のキー・MCP のトークン（N8N_PROD_TOKEN）はモジュールが作って prod の状態に置く（書かなくてよい）。
 # n8n 用の Mautic の API 認証情報（管理者が作る。エージェント用の MAUTIC_CLIENT_*・参照専用の MAUTIC_RO_CLIENT_*・初期設定用の MAUTIC_SETUP_CLIENT_* とは別）

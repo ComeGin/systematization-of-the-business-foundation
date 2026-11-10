@@ -1,0 +1,41 @@
+id: cycle-campaign
+description: "承認済みの email_campaign の E-13 から、Mautic のキャンペーンの一式を未公開で作る（記事の下書き・メール・キャンペーン・配布ファイルの原稿）。公開・送信・セグメントの作成は人（改善ループの作用のジョブ）"
+enabled: false
+# 周の 8 日目（火曜）の 04:00。起動 + 1800 秒 = 04:30 で、8 時より前。観測 4 本（04:00〜04:20）と同時刻だが、別のエージェントで書き先も別（記事の下書きは本番の Strapi、メール・キャンペーンは本番の Mautic、原稿は作業場の campaign-assets/）。
+# daily-propose（04:30）とは重ならない。重ねたくなければ作る人がずらす。campaign-asset-upload（06:00）が after で待つ
+cron: "0 4 * * 2"
+kind: agent
+agent: campaign-planner
+builtin: null
+after: []
+prompt: |
+  承認済み（approval.state が approved）の email_campaign の E-13（1 回の実行で 1 件。監視アプリが PRP: の行で渡す）から、Mautic のキャンペーンの一式を未公開で作る。読み手は介護・障がい福祉を運営している法人・事業所。
+
+  取得の範囲（変えない）:
+  - 扱う E-13 は 1 回の実行で 1 件だけ。この実行で作ったもの以外の記事・メール・キャンペーンに触れない
+  - 記事は下書き（publishedAt を設定しない）、メールとキャンペーンは未公開で作る。公開・送信・セグメントの作成はしない（できない）
+  - 送信先のセグメントは作らない。E-13 の target.identifier が指す既存のセグメントを使う（無ければ止まる）
+  - 配布ファイルの原稿は作業場の campaign-assets/<proposal_id>/ にだけ書く。ライセンスの既定は MIT
+  - PRP: の行・SITE_URL: の行が無いときは、何も作らずに止まる
+timeout_sec: 1800
+max_turns: 80
+cycle_days:
+  - 8
+proposal_kinds:
+  - email_campaign
+overview: |
+  周の 8 日目だけ、Agent campaign-planner を起動し、承認済みの email_campaign の E-13（1 回の実行で 1 件。監視アプリが PRP: の行で渡す）から、記事の下書き 1 本・Mautic の未公開のメール 1 通とキャンペーン 1 つ・必要なら配布ファイルの原稿（Agent Plugins）を作る。公開・送信・セグメントの作成はしない（できない）。SITE_URL が無いときは何も作らずに止まる。承認済みの E-13 が無い・CONTROL_CYCLE_ANCHOR が無いときは見送る。
+stage: create
+io:
+  reads:
+    - "承認済みの E-13（docs/proposals/PRP-*.md。email_campaign）と、その根拠の E-12"
+    - "本番の Mautic（セグメントの名前と ID・既存のメールとキャンペーン）"
+    - "本番の Strapi の記事"
+  writes:
+    - "本番の Strapi の記事の下書き 1 件"
+    - "本番の Mautic の未公開のメール 1 通・キャンペーン 1 つ"
+    - "作業場の campaign-assets/<proposal_id>/（配布ファイルの原稿。必要なとき）"
+    - "E-15 の周の項目（キャンペーン。準備中）"
+  does_not_write:
+    - "記事の公開・Mautic のメールとキャンペーンの公開（＝送信の開始）・セグメントの作成（人が行う）"
+    - "この実行で作ったもの以外の記事・メール・キャンペーン"

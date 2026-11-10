@@ -13,10 +13,40 @@ import { spawn } from "node:child_process";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
+import type { RunResult } from "../context.js";
 import { logLine } from "../log.js";
+import type { LeaseStore } from "../store/leases.js";
 
 const MAX_RESULT_BYTES = 25 * 1024 * 1024;
 const STDERR_TAIL_CHARS = 400;
+
+/**
+ * main のチェックアウトで build する builtin（lighthouse・a11y・published-article-check）が共有するリースのキー。
+ * どれも同じ dist/ と .lighthouse/・.a11y/ を作り直すので、同時に動かさない（別の build が dist/ を差し替えると、測った結果と配る dist がずれる）。
+ */
+export const CHECKOUT_BUILD_LEASE = "checkout-build";
+const LEASE_GRACE_MS = 60_000;
+
+/**
+ * 共有のリースを取ってから fn を動かし、終わったら（失敗しても）手放す。取れなければ（別の build が動いている）fn を動かさず skipped を返す。
+ * ttl は timeoutSec + 60 秒。持ち主のプロセスが死んでいれば奪える（LeaseStore）。
+ */
+export async function withCheckoutBuildLease(
+  leases: LeaseStore,
+  runId: string,
+  timeoutSec: number,
+  fn: () => Promise<RunResult>,
+): Promise<RunResult> {
+  if (!leases.acquire(CHECKOUT_BUILD_LEASE, runId, timeoutSec * 1000 + LEASE_GRACE_MS)) {
+    const reason = "main のチェックアウトで別のビルドが動いている";
+    return { outcome: "skipped", summary: reason, targetIds: [], skipReason: reason };
+  }
+  try {
+    return await fn();
+  } finally {
+    leases.release(CHECKOUT_BUILD_LEASE, runId);
+  }
+}
 
 /** 子プロセスの env の土台。許可リスト。 */
 export function childEnv(home: string, siteUrl: string | null): NodeJS.ProcessEnv {
@@ -28,6 +58,24 @@ export function childEnv(home: string, siteUrl: string | null): NodeJS.ProcessEn
   };
   if (siteUrl) env.SITE_URL = siteUrl;
   return env;
+}
+
+/**
+ * 配信用のビルド（published-article-check の `pnpm lh`）の子プロセスの env。childEnv に、記事を読む Strapi の接続先とコミットを足す。
+ * 足すのは決まった 4 つだけ。STRAPI_API_TOKEN は読み取り専用の API トークン（書き込みトークンは渡さない）。
+ * BUILD_TARGET=production は、STRAPI_URL が開発の Strapi を指していたらビルドを止める歯止め（blog の integration）を効かせる。
+ */
+export function buildEnv(
+  home: string,
+  input: { siteUrl: string; strapiUrl: string; strapiReadToken: string; commitSha: string },
+): NodeJS.ProcessEnv {
+  return {
+    ...childEnv(home, input.siteUrl),
+    STRAPI_URL: input.strapiUrl,
+    STRAPI_API_TOKEN: input.strapiReadToken,
+    BUILD_COMMIT_SHA: input.commitSha,
+    BUILD_TARGET: "production",
+  };
 }
 
 export async function exists(path: string): Promise<boolean> {

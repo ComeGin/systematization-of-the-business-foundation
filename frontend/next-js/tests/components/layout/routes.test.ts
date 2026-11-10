@@ -125,9 +125,9 @@ describe("resolveRoute", () => {
 
 describe("NAVIGATION_ITEMS", () => {
   describe("正常系", () => {
-    it("サイドのナビゲーションは設定の状況・実行記録・手動の起動・ジョブ・Agent・候補の順で、すべてアプリ内のパス", () => {
-      expect(NAVIGATION_ITEMS.map((item) => item.href)).toEqual(["/setup-status", "/runs", "/runs/new", "/jobs", "/agents", "/miswrite-candidates"]);
-      expect(NAVIGATION_ITEMS[4]!.text).toBe("Agent");
+    it("サイドのナビゲーションは改善ループ・設定の状況・実行記録・手動の起動・ジョブ・Agent・候補の順で、すべてアプリ内のパス", () => {
+      expect(NAVIGATION_ITEMS.map((item) => item.href)).toEqual(["/cycle", "/setup-status", "/runs", "/runs/new", "/jobs", "/agents", "/miswrite-candidates"]);
+      expect(NAVIGATION_ITEMS[5]!.text).toBe("Agent");
       for (const item of NAVIGATION_ITEMS) expect(item.text).not.toBe("");
     });
 

@@ -92,3 +92,47 @@ export async function strapiGet<T>(pathAndQuery: string): Promise<T> {
     return (await response.json()) as T;
   }
 }
+
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+const DOWNLOAD_RETRIES = 2;
+
+/**
+ * メディアのファイルをバイト列で取得する（配布ファイル。DD-05 の 1.5.3）。
+ * Strapi のオリジンのときだけ読み取りのトークンを付ける（本番の S3 の署名付き URL に Authorization を付けると拒否されるため）。
+ * maxBytes を超えたら StrapiBuildError（Content-Length で先に止め、本文でも確かめる）。
+ */
+export async function strapiDownload(url: string, maxBytes: number, what: string): Promise<Uint8Array<ArrayBuffer>> {
+  const target = new URL(url);
+  const headers: Record<string, string> = {};
+  if (target.origin === strapiOrigin()) headers.Authorization = `Bearer ${apiToken()}`;
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+    try {
+      const response = await fetch(target, { headers, signal: controller.signal });
+      if (!response.ok) {
+        throw new StrapiBuildError(`${what} を取得できませんでした（${response.status}）。`);
+      }
+      const declared = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        throw new StrapiBuildError(`${what} が上限（${Math.floor(maxBytes / 1024 / 1024)} MB）を超えています。`);
+      }
+      const body = new Uint8Array(await response.arrayBuffer());
+      if (body.length > maxBytes) {
+        throw new StrapiBuildError(`${what} が上限（${Math.floor(maxBytes / 1024 / 1024)} MB）を超えています。`);
+      }
+      return body;
+    } catch (error) {
+      if (error instanceof StrapiBuildError) throw error;
+      // 届かない・タイムアウトは再試行し、それでも失敗したらビルドを止める
+      if (attempt < DOWNLOAD_RETRIES) continue;
+      throw new StrapiBuildError(
+        error instanceof Error && error.name === "AbortError"
+          ? `${what} の取得が ${DOWNLOAD_TIMEOUT_MS / 1000} 秒以内に終わりませんでした。`
+          : `${what} を取得できませんでした（Strapi か S3 に接続できません）。`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}

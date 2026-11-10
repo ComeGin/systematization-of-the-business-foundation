@@ -2,6 +2,7 @@
 // 目的は「配信中のサイトが、どのコミットから作られたか」を HTTPS で読めるようにすること。
 // 監視アプリ（backend/control-plane の status/drift.ts）が、origin/main に公開サイトの変更が増えたのに
 // 再配信していない状態を見つけるのに使う（docs/superpowers/specs/2026-11-03-setup-status-design.md の 5.3）。
+// あわせて BUILD_COMMIT_SHA があるときだけ dist/_build.json も書く（下の BUILD_MARK_FILE）。
 // 公開される JSON なので、入れるのはコミットの SHA とビルドの日時だけ（秘密値・パス・ブランチ名は入れない）。
 // コミットは、Astro のプロジェクトのルート（config.root。frontend/verdant-virgo）の `git rev-parse HEAD`。cwd には頼らない。取れなくてもビルドは止めず commit を null にする。
 import { execFile } from "node:child_process";
@@ -14,6 +15,12 @@ import type { AstroIntegration } from "astro";
 const execFileAsync = promisify(execFile);
 
 export const BUILD_INFO_FILE = "build-info.json";
+/**
+ * 監視アプリ（control-plane の published-article-check）が配信用のビルドに渡した BUILD_COMMIT_SHA を、そのまま印として残すファイル。
+ * 配信の確認が「公開サイトの _build.json の commit が deploy の項目のコミットと一致する」ことで行えるようにする（改善ループの spec 5.6）。
+ * BUILD_COMMIT_SHA が無い（人が手でビルドした）ときは書かない。公開される JSON なので、入れるのはコミットとビルドの日時だけ。
+ */
+export const BUILD_MARK_FILE = "_build.json";
 
 export interface BuildInfo {
   /** ビルドしたときの HEAD の 40 桁のコミット。git を読めなかったときは null */
@@ -58,6 +65,18 @@ export function comeginBuildInfo(): AstroIntegration {
           `${JSON.stringify(info, null, 2)}\n`,
           "utf8",
         );
+        const markedCommit = process.env.BUILD_COMMIT_SHA?.trim();
+        if (markedCommit) {
+          if (!/^[0-9a-f]{40}$/.test(markedCommit)) {
+            throw new Error("BUILD_COMMIT_SHA は 40 桁の小文字の 16 進数にしてください（_build.json に書くコミット）");
+          }
+          await writeFile(
+            path.join(fileURLToPath(dir), BUILD_MARK_FILE),
+            `${JSON.stringify({ commit: markedCommit, builtAt: info.builtAt }, null, 2)}\n`,
+            "utf8",
+          );
+          logger.info(`${BUILD_MARK_FILE} を書きました（commit=${markedCommit.slice(0, 7)}）`);
+        }
         logger.info(`${BUILD_INFO_FILE} を書きました（commit=${info.commit?.slice(0, 7) ?? "なし"}）`);
       },
     },

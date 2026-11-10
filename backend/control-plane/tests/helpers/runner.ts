@@ -7,6 +7,7 @@ import { vi } from "vitest";
 import type { ControlPlaneConfig } from "../../src/config.js";
 import type { EngineContext } from "../../src/context.js";
 import type { LoadedSchedules, ScheduleDefinition } from "../../src/definitions/schedules.js";
+import { CycleStore } from "../../src/store/cycles.js";
 import { KvStore } from "../../src/store/kv.js";
 import { LeaseStore } from "../../src/store/leases.js";
 import { migrate } from "../../src/store/migrations.js";
@@ -38,6 +39,7 @@ export function memoryStores() {
     runs: new RunStore(db),
     leases: new LeaseStore(db),
     kv: new KvStore(db),
+    cycles: new CycleStore(db),
     miswrite: new MiswriteStore(db),
   };
 }
@@ -49,12 +51,18 @@ export function makeConfig(overrides: Partial<ControlPlaneConfig> = {}): Control
     worktree: "/nonexistent/worktree",
     schedulerEnabled: false,
     agentHome: null,
+    cycleAnchor: null,
     anthropic: null,
     siteUrl: null,
     github: null,
     aws: null,
     miswrite: null,
     n8nExport: null,
+    strapi: null,
+    openai: null,
+    deploy: null,
+    mautic: null,
+    worktreeSync: true,
     status: null,
     statusConfigError: null,
     ...overrides,
@@ -88,6 +96,8 @@ export function makeJob(overrides: Partial<ScheduleDefinition> = {}): ScheduleDe
     timeoutSec: 60,
     maxTurns: null,
     prompt: null,
+    cycleDays: null,
+    proposalKinds: null,
     ...overrides,
   };
 }

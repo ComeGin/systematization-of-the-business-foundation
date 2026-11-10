@@ -12,7 +12,8 @@ export {
 } from './lib/articles';
 export { BLOG_CATEGORIES, ALL_CATEGORIES_LABEL, findBlogCategory, type BlogCategorySlug } from './lib/categories';
 export { toAbsoluteMediaUrl } from './lib/media';
+export { collectDistributionFiles, downloadDistributionFile, formatFileSize, MAX_DISTRIBUTION_BYTES } from './lib/files';
 export { prepareArticleBody, type PreparedBody, type TocItem } from './lib/body';
-export type { Article, BlogCategory, BlogAuthor, StrapiMedia, SearchIntent } from './lib/types';
+export type { Article, BlogCategory, BlogAuthor, StrapiMedia, SearchIntent, DistributionFile } from './lib/types';
 export { default as ArticleBlocks } from './components/ArticleBlocks.astro';
 export { default as StrapiImage } from './components/StrapiImage.astro';

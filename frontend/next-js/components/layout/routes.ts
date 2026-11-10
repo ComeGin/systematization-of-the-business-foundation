@@ -12,7 +12,8 @@ export type HelpId =
   | "agents-list"
   | "agent-detail"
   | "miswrite-candidates"
-  | "setup-status";
+  | "setup-status"
+  | "cycle";
 
 export interface RouteMeta {
   breadcrumbs: BreadcrumbGroupProps.Item[];
@@ -26,16 +27,21 @@ const ROOT: BreadcrumbGroupProps.Item = { text: "監視アプリ", href: "/" };
 const RUNS: BreadcrumbGroupProps.Item = { text: "実行記録", href: "/runs" };
 const JOBS: BreadcrumbGroupProps.Item = { text: "定期実行のジョブ", href: "/jobs" };
 const AGENTS: BreadcrumbGroupProps.Item = { text: "Agent", href: "/agents" };
+const CYCLE: BreadcrumbGroupProps.Item = { text: "改善ループ", href: "/cycle" };
 const SETUP_STATUS: BreadcrumbGroupProps.Item = { text: "設定の状況", href: "/setup-status" };
 const CANDIDATES: BreadcrumbGroupProps.Item = { text: "誤った書き込みの候補", href: "/miswrite-candidates" };
 
 /** サイドのナビゲーションに出すモジュール。 */
-export const NAVIGATION_ITEMS = [SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, AGENTS, CANDIDATES] as const;
+export const NAVIGATION_ITEMS = [CYCLE, SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, AGENTS, CANDIDATES] as const;
 
 export function resolveRoute(pathname: string): RouteMeta {
   const [module, id] = pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
   const self = (text: string) => ({ text, href: pathname });
 
+  if (module === "cycle") {
+    if (id === undefined) return { breadcrumbs: [ROOT, CYCLE], activeHref: "/cycle", help: "cycle", contentType: "default" };
+    return { breadcrumbs: [ROOT, CYCLE, self(id)], activeHref: "/cycle", help: "cycle", contentType: "default" };
+  }
   if (module === "setup-status") {
     return { breadcrumbs: [ROOT, SETUP_STATUS], activeHref: "/setup-status", help: "setup-status", contentType: "default" };
   }

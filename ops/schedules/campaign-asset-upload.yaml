@@ -1,0 +1,25 @@
+id: campaign-asset-upload
+description: "campaign-planner が作業場に書いた配布ファイルの原稿から配布物（zip・PDF）を作って Strapi にアップロードし、記事の下書きに結ぶ（エージェントは使わない。公開はしない）"
+enabled: false
+# 毎日 06:00（I7）。cycle-campaign（周の 8 日目の火曜 04:00〜04:30）の当日だけでなく、失敗したアップロード・結び付けを翌日以降も再試行する。
+# 対象（作業場の campaign-assets/ の原稿で、まだ記事に結ばれていないもの）が無ければ何もしない。after は置かない（cycle-campaign が動かない日も動く）。
+# 起動 + 600 秒 = 06:10 で、8 時より前。daily-silence-check（06:00）と同時刻だが、読む・書く先が別
+cron: "0 6 * * *"
+kind: builtin
+agent: null
+builtin: campaign-asset-upload
+after: []
+timeout_sec: 600
+overview: |
+  エージェントを使わない決まった処理。作業場の campaign-assets/<proposal_id>/ に campaign-planner が書いた原稿（manifest.yaml・plugin/・summary.md）から、配布物（Plugin の zip と 1 次資料のまとめの PDF）を作り、本番の Strapi のメディアライブラリにアップロードして、キャンペーンの記事の下書きに結ぶ。zip にする前に plugin/plugin.json を Agent Plugins のスキーマで検証し、違反があれば何もアップロードしない。書き込み用の Strapi のトークン（CONTROL_STRAPI_WRITE_TOKEN）が無ければ見送る。記事の公開はしない。
+stage: create
+io:
+  reads:
+    - "作業場の campaign-assets/<proposal_id>/"
+    - "本番の Strapi の記事の下書き"
+  writes:
+    - "本番の Strapi のメディア（Plugin の zip・1 次資料のまとめの PDF）と、記事の下書きへの添付"
+    - "E-15 の周の項目（キャンペーン。配布ファイルの印）"
+  does_not_write:
+    - "記事の公開（人が行う）"
+    - "Mautic（メール・キャンペーン・セグメント）"

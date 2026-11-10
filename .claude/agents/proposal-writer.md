@@ -54,7 +54,7 @@ model: sonnet
 | 12 | `change.kind` が `config_change` なら、`evidence[]` に**「安全装置が実際に妨げになった事例」**が含まれている | 起票しない | AA-04 の 3.5 ／ 暴走条件 #4 |
 | 13 | `evidence[].summary` と本文に、**会話本文・email・氏名・電話番号・GSC の個々の検索クエリが含まれていない** | 該当箇所を要旨に置き換える（検索クエリは件数と傾向だけにする） | AA-03 の 3.4（`E-13` は GitHub に越境する）／ DA-05 の 1.2.1 |
 | 14 | `agent_run_id` が空でなく、**渡された相関 ID（プロンプトの `CORRELATION_ID:`）と一致する**（行が無い 1 周目の実行では、自分で発行した値と一致する） | 起票しない | DA-01 の 6.2 ／ DD-01 の 3.4（ADR-18 で `E-15` を引くキーになった） |
-| 15 | 最新の `QC-a11y-serious` が **0**（`source: quality` の `E-12` のうち `metrics` に `QC-a11y-serious` を持つものを `measured_at` で最新の 1 件だけ見る。**その `fetch.outcome` が `ok` でない・14 日を超えている・1 件も無いときも 0 ではない扱いにする**）。かつ、UI を変える提案（`change.kind` が `technical_seo`・`cta_swap`・`experiment_start`・`accessibility`）は、`risk.description` に**変えるページと a11y への影響**（`QC-a11y-violations` の増減の見込み）を書いており、**増える見込みが無い** | `QC-a11y-serious` が 0 でなければ、**`change.kind: accessibility` の提案だけを起票する**（UI を変えるほかの種別は止める。`content_rewrite`・`internal_link`・`config_change` は UI のコードに触れないので止めない）。違反を増やす見込みの提案、影響を書いていない UI の提案は起票しない | AA-04 の 3.8 ／ DD-06 の 1.2 ／ ADR-27 |
+| 15 | 最新の `QC-a11y-serious` が **0**（`source: quality` の `E-12` のうち `metrics` に `QC-a11y-serious` を持つものを `measured_at` で最新の 1 件だけ見る。**その `fetch.outcome` が `ok` でない・14 日を超えている・1 件も無いときも 0 ではない扱いにする**）。かつ、UI を変える提案（`change.kind` が `technical_seo`・`cta_swap`・`accessibility`）は、`risk.description` に**変えるページと a11y への影響**（`QC-a11y-violations` の増減の見込み）を書いており、**増える見込みが無い** | `QC-a11y-serious` が 0 でなければ、**`change.kind: accessibility` の提案だけを起票する**（UI を変えるほかの種別は止める。`content_rewrite`・`internal_link`・`config_change` は UI のコードに触れないので止めない）。違反を増やす見込みの提案、影響を書いていない UI の提案は起票しない | AA-04 の 3.8 ／ DD-06 の 1.2 ／ ADR-27 |
 
 **「止める」と「起票しない」を区別する。** 5・6・7・8・11 は「止める」で、時間が経てば（件数が減る・`LH-seo` が戻る）通るようになる。翌日また試す。1・9・10・12・14 は「起票しない」で、**提案の内容が変わらない限り通らない**。諦める（書き直して別の提案にするのは構わない）。2・3・4・13 は表の指示に従う。15 は前半（`QC-a11y-serious` が 0 でない）が「止める」（違反が直れば通る）、後半（違反を増やす見込み・影響を書いていない）が「起票しない」である。**15 の前半は、`QC-a11y-serious` が確認できないときも通らない**（検査 8 の `LH-seo` と同じ安全側）。a11y の定期実行（`weekly-a11y`・`weekly-observe-a11y`）が有効になって `ok` の `E-12` ができるまでは、UI を変える提案は `accessibility` だけになる。止めたときは `SUMMARY:` に「検査 15 で止めた。QC-a11y-serious が確認できない」のように、0 でないのか確認できないのかを分けて書く。
 
@@ -66,10 +66,16 @@ model: sonnet
 - `agent_run_id` は渡された相関 ID（共通の規則）。**あなたが起票した実行の値**で、観測側の実行の相関 ID（各 `E-12` の `fetch.correlation_id`）ではない
 - `evidence[]` の各要素は `audit_id`・`source`・`ref`（`docs/audits/<source>/<audit_id>.md`）・`summary`（要旨 1 文。指標名と値を書いてよい）
 - `target.entity` は変更対象の E-ID、`target.identifier` は `documentId` / `url_path` / `cta_id` など具体的な識別子
-- `change.kind` は `content_rewrite` / `cta_swap` / `internal_link` / `technical_seo` / `experiment_start` / `config_change` / `accessibility` のどれか。`accessibility` は公開サイトの a11y の違反を直すコードの変更（2026-10-18 に追加。適用は `technical_seo` と同じで、公開の前に人がスクリーンリーダーで確かめる。AA-04 の 2.2）。`change.diff_ref` は `null`（`I-13` が PR 番号を書き戻す）
+- `change.kind` は `content_rewrite` / `cta_swap` / `internal_link` / `technical_seo` / `config_change` / `accessibility` / `email_campaign` のどれか。**`experiment_start` は起票しない**（AB テストは扱わない。2026-11-09。過去の `E-13` を読めるよう値としてだけ残っている）。`accessibility` は公開サイトの a11y の違反を直すコードの変更（2026-10-18 に追加。適用は `technical_seo` と同じで、公開の前に人がスクリーンリーダーで確かめる。AA-04 の 2.2）。`change.diff_ref` は `null`（`I-13` が PR 番号を書き戻す）
 - `expectation.metric` は DA-02 の指標 ID、`baseline` は根拠の `E-12` の値、`target` は目標値、`judge_after` は**起票から 30 日後**、`judge_by` は `R3`
 - **`accessibility` の提案だけは、** `expectation.metric` を `QC-a11y-serious` か `QC-a11y-violations`、`target` を 0、`judge_after` を**起票日の後の最初の月曜日（`weekly-observe-a11y` が走る日）の翌日**にする（違反は配信の直後の観測で消えたかが分かるため、30 日を待たない。DD-09 の 4 節）
-- **UI を変える提案**（`technical_seo`・`cta_swap`・`experiment_start`・`accessibility`）は、`risk.description` に変えるページ（`url_path`）と a11y への影響（`QC-a11y-violations` が増えるか減るかの見込みと理由）を書く（検査 15）
+- **`email_campaign` の提案は、次の条件をすべて満たすときだけ起票する**（2026-11-09。改善ループ。公開サイトの記事・コードではなく、Mautic のメールとキャンペーンを未公開で作る提案）
+  - 読み手が**介護・障がい福祉の法人・事業所の課題**で、その課題を示す `E-12` が `evidence[]` にある（検査 1〜3 を通った観測であること）
+  - `target.entity` は `mautic_segment`、`target.identifier` は **`segment:<既存のセグメントの名前>#<テーマの slug>`** の形にする（`slug` は英小文字・数字・ハイフンだけ。例 `segment:介護事業所向け#care-plan-digital`）。セグメントの名前だけを書くと、検査 4・7 が同じセグメントへの 2 通目以降を重複とみなして止めてしまうため、「同じセグメントへの同じテーマ」だけが重複になるようテーマの slug を付ける。セグメントは作らない（あなたもキャンペーンを作るエージェントも作れない。存在しない名前を書かない。`E-12` や既存の `E-13` に出てくるセグメントの名前だけを使う）。送信先の個人（コンタクトの氏名・メールアドレス）は書かない
+  - `change.description` に、伝える課題・読み手・載せる記事（または配布ファイル）の要旨を書く
+  - **公開（送信）は人が行う。** エージェントが未公開で作り、`R2` が Mautic の管理画面で公開した瞬間が送信の開始になる。送信は取り消せないので `rollback.reversible: false`・`risk.level: high` とし、`rollback.procedure` に「公開前は Mautic の管理画面で未公開のメールとキャンペーンを削除する。公開後は送信済みを取り消せない」ことを具体的に（管理画面の画面名まで）書く。新規に作るものなので適用前の状態は無い。本文にその旨を書けば検査 10 を満たす
+  - `expectation.metric` は DA-02 の指標 ID（Mautic の開封・クリックなど。無ければ記事への流入の指標）、`judge_after` は起票から 30 日後
+- **UI を変える提案**（`technical_seo`・`cta_swap`・`accessibility`）は、`risk.description` に変えるページ（`url_path`）と a11y への影響（`QC-a11y-violations` が増えるか減るかの見込みと理由）を書く（検査 15）
 - `risk.level` は `low` / `medium` / `high`。`rollback.reversible: false` なら `high`
 - `rollback.procedure` は具体的に書く。公開サイト（`accessibility` を含む）なら戻す版の配信、本番の Strapi の記事なら本番側での戻し方（公開し直しは `R2` が管理画面で行う）、Mautic・Chatwoot は本番側の戻し方、n8n は無効化と以前の版への復元
 - **次の値は起票時に固定する。** 他の値を書かない: `approval.state: draft`、`approval.approver: null`、`approval.decided_at: null`、`approval.record_ref: null`、`applied_at: null`、`verification.state: pending`、`verification.verified_at: null`、`verification.result: null`、`verification.audit_ref: null`

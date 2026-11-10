@@ -5,6 +5,8 @@ const allowedMediaTypes = [
   'video/*',
   'audio/*',
   'application/pdf',
+  // キャンペーンの配布物（Agent Plugins の zip。builtin campaign-asset-upload がアップロードする。spec 5.8）
+  'application/zip',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.*',
   'text/plain',

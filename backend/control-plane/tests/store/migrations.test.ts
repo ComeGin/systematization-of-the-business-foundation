@@ -10,16 +10,24 @@ function userVersion(db: DatabaseSync): number {
 
 function tables(db: DatabaseSync): string[] {
   return (
-    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]
   ).map((row) => row.name);
 }
 
 describe("migrate", () => {
   describe("正常系", () => {
-    it("空入力: 空の DB に 4 つのテーブルを作り、user_version を進める", () => {
+    it("空入力: 空の DB に 7 つのテーブルを作り、user_version を進める", () => {
       const db = new DatabaseSync(":memory:");
       migrate(db);
-      expect(tables(db)).toEqual(["kv", "leases", "miswrite_candidates", "runs"]);
+      expect(tables(db)).toEqual([
+        "cycle_approvals",
+        "cycle_items",
+        "cycles",
+        "kv",
+        "leases",
+        "miswrite_candidates",
+        "runs"
+      ]);
       expect(userVersion(db)).toBeGreaterThanOrEqual(1);
     });
 

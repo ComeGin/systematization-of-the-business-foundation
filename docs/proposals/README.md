@@ -32,7 +32,7 @@ target:
   identifier: "url_path=/"
   also_affects: []
 change:
-  kind: technical_seo          # content_rewrite | cta_swap | internal_link | technical_seo | experiment_start | config_change
+  kind: technical_seo          # content_rewrite | cta_swap | internal_link | technical_seo | experiment_start | config_change | accessibility | email_campaign
   description: "..."
   diff_ref: null               # 起票時は null。I-13 が PR 番号を書き戻す（例 "PR #12"）
 expectation:
@@ -62,6 +62,19 @@ rollback:
   deadline: 2026-12-03
 ---
 ```
+
+## 変更の種類（`change.kind`）
+
+| 種類 | 変えるもの | 適用の主体 | 起票 |
+|---|---|---|---|
+| `content_rewrite` | 記事の本文 | エージェントが Strapi の下書きとして作り、公開は `R2`（人） | する |
+| `cta_swap` | CTA の差し替え | エージェントが差分を作り、配信は人 | する |
+| `internal_link` | 内部リンク | エージェントが差分を作り、配信は人 | する |
+| `technical_seo` | 構造化データ・メタ情報などの技術 SEO | エージェントが差分を作り、配信は人 | する |
+| `accessibility` | a11y の違反を直すコード | エージェントが差分を作り、公開の前に人がスクリーンリーダーで確かめる | する |
+| `email_campaign` | Mautic のメールとキャンペーン（`target.entity` は `mautic_segment`、`target.identifier` は `segment:<既存のセグメントの名前>#<テーマの slug>`。slug は英小文字・数字・ハイフン。同じセグメントへの同じテーマだけが重複になる） | **エージェントが未公開で作り、公開（送信）は人** | する（読み手が介護・障がい福祉の法人・事業所の課題で、根拠の `E-12` があるとき） |
+| `config_change` | 安全装置・設定の変更 | 人が手で行う（作用のジョブを作らない。画面では「人が手で行う」項目） | する（安全装置が実際に妨げになった事例があるとき） |
+| `experiment_start` | AB テストの開始 | — | **しない**（AB テストは扱わない。2026-11-09。過去の `E-13` を読めるよう値としてだけ残る） |
 
 ## 状態を動かせる主体
 

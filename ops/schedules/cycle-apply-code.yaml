@@ -1,0 +1,36 @@
+id: cycle-apply-code
+description: "承認済みのコードの差分の E-13（technical_seo・accessibility・cta_swap・internal_link）から、frontend/verdant-virgo/src/ の差分を作業場に作る。コミット・PR は人（改善ループの作用のジョブ）"
+enabled: false
+# 火〜土の 05:00。起動 + 1500 秒 = 05:25 で、8 時より前。daily-i13-file（05:30）の前に終わる。
+# 05:00 台は、毎月 1 日の monthly-analysis（proposal-writer。05:00〜05:15）が動く日がある。書き先が別（こちらは frontend/verdant-virgo/src/、あちらは docs/proposals・docs/audits）なので重なってよいが、重ねたくなければ作る人がずらす
+cron: "0 5 * * 2-6"
+kind: agent
+agent: design-implementer
+builtin: null
+after: []
+prompt: |
+  承認済み（approval.state が approved）のコードの差分の E-13（technical_seo・accessibility・cta_swap・internal_link のいずれか。1 回の実行で 1 件。監視アプリが PRP: の行で渡す）の change.description を仕様として、frontend/verdant-virgo/src/ の差分を作業ツリーに作る。
+
+  取得の範囲（変えない）:
+  - 扱う E-13 は 1 回の実行で 1 件だけ。also_affects の範囲を超えて広げない
+  - 書いてよい場所は frontend/verdant-virgo/src/ だけ。コミット・ビルド・計測はしない（人が行う）
+  - PRP: の行が無いとき、E-13 が承認済みでないときは、何も書かずに止まる
+timeout_sec: 1500
+proposal_kinds:
+  - technical_seo
+  - accessibility
+  - cta_swap
+  - internal_link
+overview: |
+  Agent design-implementer を起動し、承認済みのコードの差分の E-13（1 回の実行で 1 件。監視アプリが PRP: の行で渡す）を仕様として、公開サイト（frontend/verdant-virgo/src/）の差分を作業場の作業ツリーに作る。結果は未コミットの差分で、コミットと PR は人が行う。起動すると周の項目（コード）が準備中で作られ、cycle-collect が変更したファイルから中身を埋めて OK 待ちにする。承認済みの E-13 が無ければ見送る。
+stage: create
+io:
+  reads:
+    - "承認済みの E-13（docs/proposals/PRP-*.md）と、その根拠の E-12"
+    - "frontend/verdant-virgo の既存のコード・トークン・設計書（docs/BasicDesign/DesignSpec/website/）"
+  writes:
+    - "作業場の frontend/verdant-virgo/src/ の差分（未コミット）"
+    - "E-15 の周の項目（コード。準備中）"
+  does_not_write:
+    - "コミット・PR・ビルド・配信（人が行う）"
+    - "frontend/verdant-virgo/src/ の外のファイル（設定・依存・docs・ops・.claude）"

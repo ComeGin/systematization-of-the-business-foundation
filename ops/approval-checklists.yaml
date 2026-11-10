@@ -1,0 +1,61 @@
+# 改善ループの承認の確認項目（項目の種類ごと。spec 5.4・5.8.1・5.11 の 1）。
+#
+# 監視アプリの「改善ループ」の画面で、項目の「OK」はここに書いた確認項目をすべて入れたときだけ押せる。
+# 承認の記録（誰が・いつ・どの確認項目を入れたか）には id を残す。
+# - 読み先は承認済み main のチェックアウト（作業ツリーのものは使わない。ADR-18）。変えるときは PR で変える
+# - id は kebab-case（小文字の英数字とハイフン）。同じ種類の中で重ねない。id を変えると過去の承認の記録と結びつかなくなるので、文言だけを直すときは id を残す
+# - proposal（改修案）は GitHub の PR で承認するので確認項目を持たない。deploy 以外の種類が空なら読み込みの誤りにする
+
+article:
+  - id: facts-sourced
+    label: 事実と数字に出典がある
+  - id: quotation-copyright
+    label: 引用と著作権に問題が無い（引用は必要な範囲に収まり、出典を表示している）
+  - id: premiums-labeling
+    label: 景品表示法に触れる言い切りが無い（「必ず」「No.1」など根拠の無い表現が無い）
+  - id: cover-ai-safe
+    label: アイキャッチ画像は AI で作ったもので、人物・他社のロゴや商標が写っていない
+  - id: description-fit
+    label: description が 80 文字以内で、本文の内容と合っている
+
+campaign:
+  - id: anti-spam-law
+    label: 特定電子メール法の表示がある（送信者の表示・配信停止のリンク）
+  - id: consented-recipients
+    label: 送信先は同意を得たコンタクトだけ（表示したセグメントと件数で確かめた）
+  - id: premiums-labeling
+    label: 景品表示法に触れる言い切りが無い
+  - id: facts-sourced
+    label: メールと記事の事実と数字に出典がある
+  - id: link-utm
+    label: メールのリンク先がキャンペーンの記事の URL で、UTM（utm_source=mautic・utm_medium=email・utm_campaign）が付いている
+  - id: article-checks
+    label: キャンペーンの記事は article と同じ観点（出典・引用と著作権・景品表示法・アイキャッチ・description）を満たす
+  - id: primary-sources
+    label: 1 次資料のまとめの出典がすべて公的機関・一次資料で、制度の時点（改定の年度）が書かれ、引用が必要な範囲に収まっている
+  - id: no-legal-assertion
+    label: 制度の解釈を断定していない（最終的な判断は指定権者・専門家に確かめる旨がある）
+  - id: plugin-no-sensitive-data
+    label: Plugin が利用者の個人情報（要配慮個人情報）を扱わせず、外部へ送信する処理が無い（ある場合は理由が妥当）
+  - id: plugin-license-clean
+    label: Plugin に秘密値・他者のコードの写しが無く、ライセンス（既定 MIT）でよい
+
+code:
+  - id: measured-seo-a11y
+    label: 表示したコマンドで測り、Lighthouse の SEO が 1.0、a11y の重大（serious 以上）の違反が 0 であることを確かめた
+  - id: diff-in-scope
+    label: 差分が E-13 の対象の範囲に収まっている
+
+deploy:
+  - id: lighthouse-seo
+    label: Lighthouse の SEO が 1.0（未満なら配信の手順は出ない）
+  - id: approved-only
+    label: 含まれる記事と差分が承認済みのものだけ
+
+manual:
+  - id: change-done
+    label: E-13 に書かれた設定の変更を、書かれたとおりに行った
+  - id: rollback-ready
+    label: 戻し方（E-13 の rollback）を確かめた
+
+proposal: []

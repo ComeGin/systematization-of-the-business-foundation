@@ -9,7 +9,7 @@ import { Marked, type Tokens } from "marked";
 import { newTabNoticeHtml } from "@/modules/a11y";
 import { NEW_TAB_NOTICE } from "@/modules/site-content/a11y";
 import { mediaAlt, toAbsoluteMediaUrl } from "./media";
-import type { Article, StrapiMedia } from "./types";
+import type { Article, DistributionFile, StrapiMedia } from "./types";
 
 export interface TocItem {
   id: string;
@@ -20,6 +20,7 @@ export type PreparedBlock =
   | { kind: "html"; html: string }
   | { kind: "quote"; title: string | null; body: string }
   | { kind: "media"; media: StrapiMedia }
+  | { kind: "download"; file: DistributionFile }
   | { kind: "slider"; media: StrapiMedia[] };
 
 export interface PreparedBody {
@@ -200,7 +201,8 @@ export async function prepareArticleBody(
           });
         break;
       case "shared.media":
-        if (block.file) target.push({ kind: "media", media: block.file });
+        if (block.download) target.push({ kind: "download", file: block.download });
+        else if (block.file) target.push({ kind: "media", media: block.file });
         break;
       case "shared.slider":
         if (block.files?.length)

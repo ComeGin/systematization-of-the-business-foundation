@@ -1172,6 +1172,12 @@ dig +short stats.comegin.com
 - **本番の Strapi に、公開済みの記事が 1 本以上ある。** 0 件ならビルドは意図して止まる（DD-05 の 1.2。「公開済みの記事が 0 件です」）。記事の公開は `R2` が本番の管理画面（`http://127.0.0.1:1338/admin`）で行う（エージェントは下書きまで。ADR-17）。カテゴリは `know-the-issues`・`compare-methods`・`consider-adoption` の 3 つの slug で作る（`frontend/verdant-virgo/src/modules/blog/lib/categories.ts`。ほかの slug の記事は警告を出して「課題を知る」として扱われる）。
 - **`prod.conf` の `UPLOAD_S3_BUCKET` は Strapi のメディアのバケット（`comegin-prod-strapi-media-<アカウント ID>`）にする。** 下の手順 1 の `AstroBucketName`（`comegin-prod-astro-…`。同期先）と取り違えない。親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 `StrapiMediaBucketName`）。ビルドは記事の画像を、Strapi が返す署名付き URL で取り込む。取り込みの許可（`image.remotePatterns`）と `dist` の検査は、このバケット名から作る（`src/modules/blog/integration.ts`）。取り違えると、画像が取り込まれずに署名付き URL のまま HTML に出る。そのためビルドは最後に「dist/ に Strapi・S3 の URL が残っています（… `X-Amz-Signature` …）」で止まる（2026-11-02 に起きた。止まらなければ 1 時間で切れる URL が公開されていた）。直したら `node setup/frontend.mjs --target prod --only verdant-virgo` で `.env.production` を書き直してから、ビルドし直す。形が違えば設定スクリプトが止める。
 - **同期の前に `dist/build-info.json` があること**（下の手順 2-0。ビルドのとき `frontend/verdant-virgo/src/modules/build-info` が書く。コミットとビルドの日時だけで、秘密値は無い）。同期すると `https://<SiteHost>/build-info.json` で公開され、監視アプリの `/setup-status` が「配信中のビルドより後に、公開サイトの変更が `origin/main` に入っていないか」を見て、入っていれば「再配信が必要」と知らせる（PR をマージした後に再配信を忘れる事故の検知。2026-11-03 の PR #60 で起きた）。
+- **監視アプリが画面に出す配信のコマンド（改善の周。2026-11-09）は、この節の手順 3〜4 と同じ 4 本のコマンドに、次の値を埋めたものである**（監視アプリは**配信を実行しない**。人が承認して実行する。新しい AWS のリソースは作らない）。値の出どころ:
+  - `CONTROL_DEPLOY_BUCKET` ＝ 親スタック `comegin-prod` の出力 **`AstroBucketName`**（下の手順 1 の `BUCKET`。`cloud/template.yaml` の Outputs。実体は `DataStack` の出力）
+  - `CONTROL_DEPLOY_DISTRIBUTION_ID` ＝ 同じ親スタックの出力 **`DistributionId`**（手順 1 の `DIST`。実体は `CdnStack` の出力）
+  - `CONTROL_DEPLOY_AWS_PROFILE` ＝ **人が `aws sso login` で使っている SSO のプロファイル名**（許可セット `ComeginProdDeploy`。この節の表の `comegin-prod-deploy` は呼び方の例で、実際の名前は人の `~/.aws/config` による）。監視アプリは値をコマンドに埋めるだけで、プロファイルを使って AWS を呼ばない
+  - `next-js-prod` は、`prod.conf` に `CONTROL_DEPLOY_BUCKET`・`CONTROL_DEPLOY_DISTRIBUTION_ID` が無ければ、上の 2 つの出力を読んで `.env` に書く（`CONTROL_DEPLOY_AWS_PROFILE` だけは `prod.conf` に必須。無いと `next-js-prod:deploy-values` で止まる。`setup/manual-steps.md` の早見表）
+  - 画面に出す配る dist は、ビルドの成功後に `<CONTROL_DATA_DIR>/deploy/<コミット 12 桁>-<記事の一覧のハッシュ 12 桁>/dist` へ写したもの（`SITE_DIST` に当たる。main のチェックアウトの `dist/` ではない）
 - 同期元は、下の手順で **`dist` の絶対パス（`SITE_DIST`）** を使う。`frontend/verdant-virgo/dist/` のような相対パスにしない（作業ツリーのルートで実行すると、作業ツリーにある開発用の `dist` が上がる）。
 
 使う AWS CLI のプロファイルは 2 つ（名前はこの手順での呼び方。`~/.aws/config` に作る。SSO でもアクセスキーでもよい）。
@@ -1650,10 +1656,10 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 
 ### 7.4 本番の Mautic（`mautic-prod`）
 
-開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
+開発の `mautic` と同じ API の手順（カスタム項目・フォーム consult と自動返信・社内通知・セグメント mql）を、本番（`https://mkt.comegin.com`）に向けて行う。本番の `config/local.php` は EFS にあり、開発のように PHP で書き換えないので、設定は画面で行う（止まったときの案内のとおり）。
 
 - インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
-- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉だけ、作り直して書く）
+- 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・社内通知・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉と、初期設定に定義を足したとき〈2026-11-09 の社内通知。`mautic-prod:setup-client` で止まる〉だけ、作り直して書く）
 - 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
 
 画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`setup/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。

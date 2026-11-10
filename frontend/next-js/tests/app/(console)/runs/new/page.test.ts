@@ -43,6 +43,8 @@ function job(id: string, description: string): JobStatus {
       overview: null,
       stage: null,
       io: null,
+      cycleDays: null,
+      proposalKinds: null,
     },
     nextRunAt: null,
     lastRun: null,

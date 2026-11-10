@@ -73,6 +73,8 @@ docker compose logs -f        # エラーが繰り返されないことを見て
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:1338/_health   # 204
 ```
 
+**アップロードの許可を変えたときは、本番の Strapi を再ビルド・再起動する**（2026-11-09。キャンペーンの配布物〈Agent Plugins の zip〉を builtin `campaign-asset-upload` がアップロードするため、`backend/strapi-system/config/plugins.ts` の許可するメディアの種類に `application/zip` を足した。**設定は起動時に読まれるので、このイメージで本番を作り直して再起動するまで、zip のアップロードは拒否される**）。イメージは `backend/strapi-system/Dockerfile` でビルドされる（`onprem/strapi/compose.yml` の `build.context`）ので、この変更が入った `origin/main` のチェックアウトの `onprem/strapi` で `docker compose build && docker compose up -d` する。再起動後、管理画面の Media Library に zip を試しに 1 つアップロードして通ることを確かめる（試しのファイルは消す）。この再起動を済ませる前に `campaign-asset-upload` を有効にしない（アップロードが失敗して、周の項目が止まる）。
+
 ### 3. n8n（`n8n/`）
 
 ```bash
@@ -181,6 +183,12 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 | `next-js-prod:principal` | IAM ユーザー `comegin-prod-control-plane` が無い・管理ポリシー `comegin-prod-control-plane` 以外も付いている・資格情報ファイルが無い／600 でない・そのキーの主体が違う | `cloud/README.md` の 4.5.2（ユーザーの作成・ポリシーの付与・キーの発行を人が自分の端末で）。別の場所に置いたなら `prod.conf` に `CONTROL_AWS_CREDENTIALS_FILE=` |
 | `next-js-prod:status-principal` | IAM ユーザー `comegin-prod-status-reader` が無い・管理ポリシー `comegin-prod-status-reader` 以外も付いている・資格情報ファイルが無い／600 でない・そのキーの主体が違う | `cloud/README.md` の 4.5.3（下の「設定の状況を有効にする」の 1）。別の場所に置いたなら `prod.conf` に `CONTROL_STATUS_AWS_CREDENTIALS_FILE=` |
 | `next-js-prod:status-github` | 参照専用の GitHub のトークンのファイルが無い／600 でない／空・`github_pat_` で始まらない（classic など）・トークンでリポジトリを読めない（401・403・404）・応答に `X-OAuth-Scopes` が付く（classic の印） | 下の「設定の状況を有効にする」の 2。別の場所に置いたなら `prod.conf` に `CONTROL_STATUS_GITHUB_TOKEN_FILE=` |
+| `next-js-prod:agent-worktree` | **周のジョブが 1 本でも有効（`enabled: true`）なとき**、`prod.conf` に `CONTROL_WORKTREE`（エージェント専用の作業場）が無い・git のチェックアウトでない。**開発のリポジトリ（作業ツリー）か main のチェックアウトと同じ場所・絶対パスでないときは、周のジョブが無効でも常に止まる**（周のジョブがすべて無効で無いだけなら警告） | 人が `git -C <開発のリポジトリ> fetch origin && git -C <開発のリポジトリ> worktree add --detach ~/ComeGin/agent-worktree origin/main` で作り、`CONTROL_WORKTREE` に書く（`setup/manual-steps.md` の 6.2）。**3 つの場所は互いに別** |
+| `next-js-prod:cycle` | `YYYY-MM-DD` の形でない・月曜の日付でない（**常に止まる**）。`CONTROL_CYCLE_ANCHOR` が無いだけなら、**周のジョブが 1 本でも有効なとき**だけ止まる（すべて無効なら警告） | 周の起点（JST の月曜）を決めて書く（`setup/manual-steps.md` の 7.10） |
+| `next-js-prod:strapi-tokens` | `CONTROL_STRAPI_URL` が開発の Strapi（:1337）や URL でない・書き込みトークンだけがあり読み取りが無い・書き込みトークンが読み取り（か MCP の `STRAPI_PROD_TOKEN`）と同じ値（**常に止まる**）。`CONTROL_STRAPI_READ_TOKEN` が無いだけなら、**周のジョブが 1 本でも有効なとき**だけ止まる（無い間は `CONTROL_STRAPI_URL` も環境変数ファイルに書かない。片方だけだと監視アプリが起動時に例外にするため）。書き込みトークンが**無いだけ**なら止まらず警告（アイキャッチと配布ファイルのアップロードが `skipped`） | 本番の Strapi で読み取り・書き込みの API トークンを発行して書く（`setup/manual-steps.md` の 7.8。書き込みに公開の権限を付けず、開発の Strapi で公開できないことを確かめる） |
+| `next-js-prod:deploy-values` | **周のジョブが 1 本でも有効なとき**、`CONTROL_DEPLOY_AWS_PROFILE` が無い・バケット／ディストリビューション ID が `prod.conf` にもスタックの出力にも無い（すべて無効なら警告。スタックを読めないときは ? になる）。3 つで 1 組なので、1 つでも欠けるあいだは 3 つとも環境変数ファイルに書かない | `CONTROL_DEPLOY_AWS_PROFILE` に人の SSO のプロファイル名を書く（`cloud/README.md` の 4.14。バケットは出力 `AstroBucketName`、ID は `DistributionId`） |
+| `next-js-prod:openai` | **任意の機能**。`OPENAI_API_KEY` が無いだけ・`sk-` で始まらないときは止まらず警告（`article-cover` が `skipped`・認証で失敗）。`CONTROL_COVER_MAX_PER_RUN` が 1〜10 でない・`CONTROL_OPENAI_IMAGE_SIZE` の形が違うときに止まる | `setup/manual-steps.md` の 7.7（Images だけのプロジェクトキーと月の上限） |
+| `next-js-prod:mautic-reader` | **任意の機能**。認証情報が 2 つとも無いだけなら止まらず警告（`cycle-collect` が campaign の項目の中身を埋めず、送信の開始を確かめない）。片方だけ・`MAUTIC_CLIENT_ID`・`MAUTIC_RO_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_ID`・`N8N_MAUTIC_CLIENT_ID` と同じ値・URL の形が違うときに止まる | `setup/manual-steps.md` の 7.9（control-plane 用に別に発行） |
 | `next-js-prod:prod-values` | 下の表の必須の値が `prod.conf` に無い | 表示されたキーを `prod.conf` に書く |
 | `next-js-prod:systemd`・`systemd-dir` | ユニット `comegin-control` が無い・動いていない・チェックアウト以外で動いている | 下の「常駐させる（監視アプリ）」 |
 | `next-js-prod:restart` | `.env` を書き換えた後に `comegin-control` を起動し直していない | `sudo systemctl restart comegin-control` |
@@ -193,7 +201,12 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 | 変数 | 本番の値 | 出どころ |
 |---|---|---|
 | `BETTER_AUTH_URL`・`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` | `BETTER_AUTH_URL` は `prod.conf` の `CONTROL_PUBLIC_URL`、**無ければ `http://127.0.0.1:3200`**（作業ツリーの `.env` からは引き継がない。手元以外の URL なら警告。下の「開く（監視アプリ）」）。`GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS` は `prod.conf` の `CONTROL_GOOGLE_CLIENT_*`・`CONTROL_ADMIN_EMAILS`、無ければ今の監視アプリ（作業ツリーの `.env`）の値を引き継ぐ。Google のクライアントの Authorized redirect URIs に `<BETTER_AUTH_URL>/api/auth/callback/google` があること | `setup/manual-steps.md` の 7.2 |
-| `CONTROL_MAIN_CHECKOUT`・`CONTROL_WORKTREE` | チェックアウト・作業ツリーの絶対パス（`CONTROL_DATA_DIR`・`CONTROL_AGENT_HOME` は `prod.conf` にあれば） | `setup/manual-steps.md` の 6 節 |
+| `CONTROL_MAIN_CHECKOUT`・`CONTROL_WORKTREE` | 承認済み main のチェックアウトと、**エージェント専用の作業場**（開発のリポジトリとは別の 3 本目の `git worktree`。周のジョブを有効にするなら必須。3 つは互いに別の場所）の絶対パス（`CONTROL_DATA_DIR`・`CONTROL_AGENT_HOME` は `prod.conf` にあれば）。`CONTROL_WORKTREE_SYNC`（任意。空なら `true`）は、周の始まりに作業場を `origin/main` に合わせるか | `setup/manual-steps.md` の 6・6.2 節 |
+| `CONTROL_CYCLE_ANCHOR` | **周のジョブを有効にするなら必須**（すべて無効なら無くても警告だけ）。改善の周（14 日）の起点。JST の月曜の日付 `YYYY-MM-DD`。周の ID は `C-<起点の日付>` | `setup/manual-steps.md` の 7.10 |
+| `CONTROL_STRAPI_URL`・`CONTROL_STRAPI_READ_TOKEN`・`CONTROL_STRAPI_WRITE_TOKEN` | URL は `prod.conf` の `CONTROL_STRAPI_URL`、空なら `http://127.0.0.1:1338`（オンプレの本番の Strapi）。**読み取りトークンは周のジョブを有効にするなら必須**（`article`・`category` の find・findOne〈下書きを含む〉。配信用のビルドの `STRAPI_API_TOKEN` にもなる）。書き込みトークンは任意（アップロードと `article` の更新だけ。公開の権限なし。無ければ `article-cover`・`campaign-asset-upload` が `skipped`）。URL と読み取りは 2 つで 1 組 | `setup/manual-steps.md` の 7.8 |
+| `CONTROL_DEPLOY_BUCKET`・`CONTROL_DEPLOY_DISTRIBUTION_ID`・`CONTROL_DEPLOY_AWS_PROFILE` | **周のジョブを有効にするなら必須**（3 つで 1 組）。画面に出す配信のコマンドに埋める値。バケット・ディストリビューション ID は `prod.conf` に無ければスタックの出力 `AstroBucketName`・`DistributionId`。プロファイル名は `prod.conf` の `CONTROL_DEPLOY_AWS_PROFILE`（人の SSO のプロファイル名）。監視アプリは値を埋めるだけで、配信しない・AWS を呼ばない | `cloud/README.md` の 4.14 |
+| `OPENAI_API_KEY`・`CONTROL_OPENAI_IMAGE_MODEL`・`CONTROL_OPENAI_IMAGE_SIZE`・`CONTROL_COVER_MAX_PER_RUN` | 任意（アイキャッチ画像用。`OPENAI_API_KEY` が無ければ `article-cover` は `skipped`）。モデル・サイズは空なら既定（`gpt-image-2.5-sunburst`・`1536x1024`）、枚数の上限は 1〜10（既定 3）。**上げるなら `ops/schedules/article-cover.yaml` の `timeout_sec` も上げる**。費用が出る | `setup/manual-steps.md` の 7.7 |
+| `CONTROL_MAUTIC_URL`・`CONTROL_MAUTIC_CLIENT_ID`・`CONTROL_MAUTIC_CLIENT_SECRET` | 任意（3 つで 1 組。無ければ `cycle-collect` が campaign の項目の中身を埋めず、送信の開始を確かめない）。control-plane 用に別に発行した、Mautic の参照用の API 認証情報。URL は空なら `MAUTIC_BASE_URL`、無ければ `https://mkt.comegin.com` | `setup/manual-steps.md` の 7.9 |
 | `CONTROL_SCHEDULER_ENABLED` | `true`（`enabled: false` のジョブは登録されないので、手順 5 の PR より前に `true` でよい） | — |
 | `ANTHROPIC_API_KEY` | **必須**。本番の運用に使う API キー（費用はここに付く） | `setup/manual-steps.md` の 7.3 |
 | `SITE_URL` | `prod.conf` の `PUBLIC_SITE_URL`（`weekly-lighthouse` の計測対象） | — |
@@ -311,6 +324,12 @@ git -C <作業ツリー> remote get-url origin                                  
 3. Lighthouse・a11y（`weekly-lighthouse`・`weekly-observe-lighthouse`・`weekly-a11y`・`weekly-observe-a11y`。a11y はチェックアウトで `pnpm exec playwright install chromium` の後。DD-09 の 7 節）、`weekly-observe-serp-audit`・`published-article-check`
 4. 費用が出る・本番の正本に書くもの（`weekly-keyword-research`〈OpenSEO のクレジット〉・`weekly-content-plan`・`weekly-content-draft`〈本番の Strapi に下書き〉・`monthly-analysis`）
 5. `daily-n8n-export` は、本番の n8n の API キーのスコープを判断してから（`setup/00-setup-overview.md` の 6 節）
+6. **改善の周（2026-11-09。`ops/README.md` の「改善の周」）。** 前提は、`next-js-prod` の周の設定（`agent-worktree`・`cycle`・`strapi-tokens`〈読み取り〉・`deploy-values`）が止まらないこと。`CONTROL_CYCLE_ANCHOR` の**月曜より前に**有効にする（`cycle-open` が周の 0 日目に周を開くため）。順に、数日〜1 周 `success`・`skipped` の理由を見てから次へ:
+   1. 費用の出ない周のジョブ: `cycle-open`（月曜 00:00）→ `cycle-collect`（毎日 07:00）→ `cycle-close`（月曜 00:05）。`cycle-open`・`cycle-close` は毎週起動して処理の中で判定する（`cycle-open` は 0 日目でない週に `skipped`〈「周の <n> 日目」〉、`cycle-close` は期間が終わって閉じていない周が無い週〈周の途中・`cycle-open` が先に閉じた週〉に `skipped` で正常）。`published-article-check`（3 で有効にしたもの）も `CONTROL_CYCLE_ANCHOR` と `SITE_URL` が要る
+   2. 承認済みの E-13 から作る作用のジョブ（本番の正本・作業場に書く）: `cycle-apply-content`（06:30。本番の Strapi に下書き）・`cycle-apply-code`（火〜土 05:00。作業場にコードの差分）。承認済みで未実行の E-13 が無ければ `skipped`
+   3. **費用が出る**: `article-cover`（月曜以外の 03:00。OpenAI。`OPENAI_API_KEY`・Strapi の書き込みトークンが要る。無ければ費用を出す前に `skipped`）。最初は `CONTROL_COVER_MAX_PER_RUN` を既定の 3 のままにする
+   4. キャンペーン: `cycle-campaign`（周の 8 日目の火曜 04:00）と `campaign-asset-upload`（毎日 06:00。対象が無ければ何もしない。失敗した分を翌日に再試行する）を**一緒に**有効にする。前提は、送信先のセグメントが Mautic に先に作ってあること（エージェントは作れない）・`SITE_URL`・Strapi の書き込みトークン・**本番の Strapi を `application/zip` の許可で再起動済みであること**（上の「2. Strapi」）
+   - 公開・送信・配信・コミットは、どのジョブも行わない（人が画面の手順で行う）
 
 - **チェックアウトを動かしたら、アプリのコードが変わっていなくても `backend/control-plane` → `frontend/next-js` の順にビルドし直し、`sudo systemctl restart comegin-control` する。** `next-js-prod:build` は、ビルドとチェックアウトの移動を日時で比べる。定義（yaml）だけの PR でも、ビルドし直すまで「まだ」と出る。
 - **`heartbeat.yaml` は有効にしない**（上の「常駐させる」）。一度にまとめて有効にするときも外す。
@@ -321,19 +340,27 @@ git -C <作業ツリー> remote get-url origin                                  
 
 | 実行（JST） | 動くもの | 見ること |
 |---|---|---|
-| 毎日 00:00 | `published-article-check` | 最初の builtin。`success` か（未実装の間は `skipped`） |
+| 毎日 00:00 | `published-article-check` | 記事の一覧が最後に確かめた配信と同じで、`frontend/verdant-virgo` にも変更が無ければ `success`（何もしない）。変わっていれば本番の値でビルドと計測を行い、周の deploy の項目（OK 待ち）が出る（承認前の古い deploy の項目は置き換えられる。公開サイトに関係しないコミットでは作り直さない。OK 済み・実行済み・確かめられなかった〈`failed_check`〉の古い項目があるあいだは `skipped`。`failed_check` は人が差し戻すまで残る。同じ差分を配信し直すなら、差し戻さずに（failed_check のまま）この項目で「実行した」を押し直す。差し戻した場合は、新しい記事の公開か公開サイト（frontend/verdant-virgo）の変更があったときだけ、次の夜に新しい配信の項目が作られる（変更が無いあいだは作られない）。）。`CONTROL_STRAPI_*`・`SITE_URL`・`CONTROL_CYCLE_ANCHOR` が無ければ `skipped`。`timeout_sec` は 1500 |
 | 月曜 00:30〜02:15 | Lighthouse → a11y → 観測 3 本（lighthouse・a11y・SERP 監査） | Lighthouse と a11y は時刻で重ねない。観測は `after` で計測の成功を待つ |
 | 月曜 02:30 | `weekly-keyword-research` | **OpenSEO の費用が出る**（1 回の見積もりの上限は 2,000 クレジット） |
 | 火曜 02:30 | `weekly-content-draft` | **本番の Strapi に下書きを書く**。承認済みの企画（E-03）が無ければ `skipped` |
 | 水曜 02:30 | `weekly-content-plan` | 採用済みの E-01 が無ければ `skipped` |
 | 毎日 04:00 | 観測のエージェント 4 本（`daily-observe-*`） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
 | 毎日 04:30 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |
+| 月曜 00:00 | `cycle-open` | 周の 0 日目（起点の月曜）だけ周を開く。それ以外の月曜は `skipped`（「周の <n> 日目」）で正常 |
+| 月曜 00:05 | `cycle-close` | 期間が終わった周だけ閉じる。閉じる周が無い週（周の途中・`cycle-open` が先に閉じた週）は `skipped` で正常。閉じる前に今日の周を開く（冪等） |
+| 日・火〜土 03:00 | `article-cover` | **OpenAI の費用が出る**。月曜は動かさない（保守の窓）。cover の無い下書きが無ければ何もしない。公開版に cover があり下書きの cover だけが空の記事は、画像を作らず公開版の cover を結ぶだけ（費用なし） |
+| 火曜 04:00 | `cycle-campaign` | 周の 8 日目だけ。承認済みの `email_campaign` の E-13 が無ければ `skipped` |
+| 火〜土 05:00 | `cycle-apply-code` | 承認済みのコードの差分の E-13 が無い・作業場の `frontend/verdant-virgo/src` に未コミットの差分があるときは `skipped`（人がコミットするか、code の項目を差し戻して差分を捨てる〈手順は差し戻した項目の画面〉と、次に進む） |
+| 毎日 06:00 | `campaign-asset-upload` | 結び終えていない配布物の原稿が無ければ何もしない（`success`） |
+| 毎日 06:30 | `cycle-apply-content` | 承認済みの `content_rewrite` の E-13 が無ければ `skipped` |
+| 毎日 07:00 | `cycle-collect` | 周の項目を集める。`CONTROL_CYCLE_ANCHOR` が無ければ `skipped` |
 | 毎月 1 日 05:00 | `monthly-analysis` | — |
 | 毎日 05:30〜06:15 | `daily-i13-file`・`daily-miswrite-check`・`daily-silence-check`・`daily-n8n-export` | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
 
 **オンプレのマシンは夜（0〜8 時）も動かしておく。** スケジューラは監視アプリのプロセスの中にあり（cron 式は Asia/Tokyo）、マシンが止まっていた時刻の実行は、起動した後に取り戻さない。2026-11-03 は、マシン（VirtualBox の VM）が 11:28 に起動したため、最初の夜の実行（00:00〜06:15）は 1 本も動かなかった。VM の中のアイドル時の休止は無効（`gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout` が `0`）でも、ホストの電源・休止と VM の自動起動はホスト側で設定する（VM の中からは確かめられない）。翌朝に `journalctl -u comegin-control --since "<その日> 00:00" | grep -a 'engine 起動'` で、0〜6 時の実行が出ていることを確かめる。
 
-改善ループの本体はすべて 06:25 までに終わる（`timeout_sec` で打ち切られた場合も）。`runlog-flush`（写しの送り直し）も 0〜8 時の 15 分ごとで、07:50 までに終わる。昼に動くのは、監視アプリのハートビート（5 分ごと）と写しの再送だけ（どちらも改善の処理ではない）。朝 8 時以降に監視アプリの画面か `journalctl -u comegin-control --since today` で、その夜の結果をまとめて見る。
+改善ループの本体はすべて 07:10 までに終わる（`timeout_sec` で打ち切られた場合も。最長の上限は `cycle-collect`。`ops/README.md` の「時刻の決め方」）。`runlog-flush`（写しの送り直し）も 0〜8 時の 15 分ごとで、07:50 までに終わる。昼に動くのは、監視アプリのハートビート（5 分ごと）と写しの再送だけ（どちらも改善の処理ではない）。朝 8 時以降に監視アプリの画面か `journalctl -u comegin-control --since today` で、その夜の結果をまとめて見る。
 
 **本番の n8n の 2 本（`weekly-inquiry-inventory` を月曜 09:00 → 07:00、開発だけの `ops-monitor` の証明書の確認を 09:10 → 07:10）は、リポジトリの JSON を直しただけでは本番に入らない。** main に入った後、`node setup/setup.mjs --target prod --only n8n-prod`（provision が同名のワークフローを更新する）を実行する。provision は棚卸しを公開しない（`publish: never`）ので、**本番で公開済みなら n8n の画面で開き直して公開し直す**（公開中の版は、公開し直すまで古い時刻のまま動く）。反映しないと、`daily-n8n-export` が本番の 09:00 の版との差分を PR にして、リポジトリを古い時刻へ戻そうとする。
 

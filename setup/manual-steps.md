@@ -55,7 +55,7 @@
 | `chatwoot-prod:onboarding`／`chatwoot-prod:faq-bot-secrets`（`--target prod`） | 本番の Chatwoot の管理者・エージェント専用ユーザーのトークンが無い／FAQ ボットのトークンを Secrets Manager に入れたと申告していない | 画面の onboarding とエージェントの招待をしてトークンを書く／表示されたコマンドで Secrets Manager に入れて `FAQ_BOT_SECRETS_STORED=yes` | [cloud 7.3](../cloud/README.md#73-本番の-chatwootchatwoot-prod) |
 | `mautic-prod:settings`（`--target prod`） | 本番の Mautic が未インストール・API が無効・画面の設定を申告していない・初期設定用の API 認証情報が無い | インストールして画面で設定し、`MAUTIC_SETUP_CLIENT_*` と `MAUTIC_PROD_SETTINGS_DONE=yes` を書く | [cloud 7.4](../cloud/README.md#74-本番の-mauticmautic-prod) |
 | `mcp-prod:prod-values`／`mcp-prod:finish`（`--target prod`） | 本番の MCP のトークン・API 認証情報が `prod.conf` に無い／オンプレの Strapi・n8n に届かない・main のチェックアウトに dist が無い | 本番の各管理画面でエージェント専用のアカウントに発行して書く／dist は main のチェックアウトでパッケージごとにビルドする | [onprem「本番の MCP」](../onprem/README.md#本番の-mcpmcp-prod)・[「MCP サーバの dist」](../onprem/README.md#mcp-サーバの-dist-をビルドするmcp-prodfinish) |
-| `next-js-prod:checkout`／`build`／`principal`／`status-principal`／`status-github`／`prod-values`／`systemd`／`systemd-dir`／`restart`／`start`（`--target prod`。段階 `operate`） | 監視アプリ（改善ループ）を本番の値で常駐させる前提が足りない（チェックアウト・ビルド・IAM の主体とキー・設定の状況の読み取り専用の主体〈`status-principal`〉と GitHub の参照専用のトークン〈`status-github`〉・`prod.conf` の値・systemd のユニット） | 表示のとおり。どれも人が自分の端末で行う（`status-principal` は [cloud 4.5.3](../cloud/README.md#453-設定の状況の主体statusreaderpolicyarnを作りキーを発行する1-回だけ)、`status-github` は onprem「設定の状況を有効にする」） | [onprem「監視アプリ（改善ループ）を本番で動かす」](../onprem/README.md#監視アプリ改善ループを本番で動かす)・[「設定の状況を有効にする」](../onprem/README.md#設定の状況を有効にするsetup-status) |
+| `next-js-prod:checkout`／`build`／`principal`／`status-principal`／`status-github`／`agent-worktree`／`cycle`／`strapi-tokens`／`deploy-values`／`openai`／`mautic-reader`／`prod-values`／`systemd`／`systemd-dir`／`restart`／`start`（`--target prod`。段階 `operate`） | 監視アプリ（改善ループ）を本番の値で常駐させる前提が足りない（チェックアウト・ビルド・IAM の主体とキー・設定の状況の読み取り専用の主体〈`status-principal`〉と GitHub の参照専用のトークン〈`status-github`〉・**改善の周の設定**。**`agent-worktree`・`cycle`・`strapi-tokens`・`deploy-values` の「無い」は、周のジョブ〈`ops/schedules` の `cycle-*`・`article-cover`・`campaign-asset-upload`〉を 1 本でも `enabled: true` にした後に止まる**〈すべて無効なら警告だけ〉。形の誤り・片方だけ・同じ値は常に止まる: `agent-worktree`＝エージェント専用の作業場が無い・開発のリポジトリや main のチェックアウトと同じ場所／`cycle`＝`CONTROL_CYCLE_ANCHOR` が無い・月曜でない／`strapi-tokens`＝本番の Strapi の読み取りトークンが無い・書き込みトークンが読み取りと同じ／`deploy-values`＝配信の SSO のプロファイル名などが無い／`openai`＝OpenAI の上限・サイズが違う〈キーの無い・形が違うは警告〉／`mautic-reader`＝Mautic の参照用の認証情報が片方だけ・ほかの用途と同じ値〈無いだけなら警告〉〉・`prod.conf` の値・systemd のユニット） | 表示のとおり。どれも人が自分の端末で行う（`agent-worktree` は [6.2](#62-エージェント専用の作業場agent-worktree)、`cycle` は [7.10](#710-改善の周の起点control_cycle_anchor)、`strapi-tokens` は [7.8](#78-本番の-strapi-の-api-トークン2-つ)、`deploy-values` は [cloud 4.14](../cloud/README.md#414-astro-の配信)、`openai` は [7.7](#77-openai-の-api-キーアイキャッチ画像)、`mautic-reader` は [7.9](#79-mautic-の参照専用の-api-認証情報control-plane-用)、`status-principal` は [cloud 4.5.3](../cloud/README.md#453-設定の状況の主体statusreaderpolicyarnを作りキーを発行する1-回だけ)、`status-github` は onprem「設定の状況を有効にする」） | [onprem「監視アプリ（改善ループ）を本番で動かす」](../onprem/README.md#監視アプリ改善ループを本番で動かす)・[「設定の状況を有効にする」](../onprem/README.md#設定の状況を有効にするsetup-status) |
 | （`cloud` の警告。段階 `operate`） | 配信用の主体が無い・IAM ユーザーに古いキーが残っている・`prod.conf` に初期設定用の値が残っている・SES がサンドボックス | 止めない。`setup/00-setup-overview.md` の P15 | [cloud 4.5](../cloud/README.md#45-iam-の管理ポリシーを付けるオンプレの-iam-ユーザーのキーを発行する) |
 
 ## 1. 設定ファイルの書き方（全節で共通）
@@ -193,15 +193,38 @@ git -C ~/ComeGin/main-checkout checkout --detach origin/main
 **注意**: このチェックアウトに入るのは `origin/main` にマージ済みの内容だけ。作業中のブランチの変更（例: ADR-25 の `analytics-reporter` の GA4 化と、登録表から `umami`・`umami-prod` を消したこと）は、PR が main にマージされるまで監視アプリの実行に効かない（ADR-18 の意図どおり）。
 
 `dev.conf` に `CONTROL_MAIN_CHECKOUT=/home/<ユーザー>/ComeGin/main-checkout`（絶対パス）を書いて再実行する。
-作業ツリーと同じ場所を指すと、スクリプトが警告を出す（分離が働かない）。**コミットしていない変更はこのチェックアウトに入らない**。
+作業ツリーと同じ場所を指すと、スクリプトが警告を出す（分離が働かない）。**コミットしていない変更はこのチェックアウトに入らない**。エージェントが書く場所は、これとも開発のリポジトリとも別の 3 本目のチェックアウトにする（6.2）。
 
 ### 6.1 MCP サーバの dist をビルドする（`mcp-prod:finish`）
 
 本番の MCP だけの手順なので、2026-11-02 に [`onprem/README.md` の「MCP サーバの dist をビルドする」](../onprem/README.md#mcp-サーバの-dist-をビルドするmcp-prodfinish) に移した。
 
+### 6.2 エージェント専用の作業場（`agent-worktree`）
+
+改善の周（2026-11-09）では、エージェントの書き込みを、開発しているリポジトリとは**別の 3 本目のチェックアウト**に集める（`CONTROL_WORKTREE`）。いまの `CONTROL_WORKTREE` の既定は開発のリポジトリそのもので、夜中に作られた差分（記事・コード・観測・提案）が人の開発中の変更と混ざる。3 つの場所は**互いに別**にする。
+
+| 場所 | 役割 | 設定 |
+|---|---|---|
+| 開発のリポジトリ（作業ツリー） | 人が普段開発する。`SETUP_WORKTREE`・スクリプトを実行する場所 | — |
+| 承認済みの main のチェックアウト | 実行条件（`ops/`・`.claude/agents/`）を読む。ビルドして配信する元 | `CONTROL_MAIN_CHECKOUT`（6 節） |
+| **エージェント専用の作業場** | エージェントの cwd。観測・提案・下書き・差分の書き先。周の始まり（`cycle-open`）に、未コミットの変更が無ければ `origin/main` に合わせられる | `CONTROL_WORKTREE`（本番は `prod.conf`） |
+
+```bash
+cd ~/ComeGin/systematization-of-the-business-foundation
+git fetch origin
+
+# まだ無ければ作る（人が行う。setup は git を書き換えない）。ローカルの main ではなく origin/main から。読み書きするので --detach でよい（コミットは人が、origin/main から切ったブランチで行う）
+git worktree add --detach ~/ComeGin/agent-worktree origin/main
+```
+
+- `prod.conf` に `CONTROL_WORKTREE=/home/<ユーザー>/ComeGin/agent-worktree`（絶対パス）を書く。**周のジョブを 1 本でも有効にした後に無いと `next-js-prod:agent-worktree` で止まる**（既定の開発のリポジトリには書かせない。すべて無効なら警告だけ）。開発（`--target dev`）では、`CONTROL_WORKTREE` が開発のリポジトリ自身でもよい（定期実行は動かさない。`dev.conf` に書かなければそのまま）
+- 3 つのうち、同じ場所を指しているものがあると、スクリプトが本番では**止め**（`next-js-prod:checkout`＝main のチェックアウトが作業ツリーと同じ／`next-js-prod:agent-worktree`＝作業場が main または開発のリポジトリと同じ）、開発では警告する
+- 作業場の中身は人が確かめてコミットする: 画面に出るコミットのコマンドは、この作業場で `origin/main` から `<Issue番号>-feature-<名前>` のブランチを切り、項目に結びついたファイルだけを `git add` する形になる
+- 周の始まりに `origin/main` へ合わせるのは、変更がエージェントの書く場所（`docs/audits/`・`docs/proposals/`・`docs/cycles/`）の未追跡のファイルだけのとき。ほかの変更（コードの差分など）が残っていれば合わせず、画面で知らせる（人の作業を消さない。`CONTROL_WORKTREE_SYNC=false` で合わせない）
+
 ## 7. 外部サービスの資格情報
 
-7.2（監視アプリの Google ログイン）は必須。7.1・7.3 は無くても開発環境は動くので、試すときだけ作る。どれも `dev.conf` に書いて再実行する。
+7.2（監視アプリの Google ログイン）は必須。7.1・7.3 は無くても開発環境は動くので、試すときだけ作る。どれも `dev.conf` に書いて再実行する。**7.7〜7.10 は本番（`prod.conf`）だけ**の、改善の周の設定（OpenAI のキー・本番の Strapi のトークン・Mautic の参照用の認証情報・周の起点）。
 
 Google の OAuth クライアントは、Google Workspace（comegin.com）の管理者が Google Cloud Console で作る。最初の 1 回だけ、**Google Auth Platform** → **Branding** で、未設定なら **Get started**（アプリ名・サポートのメールを入れ、**Audience** は **Internal**＝組織内のアカウントだけ）。
 
@@ -395,6 +418,51 @@ docker inspect -f '{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}' open-se
 | すべての接続が一度に切れた | 環境変数ファイルの `BETTER_AUTH_SECRET` が変わった（保存済みのトークンを復号できない） | **変えない**。変わってしまったら、手順 2 の 3・4 で接続し直す |
 | プロジェクトも接続も消えた | ボリューム `open-seo-main_open_seo_data` を消した（`docker compose down -v` など） | **`-v` を付けない**。消えたら手順 2 の 2〜4 をやり直す（保存したキーワード・順位計測の履歴は戻らない） |
 | `--force-recreate` の後に応答しない | 初回はコンテナの中でビルドしてから待ち受ける（1〜2 分） | 待つ。5 分たっても応答しなければ `docker compose logs open-seo` |
+
+### 7.7 OpenAI の API キー（アイキャッチ画像）
+
+記事のアイキャッチ画像を作る builtin `article-cover` が使う。**任意**（無ければ `article-cover` は `skipped` で、画像が作られないだけ）。費用が出るので、上限を決めてから発行する。
+
+1. OpenAI の Platform（https://platform.openai.com）の API keys で、**このプロジェクト専用のプロジェクトキー**を作る（名前は `comegin-control-prod` など）。使う API は Images API だけなので、プロジェクトの権限は **Images のみ**に絞り、月の使用上限（Usage limits）を決める
+2. `prod.conf` に `OPENAI_API_KEY=sk-…` を書く（エディタで。画面・履歴に出さない。chmod 600）。モデルとサイズは既定（`gpt-image-2.5-sunburst`・`1536x1024`）でよく、変えるときだけ `CONTROL_OPENAI_IMAGE_MODEL`・`CONTROL_OPENAI_IMAGE_SIZE` を書く
+3. **1 回の実行で作る枚数は `CONTROL_COVER_MAX_PER_RUN`（既定 3。1〜10）が上限**で、費用の上限でもある。上げるときは `ops/schedules/article-cover.yaml` の `timeout_sec`（いまは 1200）も同じ PR で上げる（`ops/README.md`）
+4. 動かすには、次の 7.8 の**書き込み用**の Strapi のトークンも要る（アップロードに使う。無ければ費用を出す前に `skipped`）
+5. キーは監視アプリのサーバー側だけが持ち、エージェントの子プロセスには渡らない
+
+`next-js-prod` は、枚数の上限（1〜10）・サイズの形を確かめる（キーが無い・`sk-` で始まらないだけなら止まらず、警告）。
+
+### 7.8 本番の Strapi の API トークン（2 つ）
+
+オンプレの本番の Strapi（`http://127.0.0.1:1338`。`onprem/strapi`）の管理画面（Settings → API Tokens → Create new API Token）で、**用途の違うトークンを 2 つ**作る。MCP 用の Admin トークン（`STRAPI_PROD_TOKEN`）とは別にする。
+
+| トークン | `prod.conf` のキー | 権限（Custom） | 使う処理 |
+|---|---|---|---|
+| 読み取り | `CONTROL_STRAPI_READ_TOKEN`（**周のジョブを 1 本でも有効にするときに必須。それまでは無くても止めない**） | **Article・Category の `find`・`findOne` だけ**（下書きも読める権限にする。公開済みの記事の一覧・記事の状態の確認に使う。配信用のビルドの `STRAPI_API_TOKEN` にもなる） | `published-article-check`・`cycle-collect` |
+| 書き込み | `CONTROL_STRAPI_WRITE_TOKEN`（任意） | **アップロード（Upload の `upload`）と Article の `update` だけ。公開の権限は付けない**（`publish` が無い。記事の公開は R2 が管理画面で行う）。Article の `create`・`delete` も付けない | `article-cover`・`campaign-asset-upload` |
+
+- **書き込みトークンが公開できないことを、開発の Strapi で確かめる**（spec 5.7）。開発の Strapi（`127.0.0.1:1337`）に同じ権限のトークンを作り、下書きの記事に `PUT /api/articles/<documentId>` で `{"data":{"publishedAt":"2026-01-01T00:00:00.000Z"}}` を送って、公開されない（403 か、`publishedAt` が変わらない）ことを見る。**権限に `publish` を付けていなくても、更新で `publishedAt` を書けてしまわないか**を、開発の Strapi の実際の挙動で確かめる。**公開できてしまうなら書き込みトークンを使わず**、アップロード済みのファイルを人が記事に結ぶ運用にする（`article-cover` は、記事の更新が 403 のとき、アップロードまでにして `cover-pending:<documentId>:<fileId>` を残し、人が結ぶ手順を画面に出す）
+- キャンペーンの配布物（Agent Plugins の zip）をアップロードするため、Strapi の許可するメディアの種類に `application/zip` を足した（`backend/strapi-system/config/plugins.ts`）。**本番の Strapi を再デプロイ（再起動）して初めて効く**（`onprem/README.md` の Strapi の節）
+- 有効期限は無期限か、切れる前に作り直す日を決める。`prod.conf` に書く（エディタで。画面・履歴に出さない）。トークンはエージェントに渡らない
+- URL は既定 `http://127.0.0.1:1338`（`CONTROL_STRAPI_URL`）。開発の Strapi（`:1337`）を指すとスクリプトが止める
+
+読み取りトークンが無いときは、周のジョブ（`cycle-*`・`article-cover`・`campaign-asset-upload`）が 1 本でも `enabled: true` のときだけ `next-js-prod:strapi-tokens` で止まる（すべて無効なら警告。有効にする前に書く）。書き込みが読み取り（か MCP のトークン）と同じ値・書き込みだけがある、のときは常に止まる。書き込みトークンが無いだけなら警告（`article-cover`・`campaign-asset-upload` が `skipped`）。
+
+### 7.9 Mautic の参照専用の API 認証情報（control-plane 用）
+
+`cycle-collect` が、キャンペーンの項目の中身（メールとキャンペーンの状態・セグメントの件数）と、公開＝送信の開始を確かめるのに使う。**任意**（無ければ campaign の項目は中身を埋めず、理由を出す。ほかの項目は動く）。
+
+1. 本番の Mautic の管理画面（`https://mkt.comegin.com`）の 設定 > API 認証情報（OAuth 2）で、`mautic-prod-ro` と同じ画面・同じ手順（`onprem/README.md` の「本番の MCP」の表）で、**control-plane 用の認証情報を別に**発行する（名前は `comegin-prod-control` など）。**上流の権限は発行したユーザーのロールで決まる**（`mautic-prod-ro` と同じく、管理者が作ると権限は管理者になる）。参照専用ロールのユーザーで発行できるならそうする。control-plane の読み取りは GET だけ（コードで限る。`backend/control-plane/src/integrations/mautic.ts`）。`mautic-prod-ro`（`analytics-reporter` 用。`MAUTIC_RO_CLIENT_*`）・エージェント用（`MAUTIC_CLIENT_*`）・初期設定用（`MAUTIC_SETUP_CLIENT_*`）・n8n 用（`N8N_MAUTIC_CLIENT_*`）とは**別の認証情報**にする（片方を失効しても、もう片方を止めないため。同じ値ならスクリプトが止める）
+2. `prod.conf` に `CONTROL_MAUTIC_CLIENT_ID`・`CONTROL_MAUTIC_CLIENT_SECRET` を書く（エディタで。画面・履歴に出さない）。URL（`CONTROL_MAUTIC_URL`）は空なら `MAUTIC_BASE_URL`、それも無ければ `https://mkt.comegin.com`
+3. 3 つは**全部書くか、全部書かないか**（片方だけだと監視アプリが起動時に例外にする）。セグメントの件数は統計の表の件数だけを読み、個々のコンタクトは読まない。認証情報はエージェントに渡らない
+
+### 7.10 改善の周の起点（`CONTROL_CYCLE_ANCHOR`）
+
+改善ループの周は 14 日で、その**起点の日付**を `prod.conf` の `CONTROL_CYCLE_ANCHOR` に `YYYY-MM-DD` で書く（周の ID は `C-<起点の日付>`、周の何日目かは 0〜13）。
+
+- **必ず月曜**にする（JST。`cycle-open` が月曜 00:00 に起動し、周の 0 日目に周を開くため。月曜でないと、周のジョブが無効でもスクリプトが止める。値が無いだけなら、周のジョブを 1 本でも有効にした後に止まる）。例: 2026-11-16（月）
+- 決め方: 定期実行を有効にし始める週の月曜か、その次の月曜（周の途中から始めない）。**2 週間ごとに周が替わる**ので、いつの周が奇数・偶数かはこの日で決まる（`cycle-campaign` は周の 8 日目の火曜に動く）
+- 後から変えない（変えると周の ID と日が変わり、E-15 の周と項目がずれる）。やり直すなら、周が閉じた後の月曜に決め直す
+- 無いと、`cycle-open`・`cycle-collect`・`cycle-close`・`published-article-check` は `skipped`（理由に変数名だけが出る）
 
 ## 8. 本番（`--target prod`）
 

@@ -1,0 +1,26 @@
+id: cycle-open
+description: "改善ループの周（14 日）の始まり。周の 0 日目に今日の周を開き、期間が終わって閉じていない周を数えて閉じる（エージェントは使わない）。月曜 00:00 に起動し、0 日目でなければ処理の中で何もせず見送る（builtin には cycle_days を使えないため）"
+enabled: false
+# 周の 0 日目は CONTROL_CYCLE_ANCHOR（月曜）から 14 日ごと。毎週月曜に起動して、処理の中で cycleOf を見る（0 日目以外は skipped「周の <n> 日目」）。起動 + 300 秒 = 00:05 で、8 時より前
+cron: "0 0 * * 1"
+kind: builtin
+agent: null
+builtin: cycle-open
+after: []
+timeout_sec: 300
+# 監視アプリに出す説明（docs/superpowers/specs/2026-11-09-improvement-cycle-design.md の 5.1・5.10）
+overview: |
+  エージェントを使わない決まった処理。毎週月曜に起動し、改善ループの周（14 日。起点は CONTROL_CYCLE_ANCHOR）の 0 日目だけ、今日の周を開く。期間が終わって閉じていない周があれば反映の件数を数えて閉じ、エージェント専用の作業場（CONTROL_WORKTREE）が未コミットの変更を持たず、名前のあるブランチにいなければ（detached HEAD なら） origin/main に合わせる。0 日目でないときは周の何日目かだけを理由にして見送る。CONTROL_CYCLE_ANCHOR が無いときも見送る。
+stage: monitor
+io:
+  reads:
+    - "CONTROL_CYCLE_ANCHOR（周の起点）"
+    - "E-15 の周と項目（前の周の反映の数え上げ）"
+    - "作業場（CONTROL_WORKTREE）の git の状態と origin/main"
+  writes:
+    - "E-15 の周（今日の周を開く・期間が終わった周を閉じる）"
+    - "作業場を origin/main に合わせる（CONTROL_WORKTREE_SYNC が true で、変更がエージェントの書く場所の未追跡のファイルだけのとき）"
+    - "前の周に反映が 0 件だったときの知らせ"
+  does_not_write:
+    - "コミット・プッシュ・PR（人が行う）"
+    - "未コミットの変更がある作業場（合わせずに画面で知らせる）"

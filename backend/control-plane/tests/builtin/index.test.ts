@@ -23,6 +23,11 @@ const ALL_BUILTINS: BuiltinJob[] = [
   "published-article-check",
   "runlog-flush",
   "n8n-export",
+  "cycle-open",
+  "cycle-collect",
+  "cycle-close",
+  "article-cover",
+  "campaign-asset-upload",
 ];
 
 describe("missingConfigFor", () => {
@@ -43,7 +48,7 @@ describe("missingConfigFor", () => {
       expect(missingConfigFor("n8n-export", makeConfig({ n8nExport: n8n, github }))).toEqual([]);
     });
 
-    it.each(["silence-check", "lighthouse", "a11y", "published-article-check"] as const)("空入力: %s は連携の設定が 1 つも無くても何も挙げない", (builtin) => {
+    it.each(["silence-check", "lighthouse", "a11y"] as const)("空入力: %s は連携の設定が 1 つも無くても何も挙げない", (builtin) => {
       expect(missingConfigFor(builtin, makeConfig())).toEqual([]);
     });
   });

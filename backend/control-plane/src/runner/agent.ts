@@ -166,6 +166,7 @@ export async function runAgent(input: AgentRunInput): Promise<RunResult> {
                 mainCheckout: config.mainCheckout,
                 realHome,
                 agentHome,
+                agentName: definition.name,
               },
               (tool, reason) => logLine("WARN", "agent", `ツール呼び出しを拒否した: ${tool}: ${reason}`, runId),
             ),
