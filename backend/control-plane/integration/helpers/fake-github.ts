@@ -1,9 +1,12 @@
-// 偽の GitHub（REST API のうち I-13 と n8n-export が使う分だけ）。テストの中で 127.0.0.1 の空きポートに立てる。
+// 偽の GitHub（REST API のうち I-13・n8n-export・改善ループ〈PR の状態・レビュー・コミットの比較〉が使う分だけ）。テストの中で 127.0.0.1 の空きポートに立てる。
 // integrations/github.ts は https://api.github.com を直書きしているため、global fetch を差し替えて
 // api.github.com 宛だけをこのサーバーに向け直す（127.0.0.1 の開発スタック宛はそのまま通し、それ以外の宛先は例外にする）。
 //
 // 状態はブランチ → コミット SHA → ファイルの写像だけを持つ（Git の履歴は持たない）。
+// コミットの比較（GET /compare）だけは、compareIn() で指定したローカルの git リポジトリ（結合テストの main のチェックアウト）で
+// 祖先かを本物の git に問い合わせる（改善ループの「PR のマージのコミットが配信のコミットに含まれるか」）。
 // fail() で、条件に合う要求に 5xx・422・401 を返したり、応答しない（タイムアウトさせる）ようにできる。
+import { execFileSync } from "node:child_process";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { vi } from "vitest";
@@ -28,6 +31,10 @@ interface Pull {
   body: string;
   state: "open" | "closed";
   reviewers: string[];
+  merged: boolean;
+  mergeCommitSha: string | null;
+  /** レビュー（古い順）。approvePull・requestChanges で足す */
+  reviews: { login: string; state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" }[];
 }
 
 type FaultResponse = { status: number; body?: unknown } | "hang";
@@ -47,6 +54,7 @@ export class FakeGitHub {
   readonly #trees = new Map<string, Map<string, string>>();
   readonly #faults: Fault[] = [];
   #sequence = 0;
+  #compareRepo: string | null = null;
   #server!: Server;
   url = "";
 
@@ -90,10 +98,56 @@ export class FakeGitHub {
     this.branches.set("main", sha);
   }
 
-  addPull(pull: Omit<Pull, "number" | "reviewers"> & { number?: number }): number {
+  addPull(pull: Omit<Pull, "number" | "reviewers" | "merged" | "mergeCommitSha" | "reviews"> & { number?: number }): number {
     const number = pull.number ?? this.pulls.length + 1;
-    this.pulls.push({ reviewers: [], ...pull, number });
+    this.pulls.push({ reviewers: [], merged: false, mergeCommitSha: null, reviews: [], ...pull, number });
     return number;
+  }
+
+  #pull(number: number): Pull {
+    const pull = this.pulls.find((p) => p.number === number);
+    if (!pull) throw new Error(`偽の GitHub に PR #${number} が無い`);
+    return pull;
+  }
+
+  /** R2 のレビューの承認（GitHub の Approve） */
+  approvePull(number: number, login = "it-reviewer"): void {
+    this.#pull(number).reviews.push({ login, state: "APPROVED" });
+  }
+
+  /** マージ（マージのコミットは呼び出し側が決める。compareIn のリポジトリにあるコミットにすると、配信に含まれるかを本物の git で判定できる） */
+  mergePull(number: number, mergeCommitSha: string): void {
+    Object.assign(this.#pull(number), { state: "closed", merged: true, mergeCommitSha });
+  }
+
+  /** マージせずに閉じる（PR の却下） */
+  closePull(number: number): void {
+    this.#pull(number).state = "closed";
+  }
+
+  /** GET /compare の判定に使うローカルの git リポジトリ（指定しなければ比較は 404） */
+  compareIn(repoDir: string): void {
+    this.#compareRepo = repoDir;
+  }
+
+  /** ahead（base が head の祖先）・identical・diverged。どちらかのコミットが無ければ null（404） */
+  #compare(base: string, head: string): string | null {
+    const repo = this.#compareRepo;
+    if (!repo) return null;
+    const git = (args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    let full: [string, string];
+    try {
+      full = [git(["rev-parse", "--verify", `${base}^{commit}`]), git(["rev-parse", "--verify", `${head}^{commit}`])];
+    } catch {
+      return null;
+    }
+    if (full[0] === full[1]) return "identical";
+    try {
+      git(["merge-base", "--is-ancestor", full[0], full[1]]);
+      return "ahead";
+    } catch {
+      return "diverged";
+    }
   }
 
   /** そのブランチの先頭のファイル */
@@ -199,6 +253,23 @@ export class FakeGitHub {
       if (this.pulls.some((p) => p.head === head && p.state === "open")) return [422, { message: "A pull request already exists" }];
       const number = this.addPull({ head, base: String(body?.base), title: String(body?.title), body: String(body?.body), state: "open" });
       return [201, { number }];
+    }
+    if (method === "GET" && (m = /^\/pulls\/(\d+)$/.exec(path))) {
+      const pull = this.pulls.find((p) => p.number === Number(m![1]));
+      if (!pull) return [404, { message: "Not Found" }];
+      return [
+        200,
+        { number: pull.number, state: pull.state, merged: pull.merged, merge_commit_sha: pull.mergeCommitSha, head: { ref: pull.head }, base: { ref: pull.base } },
+      ];
+    }
+    if (method === "GET" && (m = /^\/pulls\/(\d+)\/reviews$/.exec(path))) {
+      const pull = this.pulls.find((p) => p.number === Number(m![1]));
+      if (!pull) return [404, { message: "Not Found" }];
+      return [200, pull.reviews.map((review) => ({ state: review.state, user: { login: review.login } }))];
+    }
+    if (method === "GET" && (m = /^\/compare\/([^.]+)\.\.\.(.+)$/.exec(path))) {
+      const status = this.#compare(m[1]!, m[2]!);
+      return status === null ? [404, { message: "Not Found" }] : [200, { status }];
     }
     if (method === "POST" && (m = /^\/pulls\/(\d+)\/requested_reviewers$/.exec(path))) {
       const pull = this.pulls.find((p) => p.number === Number(m![1]));

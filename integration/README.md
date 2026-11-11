@@ -18,7 +18,7 @@ pnpm typecheck
 
 | パッケージ | 中身 |
 |---|---|
-| `backend/control-plane/integration/` | `createControlPlane` → エンジン → E-15（一時ディレクトリの SQLite）→ builtin。開発の n8n（読むだけ）・Chatwoot に繋ぐ |
+| `backend/control-plane/integration/` | `createControlPlane` → エンジン → E-15（一時ディレクトリの SQLite）→ builtin。開発の n8n（読むだけ）・Chatwoot に繋ぐ。`improvement-cycle.test.ts` は改善ループの 1 周（E-12 → E-13 → PR → 作用 → OK → 公開・配信・送信 → 反映 → 周の締め）を通し、開発の Strapi・Mautic に繋ぐ（Agent SDK・OpenAI・AWS・GitHub・公開サイト・astro build と Lighthouse は差し替え。`IT_SERVICES=strapi,mautic pnpm vitest run --config vitest.integration.config.ts integration/improvement-cycle.test.ts` で単独に走らせる） |
 | `backend/strapi-system/integration/` | `createStrapi().load()` のインプロセス起動（一時ディレクトリの SQLite）と偽の PostHog（I-01・I-02） |
 | `frontend/next-js/integration/` | Route Handler → Better Auth（一時ディレクトリ）→ control-plane。開発の Chatwoot に繋ぐ |
 
@@ -40,3 +40,4 @@ pnpm typecheck
 - n8n の親ワークフロー I-11・I-12 を**テストの間だけ有効にし**、元に戻す
 - 障害の確認のため、`consent-api-valkey-1`・`admin-auth-postgres-1`・`open-seo-main-open-seo-1` を数秒ずつ `docker pause` し、必ず `unpause` する。その間はほかの作業で該当サービスが応答しない
 - `src` のバグや開発スタックの設定の不足で通らないものは `it.todo` にし、直上のコメントに再現条件と直し方を書いてある
+- 改善ループの結合テスト（`backend/control-plane/integration/improvement-cycle.test.ts`）は、開発の Strapi に `it-` の記事とメディア、テストの間だけの Content API のトークン（Upload の upload と Article の update だけ）を、開発の Mautic に `it-` のセグメント（誰も入っていない）・メール・キャンペーンを作り、テストの中で公開してから消す。キャンペーンの送信先は空のセグメントなので、公開しても誰にも送られない

@@ -15,8 +15,14 @@ export const sdk = {
 
 export const sdkModule = { query: (args: QueryCall) => sdk.query(args) };
 
-/** 台本の 1 手。メッセージを返すか、options を使って何かする（フックを呼ぶ・ゲートを待つ） */
-export type Step = Record<string, unknown> | ((options: Options) => Promise<void>);
+/** 中身を出す時点で組み立てるメッセージ（前の手で決まった値〈作った記事の ID など〉を結果の文に入れるとき） */
+export class Later {
+  constructor(readonly make: () => Record<string, unknown>) {}
+}
+export const later = (make: () => Record<string, unknown>): Later => new Later(make);
+
+/** 台本の 1 手。メッセージを返すか、options を使って何かする（フックを呼ぶ・ゲートを待つ）か、出す時点で組み立てるメッセージ */
+export type Step = Record<string, unknown> | ((options: Options) => Promise<void>) | Later;
 
 export const init = (overrides: Record<string, unknown> = {}) => ({
   type: "system",
@@ -59,6 +65,7 @@ export function script(steps: Step[], options: { hang?: boolean; throwAfter?: Er
       for (const step of steps) {
         if (signal.aborted) throw new Error("aborted");
         if (typeof step === "function") await step(sdkOptions);
+        else if (step instanceof Later) yield step.make();
         else yield step;
       }
       if (options.hang) {
