@@ -176,12 +176,17 @@ describe("正常系", () => {
     expect(notes.some((n) => n.includes("字下げした補足") || n.includes("コードブロックの中"))).toBe(false);
   });
 
-  it("入力: 実際のカタログの drift は、site-redeploy が P12 の 2 項目だけ・n8n-workflows が P14 の 1 項目だけ", () => {
+  it("入力: 実際のカタログの drift は、site-redeploy が P12 の 2 項目だけ・site-articles が P12 の 1 項目だけ・n8n-workflows が P14 の 1 項目だけ", () => {
     const drifts = [];
     for (const step of realCatalog.STEPS) {
       for (const it of step.items) if (it.probe.kind === "drift") drifts.push(`${it.probe.id}:${step.id}:${it.id}`);
     }
-    expect(drifts.sort()).toEqual(["n8n-workflows:P14:P14.n8n-schedule", "site-redeploy:P12:P12.build", "site-redeploy:P12:P12.rebuild"]);
+    expect(drifts.sort()).toEqual([
+      "n8n-workflows:P14:P14.n8n-schedule",
+      "site-articles:P12:P12.articles",
+      "site-redeploy:P12:P12.build",
+      "site-redeploy:P12:P12.rebuild",
+    ]);
   });
 
   it("入力: 実際のカタログの KNOWN_ITEM_KEYS は key が重複していない（複数の段階は steps に並べる）", () => {

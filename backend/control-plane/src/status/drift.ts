@@ -1,20 +1,25 @@
-// 設定の状況: 設定スクリプトが確かめていない「ずれ」（spec 5.3）のうち、公開サイトの再配信と本番の n8n のワークフロー。
-// どちらも origin/main を基準にする。origin/main を新しくするのは git-fetch.ts の fetchMain（呼び出し側が先に実行する）。
-// 読み取りだけ: git は log・show・rev-parse・ls-tree・merge-base だけ。本番の n8n は GET だけ。
+// 設定の状況: 設定スクリプトが確かめていない「ずれ」（spec 5.3）のうち、公開サイトの再配信・本番の n8n のワークフロー・
+// 公開済みの記事の配信（deploy-drift-detection の spec 4.5）。
+// 再配信と n8n は origin/main を基準にする。origin/main を新しくするのは git-fetch.ts の fetchMain（呼び出し側が先に実行する）。
+// 読み取りだけ: git は log・show・rev-parse・ls-tree・merge-base だけ。本番の n8n・本番の Strapi は GET だけ。
 // 根拠の文字列（evidence）は日本語の短い文で、トークン・API キーを入れない（URL は認証情報なしのものだけ）。
 import type { SetupStatusLevel } from "../contract.js";
 import { N8N_WORKFLOWS_DIR, VERDANT_VIRGO_DIR } from "../constants/paths.js";
 import { IntegrationError, fetchJson } from "../integrations/http.js";
 import { N8nClient } from "../integrations/n8n.js";
+import { type PublishedArticle, StrapiClient } from "../integrations/strapi.js";
 import { logLine } from "../log.js";
+import { toIsoJst } from "../time.js";
 import { GIT_READ_TIMEOUT_MS, readTokenOrNull, runGit } from "./git-fetch.js";
 
 export type DriftResult = {
-  id: "site-redeploy" | "n8n-workflows";
+  id: "site-redeploy" | "n8n-workflows" | "site-articles";
   level: SetupStatusLevel;
   evidence: string;
   /** 前回の結果を引き継いだとき、その結果を確かめた時刻（JST の ISO 8601）。無ければ今回の確認の時刻 */
   checkedAt?: string;
+  /** site-articles だけ: 取り下げの記事の slug → 最初に見つけた時刻（JST の ISO 8601）。次の回に引き継いで 48 時間を数える */
+  firstSeen?: Record<string, string>;
 };
 
 const SITE_FETCH_TIMEOUT_MS = 15_000;
@@ -328,5 +333,191 @@ export async function checkN8nWorkflows(opts: {
     id,
     level: "action",
     evidence: `本番の n8n が origin/main のワークフローと違う（${differing.length} 件）: ${listed}${rest}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 公開済みの記事の配信（spec 4.5）
+// ---------------------------------------------------------------------------
+
+/** 公開・更新・取り下げから配信までの猶予（ユーザーの決定）。ちょうど 48 時間は過ぎたものとして数える */
+export const ARTICLE_GRACE_MS = 48 * 60 * 60 * 1000;
+
+const ARTICLE_FIX = "直し方: 周の承認画面の配信の項目を承認して配信する（無ければ毎日 00:00 に作られる）";
+
+interface DeployedArticle {
+  slug: string;
+  publishedAt: string;
+  updatedAt: string;
+}
+
+type PendingKind = "公開" | "更新" | "取り下げ";
+
+interface PendingArticle {
+  slug: string;
+  kind: PendingKind;
+  /** 数え始めの時刻（ミリ秒）。読めない日時は -Infinity（猶予を与えず、取りこぼさない側に倒す） */
+  since: number;
+}
+
+/** build-info.json の articles を読む。形が違えば null */
+function parseDeployedArticles(value: unknown): DeployedArticle[] | null {
+  if (!Array.isArray(value)) return null;
+  const articles: DeployedArticle[] = [];
+  for (const entry of value) {
+    if (!isObject(entry)) return null;
+    const { slug, publishedAt, updatedAt } = entry;
+    if (typeof slug !== "string" || typeof publishedAt !== "string" || typeof updatedAt !== "string") return null;
+    articles.push({ slug, publishedAt, updatedAt });
+  }
+  return articles;
+}
+
+const parseTime = (text: string) => {
+  const ms = Date.parse(text);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+};
+
+/** 同じ時刻か（書き方の違い〈ミリ秒の有無など〉では差にしない） */
+function sameTime(a: string, b: string): boolean {
+  const ma = Date.parse(a);
+  const mb = Date.parse(b);
+  return Number.isNaN(ma) || Number.isNaN(mb) ? a === b : ma === mb;
+}
+
+function listPending(pending: PendingArticle[]): string {
+  const listed = pending
+    .slice(0, MAX_LISTED)
+    .map((entry) => `${clip(entry.slug, 40)}（${entry.kind}）`)
+    .join("、");
+  const rest = pending.length > MAX_LISTED ? `、ほか ${pending.length - MAX_LISTED} 件` : "";
+  return `${listed}${rest}`;
+}
+
+export async function checkSiteArticles(opts: {
+  siteUrl: string;
+  strapi: { baseUrl: string; readToken: string } | null;
+  previous: DriftResult | undefined;
+  now: Date;
+  signal: AbortSignal;
+}): Promise<DriftResult> {
+  const id = "site-articles" as const;
+  const { signal, now } = opts;
+  // 確かめられなかった回も、取り下げの最初の時刻は捨てない（捨てると 48 時間を数え直してしまう）
+  const previousFirstSeen = opts.previous?.firstSeen;
+  const keep = previousFirstSeen && Object.keys(previousFirstSeen).length > 0 ? { firstSeen: previousFirstSeen } : {};
+  // 読み取りのトークンが無いのは障害ではなく設定の選択（改善ループの Strapi を使わない構成）。n8n-workflows と同じく ◇
+  if (!opts.strapi) {
+    return {
+      id,
+      level: "manual",
+      evidence: "本番の Strapi の読み取りの設定（CONTROL_STRAPI_URL・CONTROL_STRAPI_READ_TOKEN）が無いので比べない",
+    };
+  }
+
+  // 1. 配信中のビルドが取り込んだ記事の一覧（build-info.json の articles）
+  const url = `${opts.siteUrl.replace(/\/+$/, "")}/build-info.json`;
+  const fetched = await fetchJson<{ builtAt?: unknown; articles?: unknown }>({
+    upstream: "other",
+    url,
+    init: { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" },
+    timeoutMs: SITE_FETCH_TIMEOUT_MS,
+    signal,
+  });
+  if (fetched.status === 404) {
+    return { id, level: "action", evidence: `配信中のビルドに記事の一覧の記録が無い（この機能より前のビルド）。次の配信で消える。${ARTICLE_FIX}` };
+  }
+  if (fetched.status === null) {
+    return { id, level: "unknown", evidence: `公開サイトの build-info.json に届かない（${fetched.failureClass}）`, ...keep };
+  }
+  const info = fetched.data;
+  if (fetched.failureClass !== "ok" || info === null || typeof info !== "object") {
+    return {
+      id,
+      level: "unknown",
+      evidence: `公開サイトの build-info.json を読めない（${fetched.failureClass}${fetched.status ? `、HTTP ${fetched.status}` : ""}）`,
+      ...keep,
+    };
+  }
+  const builtAt = typeof info.builtAt === "string" ? info.builtAt : "日時不明";
+  if (!("articles" in info)) {
+    return {
+      id,
+      level: "action",
+      evidence: `配信中のビルド（${builtAt}）に記事の一覧の記録が無い（この機能より前のビルド）。次の配信で消える。${ARTICLE_FIX}`,
+    };
+  }
+  if (info.articles === null) {
+    return {
+      id,
+      level: "unknown",
+      evidence: `配信中のビルド（${builtAt}）が記事の一覧を記録していない。ビルドのときに Strapi を読めなかった`,
+      ...keep,
+    };
+  }
+  const deployed = parseDeployedArticles(info.articles);
+  if (deployed === null) {
+    return { id, level: "unknown", evidence: `配信中のビルド（${builtAt}）の記事の一覧の形が想定と違う`, ...keep };
+  }
+
+  // 2. 本番の Strapi の公開済みの記事（読み取りのトークンだけを使う）
+  let published: PublishedArticle[];
+  try {
+    published = await new StrapiClient(opts.strapi.baseUrl, opts.strapi.readToken, null).listPublishedArticles(signal);
+  } catch (error) {
+    if (signal.aborted) return { id, level: "unknown", evidence: "打ち切られた", ...keep };
+    const failureClass = error instanceof IntegrationError ? error.failureClass : "invalid_response";
+    logLine("WARN", "setup-status", `本番の Strapi を読めない: ${failureClass}`);
+    return { id, level: "unknown", evidence: `本番の Strapi を読めない（${failureClass}）`, ...keep };
+  }
+
+  // 3. slug で比べる。足りない = 公開、updatedAt が違う = 更新、余っている = 取り下げ
+  const deployedBySlug = new Map(deployed.map((article) => [article.slug, article]));
+  const publishedSlugs = new Set(published.map((article) => article.slug));
+  const pending: PendingArticle[] = [];
+  for (const article of published) {
+    const live = deployedBySlug.get(article.slug);
+    if (live && sameTime(live.updatedAt, article.updatedAt)) continue;
+    pending.push({
+      slug: article.slug,
+      kind: live ? "更新" : "公開",
+      since: Math.max(parseTime(article.publishedAt), parseTime(article.updatedAt)),
+    });
+  }
+  // 取り下げの時刻は Strapi から取れないので、最初に見つけた時刻（前回の結果から引き継ぐ。無ければ今）から数える
+  const firstSeen: Record<string, string> = {};
+  for (const article of deployed) {
+    if (publishedSlugs.has(article.slug)) continue;
+    const seen = previousFirstSeen?.[article.slug] ?? toIsoJst(now);
+    firstSeen[article.slug] = seen;
+    pending.push({ slug: article.slug, kind: "取り下げ", since: parseTime(seen) });
+  }
+  const carry = Object.keys(firstSeen).length > 0 ? { firstSeen } : {};
+
+  if (pending.length === 0) {
+    return { id, level: "ok", evidence: `配信中のビルド ${builtAt} の記事 ${deployed.length} 件が、本番の Strapi の公開済みの記事と一致` };
+  }
+
+  // 古い順（猶予の期限が近い順）。同じ時刻なら slug の順
+  pending.sort((a, b) => a.since - b.since || a.slug.localeCompare(b.slug));
+  const overdue = pending.filter((entry) => now.getTime() - entry.since >= ARTICLE_GRACE_MS);
+  const waiting = pending.filter((entry) => now.getTime() - entry.since < ARTICLE_GRACE_MS);
+  if (overdue.length === 0) {
+    const deadline = toIsoJst(new Date(waiting[0]!.since + ARTICLE_GRACE_MS));
+    return {
+      id,
+      level: "ok",
+      evidence: `配信待ち ${waiting.length} 件（猶予中。最も古いものの期限 ${deadline}）: ${listPending(waiting)}`,
+      ...carry,
+    };
+  }
+  const alsoWaiting = waiting.length > 0 ? `。ほかに猶予中が ${waiting.length} 件` : "";
+  return {
+    id,
+    level: "action",
+    evidence:
+      `公開・更新・取り下げから 48 時間を過ぎても配信されていない記事が ${overdue.length} 件: ${listPending(overdue)}${alsoWaiting}。` +
+      ARTICLE_FIX,
+    ...carry,
   };
 }

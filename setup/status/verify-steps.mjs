@@ -38,7 +38,7 @@ const STOP_TABLE_HEADING = "0. 早見表";
 
 const WHO = ["自動", "人・端末", "人・画面", "人・GitHub", "人・ブラウザ", "判断"];
 const KIND = ["検査", "警告", "申告", "未検査", "判断"];
-const DRIFT_IDS = ["site-redeploy", "n8n-workflows"];
+const DRIFT_IDS = ["site-redeploy", "n8n-workflows", "site-articles"];
 
 const CHECKLIST_LINE = /^- (\[[ xX]\] |〔|再実行で \*\*自動\*\*)/;
 

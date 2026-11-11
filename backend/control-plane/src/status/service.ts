@@ -1,7 +1,8 @@
 // 設定の状況の本体。1 時間ごと（と「今すぐ確かめる」・起動の 30 秒後）に、次の順で確かめる（spec の 5・6）:
 //   1. 承認済み main のチェックアウトで origin の main を取る（fetchMain）
 //   2. 2 本の設定スクリプトの --check --json（製品の API を呼ぶモジュールは 1 時間に 1 回。それ以外は前回の結果を引き継ぐ）と、
-//      2 つのずれの確認（fetch が失敗したら確かめずに unknown。本番の n8n の比較は製品の API なので 1 時間に 1 回で、間の回は前回の結果を引き継ぐ）
+//      3 つのずれの確認（fetch が失敗したら確かめずに unknown。本番の n8n の比較と記事の配信〈本番の Strapi〉は製品の API なので
+//      1 時間に 1 回で、間の回は前回の結果を引き継ぐ）
 //   3. 秘密値を伏せる → カタログに当てて評価する → 保存する → 知らせる（メール。送れなくても確認は止めない）
 // 改善ループの処理ではないので、0〜8 時の窓にも CONTROL_SCHEDULER_ENABLED にも縛らない。E-15 の実行記録にも入れない（1 日 144 回）。
 // ログは logLine("setup-status") に、値を含めずに出す。
@@ -12,7 +13,7 @@ import { logLine } from "../log.js";
 import { toIsoJst } from "../time.js";
 import { type Catalog, CatalogError, catalogDocFiles, loadCatalog } from "./catalog.js";
 import { readDocSection } from "./docs.js";
-import { type DriftResult, checkN8nWorkflows, checkSiteRedeploy } from "./drift.js";
+import { type DriftResult, checkN8nWorkflows, checkSiteArticles, checkSiteRedeploy } from "./drift.js";
 import { type EvaluatedStatus, type ModuleResultWithTime, evaluate, mergeModuleResults, worstLevel, zeroCounts } from "./evaluate.js";
 import { fetchMain } from "./git-fetch.js";
 import {
@@ -48,6 +49,7 @@ export interface SetupStatusDeps {
   runSetupCheck: typeof runSetupCheck;
   checkSiteRedeploy: typeof checkSiteRedeploy;
   checkN8nWorkflows: typeof checkN8nWorkflows;
+  checkSiteArticles: typeof checkSiteArticles;
   collectSecrets: typeof collectSecrets;
   readDocSection: typeof readDocSection;
   readStopGuides: typeof readStopGuides;
@@ -120,6 +122,7 @@ export class SetupStatusService {
       runSetupCheck,
       checkSiteRedeploy,
       checkN8nWorkflows,
+      checkSiteArticles,
       collectSecrets,
       readDocSection,
       readStopGuides,
@@ -396,6 +399,10 @@ export class SetupStatusService {
       const carriedN8n: StoredDrift | undefined = productDue
         ? undefined
         : previous?.driftResults?.find((d) => d.id === "n8n-workflows");
+      // 記事の配信も本番の Strapi（製品の API）を読むので同じ扱い。確かめる回は、前回の結果（取り下げの最初の時刻 firstSeen）を渡す
+      const previousArticles = previous?.driftResults?.find((d) => d.id === "site-articles");
+      const carriedArticles: StoredDrift | undefined = productDue ? undefined : previousArticles;
+      const strapi = this.config.strapi ? { baseUrl: this.config.strapi.baseUrl, readToken: this.config.strapi.readToken } : null;
       const [reports, drifts] = await Promise.all([
         Promise.all(
           SETUP_SCRIPTS.map((script) =>
@@ -422,6 +429,9 @@ export class SetupStatusService {
               carriedN8n !== undefined
                 ? Promise.resolve<DriftResult>(carriedN8n)
                 : deps.checkN8nWorkflows({ checkout: mainCheckout, n8n: this.config.n8nExport, signal }),
+              carriedArticles !== undefined
+                ? Promise.resolve<DriftResult>(carriedArticles)
+                : deps.checkSiteArticles({ siteUrl: status.siteUrl, strapi, previous: previousArticles, now: startedAt, signal }),
             ])
           : Promise.resolve([] as DriftResult[]),
       ]);

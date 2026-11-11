@@ -271,7 +271,8 @@ export function run(cmd, args, { cwd = W, env = {}, input, timeoutMs = 15 * 60_0
       clearTimeout(timer);
       if (code === 0) return resolvePromise(out);
       const tail = mask(out.trim().split("\n").slice(-20).join("\n"));
-      reject(new Error(`${cmd} ${args.join(" ")} が失敗した（終了コード ${code}）\n${tail}`));
+      // exitCode は、終了コードで場合分けしたい呼び出し側（git merge-base --is-ancestor の 1 など）が見る
+      reject(Object.assign(new Error(`${cmd} ${args.join(" ")} が失敗した（終了コード ${code}）\n${tail}`), { exitCode: code }));
     });
   });
 }

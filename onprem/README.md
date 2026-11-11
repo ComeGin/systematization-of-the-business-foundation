@@ -67,13 +67,15 @@ cd onprem/strapi
 | バケット名・PostHog のトークンなど | `.env.example` のコメント |
 
 ```bash
-docker compose build          # RDS の CA 束を取得して SHA-256 を照合する（合わなければ止まる。下の「つまずいたとき」）
+node ../build.mjs strapi      # onprem/build.mjs。docker compose build の包み。RDS の CA 束を取得して SHA-256 を照合する（合わなければ止まる。下の「つまずいたとき」）
 docker compose up -d
 docker compose logs -f        # エラーが繰り返されないことを見て Ctrl+C
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:1338/_health   # 204
 ```
 
-**アップロードの許可を変えたときは、本番の Strapi を再ビルド・再起動する**（2026-11-09。キャンペーンの配布物〈Agent Plugins の zip〉を builtin `campaign-asset-upload` がアップロードするため、`backend/strapi-system/config/plugins.ts` の許可するメディアの種類に `application/zip` を足した。**設定は起動時に読まれるので、このイメージで本番を作り直して再起動するまで、zip のアップロードは拒否される**）。イメージは `backend/strapi-system/Dockerfile` でビルドされる（`onprem/strapi/compose.yml` の `build.context`）ので、この変更が入った `origin/main` のチェックアウトの `onprem/strapi` で `docker compose build && docker compose up -d` する。再起動後、管理画面の Media Library に zip を試しに 1 つアップロードして通ることを確かめる（試しのファイルは消す）。この再起動を済ませる前に `campaign-asset-upload` を有効にしない（アップロードが失敗して、周の項目が止まる）。
+**ビルドは生の `docker compose build` ではなく `node onprem/build.mjs strapi`（`onprem/strapi` からは `node ../build.mjs strapi`）で行う**（2026-11-11）。中で行うこと: (1) `backend/strapi-system`・`onprem/strapi` に未コミットの変更があれば止まる（HEAD のコミットの名前で記録するため）、(2) HEAD が `origin/main` の履歴に無ければ警告だけ出す（設定の状況で ! になる）、(3) `GIT_COMMIT=<HEAD の 40 桁>` を付けて `docker compose -f onprem/strapi/compose.yml build strapi`、(4) 再起動の案内を出す。`compose.yml` の `build.labels` が、このコミットをイメージのラベル `org.opencontainers.image.revision` に残す。「設定の状況」（`onprem.strapi-image`）はこのラベルから `origin/main` までに `backend/strapi-system`・`onprem/strapi` を変えたコミット（`*.md`・テスト類を除く）があるかを調べ、あれば ●（ビルドし直しが要る）にする。生の `docker compose build`（`GIT_COMMIT` なし）ではラベルが空になり「記録が無い」と ● になる。`origin/main` に入れたものからビルドするのが基本。**ビルドしただけでは動いているコンテナは入れ替わらない。** ビルドの後は `sudo systemctl restart comegin-strapi`（systemd で常駐させていないときは `docker compose up -d`）で再起動する。ビルドしたが再起動していないと、同じ項目が「再起動していない」で ● になる（動いているコンテナのイメージ ID を、ビルドしたイメージの ID と比べる）。
+
+**アップロードの許可を変えたときは、本番の Strapi を再ビルド・再起動する**（2026-11-09。キャンペーンの配布物〈Agent Plugins の zip〉を builtin `campaign-asset-upload` がアップロードするため、`backend/strapi-system/config/plugins.ts` の許可するメディアの種類に `application/zip` を足した。**設定は起動時に読まれるので、このイメージで本番を作り直して再起動するまで、zip のアップロードは拒否される**）。イメージは `backend/strapi-system/Dockerfile` でビルドされる（`onprem/strapi/compose.yml` の `build.context`）ので、この変更が入った `origin/main` のチェックアウトで `node onprem/build.mjs strapi` → `sudo systemctl restart comegin-strapi`（常駐させていないときは `onprem/strapi` で `docker compose up -d`）する。再起動後、管理画面の Media Library に zip を試しに 1 つアップロードして通ることを確かめる（試しのファイルは消す）。この再起動を済ませる前に `campaign-asset-upload` を有効にしない（アップロードが失敗して、周の項目が止まる）。
 
 ### 3. n8n（`n8n/`）
 
@@ -85,12 +87,18 @@ cd onprem/n8n
 `.env` に人が入れる値: `DB_POSTGRESDB_HOST`（Strapi の `DATABASE_HOST` と同じエンドポイント）と `DB_POSTGRESDB_PASSWORD`（Secrets Manager の `comegin/prod/n8n/DB_PASSWORD`。4.8）。
 
 ```bash
-docker compose build
+node ../build.mjs n8n         # onprem/build.mjs。onprem/n8n に未コミットの変更があると止まり、GIT_COMMIT を付けてビルドする
 docker compose up -d
 docker compose ps             # n8n・runners・webhook-proxy の 3 つが動いている（webhook-proxy は wg0 の 10.99.0.2 にバインドする）
 docker compose logs -f n8n    # エラーが繰り返されないことを見て Ctrl+C
 curl -s http://127.0.0.1:5679/healthz                                            # {"status":"ok"}
 ```
+
+**n8n も `node onprem/build.mjs n8n` でビルドし、ビルドの後に再起動する**（2026-11-11。考え方は上の Strapi と同じ。未コミットを確かめるのは `onprem/n8n`。再起動は `sudo systemctl restart comegin-n8n`）。ラベルには、コミットのほかに取り込んだ n8n の版とダイジェスト（`com.comegin.n8n-version`・`com.comegin.n8n-digest`）も残る。「設定の状況」は次の 2 つの項目で調べる。
+
+- `onprem.n8n-image`: ラベルのコミットから `origin/main` までに `onprem/n8n/Dockerfile`・`onprem/n8n/compose.yml` を変えたコミットがあるか。ビルドしたが再起動していないか。
+- `onprem.n8n-version`: `.env` の `N8N_VERSION`・`N8N_DIGEST`・`N8N_RUNNERS_DIGEST`（**この 3 つだけを読む。ほかの値は読まず、画面にも出さない**）が、動いている n8n のラベル・runners のイメージ（版のタグとダイジェスト）と一致するか、`origin/main` の `.env.example` と一致するか。違うと ●（`.env` を上げたが作り直していない／雛形が上がったが `.env` が古い）。`.env` のほうが雛形より新しい（人が先に上げた）ときは ! で、雛形の更新を促す。n8n と runners の版が違うときも ●。
+- **n8n の版を上げるとき**: `.env.example` と `.env` の `N8N_VERSION`・`N8N_DIGEST`・`N8N_RUNNERS_DIGEST` を同じ値に直し、`node onprem/build.mjs n8n` → `sudo systemctl restart comegin-n8n`（runners も入れ替わる）の順に行う（`.env.example` の変更はコミットしてから。未コミットだと止まる）。
 
 本番の n8n の Compose のプロジェクト名は `comegin-prod-n8n`、Strapi は `comegin-prod-strapi`（`compose.yml` の `name:`）。開発の `middleware/n8n`（プロジェクト名 `n8n`）とボリュームを分けるため（下の表）。
 
@@ -98,7 +106,7 @@ curl -s http://127.0.0.1:5679/healthz                                           
 
 | 症状 | 原因 | 対処 |
 |---|---|---|
-| `docker compose build` が `failed to solve: digest mismatch sha256:<今の束>: sha256:<固定した値>` | AWS が RDS の CA 束を更新した（意図して止めている。改ざんの検知のため） | `cloud/README.md` の 4.7 の更新の手順（中身を確かめてから、8 か所の値を更新する）→ `docker compose build --no-cache` |
+| `docker compose build` が `failed to solve: digest mismatch sha256:<今の束>: sha256:<固定した値>` | AWS が RDS の CA 束を更新した（意図して止めている。改ざんの検知のため） | `cloud/README.md` の 4.7 の更新の手順（中身を確かめてから、8 か所の値を更新する。コミットする）→ `node onprem/build.mjs <strapi または n8n> --no-cache` |
 | Strapi のログに `password authentication failed for user "strapi"` が繰り返される | RDS にまだ `strapi` ユーザーが無い（PostgreSQL はユーザーが無いときも同じ文言で断る）か、パスワードが Secret と違う | `cloud/README.md` の 4.8 の `db-init-postgres`（`/comegin/prod/tasks` にログが無ければ未実施）→ パスワードを取り出し直して `.env` に写す → `docker compose up -d` |
 | n8n のログに `Mismatching encryption keys. The encryption key in the settings file /home/node/.n8n/config does not match the N8N_ENCRYPTION_KEY env var` | **本番の n8n が、開発の n8n のボリュームを読んだ。** プロジェクト名を書いていなかったころは、`onprem/n8n` も `middleware/n8n` もディレクトリ名から `n8n` になり、ボリューム `n8n_n8n-data`（開発の暗号化キー入り）を共有した | 今の `compose.yml` は `name:` で分けてある。古い名前で上げたコンテナが残っていれば `docker compose -p n8n down`（Strapi は `docker compose -p strapi down`）で止めてから `docker compose up -d`。**`-v` と `--remove-orphans` は付けない**（`n8n_n8n-data`・`n8n_db-data` は開発の n8n のデータ） |
 | `dependency failed to start: container ... is unhealthy` | n8n 本体が起動に失敗している（runners・webhook-proxy は n8n の health を待つ） | `docker compose logs n8n` で、上の 2 行の原因を見る |

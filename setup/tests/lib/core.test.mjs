@@ -684,6 +684,7 @@ describe("run（子プロセス。spawn は偽物）", () => {
       proc.plan = { stdout: `${Array.from({ length: 25 }, (_, i) => `line-${i + 1}`).join("\n")}\n`, code: 3 };
       const err = await core.run("docker", ["compose", "up"]).catch((e) => e);
       expect(err.message).toContain("docker compose up が失敗した（終了コード 3）");
+      expect(err.exitCode).toBe(3);
       const lines = err.message.split("\n").slice(1);
       expect(lines).toEqual(Array.from({ length: 20 }, (_, i) => `line-${i + 6}`));
     });

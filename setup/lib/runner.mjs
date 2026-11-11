@@ -18,8 +18,8 @@ import { ManualStepRequired, State, W, askOnTerminal, createContext, loadConfig,
 // operate（2026-11-02 に追加）は google の後に --phase operate で明示したときだけ動く（改善ループ〈監視アプリ〉の常駐と運用開始の仕上げ）
 export const PROD_PHASES = [
   { id: "env", title: "本番用の環境変数の設定" },
-  { id: "deploy", title: "sam build → sam deploy（1 回目。ECR・Lambda・データストアができる。サービスは 0 台）" },
-  { id: "images", title: "イメージのビルドと ECR へのプッシュ（タグを変えたら sam deploy をもう 1 回）" },
+  { id: "deploy", title: "node cloud/deploy.mjs（sam build → sam deploy の包み。1 回目。ECR・Lambda・データストアができる。サービスは 0 台）" },
+  { id: "images", title: "イメージのビルドと ECR へのプッシュ（node cloud/images/build-push.mjs。タグを変えたら node cloud/deploy.mjs をもう 1 回）" },
   { id: "apps", title: "本番のアプリの設定" },
   { id: "google", title: "GA4・OpenSEO（公開サイトが Route 53 から配信された後）" },
   { id: "operate", title: "運用開始（改善ループ〈監視アプリ〉の常駐と仕上げ。google の後）" },

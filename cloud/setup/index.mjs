@@ -1,9 +1,16 @@
 // AWS（cloud/ の SAM）の本番の段階。setup/lib/core.mjs の契約に従う。1 つのモジュールで、本番の段階のうち前の 3 つと、apps の最初を受け持つ:
 //   env     本番用の環境変数の設定: 道具（aws・sam・docker・pnpm）・AWS の認証とアカウント・デプロイの設定ファイル（cloud/samconfig.toml）の必須の値
-//   deploy  sam build → sam deploy（1 回目）: global（us-east-1）→ CloudFront の 2 つのパラメータ → 本番スタック → 人が入れる Secret の値
-//           （ECR のリポジトリはこのデプロイで作られる。ECS のサービスは 0 台で作られ、イメージが無くても通る。cloud/README.md の 4.2）
-//   images  イメージのビルドと ECR へのプッシュ: 本番スタックのパラメータ ChatwootImageTag・MauticImageTag のタグが ECR にあるか
-//           （タグを変えるときは、samconfig.toml を書き換えて sam build → sam deploy をもう 1 回。cloud/README.md の 4.7・4.12）
+//   deploy  node cloud/deploy.mjs（sam build → sam deploy。デプロイしたコミットをパラメータ DeployedCommit に記録する）:
+//           global（us-east-1）→ CloudFront の 2 つのパラメータ → 本番スタック → 人が入れる Secret の値
+//           （ECR のリポジトリはこのデプロイで作られる。ECS のサービスは 0 台で作られ、イメージが無くても通る。cloud/README.md の 4.2）。
+//           check は items も返す（デプロイのずれの検知。global・本番スタック・Lambda のコードが、記録のコミットから origin/main までに変わっていないか、
+//           samconfig.toml とスタックのパラメータが食い違っていないか。ok と notes には混ぜない）
+//   images  イメージのビルドと ECR へのプッシュ（node cloud/images/build-push.mjs <chatwoot|mautic>）: 本番スタックのパラメータ
+//           ChatwootImageTag・MauticImageTag のタグが ECR にあるか
+//           （タグを変えるときは、samconfig.toml にタグを書く → build-push.mjs で push → node cloud/deploy.mjs の順。ECR に無いタグをデプロイすると、
+//           動いているサービスがタスクを起動できずスタックごと戻される。cloud/README.md の 4.7・4.12）。
+//           check は items も返す（cloud.image-commit。イメージのタグ <タグ>-rev-<40 桁> に記録されたビルドのコミットから origin/main までに、
+//           cloud/images/<製品> が変わっていないか。ok と notes には混ぜない）
 //   apps    段階 apps の前提（setup/00-setup-overview.md の P4）。setup.mjs の MODULES で admin-auth より前に置き、段階 apps の先頭で動く。
 //           止めるのは DB 作成のタスク（4.8。admin-auth・onprem・chatwoot-prod・mautic-prod のすべての前提）だけ。
 //           ほかの人の作業（global の 2 回目・SNS の購読・SES・WireGuard の AMI の固定・オンプレの IAM のキー・SMTP の Secret）は、
@@ -35,6 +42,9 @@
 import { resolveTxt } from "node:dns/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { commitDrift, describeChanges, newestInMain } from "../../setup/lib/drift.mjs";
+import { readUpstream } from "../lib/images.mjs";
+import { parameterOverrides } from "../lib/samconfig.mjs";
 import { AwsUnavailable, ENV_NAME, GLOBAL_REGION, GLOBAL_STACK, REGION, STACK, awsJson, dbInitDone, dbInitSteps, describeStack, isAwsUnavailable, outputOf, parameterOf, requireMainStack, secretHasValue, settleAwsUnavailable } from "./aws.mjs";
 
 export const meta = { id: "cloud", title: "AWS（本番のスタック。環境変数・デプロイ・イメージ・apps の前提・運用開始の確認）", targets: ["prod"], phases: ["env", "deploy", "images", "apps", "operate"], after: [] };
@@ -55,11 +65,21 @@ const HUMAN_SECRETS = [
   { name: "chatwoot/SMTP_USERNAME", required: false, hint: "Chatwoot 用の SES の SMTP 認証情報（4.9。Mautic とは別に発行）" },
   { name: "chatwoot/SMTP_PASSWORD", required: false, hint: "同上" },
 ];
-// 派生イメージ（cloud/README.md の 4.7 の表と同じ値にする。上流の版を上げたら両方を変える）
+// 派生イメージ（上流のタグとダイジェストは cloud/images/<製品>/upstream.json が正本。cloud/README.md の 4.7 の表は、版を上げたらそれに合わせる）
 const IMAGES = [
-  { label: "Chatwoot", param: "ChatwootImageTag", repo: `comegin/${ENV_NAME}/chatwoot`, dir: "cloud/images/chatwoot", upstreamTag: "v4.18.0", upstreamDigest: "sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1" },
-  { label: "Mautic", param: "MauticImageTag", repo: `comegin/${ENV_NAME}/mautic`, dir: "cloud/images/mautic", upstreamTag: "7.2.0-apache", upstreamDigest: "sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f" },
+  { product: "chatwoot", label: "Chatwoot", param: "ChatwootImageTag", repo: `comegin/${ENV_NAME}/chatwoot`, dir: "cloud/images/chatwoot", upstreamTag: readUpstream("chatwoot").tag, upstreamDigest: readUpstream("chatwoot").digest },
+  { product: "mautic", label: "Mautic", param: "MauticImageTag", repo: `comegin/${ENV_NAME}/mautic`, dir: "cloud/images/mautic", upstreamTag: readUpstream("mautic").tag, upstreamDigest: readUpstream("mautic").digest },
 ];
+// Lambda のコード（cloud/stacks/services/*.yaml の CodeUri が指す 3 パッケージ。admin-auth-ops も backend/admin-auth）。sam build の入力だけを比べる。
+// faq-bot は Astro の faq.json を実行時に読むので faq-export は含めない。*.md・テスト類は setup/lib/drift.mjs の NON_CODE_EXCLUDES が除く
+const LAMBDA_PACKAGES = ["backend/faq-bot", "backend/consent-api", "backend/admin-auth"];
+const LAMBDA_INPUTS = ["src", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Makefile", "tsconfig.json"];
+export const LAMBDA_PATHS = LAMBDA_PACKAGES.flatMap((pkg) => LAMBDA_INPUTS.map((f) => `${pkg}/${f}`));
+const DEPLOY_COMMAND = "node cloud/deploy.mjs";
+const DEPLOY_GLOBAL_COMMAND = "node cloud/deploy.mjs --config-env global";
+const COMMIT = /^[0-9a-f]{40}$/;
+// イメージの記録のタグ <本来のタグ>-rev-<40 桁のコミット>（cloud/images/build-push.mjs が付ける）
+const REV_TAG = /-rev-([0-9a-f]{40})$/;
 const COMPLETE = new Set(["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "IMPORT_COMPLETE"]);
 
 // ---------------------------------------------------------------------------
@@ -74,9 +94,14 @@ async function callerIdentity(ctx) {
   }
 }
 
-async function imageExists(ctx, repo, tag) {
+/** ECR のイメージ 1 つの describe-images の imageDetails[0]。無ければ null */
+async function describeImage(ctx, repo, tag) {
   const r = await awsJson(ctx, ["ecr", "describe-images", "--region", REGION, "--repository-name", repo, "--image-ids", `imageTag=${tag}`]);
-  return Boolean(r?.imageDetails?.length);
+  return r?.imageDetails?.[0] ?? null;
+}
+
+async function imageExists(ctx, repo, tag) {
+  return Boolean(await describeImage(ctx, repo, tag));
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +151,7 @@ function envSteps(problems) {
     "  - RunLogAdminPrincipalArns: デプロイに使う主体（IAM ユーザー comegin-iam など）の ARN（入れないとスタック自身の更新が拒否される）",
     "  - GoogleClientId: admin-auth の Google の OAuth クライアント ID／AdminBootstrapEmails: 管理者の許可リストの初期値（カンマ区切り。空のまま migrate すると誰もログインできない。4.19）",
     "  - CloudFrontCertificateArn・CloudFrontWebAclArn は雛形のままでよい（次の段階 deploy で global の出力から書く）",
-    "  - 既定と違う値（DesiredCount・イメージのタグなど）はすべてここに書く（書かないと、次のデプロイで既定値に戻る。2 節の「重要」）",
+    "  - 既定と違う値（DesiredCount・イメージのタグなど）はすべてここに書き、正本にする（既存のスタックでは、書かなかったパラメータは前の値のまま残る〈SAM CLI が UsePreviousValue を渡す。cloud/README.md の 4.2.0〉。既定値に戻すには、既定値をここに明示して書く。2 節の「重要」）",
     "同じコマンドを実行し直す",
   ];
 }
@@ -158,7 +183,7 @@ async function checkEnv(ctx) {
 
 function globalSteps() {
   return [
-    "cd cloud && sam deploy --config-env global（us-east-1 の ACM 証明書と CloudFront 用 WAF。ACM の DNS 検証に数分かかる。cloud/README.md の 4.1）",
+    `${DEPLOY_GLOBAL_COMMAND}（us-east-1 の ACM 証明書と CloudFront 用 WAF。sam deploy の包みで、デプロイしたコミットを DeployedCommit に記録する。未コミットの変更があると止まる。ACM の DNS 検証に数分かかる。cloud/README.md の 4.1）`,
     "同じコマンドを実行し直す（出力を読み、次に samconfig.toml に書く値を表示する）",
   ];
 }
@@ -209,8 +234,9 @@ function leftoverSteps(found) {
 
 function mainSteps() {
   return [
-    "cd cloud && sam build（必須。faq-bot・consent-api・admin-auth の Lambda を pnpm と esbuild でまとめる。飛ばすと index.handler の無い zip になり、同意の受け口とログインが 502 になる）",
-    "sam deploy（変更セットを確かめてから実行。初回は RDS・ElastiCache・ACM の検証で 30 分前後。ECR のリポジトリもここで作られる。ECS のサービスは 0 台で作られ、イメージがまだ無くても通る。cloud/README.md の 4.2）",
+    `${DEPLOY_COMMAND}（リポジトリのルートから。sam build → sam deploy を順に行い、デプロイしたコミットを DeployedCommit に記録する。cloud/・Lambda の 3 パッケージに未コミットの変更があると止まる〈記録が嘘になるため〉。生の sam build・sam deploy は使わない）`,
+    "  - sam build は必須（faq-bot・consent-api・admin-auth の Lambda を pnpm と esbuild でまとめる。飛ばすと index.handler の無い zip になり、同意の受け口とログインが 502 になる）。スクリプトが実行する",
+    "  - sam deploy の変更セットを確かめてから答える。初回は RDS・ElastiCache・ACM の検証で 30 分前後。ECR のリポジトリもここで作られる。ECS のサービスは 0 台で作られ、イメージがまだ無くても通る。cloud/README.md の 4.2",
     "同じコマンドを実行し直す",
   ];
 }
@@ -238,6 +264,125 @@ function secretSteps(missing) {
 }
 
 // ---------------------------------------------------------------------------
+// 段階 deploy のずれの検知（items だけ。ok と notes には混ぜない。docs/superpowers/specs/2026-11-11-deploy-drift-detection-design.md の 4.1・4.2）
+// 本番で動いているスタック・Lambda のコードが作られたときのコミット（スタックのパラメータ DeployedCommit。node cloud/deploy.mjs が記録する）から
+// origin/main までに、関係するパスを変えたコミットがあれば action。origin/main を新しくするのは人の fetch か監視アプリの fetchMain。
+// git が使えない・origin/main が読めないときは、その項目だけ unknown
+// ---------------------------------------------------------------------------
+
+const firstLine = (e) => String(e?.message ?? e).split("\n")[0];
+const shortSha = (sha) => sha.slice(0, 7);
+
+/**
+ * スタックの Parameters（DeployedCommit・samconfig との比較）を信用できない状態か。信用できるなら null。
+ * 信用するのは COMPLETE の状態（CREATE_COMPLETE・UPDATE_COMPLETE・UPDATE_ROLLBACK_COMPLETE・IMPORT_COMPLETE）だけ。
+ * ROLLBACK_COMPLETE（初回の作成が失敗して戻された）や *_FAILED のスタックも、試みたときの Parameters を返すので、動いているものが無いのに ✓ になってしまう。
+ * 返す判定: スタックが無い・ROLLBACK_COMPLETE（消して作り直す）→ action、更新中・*_FAILED などそのほか → unknown
+ */
+function untrustedStack(stack, name, region, fix) {
+  if (!stack) return { level: "action", evidence: `スタック ${name} が無い。${fix}` };
+  if (COMPLETE.has(stack.StackStatus)) return null;
+  if (stack.StackStatus === "ROLLBACK_COMPLETE") {
+    return { level: "action", evidence: `${stackProblem(stack, name)}。動いているものが無い。消す: aws cloudformation delete-stack --region ${region} --stack-name ${name} → ${fix}（cloud/README.md の 4.2）` };
+  }
+  return { level: "unknown", evidence: `${stackProblem(stack, name)}。この状態のパラメータ（DeployedCommit）は信用できないので比べない` };
+}
+
+/**
+ * コミットの項目 1 つの判定 { level, evidence }。stack は describe-stacks の結果（無ければ null）。
+ * 記録が 40 桁の小文字の16進でも unrecorded でもない（空・欠け・その他）ときは、commitDrift に渡さず「記録が無い」にする（commitDrift は値を検査しない）
+ */
+async function commitVerdict(ctx, stack, { name, region, paths, what, fix }) {
+  const untrusted = untrustedStack(stack, name, region, fix);
+  if (untrusted) return untrusted;
+  const raw = parameterOf(stack, "DeployedCommit");
+  const drift = await commitDrift(ctx, { recorded: COMMIT.test(raw ?? "") ? raw : null, paths });
+  switch (drift.kind) {
+    case "unrecorded":
+      return { level: "action", evidence: `デプロイしたコミットの記録が無い（この仕組みより前のデプロイ）。記録付きでデプロイし直す: ${fix}` };
+    case "outside-main":
+      return { level: "warn", evidence: `記録のコミット ${shortSha(drift.commit)} が origin/main の履歴に無い（main 以外からのデプロイか、git fetch していない。fetch するか、main のチェックアウトで記録付きでデプロイし直す: ${fix}）` };
+    case "changed":
+      return { level: "action", evidence: `記録のコミット ${shortSha(drift.commit)} の後に、${what}が origin/main で変わった（${describeChanges(drift.entries)}）。記録付きでデプロイし直す: ${fix}（生の sam deploy では記録が前のままで、このまま出続ける）` };
+    default:
+      return { level: "ok", evidence: `記録のコミット ${shortSha(drift.commit)} から origin/main までに、${what}の変更は無い` };
+  }
+}
+
+/** 比べる前の整え方。前後の空白を除き、外側の二重引用符 1 組を外す（書き方の違いで ● が消えなくならないように） */
+const normalizeValue = (v) => {
+  const t = String(v).trim();
+  return t.length >= 2 && t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
+};
+
+/** cloud.stack-params: samconfig.toml（作業ツリーの追跡しないファイル）の parameter_overrides と、デプロイ済みスタックの Parameters の食い違い。名前だけを出し、値は出さない */
+function paramsVerdict(ctx, global, main) {
+  const file = join(ctx.WORKTREE, SAMCONFIG);
+  if (!existsSync(file)) return { level: "unknown", evidence: `${SAMCONFIG} が作業ツリーに無く、スタックのパラメータと比べられない` };
+  const parts = [
+    { label: "本番スタック", name: STACK, stack: main, env: "default", fix: DEPLOY_COMMAND },
+    { label: "global", name: GLOBAL_STACK, stack: global, env: "global", fix: DEPLOY_GLOBAL_COMMAND },
+  ];
+  const text = readFileSync(file, "utf8");
+  const differing = [];
+  const skipped = [];
+  const uncomparable = [];
+  let compared = 0;
+  for (const part of parts) {
+    // COMPLETE でないスタックの Parameters は信用できない（失敗して戻されたスタックなど。ずれは commit の項目が action / unknown で示す）
+    if (!part.stack || !COMPLETE.has(part.stack.StackStatus)) {
+      skipped.push(`${part.label}（${part.stack ? part.stack.StackStatus : "スタックが無い"}）`);
+      continue;
+    }
+    const names = [];
+    let comparedHere = 0;
+    for (const item of parameterOverrides(text, part.env)) {
+      const eq = item.indexOf("=");
+      if (eq <= 0) continue;
+      const key = item.slice(0, eq);
+      if (key === "DeployedCommit") continue; // デプロイのたびに変わる記録。比べない
+      const deployed = part.stack.Parameters?.find((p) => p.ParameterKey === key);
+      if (deployed?.ParameterValue === "****") continue; // NoEcho は値を読めない
+      compared++;
+      comparedHere++;
+      if (!deployed || normalizeValue(deployed.ParameterValue ?? "") !== normalizeValue(item.slice(eq + 1))) names.push(key);
+    }
+    if (comparedHere === 0) uncomparable.push(`${part.label}（${SAMCONFIG} の [${part.env}.deploy.parameters] の parameter_overrides に比べられるパラメータが無い。表の名前の書き間違いか）`);
+    if (names.length) differing.push(`${part.label}: ${names.join("・")}（反映する: ${part.fix}）`);
+  }
+  if (differing.length) return { level: "action", evidence: `${SAMCONFIG} とデプロイ済みのスタックでパラメータの値が違う（名前だけを表示する。書き換えたのにデプロイしていないか、スタックを手で変えた）／${differing.join("／")}` };
+  if (skipped.length || uncomparable.length) return { level: "unknown", evidence: [...(skipped.length ? [`比べられなかったスタック: ${skipped.join("・")}`] : []), ...uncomparable.map((u) => `比べるパラメータが無い: ${u}`)].join("／") };
+  return { level: "ok", evidence: `${SAMCONFIG} の ${compared} 個のパラメータは、デプロイ済みのスタックと同じ値（NoEcho の値と DeployedCommit は比べない）` };
+}
+
+/** 段階 deploy の items（step は P2）。コミットの 3 項目は git が使えなければ項目ごとに unknown、パラメータの項目は読めなければ unknown。例外は投げない */
+async function deployDriftItems(ctx, global, main) {
+  const specs = [
+    { key: "cloud.global-commit", title: "global（us-east-1）のデプロイが origin/main に追いついている", stack: global, name: GLOBAL_STACK, region: GLOBAL_REGION, paths: ["cloud/global"], what: "global のテンプレート（cloud/global）", fix: DEPLOY_GLOBAL_COMMAND },
+    { key: "cloud.stack-commit", title: "本番スタックのデプロイが origin/main に追いついている", stack: main, name: STACK, region: REGION, paths: ["cloud/template.yaml", "cloud/stacks"], what: "本番のテンプレート（cloud/template.yaml・cloud/stacks）", fix: DEPLOY_COMMAND },
+    { key: "cloud.lambda-code", title: "Lambda のコードのデプロイが origin/main に追いついている", stack: main, name: STACK, region: REGION, paths: LAMBDA_PATHS, what: "Lambda のコード（backend/faq-bot・consent-api・admin-auth）", fix: DEPLOY_COMMAND },
+  ];
+  const items = [];
+  for (const { key, title, ...spec } of specs) {
+    let verdict;
+    try {
+      verdict = await commitVerdict(ctx, spec.stack, spec);
+    } catch (e) {
+      verdict = { level: "unknown", evidence: `origin/main との差を git で確かめられない（${firstLine(e)}）` };
+    }
+    items.push({ key, step: "P2", title, ...verdict });
+  }
+  let params;
+  try {
+    params = paramsVerdict(ctx, global, main);
+  } catch (e) {
+    params = { level: "unknown", evidence: `${SAMCONFIG} とスタックのパラメータを比べられない（${firstLine(e)}）` };
+  }
+  items.push({ key: "cloud.stack-params", step: "P2", title: "samconfig.toml とデプロイ済みスタックのパラメータが同じ", ...params });
+  return items;
+}
+
+// ---------------------------------------------------------------------------
 // 段階 images
 // ---------------------------------------------------------------------------
 
@@ -248,11 +393,61 @@ function imageSteps(account, missing) {
     `ECR にログインする: aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ecr}`,
     ...missing.map(
       (m) =>
-        `${m.label}: docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=${m.upstreamTag} --build-arg UPSTREAM_DIGEST=${m.upstreamDigest} -t ${ecr}/${m.repo}:${m.tag} ${m.dir} → docker push ${ecr}/${m.repo}:${m.tag}（リポジトリのルートで実行。Fargate は X86_64 なので --platform を外さない）`,
+        `${m.label}: node cloud/images/build-push.mjs ${m.product}（リポジトリのルートで実行。タグは samconfig.toml の ${m.param} から読み、${m.dir} に未コミットの変更があると止まる。<タグ> と、ビルドしたコミットを残す <タグ>-rev-<コミット> の 2 つを push する。上流のタグとダイジェストは ${m.dir}/upstream.json。--platform linux/amd64 もスクリプトが付ける〈Fargate は X86_64〉。生の docker build・push は使わない）`,
     ),
-    "ECR のタグは上書きできない。作り直すときは連番を上げたタグにし、samconfig.toml の同じパラメータに書いて cd cloud && sam build → sam deploy をもう 1 回行ってから push する（cloud/README.md の 4.7・4.12）",
+    "ECR のタグは上書きできない。作り直すときは連番を上げたタグを samconfig.toml の同じパラメータに書き、node cloud/images/build-push.mjs で push してから node cloud/deploy.mjs でデプロイする（push が先。ECR に無いタグをデプロイすると、動いているサービスがタスクを起動できず、スタックごと UPDATE_ROLLBACK になる。cloud/README.md の 4.7・4.12）",
     "同じコマンドを実行し直す",
   ];
+}
+
+// 段階 images のずれの検知（items だけ。ok と notes には混ぜない）。スタックのパラメータが指すタグのイメージについた記録のタグ
+// <タグ>-rev-<40 桁> から、ビルドしたコミットを読む。そのコミットから origin/main までに cloud/images/<製品> が変わっていれば action。
+// 記録のタグが複数あれば（同じ中身に別のコミットで足された）origin/main までのコミット数が最も少ない（最も新しい）ものを記録とする。
+// git が使えない・origin/main が読めないときは、そのイメージだけ unknown
+
+/** イメージ 1 つの判定 { level, evidence }。image は describeImage の結果（ECR に無ければ null） */
+async function imageVerdict(ctx, img, tag, image) {
+  const fix = `node cloud/images/build-push.mjs ${img.product}`;
+  // ECR のタグは上書きできない（IMMUTABLE）ので、ビルドし直すときは連番を上げたタグにする。push が先で、デプロイが後（ECR に無いタグをデプロイすると、
+  // 動いているサービスがタスクを起動できず、サーキットブレーカーでスタックごと戻される）。順番は imageSteps・cloud/README.md の 4.7・4.12 と同じ
+  const rebuild = `連番を上げたタグを samconfig.toml の ${img.param} に書く → ${fix} → ${DEPLOY_COMMAND}`;
+  if (!tag) return { level: "action", evidence: `スタックのパラメータ ${img.param} が空（samconfig.toml に書いて ${DEPLOY_COMMAND}。cloud/README.md の 4.7）` };
+  if (!image) return { level: "action", evidence: `${img.repo}:${tag} が ECR に無い。ビルドして push する: ${fix}` };
+  const revs = (image.imageTags ?? []).map((t) => REV_TAG.exec(t)?.[1]).filter(Boolean);
+  const recorded = revs.length ? ((await newestInMain(ctx, revs)) ?? revs[0]) : null; // どれも origin/main に無ければ、先頭を outside-main として示す
+  const drift = await commitDrift(ctx, { recorded, paths: [img.dir] });
+  switch (drift.kind) {
+    case "unrecorded":
+      return { level: "action", evidence: `ビルドしたコミットの記録が無い（${tag}-rev-<コミット> のタグが付いていない。この仕組みより前のビルド、または生の docker build・push）。記録付きでビルドし直す: ${rebuild}` };
+    case "outside-main":
+      return { level: "warn", evidence: `記録のコミット ${shortSha(drift.commit)} が origin/main の履歴に無い（main 以外からのビルドか、git fetch していない。fetch するか、main のチェックアウトで記録付きでビルドし直す: ${rebuild}）` };
+    case "changed":
+      return { level: "action", evidence: `記録のコミット ${shortSha(drift.commit)} の後に、${img.dir} が origin/main で変わった（${describeChanges(drift.entries)}）。ビルドし直す: ${rebuild}` };
+    default:
+      return { level: "ok", evidence: `記録のコミット ${shortSha(drift.commit)} から origin/main までに、${img.dir} の変更は無い` };
+  }
+}
+
+const LEVEL_WEIGHT = { ok: 0, unknown: 1, warn: 2, action: 3 };
+
+/** cloud.image-commit（step は P3）。2 つのイメージの判定のうち重いほうの level。images は describeImage の結果（IMAGES と同じ順）。例外は投げない */
+async function imageDriftItems(ctx, main, images) {
+  const title = "派生イメージ（Chatwoot・Mautic）のビルドが origin/main に追いついている";
+  // タグを読むスタックが COMPLETE でなければ、パラメータは信用できない（Task 4 の untrustedStack と同じ扱い）
+  const untrusted = untrustedStack(main, STACK, REGION, DEPLOY_COMMAND);
+  if (untrusted) return [{ key: "cloud.image-commit", step: "P3", title, ...untrusted }];
+  const parts = [];
+  for (const [i, img] of IMAGES.entries()) {
+    let verdict;
+    try {
+      verdict = await imageVerdict(ctx, img, parameterOf(main, img.param), images[i]);
+    } catch (e) {
+      verdict = { level: "unknown", evidence: `origin/main との差を git で確かめられない（${firstLine(e)}）` };
+    }
+    parts.push({ label: img.label, ...verdict });
+  }
+  const level = parts.reduce((worst, p) => (LEVEL_WEIGHT[p.level] > LEVEL_WEIGHT[worst] ? p.level : worst), "ok");
+  return [{ key: "cloud.image-commit", step: "P3", level, title, evidence: parts.map((p) => `${p.label}: ${p.evidence}`).join("／") }];
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +541,7 @@ function globalSecondSteps() {
   return [
     `本番スタックの出力 DistributionArn を取る: ${OUT_FN} のあと OUT DistributionArn`,
     "cloud/samconfig.toml の [global.deploy.parameters] の parameter_overrides に \"DistributionArn=<上の ARN>\" を足す（エディタで。値は秘密ではない）",
-    "cd cloud && sam deploy --config-env global（us-east-1。PlanTier の既定 FREE は即時に有効で $0。cloud/README.md の 4.3）",
+    `${DEPLOY_GLOBAL_COMMAND}（us-east-1。PlanTier の既定 FREE は即時に有効で $0。cloud/README.md の 4.3）`,
     `確かめる: aws cloudformation describe-stacks --region ${GLOBAL_REGION} --stack-name ${GLOBAL_STACK} --query "Stacks[0].Parameters[?ParameterKey=='DistributionArn'].ParameterValue" --output text が空でない`,
     "購読できない（Free Tier のアカウントなど）ので従量課金（CloudFront と WAF の費用）のまま運用すると決めたときだけ、手順を飛ばして yes",
   ];
@@ -381,7 +576,7 @@ function sesIdentityMissingSteps(domain) {
   return [
     `確かめる: aws sesv2 get-email-identity --region ${REGION} --email-identity ${domain}（NotFoundException なら無い）`,
     `本番スタックの状態を見る: aws cloudformation describe-stacks --region ${REGION} --stack-name ${STACK} --query 'Stacks[0].StackStatus' --output text（*_COMPLETE であること）`,
-    "ses.yaml の DomainName（samconfig.toml の DomainName）が上のドメインと同じかを確かめ、違えば直して cd cloud && sam build && sam deploy（cloud/README.md の 4.2）",
+    `ses.yaml の DomainName（samconfig.toml の DomainName）が上のドメインと同じかを確かめ、違えば直して ${DEPLOY_COMMAND}（cloud/README.md の 4.2）`,
     "同じコマンドを実行し直す",
   ];
 }
@@ -391,7 +586,7 @@ function sesVerifySteps(domain, mailFrom) {
     `状態を見る: aws sesv2 get-email-identity --region ${REGION} --email-identity ${domain} --query '{Sendable:VerifiedForSendingStatus, Dkim:DkimAttributes.Status, MailFrom:MailFromAttributes.MailFromDomainStatus}'`,
     "PENDING なら、DNS が行き渡るのを待つ（数分〜72 時間。Route 53 のレコードは ses.yaml が作っている）",
     `72 時間を過ぎても PENDING か、FAILED なら、Route 53 のホストゾーン ${domain} にレコードがあるかを見る: dig CNAME <トークン>._domainkey.${domain}（トークンは get-email-identity の DkimAttributes.Tokens）、dig MX ${mailFrom ?? `bounce.${domain}`}、dig TXT ${mailFrom ?? `bounce.${domain}`}`,
-    "レコードが無ければ cd cloud && sam deploy で作り直す。あるのに通らなければ SES のコンソール（東京）→ Verified identities → ドメイン → DKIM の Retry",
+    "レコードが無ければ node cloud/deploy.mjs で作り直す。あるのに通らなければ SES のコンソール（東京）→ Verified identities → ドメイン → DKIM の Retry",
     "SUCCESS になるまで顧客にメールを送れない。待つあいだ進めてよいと判断したら yes（cloud/README.md の 4.9.1）",
   ];
 }
@@ -415,7 +610,7 @@ function amiSteps() {
   return [
     `今の EC2 の AMI を取る: ${OUT_FN} のあと aws ec2 describe-instances --region ${REGION} --instance-ids "$(OUT WireguardInstanceId)" --query 'Reservations[0].Instances[0].ImageId' --output text`,
     "cloud/samconfig.toml の [default.deploy.parameters] の parameter_overrides に \"WireguardFixedAmiId=<上の ami-…>\" を足す（エディタで）",
-    "次の sam deploy で反映される（急がなくてよいが、新しい AMI が出る前に行う。cd cloud && sam build && sam deploy）",
+    `次のデプロイで反映される（急がなくてよいが、新しい AMI が出る前に行う。${DEPLOY_COMMAND}）`,
     "反映を確かめる: node setup/setup.mjs --target prod --phase apps --only cloud --check で WireGuard の AMI の「!」が消える（cloud/README.md の 4.2.1 の手順 3）",
     "samconfig.toml に書いた（デプロイは後で行う）なら yes",
   ];
@@ -489,7 +684,7 @@ function oldKeySteps(user) {
 function rollbackWarnSteps() {
   return [
     `原因を見る: aws cloudformation describe-stack-events --region ${REGION} --stack-name ${STACK} --max-items 40 --query "StackEvents[?contains(ResourceStatus,'FAILED')].[Timestamp,LogicalResourceId,ResourceStatusReason]" --output table`,
-    "原因（パラメータの誤り・権限・上限など）を直し、cd cloud && sam build && sam deploy をやり直す",
+    `原因（パラメータの誤り・権限・上限など）を直し、${DEPLOY_COMMAND} をやり直す`,
     "前の版のまま進めてよい（今回の変更は後で入れ直す）と判断したときだけ yes",
   ];
 }
@@ -657,20 +852,24 @@ export async function check(ctx) {
         if (s.required) ok = false;
       }
     }
-    return { ok, notes };
+    // デプロイのずれは items だけ（ok と notes は変えない。ずれで段階 deploy の判定を巻き添えにしない）
+    return { ok, notes, items: await deployDriftItems(ctx, global, main) };
   }
   if (ctx.phase === "images") {
     const main = await describeStack(ctx, STACK, REGION);
-    if (!main) return { ok: false, notes: [`スタック ${STACK} が無い（先に段階 deploy）`] };
+    if (!main) return { ok: false, notes: [`スタック ${STACK} が無い（先に段階 deploy）`], items: await imageDriftItems(ctx, null, []) };
     const notes = [];
+    const images = [];
     let ok = true;
     for (const img of IMAGES) {
       const tag = parameterOf(main, img.param);
-      const found = await imageExists(ctx, img.repo, tag);
-      notes.push(`${img.repo}:${tag} ${found ? "は ECR にある" : "が ECR に無い"}`);
-      if (!found) ok = false;
+      const image = await describeImage(ctx, img.repo, tag);
+      images.push(image);
+      notes.push(`${img.repo}:${tag} ${image ? "は ECR にある" : "が ECR に無い"}`);
+      if (!image) ok = false;
     }
-    return { ok, notes };
+    // イメージの古さは items だけ（ok と notes は変えない。ずれで段階 images の判定を巻き添えにしない）
+    return { ok, notes, items: await imageDriftItems(ctx, main, images) };
   }
   if (ctx.phase === "apps") {
     const main = await describeStack(ctx, STACK, REGION);
@@ -722,7 +921,7 @@ export async function apply(ctx) {
       const found = await leftovers(ctx, (await callerIdentity(ctx)).Account);
       if (found.length) ctx.manual("leftovers", "前の作成の失敗で残ったリソースを消す", leftoverSteps(found));
     }
-    if (mainProblem) ctx.manual("sam-deploy", `本番スタックを sam build → sam deploy する（${mainProblem}）`, mainSteps());
+    if (mainProblem) ctx.manual("sam-deploy", `本番スタックを ${DEPLOY_COMMAND}（sam build → sam deploy）でデプロイする（${mainProblem}）`, mainSteps());
     if (main.StackStatus === "UPDATE_ROLLBACK_COMPLETE") await ctx.confirm("update-rollback", `スタック ${STACK} の直近の更新は戻された（UPDATE_ROLLBACK_COMPLETE）。前の版のまま。CloudFormation のイベントで原因を確かめる`, rollbackWarnSteps());
     ctx.log(`スタック ${STACK}: ${main.StackStatus}（${main.LastUpdatedTime ?? main.CreationTime}）`);
 

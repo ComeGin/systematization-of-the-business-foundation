@@ -3,13 +3,14 @@
 # Chatwoot の公式イメージ（chatwoot/chatwoot）に RDS の CA を足す派生イメージ。PostgreSQL（RDS）への接続でサーバー証明書を検証させる。
 # Rails（pg / libpq）は PGSSLMODE=verify-full と PGSSLROOTCERT（services/chatwoot-*.yaml）で、この CA の置き場を渡す。
 #
-# ビルド:
-#   docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 \
-#     --build-arg UPSTREAM_DIGEST=sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1 -t <ECR の URI>:<固定のタグ> cloud/images/chatwoot
+# ビルドと push（リポジトリのルートから。生の docker build・push は使わない）:
+#   node cloud/images/build-push.mjs chatwoot
+# 上流のタグとダイジェストは cloud/images/chatwoot/upstream.json から読み、--build-arg UPSTREAM_TAG・UPSTREAM_DIGEST に渡す。
+# 本来のタグ <タグ> と、ビルドしたコミットを残す <タグ>-rev-<コミット> の 2 つを push する（cloud/README.md の 4.7）。
 #
 # UPSTREAM_TAG（4.12 以上）と UPSTREAM_DIGEST は必須（既定なし）。latest は使わない。chatwoot-web と chatwoot-worker は同じイメージ。
 # 上流はタグとダイジェストの両方で固定する（タグは付け替えられうるため。ダイジェストがあれば Docker はそれを使う）。
-# ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の Digest（読み取りだけ）。タグを上げたら両方を変える（cloud/README.md の 4.7）。
+# ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の Digest（読み取りだけ）。タグを上げたら upstream.json の tag と digest の両方を変える（cloud/README.md の 4.7）。
 ARG UPSTREAM_TAG
 ARG UPSTREAM_DIGEST
 # RDS の CA 束（global-bundle.pem）の SHA-256。内容が変わるとビルドが失敗する（cloud/README.md の 4.7）。

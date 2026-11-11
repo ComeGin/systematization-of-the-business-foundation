@@ -81,6 +81,10 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 
 - `catalog.ts`: `loadCatalog(mainCheckout)` が `setup/status/steps.mjs`（手順の一覧の正本）を承認済み main のチェックアウトから `import()` して zod で検証する。`CATALOG_VERSION` が 1 でなければ `CatalogError`（値は出さない）。更新時刻を `?mtime=` に付けて、main が進んだときに古い版を掴まない。
 - `docs.ts`: `readDocSection(mainCheckout, file, heading, allowedFiles)` が手順書の 1 節を返す。`file` はカタログの `docs` に現れるもの（`catalogDocFiles()`）だけ許し、`..`・絶対パス・チェックアウトの外を指すリンクは `null`。見出しの一致は `setup/status/verify-steps.mjs` と同じ（先頭一致。末尾が数字なら `4.1` は `4.10`・`4.1.1` に当たらない。コードブロックの中は見出しでない）。先頭一致が 2 つ以上あれば `null`。
+- `drift.ts`: 設定スクリプトが確かめていないずれ（カタログの `probe: drift("<id>")`）。どれも読み取りだけで、根拠にトークンを入れない。
+  - `site-redeploy`: 配信中の `build-info.json` の `commit` から `origin/main` までに `frontend/verdant-virgo` の変更があれば ●。毎回確かめる。
+  - `n8n-workflows`: `origin/main` の本番に取り込むワークフローの JSON と本番の n8n を比べる。製品の API なので 1 時間に 1 回（間の回は前回の結果を引き継ぐ）。キー（`CONTROL_N8N_EXPORT_*`）が無ければ ◇。
+  - `site-articles`（2026-11-11）: 本番の Strapi の公開済みの記事（`CONTROL_STRAPI_URL`・`CONTROL_STRAPI_READ_TOKEN`。書き込みのトークンは使わない）と、配信中の `build-info.json` の `articles` を slug で比べる。足りない（公開）・`updatedAt` が違う（更新）・余っている（取り下げ）を数え、**48 時間の猶予**（`ARTICLE_GRACE_MS`。ちょうど 48 時間は過ぎたもの）を過ぎたものがあれば ●。猶予中だけなら ✓ で根拠に「配信待ち N 件（猶予中。最も古いものの期限 <JST>）」。公開・更新は Strapi の `publishedAt`・`updatedAt` の新しいほうから、取り下げは最初に見つけた時刻（保存のずれの結果の `firstSeen` に slug ごとに残し、次の回に引き継ぐ）から数える。`articles` のキーが無い（この機能より前のビルド）・`build-info.json` が 404 なら ●、`articles: null`・Strapi に届かないなら ?、Strapi の読み取りの設定が無ければ ◇。根拠の slug は 5 件まで（超えたら「ほか N 件」）。製品の API なので `n8n-workflows` と同じく 1 時間に 1 回。
 
 ## E-15（実行記録）
 

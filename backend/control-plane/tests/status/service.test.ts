@@ -124,6 +124,7 @@ let deps: { [K in keyof SetupStatusDeps]: SetupStatusDeps[K] } & {
   runSetupCheck: ReturnType<typeof vi.fn>;
   checkSiteRedeploy: ReturnType<typeof vi.fn>;
   checkN8nWorkflows: ReturnType<typeof vi.fn>;
+  checkSiteArticles: ReturnType<typeof vi.fn>;
   readDocSection: ReturnType<typeof vi.fn>;
   sendNotifications: ReturnType<typeof vi.fn>;
 };
@@ -137,6 +138,7 @@ function makeDeps() {
     ),
     checkSiteRedeploy: vi.fn(async () => ({ id: "site-redeploy" as const, level: "ok" as const, evidence: "配信中のビルドが最新" })),
     checkN8nWorkflows: vi.fn(async () => ({ id: "n8n-workflows" as const, level: "ok" as const, evidence: "一致" })),
+    checkSiteArticles: vi.fn(async () => ({ id: "site-articles" as const, level: "ok" as const, evidence: "記事は一致" })),
     collectSecrets: vi.fn(() => [] as string[]),
     sendNotifications: vi.fn(async () => ({ ok: true as const })),
     readDocSection: vi.fn(async () => ({ file: "cloud/README.md", heading: "4.2 本番スタック", markdown: "# 4.2" })),
@@ -212,6 +214,7 @@ describe("SetupStatusService", () => {
       expect(saved?.driftResults).toEqual([
         { id: "site-redeploy", level: "ok", evidence: "配信中のビルドが最新", checkedAt: "2026-11-03T10:00:00.000+09:00" },
         { id: "n8n-workflows", level: "ok", evidence: "一致", checkedAt: "2026-11-03T10:00:00.000+09:00" },
+        { id: "site-articles", level: "ok", evidence: "記事は一致", checkedAt: "2026-11-03T10:00:00.000+09:00" },
       ]);
     });
 
@@ -268,6 +271,74 @@ describe("SetupStatusService", () => {
       clock = new Date(T0.getTime() + 120 * 60 * 1000 + 30_000);
       await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
       expect(deps.checkN8nWorkflows).toHaveBeenCalledTimes(3);
+      service.stop();
+    });
+
+    it("入力: productDue でない回は site-articles の前回の結果を引き継ぐ", async () => {
+      const articlesCatalog: Catalog = {
+        ...CATALOG,
+        steps: CATALOG.steps.map((step) =>
+          step.id !== "P12"
+            ? step
+            : {
+                ...step,
+                items: [
+                  ...step.items,
+                  {
+                    id: "P12.articles",
+                    title: "公開済みの記事を 48 時間以内に配信する",
+                    who: "人・画面",
+                    kind: "検査",
+                    overviewText: "a",
+                    probe: { kind: "drift", id: "site-articles" },
+                    docs: [],
+                  },
+                ],
+              },
+        ),
+      };
+      deps.loadCatalog.mockResolvedValue(articlesCatalog);
+      const firstSeen = { gone: "2026-11-03T10:00:30.000+09:00" };
+      deps.checkSiteArticles.mockResolvedValue({ id: "site-articles", level: "ok", evidence: "配信待ち 1 件（猶予中）", firstSeen });
+      const strapi = { baseUrl: "https://cms.example.test", readToken: "strapi-read-token", writeToken: "strapi-write-token" };
+      const service = new SetupStatusService({ ...config(), strapi }, deps as unknown as Partial<SetupStatusDeps>);
+      service.start();
+      clock = new Date(T0.getTime() + 30_000);
+      await vi.advanceTimersByTimeAsync(30_000); // 10:00:30。記事も確かめる（前回の結果は無い）
+      expect(deps.checkSiteArticles).toHaveBeenCalledTimes(1);
+      const firstCall = deps.checkSiteArticles.mock.calls[0]![0] as Record<string, unknown>;
+      // 読み取りのトークンだけを渡す（書き込みのトークンは渡さない）
+      expect(firstCall).toMatchObject({
+        siteUrl: "https://www.example.test",
+        strapi: { baseUrl: "https://cms.example.test", readToken: "strapi-read-token" },
+        previous: undefined,
+      });
+      expect(JSON.stringify(firstCall.strapi)).not.toContain("strapi-write-token");
+      expect((firstCall.now as Date).getTime()).toBe(T0.getTime() + 30_000);
+      expect(item(service, "P12.articles")).toMatchObject({ level: "ok", checkedAt: "2026-11-03T10:00:30.000+09:00" });
+
+      // 「今すぐ確かめる」（10:12）は 1 時間以内でも呼び、前回の結果（firstSeen を含む）を渡す
+      deps.checkSiteArticles.mockResolvedValue({ id: "site-articles", level: "action", evidence: "配信されていない", firstSeen });
+      clock = new Date(T0.getTime() + 12 * 60 * 1000);
+      service.refresh();
+      await settle();
+      expect(deps.checkSiteArticles).toHaveBeenCalledTimes(2);
+      expect((deps.checkSiteArticles.mock.calls[1]![0] as { previous: unknown }).previous).toMatchObject({ id: "site-articles", firstSeen });
+      expect(item(service, "P12.articles")).toMatchObject({ level: "action", checkedAt: "2026-11-03T10:12:00.000+09:00" });
+
+      // 11:00:30（定期）: 10:12 から 1 時間たっていないので呼ばずに、前回の結果をその時の checkedAt のまま引き継ぐ
+      deps.checkSiteArticles.mockResolvedValue({ id: "site-articles", level: "ok", evidence: "一致" });
+      clock = new Date(T0.getTime() + 60 * 60 * 1000 + 30_000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+      expect(deps.checkSiteArticles).toHaveBeenCalledTimes(2);
+      expect(item(service, "P12.articles")).toMatchObject({ level: "action", evidence: "配信されていない", checkedAt: "2026-11-03T10:12:00.000+09:00" });
+      const saved = new StatusStore(join(root, "data")).load()?.driftResults?.find((d) => d.id === "site-articles");
+      expect(saved).toMatchObject({ checkedAt: "2026-11-03T10:12:00.000+09:00", firstSeen });
+
+      // 12:00:30（定期。10:12 から 1 時間たった）: また呼ぶ
+      clock = new Date(T0.getTime() + 120 * 60 * 1000 + 30_000);
+      await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+      expect(deps.checkSiteArticles).toHaveBeenCalledTimes(3);
       service.stop();
     });
 

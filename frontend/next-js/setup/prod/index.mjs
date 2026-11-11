@@ -238,7 +238,7 @@ export async function statusPrincipalProblem(ctx, file) {
 function statusPrincipalSteps(problem, file) {
   return [
     `いまの状態: ${problem}`,
-    `人が自分の端末で、管理者のプロファイルで行う（Claude Code の実行環境では行わない）: IAM ユーザー ${STATUS_USER} を作り、管理ポリシー ${STATUS_POLICY} だけを付け、アクセスキーを ${file}（プロファイル名 [${STATUS_PROFILE}]）に直接書く（画面に出さない。umask 077）。管理ポリシーは先に sam deploy で作る。コマンドは cloud/README.md の 4.5.3`,
+    `人が自分の端末で、管理者のプロファイルで行う（Claude Code の実行環境では行わない）: IAM ユーザー ${STATUS_USER} を作り、管理ポリシー ${STATUS_POLICY} だけを付け、アクセスキーを ${file}（プロファイル名 [${STATUS_PROFILE}]）に直接書く（画面に出さない。umask 077）。管理ポリシーは先に node cloud/deploy.mjs でデプロイして作る。コマンドは cloud/README.md の 4.5.3`,
     "キーを ~/.aws/credentials や作業ツリーの中に置かない（管理者のキーと混ざる・エージェントが作業ツリーを cwd にして動くため）。監視アプリの主体（comegin-prod-control-plane）とは別のユーザーにする",
     "別の場所に置いたなら、prod.conf に CONTROL_STATUS_AWS_CREDENTIALS_FILE=<絶対パス> を書く",
     "同じコマンドを実行し直す",
@@ -657,7 +657,7 @@ async function operateWarnings(ctx, main) {
       entries.push({ id: "heartbeat-alarm", text, steps: [
         `本番スタックの状態を見る: aws cloudformation describe-stacks --region ${REGION} --stack-name comegin-prod --query 'Stacks[0].StackStatus' --output text（*_COMPLETE であること）`,
         `アラームの名前を探す: aws cloudwatch describe-alarms --region ${REGION} --alarm-name-prefix comegin-prod-onprem --query 'MetricAlarms[].AlarmName' --output text`,
-        "無ければ cloud/stacks/alarms.yaml のハートビートのアラームを確かめ、人が cd cloud && sam build && sam deploy する（cloud/README.md の 4.10・4.13）",
+        "無ければ cloud/stacks/alarms.yaml のハートビートのアラームを確かめ、人が node cloud/deploy.mjs でデプロイする（cloud/README.md の 4.10・4.13）",
         "アラームが無いと、監視アプリが止まっても知らせが届かない。デプロイを後で行うと決めたときだけ yes",
       ] });
     } else if (alarm.StateValue !== "OK") {
