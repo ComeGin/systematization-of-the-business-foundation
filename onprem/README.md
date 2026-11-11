@@ -456,7 +456,7 @@ journalctl -u comegin-control -n 50                                     # 起動
 | 毎日 00:00 | `published-article-check` | 記事の一覧が最後に確かめた配信と同じで、`frontend/verdant-virgo` にも変更が無ければ `success`（何もしない）。変わっていれば本番の値でビルドと計測を行い、周の deploy の項目（OK 待ち）が出る（承認前の古い deploy の項目は置き換えられる。公開サイトに関係しないコミットでは作り直さない。OK 済み・実行済み・確かめられなかった〈`failed_check`〉の古い項目があるあいだは `skipped`。`failed_check` は人が差し戻すまで残る。同じ差分を配信し直すなら、差し戻さずに（failed_check のまま）この項目で「実行した」を押し直す。差し戻した場合は、新しい記事の公開か公開サイト（frontend/verdant-virgo）の変更があったときだけ、次の夜に新しい配信の項目が作られる（変更が無いあいだは作られない）。）。`CONTROL_STRAPI_*`・`SITE_URL`・`CONTROL_CYCLE_ANCHOR` が無ければ `skipped`。`timeout_sec` は 1500 |
 | 月曜 00:30〜02:15 | Lighthouse → a11y → 観測 3 本（lighthouse・a11y・SERP 監査） | Lighthouse と a11y は時刻で重ねない。観測は `after` で計測の成功を待つ |
 | 月曜 02:30 | `weekly-keyword-research` | **OpenSEO の費用が出る**（1 回の見積もりの上限は 2,000 クレジット） |
-| 火曜 02:30 | `weekly-content-draft` | **本番の Strapi に下書きを書く**。承認済みの企画（E-03）が無ければ `skipped` |
+| 火曜・金曜 02:30 | `weekly-content-draft` | **本番の Strapi に下書きを書く**（1 回 1 本・週 2 本）。承認済みの企画（E-03）が無ければ `skipped` |
 | 水曜 02:30 | `weekly-content-plan` | 採用済みの E-01 が無ければ `skipped` |
 | 毎日 04:00 | 観測のエージェント 4 本（`daily-observe-*`） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
 | 毎日 04:30 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |

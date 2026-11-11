@@ -2,7 +2,7 @@ id: cycle-apply-content
 description: "承認済みの content_rewrite の E-13 から、記事の下書きを 1 本作る・書き直す。本番の Strapi には下書きまで。公開は R2 が管理画面で行う（改善ループの作用のジョブ）"
 enabled: false
 # 毎日 06:30。起動 + 1200 秒 = 06:50 で、8 時より前。daily-n8n-export（06:15〜06:25）の後・cycle-collect（07:00）の前なので、同じ日の cycle-collect が成果物を拾える。
-# weekly-content-draft（火曜 02:30）とは時刻が重ならない（どちらも content-writer だが、起動の経路が違う。こちらは E-13 の経路）
+# weekly-content-draft（火・金曜 02:30）とは時刻が重ならない（どちらも content-writer だが、起動の経路が違う。こちらは E-13 の経路）
 cron: "30 6 * * *"
 kind: agent
 agent: content-writer
