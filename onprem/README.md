@@ -190,6 +190,7 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 | `next-js-prod:openai` | **任意の機能**。`OPENAI_API_KEY` が無いだけ・`sk-` で始まらないときは止まらず警告（`article-cover` が `skipped`・認証で失敗）。`CONTROL_COVER_MAX_PER_RUN` が 1〜10 でない・`CONTROL_OPENAI_IMAGE_SIZE` の形が違うときに止まる | `setup/manual-steps.md` の 7.7（Images だけのプロジェクトキーと月の上限） |
 | `next-js-prod:mautic-reader` | **任意の機能**。認証情報が 2 つとも無いだけなら止まらず警告（`cycle-collect` が campaign の項目の中身を埋めず、送信の開始を確かめない）。片方だけ・`MAUTIC_CLIENT_ID`・`MAUTIC_RO_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_ID`・`N8N_MAUTIC_CLIENT_ID` と同じ値・URL の形が違うときに止まる | `setup/manual-steps.md` の 7.9（control-plane 用に別に発行） |
 | `next-js-prod:prod-values` | 下の表の必須の値が `prod.conf` に無い | 表示されたキーを `prod.conf` に書く |
+| `next-js-prod:i13-github` | **任意の機能。止まらず `!` で確認を求める**。`GITHUB_TOKEN` が `.env` に無い（I-13 の起票・n8n の書き出しが `skipped`、改修案のマージを確かめられない） | 下の「I-13 の起票を有効にする（`GITHUB_TOKEN`）」。まだ使わないなら yes で進む |
 | `next-js-prod:systemd`・`systemd-dir` | ユニット `comegin-control` が無い・動いていない・チェックアウト以外で動いている | 下の「常駐させる（監視アプリ）」 |
 | `next-js-prod:restart` | `.env` を書き換えた後に `comegin-control` を起動し直していない | `sudo systemctl restart comegin-control` |
 | `next-js-prod:start` | ユニットは active だが 3200 が応答しない | `journalctl -u comegin-control -n 50` で起動の失敗を見る（control-plane の設定不正は変数名だけが出る） |
@@ -213,7 +214,7 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 | `AWS_REGION`・`AWS_PROFILE`・`AWS_SHARED_CREDENTIALS_FILE`・`RUNLOG_BUCKET` | `ap-northeast-1`・`comegin-prod-control-plane`・資格情報ファイルの絶対パス・スタックの出力 `RunLogBucketName` | `cloud/README.md` の 4.5.2 |
 | `CONTROL_SETUP_STATUS_ENABLED`・`CONTROL_STATUS_AWS_CREDENTIALS_FILE`・`CONTROL_STATUS_AWS_PROFILE`・`CONTROL_STATUS_GITHUB_TOKEN_FILE`・`CONTROL_STATUS_ALERT_TOPIC_ARN`・`CONTROL_STATUS_LINK_BASE` | `true`・`~/.config/comegin/status-reader/aws-credentials` の絶対パス・`default`・`~/.config/comegin/status-reader/github-token` の絶対パス・スタックの出力 `OpsAlertTopicArn`・`BETTER_AUTH_URL` と同じ値（メールのリンクの根）。ファイルの中身は書かない。画面の使い方は下の「設定の状況を有効にする」 | `cloud/README.md` の 4.5.3・`backend/control-plane/README.md` |
 | `MISWRITE_CHATWOOT_BASE_URL`・`..._ACCOUNT_ID`・`..._API_TOKEN`・`MISWRITE_AGENT_USER_ID` | `https://chat.comegin.com`（`CHATWOOT_BASE_URL`）・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`・状態の `CHATWOOT_AGENT_USER_ID`（`chatwoot-prod` が置く）。**開発の `127.0.0.1:3100` の値にしない** | `cloud/README.md` の 7.3 |
-| `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER` | 任意（無ければ I-13 の起票が skipped）。fine-grained PAT（このリポジトリだけ。Contents と Pull requests を Read and write）・リポジトリは空なら `origin` の URL から・起票をまとめる Issue の番号・レビュアーの GitHub のユーザー名。1 つでも書いたら 4 つとも要る | `backend/control-plane/README.md` の I-13 |
+| `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER` | 任意（無ければ I-13 の起票が skipped）。fine-grained PAT（このリポジトリだけ。Contents と Pull requests を Read and write）・リポジトリは空なら `origin` の URL から・起票をまとめる Issue の番号・レビュアーの GitHub のユーザー名。1 つでも書いたら 4 つとも要る。作り方は下の「I-13 の起票を有効にする（`GITHUB_TOKEN`）」 | `backend/control-plane/README.md` の I-13 |
 | `CONTROL_N8N_EXPORT_URL`・`CONTROL_N8N_EXPORT_API_KEY` | **判断の後で** `prod.conf` に書く。`http://127.0.0.1:5679` と本番の n8n の API キー（コミュニティ版は全権限になる） | `backend/control-plane/README.md` の n8n-export |
 
 ### 常駐させる（監視アプリ）
@@ -314,6 +315,118 @@ git -C <作業ツリー> remote get-url origin                                  
 git -C <作業ツリー> remote set-url origin https://github.com/ComeGin/systematization-of-the-business-foundation.git
 git -C <作業ツリー> remote get-url origin                                                     # 直った URL
 ```
+
+### I-13 の起票を有効にする（`GITHUB_TOKEN`）
+
+`next-js-prod` が `! GITHUB_TOKEN などが無い。I-13 の起票（daily-i13-file）は skipped になる` と出したときの手順（`next-js-prod:i13-github`。止まらずに確認を求める）。4 つの値がそろうまで、次の処理が GitHub に届かない:
+
+| 処理 | 値が無いとき |
+|---|---|
+| `daily-i13-file`（I-13）。`docs/proposals/` の draft の E-13 からブランチ・コミット・PR を作り、レビュアーを付けて、PR 番号を E-13 の `change.diff_ref` に書き戻す | `skipped`（改善の提案が PR にならない） |
+| 改善の周の `cycle-collect`・実行の確認。改修案（code）の PR がマージされたかを GitHub で確かめる | 確かめられない（「GitHub の設定が無いため確かめられない」） |
+| `daily-n8n-export`。本番の n8n のワークフローの書き出しを PR にする（`CONTROL_N8N_EXPORT_*` も要る） | `skipped` |
+
+**設定の状況用の参照専用のトークン（`~/.config/comegin/status-reader/github-token`）とは別のトークン**にする（こちらは Read and write。用途ごとに分けておくと、片方が漏れたときに片方だけを失効させられる）。トークンを Claude Code に作らせない・書かせない・読ませない。
+
+#### 1. fine-grained personal access token を作る（人・ブラウザ）
+
+1. GitHub に**起票の PR の作成者にしてよいアカウント**でログインし、右上のアイコン → **Settings** → 左の一番下の **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token** を開く（直接 `https://github.com/settings/personal-access-tokens/new` でもよい）。
+2. 次のように入れる。
+
+   | 項目 | 値 |
+   |---|---|
+   | Token name | `comegin-prod-i13`（何のトークンか分かる名前） |
+   | Description | 例: 「本番の監視アプリの I-13 の起票・n8n の書き出し・改修案のマージの確認」 |
+   | **Resource owner** | **`ComeGin`**（自分の個人アカウントではない。Organization が出てこないときは、Organization が fine-grained のトークンを禁止している。Organization の Settings → Personal access tokens で許可する） |
+   | Expiration | 期限を決める（例: 90 日）。**切れる前に作り直す日をカレンダーに控える** |
+   | **Repository access** | **Only select repositories** → `ComeGin/systematization-of-the-business-foundation` の 1 つだけ |
+   | **Repository permissions** | **Contents: Read and write**（ブランチ・コミット）と **Pull requests: Read and write**（PR の作成・レビュアーの指定・マージの確認）だけ。Metadata: Read-only は自動で付く。Issues・Workflows・Administration など、ほかは付けない |
+   | Account permissions | 何も付けない |
+
+3. **Generate token** を押し、出たトークン（`github_pat_` で始まる）をコピーする。この画面を閉じると二度と表示されないので、すぐに次の 3 で `prod.conf` に書く。
+4. **Organization が承認を求めている場合**（Organization の既定は「承認が要る」）、トークンは **pending** になり、承認されるまで非公開のリポジトリを読めない（API が 404）。Organization のオーナーが Organization の **Settings** → **Personal access tokens** → **Pending requests** で承認する。**作った人が Organization のオーナーなら自動で承認される**。承認の状態は、自分の Settings → Developer settings → Fine-grained tokens の一覧で確かめられる。
+
+#### 2. 起票をまとめる Issue とレビュアーを決める（人・端末）
+
+- **`I13_ISSUE_NUMBER`**: 起票のブランチ名の頭に付ける Issue の番号（ブランチは `<番号>-feature-proposal-<proposal_id>`。リポジトリの「Issue 番号付きのブランチ」の決まりに合わせるため）。開いたままにする Issue を 1 つ作る。番号の存在はスクリプトも監視アプリも確かめないので、作ってから書く。
+
+  ```bash
+  gh issue create --repo ComeGin/systematization-of-the-business-foundation \
+    --title "改善提案の起票（I-13）" \
+    --body "監視アプリの I-13 が作る PR のブランチ名（<この番号>-feature-proposal-<proposal_id>）に使う。閉じない。"
+  # 出た URL の末尾の数字が I13_ISSUE_NUMBER
+  ```
+
+- **`I13_REVIEWER`**: PR のレビュアーにする人の GitHub のユーザー名（R2）。`@` は付けない。リポジトリの共同作業者（Organization のメンバーで書き込み権限がある人）であること。
+  - **トークンを作ったアカウントと同じ人にはできない**（GitHub は PR の作成者にレビューを依頼できない）。同じにすると、PR は作られるが、レビュアーの指定だけ失敗し、監視アプリのログに `Reviewer を指定できなかった（PR #n は作成済み）` の WARN が出る（実行は止まらない）。運用する人が 1 人なら、それを承知で同じ名前を書くか、起票専用のアカウントでトークンを作る。
+  - 共同作業者か確かめる（自分の `gh` の認証で。204 なら `ok`）:
+
+    ```bash
+    gh api repos/ComeGin/systematization-of-the-business-foundation/collaborators/<ユーザー名> --silent && echo ok
+    ```
+
+#### 3. `prod.conf` に 4 つを書く（人・端末）
+
+`~/.config/comegin/setup/prod.conf` をエディタで開き、次の 4 行を足す（既にある行は書き換える）。**`echo` やコマンドの引数でトークンを書かない**（シェルの履歴と `ps` に残る）。
+
+```bash
+${EDITOR:-nano} ~/.config/comegin/setup/prod.conf
+```
+
+```ini
+GITHUB_TOKEN=github_pat_...（1 でコピーしたもの。引用符で囲まない）
+GITHUB_REPOSITORY=ComeGin/systematization-of-the-business-foundation
+I13_ISSUE_NUMBER=<2 で作った Issue の番号>
+I13_REVIEWER=<2 で決めたユーザー名>
+```
+
+- **1 つでも書いたら 4 つとも要る**（欠けると `next-js-prod:prod-values` で止まる。監視アプリも、一部だけなら起動時に例外にする）。
+- `GITHUB_REPOSITORY` は空なら `origin` の URL から補われるが、**明示して書く**。`origin` が改名前の名前（`kamegin4-aws/...`）のままだと、その名前が入り、GitHub の転送に頼ることになる。この値は設定の状況（`/setup-status`）の対象のリポジトリにも使われる。
+- base のブランチは既定で `main`。変えるときだけ `GITHUB_BASE_BRANCH=` を足す。
+- 保存したら権限を確かめる: `stat -c '%a' ~/.config/comegin/setup/prod.conf` が `600`（違えば `chmod 600`）。
+
+#### 4. トークンを確かめる（人・端末。任意だが推奨）
+
+`next-js-prod` は 4 つがそろっているかだけを見て、**このトークンで GitHub に書けるかは確かめない**（設定の状況用のトークンと違い、ここで書き込みを試すと本物のブランチができるため）。最初の起票で失敗に気づくのを避けるため、読める範囲だけ先に確かめる。トークンは画面にも `ps` にも出ない（ヘッダーは標準入力から渡す）:
+
+```bash
+(
+  GH_T=$(sed -n 's/^GITHUB_TOKEN=//p' ~/.config/comegin/setup/prod.conf)
+  REPO=ComeGin/systematization-of-the-business-foundation
+  gh_api() { printf 'Authorization: Bearer %s\n' "$GH_T" | curl -sS -H @- -H 'X-GitHub-Api-Version: 2022-11-28' "$@"; }
+  gh_api -o /dev/null -w 'リポジトリ: HTTP %{http_code}\n' "https://api.github.com/repos/$REPO"   # 200 が正しい
+  gh_api -D - -o /dev/null "https://api.github.com/repos/$REPO" | grep -i '^x-oauth-scopes' || echo 'classic ではない（正しい）'
+  gh_api "https://api.github.com/user" | jq -r '"トークンの持ち主: " + .login'                     # I13_REVIEWER と違う名前か
+)
+```
+
+| 結果 | 意味と直し方 |
+|---|---|
+| リポジトリが `404` | Organization の承認待ち（1 の 4）か、Repository access でこのリポジトリを選び忘れた・Resource owner が個人アカウントになっている |
+| リポジトリが `401` | トークンの貼り間違い・期限切れ・取り消し済み。作り直して `prod.conf` を書き換える |
+| `x-oauth-scopes:` が出た | classic のトークン（`ghp_`）を貼っている。fine-grained で作り直す |
+| 持ち主が `I13_REVIEWER` と同じ | 2 の注意のとおり、レビュアーの指定だけが毎回失敗する |
+
+**Contents と Pull requests が Read and write かは、ここでも確かめられない**（`GET /repos` の `permissions` はトークンではなくユーザーの役割を表すため）。トークンの設定画面で目で確かめる。
+
+#### 5. 監視アプリに反映する（人・端末）
+
+```bash
+node setup/setup.mjs --target prod --phase operate --only next-js-prod   # i13-github の ! が出ず、チェックアウトの .env に 4 つが写る
+sudo systemctl restart comegin-control                                  # .env は起動したときに読まれる（next-js-prod:restart で案内される）
+journalctl -u comegin-control -n 50                                     # 起動の失敗が無いこと（4 つの一部だけなら、変数名だけの例外が出る）
+```
+
+`http://127.0.0.1:3200/jobs/daily-i13-file` を開き、「手動で起動」で 1 回動かす。起票する E-13 が無いときは `success`（`I-13: 起票対象なし`）になる。`skipped` のままなら `.env` に写っていないか、再起動していない。draft の E-13 があるときは本物の PR ができる（`add: 改善提案 PRP-...`）ので、手動で動かすのはそれを承知のときだけにする。
+
+`daily-i13-file` は `ops/schedules/daily-i13-file.yaml` で `enabled: true`（毎日 05:30）。値を書いた翌朝から自動で起票が始まる。
+
+#### トークンの期限が切れたとき・作り直すとき
+
+- 期限が切れると、`daily-i13-file` が `failure`（`auth_failed`。401 は再試行しない）になり、`/runs` に出る。改修案のマージの確認も止まる。
+- GitHub の Fine-grained tokens の一覧でトークンを開き、**Regenerate token** で期限を延ばして新しい値を出す（権限の設定は引き継がれる。古い値はすぐに使えなくなる）。3 の `GITHUB_TOKEN=` の行だけを書き換え、5 を行う。
+- 漏れた疑いがあるときは、そのトークンを **Delete** し、1 から作り直す。設定の状況用のトークンは別なので、そちらは影響を受けない。
+- 起票をやめるときは、4 つの行を `prod.conf` から消して 5 を行い、`next-js-prod` の `!` に yes で進む（`daily-i13-file` は `skipped` に戻る）。
 
 ### 5. 定期実行を段階的に有効にする
 

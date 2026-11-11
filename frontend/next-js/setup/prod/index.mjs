@@ -997,10 +997,14 @@ export async function apply(ctx) {
   ctx.log(`${envPath} を本番の値にした（600。今回書いたキー: ${changed.join("・") || "なし"}）`);
   const env = ctx.readEnvFile(envPath);
   if (!env.GITHUB_TOKEN)
-    await ctx.confirm("i13-github", "GITHUB_TOKEN などが無い。I-13 の起票（daily-i13-file）は skipped になる（改善の提案が PR にならない）", [
-      `人が自分の端末で、GitHub の fine-grained personal access token を作る: Repository access は ${statusRepositoryOf(ctx)} だけ、Repository permissions は Contents と Pull requests を Read and write（設定の状況用の参照専用のトークンとは別のトークン）`,
-      "~/.config/comegin/setup/prod.conf にエディタで 4 つを書く: GITHUB_TOKEN=<トークン>、GITHUB_REPOSITORY=<所有者/名前。空なら origin から>、I13_ISSUE_NUMBER=<起票をまとめる Issue の番号>、I13_REVIEWER=<レビュアーの GitHub のユーザー名>（1 つでも書いたら 4 つとも要る。echo で書かない）",
-      "同じコマンドを実行し直す（.env に写り、restart を案内される）。詳しくは onprem/README.md の表と backend/control-plane/README.md の I-13",
+    await ctx.confirm("i13-github", "GITHUB_TOKEN などが無い。I-13 の起票（daily-i13-file）は skipped になる（改善の提案が PR にならない。n8n の書き出しも skipped、改修案のマージも確かめられない）", [
+      "手順の全体は onprem/README.md の「I-13 の起票を有効にする（GITHUB_TOKEN）」。以下はその要約",
+      `人がブラウザで、GitHub の Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token（https://github.com/settings/personal-access-tokens/new）。Resource owner は ${statusRepositoryOf(ctx).split("/")[0]}（個人アカウントではない）、Repository access は Only select repositories で ${statusRepositoryOf(ctx)} だけ、Repository permissions は Contents と Pull requests の 2 つを Read and write（Metadata は自動で Read。ほかは付けない）、Expiration を決めて作り直す日を控える。設定の状況用の参照専用のトークンとは別のトークンにする`,
+      "Organization が承認を求めていれば、トークンは pending になり承認まで使えない。Organization のオーナーが Organization の Settings → Personal access tokens → Pending requests で承認する（作った人がオーナーなら自動で承認）",
+      `起票をまとめる Issue を 1 つ作り、番号を控える: gh issue create --repo ${statusRepositoryOf(ctx)} --title "改善提案の起票（I-13）" --body "I-13 の PR のブランチ名に使う。閉じない。"。レビュアー（R2）は共同作業者のユーザー名で、トークンを作ったアカウントとは別の人（同じだとレビュアーの指定だけが失敗し、WARN が出る）`,
+      `\${EDITOR:-nano} ~/.config/comegin/setup/prod.conf で 4 行を書く: GITHUB_TOKEN=<github_pat_…>、GITHUB_REPOSITORY=${statusRepositoryOf(ctx)}（空なら origin から補われるが明示する）、I13_ISSUE_NUMBER=<4 の Issue の番号>、I13_REVIEWER=<ユーザー名。@ は付けない>。1 つでも書いたら 4 つとも要る。echo や引数でトークンを書かない。prod.conf は 600`,
+      "（推奨）トークンでリポジトリを読めること（200）・classic でないこと・持ち主がレビュアーと別なことを、画面に出さずに確かめる（コマンドは onprem/README.md の同じ節の 4。このスクリプトは書けるかまでは確かめない）",
+      "同じコマンドを実行し直す（.env に写り、restart を案内される）→ sudo systemctl restart comegin-control → http://127.0.0.1:3200/jobs/daily-i13-file の「手動で起動」で skipped でなくなったことを確かめる",
       "改善の提案を PR にしない（起票を skipped のままにする）と判断したときだけ、書かずに yes",
     ]);
   if (!env.CONTROL_N8N_EXPORT_API_KEY) ctx.log("n8n の書き出し（daily-n8n-export）は未設定（キーのスコープを人が判断してから CONTROL_N8N_EXPORT_* を prod.conf に書く）");
