@@ -95,29 +95,42 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
 - [ ] **人・端末** `samconfig.toml` に `RunLogAdminPrincipalArns`（デプロイに使う主体の ARN。忘れると E-15 のバケットが自分の更新を拒否して詰む）・`GoogleClientId`・`AdminBootstrapEmails` を書く — cloud 2
 - 〔未検査〕Lambda の同時実行数の上限が 121 以上か（このアカウントは 2026-10-27 に 1,000 を確認済み。別のアカウントに出すときだけ）— cloud 2
 
-**守ること**: 既定値と違うパラメータは**すべて `samconfig.toml` に書く**（書かなかったものはデプロイのたびに既定値に戻る。`DesiredCount` が 0 に戻ってサービスが止まる）— cloud 2「重要」
+**守ること**: 既定値と違うパラメータは**すべて `samconfig.toml` に書き、それを正本にする**（既存のスタックでは、`samconfig.toml` に書かなかったパラメータは前の値のまま残る〈SAM CLI が `UsePreviousValue` を渡す。cloud 4.2.0 の出典〉。手で変えた値が `samconfig.toml` に無いと、どの値で動いているかが分からなくなる。既定値に戻すには、既定値を `samconfig.toml` に明示して書く）— cloud 2「重要」
 
 ### P2. 段階 `deploy`: スタックを作る
 
 `node setup/setup.mjs --target prod --phase deploy`（止まる id は `cloud:global`・`cloud:cloudfront-params`・`cloud:sam-deploy`・`cloud:secrets`）
 
-- [ ] **人・端末** `cd cloud && sam deploy --config-env global`（us-east-1。ACM と CloudFront 用 WAF）— cloud 4.1
+**デプロイは `node cloud/deploy.mjs` で行う**（生の `sam build`・`sam deploy` は使わない）。`sam deploy` の包みで、HEAD のコミットをスタックのパラメータ `DeployedCommit` に記録する（関係するパスに未コミットの変更があると止まる）。この記録と `origin/main` を比べて、デプロイ忘れを検知する（下の 4 つの検査）。
+
+- [ ] **人・端末** `node cloud/deploy.mjs --config-env global`（us-east-1。ACM と CloudFront 用 WAF）— cloud 4.1
 - [ ] **人・端末** 出力の `CertificateArn`・`WebAclArn` を `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く — cloud 4.1
-- [ ] **人・端末** `sam build && sam deploy`（`sam build` は省けない。Lambda 3 つが空の zip になる）。ECS のサービスは**全部 0 台**で作られる — cloud 4.2
+- [ ] **人・端末** `node cloud/deploy.mjs`（`sam build` → `sam deploy` を順に行う。`sam build` は省けない。Lambda 3 つが空の zip になる）。ECS のサービスは**全部 0 台**で作られる — cloud 4.2
 - [ ] **人・端末** Secret `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（`read -rs` で履歴に残さない）— cloud 4.6
-- [ ] 〔警告〕**人・端末** global の 2 回目: 出力の `DistributionArn` を global の設定に足して `sam deploy --config-env global`（フラットレートプランの購読。Free Tier の期間のアカウントは購読できない）— cloud 4.3
+- [ ] 〔警告〕**人・端末** global の 2 回目: 出力の `DistributionArn` を global の設定に足して、global をもう 1 回デプロイする（フラットレートプランの購読。Free Tier の期間のアカウントは購読できない）— cloud 4.3
 - [ ] 〔警告〕**人・端末** SNS の 2 トピック（`comegin-ops-alert`・`comegin-lead-alert`）をメールで購読し、`--authenticate-on-unsubscribe true` を付けて確認する（メールのリンクは踏まない。付けずに確認した購読も警告に出る）— cloud 4.4
+- [ ] **人・端末** global スタックのデプロイが `origin/main` に追いついている（`DeployedCommit` のコミットの後に `cloud/global` を変えたコミットがあれば `node cloud/deploy.mjs --config-env global` でデプロイし直す）— cloud 4.1
+- [ ] **人・端末** 本番スタックのデプロイが `origin/main` に追いついている（`DeployedCommit` の後に `cloud/template.yaml`・`cloud/stacks` を変えたコミットがあれば `node cloud/deploy.mjs`）— cloud 4.2
+- [ ] **人・端末** Lambda のコードのデプロイが `origin/main` に追いついている（同じ `DeployedCommit` の後に `backend/faq-bot`・`consent-api`・`admin-auth` の `src`・`package.json`・ロックファイル・`Makefile`・`tsconfig.json` を変えたコミットがあれば `node cloud/deploy.mjs`。`*.md`・テストだけの変更は数えない）— cloud 4.2
+- [ ] **人・端末** `samconfig.toml` とデプロイ済みスタックのパラメータが同じ（書き換えたのにデプロイしていないパラメータは名前だけが出る。NoEcho の値と `DeployedCommit` は比べない）— cloud 4.2
 
 〔警告〕の 2 つは、段階 `apps` の最初（`cloud`）が読み取りで確かめる。SES の本番アクセスの申請は、公開サイトを配信した後に行う（P12）。
+
+最後の 4 つの検査は、段階 `deploy` の `cloud` が「設定の状況」の項目（`cloud.global-commit`・`cloud.stack-commit`・`cloud.lambda-code`・`cloud.stack-params`）だけで返す（段階の止める判定には混ぜない）。`origin/main` を新しくするのは監視アプリ（1 時間ごと）か、手で直接 `--check` するときの `git fetch`。AWS か git に届かないときは「確かめられない」になる。**導入の直後は、この仕組みより前のデプロイに記録が無いので、記録を見る 3 つがまとめて「記録が無い」と出る。`node cloud/deploy.mjs --config-env global` と `node cloud/deploy.mjs` を 1 回ずつ実行して記録付きでデプロイし直すと消える**（リソースに変更が無くても、記録は新しくなる）。
 
 ### P3. 段階 `images`: 派生イメージ
 
 `node setup/setup.mjs --target prod --phase images`（止まる id は `cloud:push`）
 
-- [ ] **人・端末** Chatwoot・Mautic の派生イメージを `--platform linux/amd64` でビルドして ECR にプッシュする（表示されたコマンド）— cloud 4.7
-- [ ] **人・端末** タグ（`ChatwootImageTag`・`MauticImageTag`）を `samconfig.toml` に書いて `sam deploy`（`REPLACE-WITH-FIXED-TAG` のままでは起動しない）— cloud 4.7
+**イメージは `node cloud/images/build-push.mjs <chatwoot|mautic>` でビルド・プッシュする**（生の `docker build`・`docker push` は使わない）。`<タグ>` と、ビルドしたコミットを残す `<タグ>-rev-<コミット>` の 2 つのタグを付けて push する（`cloud/images/<製品>` に未コミットの変更があると止まる）。この記録と `origin/main` を比べて、ビルド忘れを検知する（下の検査）。
+
+- [ ] **人・端末** タグ（`ChatwootImageTag`・`MauticImageTag`）を `samconfig.toml` に書き（`REPLACE-WITH-FIXED-TAG` のままでは起動しない。build-push はここからタグを読む）、次の push が済んでから `node cloud/deploy.mjs` でデプロイする（**push が先、デプロイが後**。ECR に無いタグをデプロイすると、動いているサービス〈DesiredCount 1 以上〉がタスクを起動できず、サーキットブレーカーでスタックごと `UPDATE_ROLLBACK` になる。デプロイが先でよいのは、ECR のリポジトリがまだ無くサービスが 0 台の、段階 `deploy` の 1 回目だけ）— cloud 4.7
+- [ ] **人・端末** Chatwoot・Mautic の派生イメージを `node cloud/images/build-push.mjs chatwoot`・`node cloud/images/build-push.mjs mautic` でビルドして ECR にプッシュする（先に表示された `docker login`。`--platform linux/amd64` もスクリプトが付ける。上流のタグとダイジェストは `cloud/images/<製品>/upstream.json`）— cloud 4.7
+- [ ] **人・端末** 派生イメージのビルドが `origin/main` に追いついている（スタックのパラメータが指すタグのイメージについた `<タグ>-rev-<コミット>` の後に、`cloud/images/<製品>` を変えたコミットがあれば、その製品を `node cloud/images/build-push.mjs <製品>` でビルドし直す。記録のタグが無いイメージは「記録が無い」と出る）— cloud 4.7
   - Mautic は **`7.2.0-3` 以降**（Dockerfile の 1〜7 を含む版）。`7.2.0-1` は DB に TLS で接続できず全画面が 500、`7.2.0-2` はメールの保存が 500（どちらも 2026-10-29〜30 に本番で起きた。cloud 4.7）。ECR のタグは上書きできないので、Dockerfile を直したら末尾の連番を上げる
   - プッシュの前に `docker save "$IMG" > /dev/null` で層を読み直せることを確かめる（checksum の失敗の対策。cloud 4.7）
+
+最後の検査は、段階 `images` の `cloud` が「設定の状況」の項目（`cloud.image-commit`）だけで返す（段階の止める判定には混ぜない）。2 つのイメージのうち重いほうの判定で、根拠に「Chatwoot: …／Mautic: …」と出る。**導入の直後は、この仕組みより前に push したイメージに記録のタグが無いので「記録が無い」と出る。`node cloud/images/build-push.mjs` で記録付きでビルドし直すと消える**（ECR のタグは上書きできないので、連番を上げたタグにして `samconfig.toml` → `node cloud/images/build-push.mjs` → `node cloud/deploy.mjs` の順に直す。push が先。cloud 4.12）。
 
 ### P4. データ層の仕上げ（`cloud` の段階 `apps`）
 
@@ -133,7 +146,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
 
 - [ ] **人・端末** 運用の Lambda（`admin-auth-ops`）に `{"action":"migrate"}` → `{"action":"register-alb-client","authMethod":"client_secret_post"}`（どちらも `{"ok":true}`。**ALB は post を使う**。既定の basic のままだと管理画面が `561 Authentication Error`）— cloud 4.19・cloud 7.2
 - [ ] **人・画面** 管理画面（`https://chat.comegin.com/app/` など）を開き、Google でログインして戻ってこられることを確かめる（Chatwoot が 0 台のあいだは戻った先が 503 でよい）
-  - ログインの後に `https://auth.comegin.com/` の `not found` に落ちたら、2026-10-29 の admin-auth の修正（`src/pages.ts`）が入っていない版。管理画面を開き直せば通る（セッションはできている）。`sam build` → `sam deploy` で直る — cloud 4.19
+  - ログインの後に `https://auth.comegin.com/` の `not found` に落ちたら、2026-10-29 の admin-auth の修正（`src/pages.ts`）が入っていない版。管理画面を開き直せば通る（セッションはできている）。`node cloud/deploy.mjs` でデプロイし直すと直る — cloud 4.19
 - [ ] **〔申告〕** `prod.conf` に `ADMIN_AUTH_PROD_READY=yes`
 
 ### P6. オンプレの本番（WireGuard → Strapi → n8n）
@@ -144,9 +157,12 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
 - [ ] 〔警告〕**人・端末** WireGuard の AMI を固定する（`WireguardFixedAmiId` を `samconfig.toml` に書く。固定しないと新しい AMI のデプロイで EC2 が置き換わり、鍵が変わる）— cloud 4.2.1 の手順 3
 - [ ] 〔警告〕**人・端末** IAM ユーザー 2 つのアクセスキーを発行する（`onprem-strapi-media` は Strapi の `.env`、`onprem-n8n-sns` は P9 で `prod.conf` の `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY`。ファイルに直接書いて、写したら `shred -u`）— cloud 4.5
 - [ ] **人・端末** RDS の `strapi`・`n8n` のパスワード（Secret。**P4 の DB 作成の後**に取り出す）と PostgreSQL のエンドポイントを、`onprem/strapi/.env`・`onprem/n8n/.env` に写す — cloud 4.8・onprem「起動の順番」
-- [ ] **人・端末** Strapi: `./dev/init-env.sh` → `.env` に値 → `docker compose build && up -d` → `/_health` が 204 — onprem 2
-- [ ] **人・端末** n8n: `./dev/init-env.sh`（**`N8N_ENCRYPTION_KEY` を別の場所に控える**）→ `.env` に値 → `docker compose build && up -d` → `/healthz` — onprem 3
+- [ ] **人・端末** Strapi: `./dev/init-env.sh` → `.env` に値 → `node onprem/build.mjs strapi`（リポジトリのルートで。未コミットの変更があると止まり、`GIT_COMMIT=<HEAD>` を付けて `docker compose build` する）→ `docker compose up -d` → `/_health` が 204 — onprem 2
+- [ ] **人・端末** n8n: `./dev/init-env.sh`（**`N8N_ENCRYPTION_KEY` を別の場所に控える**）→ `.env` に値 → `node onprem/build.mjs n8n` → `docker compose up -d` → `/healthz` — onprem 3
 - [ ] **人・端末** systemd のユニットを置く（`CHANGE_ME` を書き換えてから `/etc/systemd/system/` に）— onprem「常駐させる」
+- [ ] **人・端末** Strapi のイメージが `origin/main` に追いついている（`backend/strapi-system`・`onprem/strapi` を変えたコミットの後に `node onprem/build.mjs strapi` でビルドし直し、`sudo systemctl restart comegin-strapi` で再起動する。ビルドしたコミットはイメージのラベルに残り、スクリプトが `origin/main` との差と、動いているコンテナが最新のイメージかを読む。記録が無いときは「記録が無い」と出る）— onprem 2
+- [ ] **人・端末** n8n のイメージが `origin/main` に追いついている（`onprem/n8n/Dockerfile`・`compose.yml` を変えたコミットの後に `node onprem/build.mjs n8n` でビルドし直し、`sudo systemctl restart comegin-n8n` で再起動する。確かめ方は Strapi と同じ）— onprem 3
+- [ ] **人・端末** n8n の版（`N8N_VERSION`・`N8N_DIGEST`・`N8N_RUNNERS_DIGEST`）が、`.env`・動いている n8n と runners・`origin/main` の `.env.example` で揃っている（版を上げたら `.env.example` と `.env` の両方を直し、ビルドし直して再起動する。スクリプトはこの 3 つ以外の値を読まない）— onprem 3
 - [ ] 〔未検査〕**人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）で最初の管理者を作り、トークンを 2 つ発行する: 公開サイトのビルド用の読み取り専用（article・category・author の find / findOne だけ → `SITE_STRAPI_API_TOKEN`）と、MCP 用の Admin トークン（**下書きまで** → `STRAPI_PROD_TOKEN`）— onprem「本番の MCP」・setup.conf.example
 - 本番の n8n のオーナー・公開 API のキー・MCP のトークンは、P9 の `n8n-prod` が作る（画面で作らない。先に作ってしまったなら onprem「本番の n8n」）
 
@@ -155,7 +171,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
 止まる id は `chatwoot-prod:ecs`・`chatwoot-prod:onboarding`・`chatwoot-prod:faq-bot-secrets`。
 
 - [ ] 〔未検査〕**人・端末** `db:chatwoot_prepare` を RunTask で実行する（**初回とイメージの更新のたび**。exitCode が 0。スクリプトは移行の有無を読めないが、`chatwoot-prod:ecs` の案内に手順が出る）— cloud 4.10
-- [ ] **人・端末** `samconfig.toml` に `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` を書いて `sam deploy`（P4 の SMTP の Secret の後。0 のままなら `chatwoot-prod:ecs` で止まる）— cloud 4.11
+- [ ] **人・端末** `samconfig.toml` に `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` を書いて `node cloud/deploy.mjs`（P4 の SMTP の Secret の後。0 のままなら `chatwoot-prod:ecs` で止まる）— cloud 4.11
 - [ ] **人・画面** `https://chat.comegin.com` の onboarding で最初の管理者とアカウントを作る → 管理者のトークンを `CHATWOOT_ADMIN_TOKEN`、アカウント ID を `CHATWOOT_ACCOUNT_ID` に — cloud 7.3
 - [ ] **人・画面** エージェント専用ユーザー（担当者の権限）を招待してログインし、トークンを `CHATWOOT_AGENT_TOKEN` に（P10 と共用。ADR-17）— cloud 7.3
 - [ ] **人・端末** 出力 `FaqBotFunctionUrl` ＋ `webhook` を `FAQ_BOT_WEBHOOK_URL`、本番の公開サイトの URL を `PUBLIC_SITE_URL` に書いて再実行 → **自動**（受信箱・ラベル・FAQ ボット・マクロ・通知）
@@ -167,7 +183,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
 
 2026-10-30 に本番で、cron の起動の直前まで通した手順。つまずいたときは、この節の最後の表を先に見る。
 
-- [ ] **人・端末** `MauticWebDesiredCount=1` を書いて `sam deploy`（cron はまだ 0 のまま。0 なら `ecs-web` で止まる）。イメージは P3 の `7.2.0-3` 以降 — cloud 4.11
+- [ ] **人・端末** `MauticWebDesiredCount=1` を書いて `node cloud/deploy.mjs`（cron はまだ 0 のまま。0 なら `ecs-web` で止まる）。イメージは P3 の `7.2.0-3` 以降 — cloud 4.11
 - [ ] **人・画面** `https://mkt.comegin.com/installer` でインストールする（`/installer` は OIDC の内側。先に P5 のログインが通ること）— cloud 4.10
   1. 環境の確認: 赤（必須）が無ければ次へ。黄（推奨）は進んでよい
   2. データベース: Driver `MySQL PDO`・Host は Aurora MySQL のエンドポイント・Port `3306`・Name `mautic`・User `mautic`・Prefix は空（どれも環境変数から入っている）。**パスワード欄の扱いに注意**（上流 7.2 の不具合。下の 3）
@@ -182,7 +198,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
 - [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — cloud 7.4
   - `prod.conf` は `chmod 600`（ほかのユーザーが読めると、スクリプトが手順を出して `yes` を待つ）
 - [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・社内通知〈`kamegin4@comegin.com` へ。個人情報を載せない。2026-11-09〉・セグメント mql。作り済みのものは名前で見つけて飛ばす）
-- [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `sam deploy`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
+- [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `node cloud/deploy.mjs`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
 
 インストーラーで 1045 になったときのコマンド（秘密値は画面にもシェルの履歴にも出ない。コンテナの中の環境変数で書き直す）:
 
@@ -244,6 +260,7 @@ php -r 'include "config/local.php"; echo ($parameters["db_password"] !== "" && $
 - [ ] **人・画面** 本番の Strapi（`http://127.0.0.1:1338/admin`）に、カテゴリ 3 つ（slug は `know-the-issues`・`compare-methods`・`consider-adoption`）があり、**公開済みの記事が 1 本以上ある**ことを確かめる。無ければ `R2` が記事を公開する（0 件だとビルドは「公開済みの記事が 0 件です」で意図して止まる。DD-05 の 1.2。エージェントは下書きまで）— cloud 4.14「ビルドの前提」
 - [ ] **人・端末** **承認済みの main のチェックアウト**（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）の `frontend/verdant-virgo` で `pnpm install && pnpm build` する。**作業ツリーでビルドしない**（開発の `.env` の値で焼かれ、ビルドは成功してしまう。2026-11-02 に、この経路で開発の値のサイトが本番に配信された）。`SITE_URL` 未設定のビルドは意図して止まる — cloud 4.14
 - [ ] **人・端末** **PR をマージするたび**、チェックアウトを `origin/main` に合わせてからビルドし直す。ビルドがマージより先だと修正が入らない（2026-11-02 に、`robots.txt` と同意 Cookie の修正のマージと同時にビルドした `dist` が配信され、`robots.txt` が 404 のままだった）。同期の前に、`dist` がチェックアウトのコミットより新しく、`robots.txt` があることを確かめる — cloud 4.14 の手順 2-0
+- [ ] **人・画面** 本番の Strapi で記事を公開・更新・取り下げしたら、**公開済みの記事を 48 時間以内に配信する**。周の承認画面の「配信」の項目（`published-article-check` が毎日 00:00 に作る。まだ無ければ次の 00:00 を待つ）を承認して配信する。設定の状況が、本番の Strapi の公開済みの記事と配信中の `build-info.json` の `articles` を slug で比べ、48 時間を過ぎても配信されていない記事があれば「更新が必要」で出す（48 時間以内は ✓ のまま「配信待ち」と添える。`articles` が無い古いビルドは「記録が無い」で、次の配信で消える）— cloud 4.14
 - [ ] **人・端末** 同期の前に、`dist` に開発の接続先（ngrok・ポート付きの localhost）が無いこと、sitemap と canonical のホストが `PUBLIC_SITE_URL` だけであること、`chat.`・`mkt.`・`consent.comegin.com` と Cal.com のイベント（`CALCOM_LINK`）が焼き込まれていることを確かめる — cloud 4.14 の手順 2
 - [ ] **人・端末** 初回だけ: 配信用の主体を作る。IAM Identity Center に管理ポリシー `comegin-prod-deploy` だけを参照する許可セット `ComeginProdDeploy` を作って自分に割り当て、`~/.aws/config` にプロファイル `comegin-prod-deploy` を足す（**作るまで次の手順の配信用の主体は存在しない**。2026-11-02 の監査で、ポリシーがどの主体にも付いていなかった。確認は `aws iam list-entities-for-policy` に `AWSReservedSSO_ComeginProdDeploy_…` が出ること）— cloud 4.5.1
 - [ ] **人・端末** スタックをデプロイした主体（`comegin-prod-admin`）でバケット名とディストリビューション ID を取り、`DeployPolicyArn` を付けた主体（`comegin-prod-deploy`）に切り替えて、**`dist` の絶対パス（`SITE_DIST`）から** S3 へ同期 → CloudFront を無効化（**この順を入れ替えない**。配信用の主体は `DescribeStacks` を持たないので、名前の取得には使えない。相対パスの `frontend/verdant-virgo/dist/` を作業ツリーのルートで使うと、開発用の `dist` が上がる）— cloud 4.14
@@ -280,7 +297,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] **人・端末** `next-js-prod:checkout` チェックアウトを `checkout --detach origin/main` で合わせる — manual 6
 - [ ] **人・端末** `next-js-prod:build` チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（チェックアウトを動かした後のビルドかを日時で見る。**定義の yaml だけの PR でも、チェックアウトを動かしたらビルドし直して restart する**）
 - [ ] **人・端末** `next-js-prod:principal` IAM ユーザー `comegin-prod-control-plane`（管理ポリシー `comegin-prod-control-plane` だけ）を作り、キーを `~/.config/comegin/control-plane/aws-credentials`（600）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる — cloud 4.5.2
-- [ ] **人・端末** `next-js-prod:status-principal` IAM ユーザー `comegin-prod-status-reader`（管理ポリシー `comegin-prod-status-reader` だけ。`comegin-prod-control-plane` とは別のユーザー）を作り、キーを `~/.config/comegin/status-reader/aws-credentials`（600。プロファイル名 `default`）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる。先に `sam deploy` で管理ポリシーを作る — cloud 4.5.3
+- [ ] **人・端末** `next-js-prod:status-principal` IAM ユーザー `comegin-prod-status-reader`（管理ポリシー `comegin-prod-status-reader` だけ。`comegin-prod-control-plane` とは別のユーザー）を作り、キーを `~/.config/comegin/status-reader/aws-credentials`（600。プロファイル名 `default`）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる。先に `node cloud/deploy.mjs` で管理ポリシーを作る — cloud 4.5.3
 - [ ] **人・端末** `next-js-prod:status-github` 参照専用の GitHub のトークン（fine-grained PAT。このリポジトリだけ、Contents と Pull requests の Read だけ。I-13 の `GITHUB_TOKEN` とは別）を `~/.config/comegin/status-reader/github-token`（600）に直接書く。スクリプトは fine-grained PAT（`github_pat_` で始まる）で `GET /repos/<リポジトリ>` が 200 で、classic の印（`X-OAuth-Scopes`）が無いことを確かめる。**Contents と Pull requests が Read-only かは機械で確かめられない**ので、人が作るときに選ぶ（トークンは表示しない）— onprem「設定の状況を有効にする」
 - [ ] **人・端末** `next-js-prod:agent-worktree` エージェント専用の作業場を作る（開発のリポジトリ・承認済みの main のチェックアウトとは別の、3 本目の `git worktree`。例 `git -C <開発のリポジトリ> fetch origin && git -C <開発のリポジトリ> worktree add --detach ~/ComeGin/agent-worktree origin/main`）。`prod.conf` の `CONTROL_WORKTREE` をそこに向ける（無いのは周のジョブを 1 本でも有効にした後に止まる。開発のリポジトリ・main のチェックアウトと同じ場所なら常に止まる）。3 つが互いに別の場所かをスクリプトが確かめる（夜中の差分が開発中の変更と混ざらないため。改善の周の設計 4 の 10）— manual 6.2
 - [ ] **人・端末** `next-js-prod:cycle` 改善の周（14 日）の起点を決める。`prod.conf` に `CONTROL_CYCLE_ANCHOR=YYYY-MM-DD`（JST の**月曜**の日付。月曜でないと常に止まる。無いのは周のジョブを有効にした後に止まる。周の ID は `C-<起点の日付>`）— manual 7.10
@@ -328,6 +345,8 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | バウンス・苦情の Mautic への反映（ADR-30） | 未実装（実装まで SES の抑制リストが送信を止める） | Mautic のコンタクトの状態が実際と食い違う | cloud 4.9.2 |
 | SMTP の Secret | 警告（`cloud`） | Chatwoot・Mautic のタスクが起動しない | cloud 4.6 |
 | WireGuard の AMI の固定 | 警告（`cloud`） | 後のデプロイで EC2 が置き換わり、鍵が変わってトンネルが切れる | cloud 4.2.1 |
+| 本番スタック・global・Lambda のコードの古さ（`DeployedCommit` の後に関係するパスが `origin/main` で変わった・記録が無い）と、`samconfig.toml` とスタックのパラメータの食い違い | 設定の状況の項目だけ（`cloud.global-commit`・`cloud.stack-commit`・`cloud.lambda-code`・`cloud.stack-params`。止める判定には混ぜない。git に届かないときは「確かめられない」） | マージした変更（テンプレート・Lambda）やタグの書き換えが本番に反映されないまま、古いものが動き続ける | cloud 4.2 |
+| オンプレの Strapi・n8n のイメージの古さ（`origin/main` より古い・ビルドしたが再起動していない）と、n8n の版・ダイジェストのずれ（`.env`・動いているコンテナ・`.env.example`） | 設定の状況の項目だけ（`onprem.strapi-image`・`onprem.n8n-image`・`onprem.n8n-version`。止める判定には混ぜない。docker に届かないときは「確かめられない」） | 変更や新しい n8n の版が本番に反映されないまま、古いコードが動き続ける | onprem 2・3 |
 | オンプレの IAM ユーザーのアクセスキー | 警告（`cloud`。無いのは段階 `apps`、古いキーの残りは段階 `operate`） | Strapi のメディアのアップロードと n8n の通知が失敗する | cloud 4.5 |
 | n8n のハートビート | 警告（`n8n-prod`。アラームの状態） | n8n が止まっても気づけない | cloud 4.10 |
 | `db:chatwoot_prepare` | 確かめない（`chatwoot-prod:ecs` の案内に出る） | Chatwoot が 500 を返す | cloud 4.10 |
@@ -338,8 +357,27 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | 管理ポリシー 2 本（`comegin-prod-deploy`・`comegin-prod-control-plane`）の付与先 | 配信用は警告（`cloud` の段階 `apps`・`operate`）、監視アプリ用は**止める**（`next-js-prod:principal`。キーの主体まで確かめる） | 配信の手順 3 で切り替える主体が無い／監視アプリが 403 でハートビートと写しを送れない | cloud 4.5.1・4.5.2 |
 | 監視アプリの本番の設定・常駐・定期実行の有効化 | **止める・行う**（`next-js-prod`。段階 `operate`。改善の周の設定は、作業場・起点・Strapi の読み取り・配信の値の欠落は周のジョブを有効にした後に止め（誤りは常に止める）、OpenAI・Strapi の書き込み・Mautic の参照用は警告。定期実行の有効化とハートビートのアラームは警告） | アラーム `onprem-heartbeat` が ALARM のまま・E-15 の写しが 0 件・改善の提案が 1 件も出ない | P14 |
 | 設定の状況の主体（`comegin-prod-status-reader`）と、参照専用の GitHub のトークン | **止める**（`next-js-prod:status-principal`・`status-github`。キーの主体・付いているポリシーまで確かめる。トークンは fine-grained PAT で読めることまで。Read-only かは確かめられない）。有効なキーの数は警告（`cloud` の段階 `operate`） | 監視アプリの「設定の状況」が 403 で確認できない（画面が `?`）／知らせのメールが届かない／書き込みできるトークンが渡る（Read-only かは人が選ぶ。機械では確かめられない） | cloud 4.5.3・P14 |
-| 本番の設定の状況（`/setup-status`）が常に確かめること | **監視アプリが 1 時間ごとに確かめる**（`--check` の `items` とカタログ〈`setup/status/steps.mjs`〉。製品の API も 1 時間に 1 回。2026-11-04 に 10 分から改めた。すぐ見たいときは画面の「今すぐ確かめる」）。5.3 のずれ（チェックアウトが `origin/main` より遅れている・ビルドが古い・本番の n8n が JSON と違う・公開サイトの再配信が要る）も「更新が必要」で出す。記事の公開と再配信のずれは確かめず、◇ で出す | 人が `git fetch` や `--check` を実行しないとずれに気づけない（PR のマージ・再配信・n8n の公開し直しの忘れ） | 仕様 5.3・P12・P14 |
-| 公開サイトのビルドと配信 | 確かめない | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
+| 本番の設定の状況（`/setup-status`）が常に確かめること | **監視アプリが 1 時間ごとに確かめる**（`--check` の `items` とカタログ〈`setup/status/steps.mjs`〉。製品の API も 1 時間に 1 回。2026-11-04 に 10 分から改めた。すぐ見たいときは画面の「今すぐ確かめる」）。5.3 のずれ（チェックアウトが `origin/main` より遅れている・ビルドが古い・本番の n8n が JSON と違う・公開サイトの再配信が要る〈`site-redeploy`〉）も「更新が必要」で出す。記事の公開・更新・取り下げと配信のずれは `site-articles` で確かめる（本番の Strapi の公開済みの記事と、配信中の `build-info.json` の `articles` を slug で比べる。**48 時間の猶予**を過ぎたものがあるときだけ「更新が必要」。猶予中は ✓ のまま「配信待ち」と添える。Strapi の読み取りの設定が無ければ ◇、届かなければ ?）。この 2 つは監視アプリだけが確かめる（`--check` には出ない） | 人が `git fetch` や `--check` を実行しないとずれに気づけない（PR のマージ・再配信・n8n の公開し直しの忘れ） | 仕様 5.3・P12・P14 |
+| 公開サイトのビルドと配信の手順そのもの（`dist` の中身・同期・無効化） | 確かめない（古さだけは上の `site-redeploy`・`site-articles` が知らせる） | `--phase google` の所有権の確認が通らない・FAQ ボットが答えない。作業ツリーでビルドした `dist` を上げると、フォームが「送信できませんでした」、チャットが「チャットを表示できませんでした」になり、sitemap と canonical が開発の ngrok を指す | cloud 4.14 |
+
+### 導入の直後は「記録が無い」の ● がまとめて出る
+
+ビルド・デプロイの記録（`DeployedCommit`・`<タグ>-rev-<コミット>`・イメージのラベル・`build-info.json` の `articles`）は、この仕組みを入れた後の最初のデプロイから付く。**入れる前に作った本番には記録が無い**ので、設定の状況に次の 8 つが「更新が必要」(●) で出る（確かめられないのではなく、記録付きでやり直すという人の作業が残っているため）。それぞれ**記録付きでやり直すと消える**。リソースに変更が無くても、記録だけは新しくなる。
+
+| ● の項目 | 記録付きでやり直す方法 | 正本 |
+|---|---|---|
+| global（`cloud.global-commit`） | `node cloud/deploy.mjs --config-env global` | cloud 4.1 |
+| 本番スタック（`cloud.stack-commit`） | `node cloud/deploy.mjs` | cloud 4.2 |
+| Lambda のコード（`cloud.lambda-code`） | 上の本番スタックと同じ `node cloud/deploy.mjs`（同じ記録を読む。`sam build` も含む） | cloud 4.2 |
+| Chatwoot のイメージ・Mautic のイメージ（`cloud.image-commit`。2 つのうち重いほうが出て、根拠に両方の状態が並ぶ） | 製品ごとに、タグの末尾の連番を上げる（ECR のタグは上書きできない）→ 設定ファイル（`cloud/samconfig.toml`）に書く → `node cloud/images/build-push.mjs <chatwoot または mautic>` → `node cloud/deploy.mjs`（**push が先**。ECR に無いタグをデプロイすると、動いているサービスがタスクを起動できずスタックごと戻される。順は cloud 4.7・4.12 のとおり）。`cloud.stack-params` は、タグを書いたのにデプロイしていない間だけ出る | cloud 4.7・4.12 |
+| Strapi のイメージ（`onprem.strapi-image`） | `node onprem/build.mjs strapi`（未コミットの変更があると止まり、`GIT_COMMIT=<HEAD>` を付けて `docker compose build` する）→ `sudo systemctl restart comegin-strapi` | onprem 2 |
+| n8n のイメージ（`onprem.n8n-image`） | `node onprem/build.mjs n8n` → `sudo systemctl restart comegin-n8n` | onprem 3 |
+| 記事（`site-articles`。`articles` の記録が無い古いビルド） | 次の公開サイトの配信（P12。`build-info.json` に `articles` が入る）。急ぐなら、承認済みの main のチェックアウトでビルドし直して配信する | cloud 4.14 |
+
+- 上の 8 つ（イメージを 2 つに数える）が全部消えたら、導入は終わり。順番は決まっていない。ただし、ビルドとデプロイは **`origin/main` に入れたコミット**から行う（未コミットの変更があると、包みのスクリプトが止まる）。
+- `onprem.n8n-version`・`cloud.stack-params` は記録に頼らない検査なので、導入の直後に「記録が無い」とは出ない（版・パラメータが、動いているものと違うときだけ出る）。
+- 記録付きのデプロイは、**生の `sam deploy`・`docker build`・`docker push`・`docker compose build` では付かない**（包みのスクリプト `node cloud/deploy.mjs`・`node cloud/images/build-push.mjs`・`node onprem/build.mjs` を使う）。生のデプロイをすると記録は前のまま残り、その後の変更が ● として出続ける（包みで上げ直すと消える）。
+- 消えない ● が残ったら、まず根拠の「何を実行すれば直るか」の行を実行する。それでも残るときは、記録のコミットが `origin/main` の履歴に無い（ブランチからデプロイした）ことが多い。この場合は ! で出るので、main で記録付きでやり直す。
 
 ## 5. 申告制のフラグ（`prod.conf`）
 

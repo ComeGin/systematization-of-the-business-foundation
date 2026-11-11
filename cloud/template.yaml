@@ -129,6 +129,10 @@ Metadata:
           default: E-15 の写し
         Parameters:
           - RunLogAdminPrincipalArns
+      - Label:
+          default: デプロイの記録
+        Parameters:
+          - DeployedCommit
 
 Parameters:
   EnvName:
@@ -257,6 +261,15 @@ Parameters:
     Type: CommaDelimitedList
     Description: 必須（既定なし）。E-15 の写しのバケットの削除系・設定変更系の拒否を免除する主体の ARN。 デプロイに使う主体（IAM ユーザー
       comegin-iam、または CloudFormation のサービスロール）の ARN を入れる。 入れないと、スタック自身の更新も拒否される。
+
+  # デプロイしたコミットの記録。値が変わるので、リソースに変更が無くても変更セットに必ず 1 件出る。
+  # cloud/deploy.mjs が渡す。設定の状況が describe-stacks の Parameters から読む。
+  DeployedCommit:
+    Type: String
+    Default: unrecorded
+    AllowedPattern: ^(unrecorded|[0-9a-f]{40})$
+    ConstraintDescription: unrecorded か、40 桁の小文字の 16 進数（git のコミット）。
+    Description: このスタックをデプロイしたときの git のコミット（40 桁）。cloud/deploy.mjs が渡す。unrecorded は記録なし。
 
   # ---- サービス（T1-3）
   # ECR のタグは「<上流のタグ>-<ビルドの連番>」（RDS の CA を足した派生イメージ。cloud/images/<製品>/Dockerfile。README の 4.7）。
@@ -876,6 +889,16 @@ Rules:
         AssertDescription: ChatwootWorkerCpu=4096 のとき ChatwootWorkerMemory は 8192〜30720（1024 刻み）
 
 Resources:
+  # デプロイしたコミットの記録（上の DeployedCommit）。値が変わるたびに更新され、変更セットに必ず 1 件出る。
+  # 読むのは describe-stacks の Parameters で、この SSM パラメータ自体は読まない（権限を広げないため）。
+  DeployedCommitParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/comegin/${EnvName}/deployed-commit'
+      Type: String
+      Value: !Ref DeployedCommit
+      Description: 最後にデプロイしたときの git のコミット。unrecorded は記録なし。
+
   NetworkStack:
     Type: AWS::Serverless::Application
     Properties:

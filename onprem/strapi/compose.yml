@@ -10,8 +10,9 @@
 #
 # 初回の準備:
 #   ./dev/init-env.sh        # .env を作り、鍵類を生成する（RDS のパスワード・IAM のキーなどは人が入れる）
-#   docker compose build
-#   docker compose up -d
+#   node ../build.mjs strapi   # onprem/build.mjs。未コミットの変更があると止まり、GIT_COMMIT=<HEAD> を付けて docker compose build する
+#                              # （ビルドしたコミットをイメージのラベルに残す。設定の状況が古さを調べる）
+#   docker compose up -d       # 常駐させた後のビルドし直しでは sudo systemctl restart comegin-strapi
 
 # プロジェクト名を明示する（2026-10-28）。省略するとディレクトリ名（strapi）になり、同じ名前のほかのスタックとボリューム・ネットワーク・
 # コンテナ名を共有してしまう（onprem/n8n では、本番が開発の middleware/n8n のボリュームを読んで起動しなかった。開発の Strapi は compose を
@@ -22,6 +23,10 @@ services:
   strapi:
     build:
       context: ../../backend/strapi-system
+      # ビルドしたときのコミット。設定の状況（onprem/setup/index.mjs）が origin/main との差を調べる。
+      # GIT_COMMIT を付けずにビルドすると空になり、「記録が無い」と検知される
+      labels:
+        org.opencontainers.image.revision: '${GIT_COMMIT:-}'
     image: comegin/strapi-onprem:local
     restart: unless-stopped
     ports:

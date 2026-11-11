@@ -4,13 +4,14 @@
 # インストーラーの TLS・cron の Webhook の送信・信頼するプロキシの設定・上流が入れ忘れた依存を足し、Symfony のキャッシュを作り直す（下の 1〜7）。
 # TA-06 の 3.2（イメージは ECR に置く）。上流のイメージのかわりに、これをビルドして ECR の mautic リポジトリに置く（cloud/README.md の 4.7）。
 #
-# ビルド:
-#   docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=7.2.0-apache \
-#     --build-arg UPSTREAM_DIGEST=sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f -t <ECR の URI>:<固定のタグ> cloud/images/mautic
+# ビルドと push（リポジトリのルートから。生の docker build・push は使わない）:
+#   node cloud/images/build-push.mjs mautic
+# 上流のタグとダイジェストは cloud/images/mautic/upstream.json から読み、--build-arg UPSTREAM_TAG・UPSTREAM_DIGEST に渡す。
+# 本来のタグ <タグ> と、ビルドしたコミットを残す <タグ>-rev-<コミット> の 2 つを push する（cloud/README.md の 4.7）。
 #
 # UPSTREAM_TAG と UPSTREAM_DIGEST は必須（既定なし）。latest は使わない。取り込み済みのソース（backend/mautic-system）のバージョンに合わせる。
 # 上流はタグとダイジェストの両方で固定する（タグは付け替えられうるため。ダイジェストがあれば Docker はそれを使う）。
-# ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の Digest（読み取りだけ）。タグを上げたら両方を変える（cloud/README.md の 4.7）。
+# ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の Digest（読み取りだけ）。タグを上げたら upstream.json の tag と digest の両方を変える（cloud/README.md の 4.7）。
 ARG UPSTREAM_TAG
 ARG UPSTREAM_DIGEST
 # RDS の CA 束（global-bundle.pem）の SHA-256。内容が変わるとビルドが失敗する（改ざんの検知と、CA の更新を人が確かめるため）。

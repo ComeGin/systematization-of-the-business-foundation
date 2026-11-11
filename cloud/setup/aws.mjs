@@ -146,12 +146,12 @@ export function notRunningSteps(c) {
   ];
 }
 
-/** DesiredCount を上げるときの案内（samconfig.toml に書いて sam deploy。ECS を直接変えない） */
+/** DesiredCount を上げるときの案内（デプロイの設定ファイルに書いて node cloud/deploy.mjs。ECS を直接変えない） */
 export function raiseCountSteps(params, before = []) {
   return [
     ...before,
     `cloud/samconfig.toml の parameter_overrides に ${params.map((p) => `"${p}=1"`).join("・")} を書く（aws ecs update-service で直接変えない。次のデプロイで戻る。cloud/README.md の 2 節の「重要」）`,
-    "cd cloud && sam build && sam deploy（人が自分の端末で実行する。1 つ上げるたびに cloud/README.md の 4.13 の確認と、アラームが鳴っていないことを見る）",
+    "node cloud/deploy.mjs（リポジトリのルートから、人が自分の端末で実行する。生の sam build・sam deploy は使わない〈デプロイしたコミットの記録が消える〉。1 つ上げるたびに cloud/README.md の 4.13 の確認と、アラームが鳴っていないことを見る）",
     "同じコマンドを実行し直す",
   ];
 }

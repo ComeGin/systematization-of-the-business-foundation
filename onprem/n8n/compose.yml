@@ -12,8 +12,9 @@
 #
 # 初回の準備:
 #   ./dev/init-env.sh        # .env を作り、暗号化キーなどを生成する（DB のパスワードは人が入れる）
-#   docker compose build     # 派生イメージ（RDS の CA つき）
-#   docker compose up -d
+#   node ../build.mjs n8n   # onprem/build.mjs。派生イメージ（RDS の CA つき）。未コミットの変更があると止まり、
+#                           # GIT_COMMIT=<HEAD> を付けて docker compose build する（ビルドしたコミットをラベルに残す）
+#   docker compose up -d    # 常駐させた後のビルドし直しでは sudo systemctl restart comegin-n8n
 
 # プロジェクト名を明示する（2026-10-28）。省略するとディレクトリ名（n8n）になり、開発の middleware/n8n と同じ名前になる。
 # 同じ名前だと、ボリューム・ネットワーク・コンテナ名を共有してしまう（本番の n8n が開発の n8n-data〈開発の暗号化キー入り〉を読み、
@@ -27,6 +28,13 @@ services:
       args:
         N8N_VERSION: ${N8N_VERSION:?.env に N8N_VERSION を設定してください（.env.example を参照）}
         N8N_DIGEST: ${N8N_DIGEST:?.env に N8N_DIGEST を設定してください（.env.example を参照）}
+      # ビルドしたときのコミットと、取り込んだ n8n の版・ダイジェスト。設定の状況（onprem/setup/index.mjs）が、
+      # origin/main との差と、環境変数ファイルの版との食い違い（上げたが作り直していない）を調べる。
+      # GIT_COMMIT を付けずにビルドすると revision が空になり、「記録が無い」と検知される
+      labels:
+        org.opencontainers.image.revision: '${GIT_COMMIT:-}'
+        com.comegin.n8n-version: '${N8N_VERSION}'
+        com.comegin.n8n-digest: '${N8N_DIGEST}'
     image: comegin/n8n-onprem:${N8N_VERSION}
     restart: unless-stopped
     ports:

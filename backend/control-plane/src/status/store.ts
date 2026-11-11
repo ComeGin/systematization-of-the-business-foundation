@@ -83,7 +83,16 @@ const StoredSchema = z.object({
   ),
   productApiCheckedAt: z.string().nullable(),
   driftResults: z
-    .array(z.object({ id: z.enum(["site-redeploy", "n8n-workflows"]), level: Level, evidence: z.string(), checkedAt: z.string() }))
+    .array(
+      z.object({
+        id: z.enum(["site-redeploy", "n8n-workflows", "site-articles"]),
+        level: Level,
+        evidence: z.string(),
+        checkedAt: z.string(),
+        // site-articles の取り下げの最初の時刻（slug → JST の ISO 8601）。後から足したので無い保存も読む
+        firstSeen: z.record(z.string(), z.string()).optional(),
+      }),
+    )
     .optional(),
   ledger: z.object({
     lastLevels: z.record(z.string(), Level),

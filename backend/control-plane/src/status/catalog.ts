@@ -20,7 +20,7 @@ export class CatalogError extends Error {
 
 const WHO = ["自動", "人・端末", "人・画面", "人・GitHub", "人・ブラウザ", "判断"] as const;
 const KIND = ["検査", "警告", "申告", "未検査", "判断"] as const;
-const DRIFT_IDS = ["site-redeploy", "n8n-workflows"] as const;
+const DRIFT_IDS = ["site-redeploy", "n8n-workflows", "site-articles"] as const;
 
 const nonEmpty = z.string().min(1);
 

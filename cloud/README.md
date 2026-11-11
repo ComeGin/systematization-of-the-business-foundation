@@ -18,9 +18,10 @@
 
 ```
 cloud/
-  template.yaml              親。子を AWS::Serverless::Application で呼び、!GetAtt <Child>.Outputs.<Name> でつなぐ（Export と ImportValue は使わない）
+  template.yaml              親。子を AWS::Serverless::Application で呼び、!GetAtt <Child>.Outputs.<Name> でつなぐ（Export と ImportValue は使わない）。パラメータ DeployedCommit（デプロイしたコミットの記録）と、それを持つ SSM パラメータ /comegin/<env>/deployed-commit（4.2）
   samconfig.toml.example     samconfig.toml の雛形（実体は追跡しない）
-  global/template.yaml       us-east-1 の別スタック。CloudFront 用の ACM 証明書と WAF、フラットレートプランの購読
+  deploy.mjs                 sam deploy の包み。DeployedCommit を記録してデプロイする（4.1・4.2）
+  global/template.yaml       us-east-1 の別スタック。CloudFront 用の ACM 証明書と WAF、フラットレートプランの購読。DeployedCommit と SSM パラメータ /comegin/<env>/global-deployed-commit（4.1）
   stacks/
     network.yaml             VPC、2AZ の public / private、NAT 1 台、S3 ゲートウェイエンドポイント、セキュリティグループ（すべて。WireGuard の EC2 の SG を含む）
     wireguard.yaml           オンプレとの WireGuard の終端（EC2 t4g.nano 1 台、Elastic IP、private サブネットの経路、SSM のパラメータ）
@@ -40,7 +41,8 @@ cloud/
     services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.17）
     services/consent-api.yaml consent-api（Lambda。VPC の中。ALB のターゲットとターゲットグループを持つ。ADR-26。4.18）
     services/admin-auth.yaml  admin-auth（Lambda 2 つ: 本体〈ALB のターゲット〉と運用〈admin-auth-ops〉。VPC の中。ADR-26。4.19）
-  images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）
+  images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）。上流の版の正本は images/<製品>/upstream.json
+  images/build-push.mjs      docker build と push の包み。ビルドしたコミットを <タグ>-rev-<コミット> のタグに残す（4.7）
 ```
 
 ### 1.1 オンプレとの接続（ADR-21）
@@ -87,8 +89,8 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 
 ### 重要: パラメータは `samconfig.toml` にすべて書く
 
-SAM CLI の `--parameter-overrides` は「前回の値を使う」ことができない。**書かなかったパラメータは、デプロイのたびにテンプレートの既定値に戻る。**
-たとえば `ChatwootWebDesiredCount=1` を samconfig.toml に書かずにデプロイすると、次のデプロイで 0 に戻って**サービスが止まる**。
+**既存のスタックでは、`samconfig.toml` に書かなかったパラメータは前の値のまま残る**（SAM CLI が、`parameter_overrides` に無いパラメータを `UsePreviousValue: true` で渡す。4.2.0 の出典）。既定値に戻るのではない。
+そのため、手で（コンソールや別の端末から）変えた値が `samconfig.toml` に無いと、どの値で動いているかを `samconfig.toml` から読めなくなり、別の端末から作り直したときに食い違う。**既定値に戻すには、既定値を `samconfig.toml` に明示して書く**（消しただけでは前の値が残る）。
 **既定値と違う値（`DesiredCount`・イメージのタグ・`GoogleClientId` など）は、すべて `samconfig.toml` の `parameter_overrides` に書き、それを正本にする。**
 `aws ecs update-service --desired-count` で台数を直接変えない（CloudFormation の値とずれ、次のデプロイで上書きされる）。
 
@@ -150,27 +152,55 @@ EC2 t4g.nano（月 $4 前後）、Elastic IP（public IPv4 は 1 つ月 $3.65）
 ### 4.1 global（us-east-1）: ACM 証明書と CloudFront 用 WAF
 
 ```bash
-cd cloud
-sam deploy --config-env global
+node cloud/deploy.mjs --config-env global     # リポジトリのルートから（どこからでもよい）。sam deploy --config-env global の包み
 aws cloudformation describe-stacks --region us-east-1 --stack-name comegin-global-prod --query 'Stacks[0].Outputs'
 ```
 
 出力の `CertificateArn` と `WebAclArn` を、`samconfig.toml` の本番のパラメータ `CloudFrontCertificateArn` と `CloudFrontWebAclArn` に書く（必須。既定なし）。
 ACM の証明書は DNS 検証。Route 53 に検証用のレコードが自動で作られ、検証が通るまで数分待つ。
 
+**デプロイは生の `sam deploy` ではなく `node cloud/deploy.mjs --config-env global` で行う。** global のスタックにも、親と同じパラメータ `DeployedCommit`（デプロイしたときの git のコミット。既定 `unrecorded`）がある。記録の意味と仕組みは 4.2 のとおり。global の記録は SSM パラメータ `/comegin/<env>/global-deployed-commit` にも入る（変更セットに必ず 1 件出るようにするためで、読むのはスタックの `Parameters`）。global のテンプレート（`cloud/global`）を変えたコミットが `origin/main` に入ったのに、記録のコミットがそれより前だと、設定の状況の項目 `cloud.global-commit` が「更新が必要」になる。直すのは同じコマンド。
+global の 2 回目（`DistributionArn` を足してのデプロイ。4.3）も同じコマンドで行う。
+
 ### 4.2 本番スタック（ap-northeast-1）
 
 ```bash
-sam build         # 必須（2026-10-11 から）。faq-bot・consent-api・admin-auth の Lambda を各 Makefile（pnpm と esbuild）でまとめる。開発機に pnpm 11 が要る
-sam deploy        # 初回は RDS・ElastiCache・ACM の検証で 30 分前後かかる
+node cloud/deploy.mjs     # リポジトリのルートから（どこからでもよい）。sam build → sam deploy を順に行う。初回は RDS・ElastiCache・ACM の検証で 30 分前後かかる
 ```
 
-**`sam build` を飛ばすと、faq-bot（4.17）・consent-api（4.18）・admin-auth（4.19）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは 3 つのスタックを無条件で作るため、使わない場合でも build は省けない（faq-bot は受信箱にボットを接続しない限り、訪問者には影響しない。consent-api と admin-auth は ALB から呼ばれるので、build を飛ばすと同意の受け口とログインが 502 になる）。
+**デプロイは生の `sam build`・`sam deploy` ではなく、必ず `node cloud/deploy.mjs` で行う。** 中で行うこと:
 
-作られるもの: ネットワーク、**WireGuard の EC2（Elastic IP つき）と、private サブネットの経路**、ECR、SNS、データストア、Secrets、ALB と WAF、CloudFront、SES のドメイン ID、アラーム、
+1. 関係するパス（`cloud/` と、Lambda の 3 パッケージ `backend/faq-bot`・`backend/consent-api`・`backend/admin-auth`）に未コミットの変更があれば止まる（HEAD のコミットの名前で記録するため。記録が実態と食い違わないようにする）。
+2. `sam build`（必須。2026-10-11 から。faq-bot・consent-api・admin-auth の Lambda を各 Makefile〈pnpm と esbuild〉でまとめる。開発機に pnpm 11 が要る）。
+3. `sam deploy`（`confirm_changeset = true` のまま。変更セットを人が確かめて答える）。`samconfig.toml` の `[default.deploy.parameters]` の `parameter_overrides` を読み、`DeployedCommit=<HEAD の 40 桁>` を足して、コマンドラインの `--parameter-overrides` で全部を渡す（コマンドラインの `parameter_overrides` が設定ファイルのものを置き換える前提。合わさる場合も同じ値を渡すだけなので結果は同じ）。**パラメータの値は画面に出さない**（個数と短い SHA だけ）。**`samconfig.toml` から読めたパラメータが 0 個なら、`sam` を呼ばずに止まる**（表 `[default.deploy.parameters]`〈global は `[global.deploy.parameters]`〉が無い・`parameter_overrides` のキーが無い・ドット区切りのキー〈`deploy.parameters.parameter_overrides = …`〉で書いてある、のどれか。このまま進むと `DeployedCommit` だけを渡し、ほかのパラメータは前の値のまま残って、`samconfig.toml` の変更が黙って反映されない）。
+
+**`sam build` を飛ばすと、faq-bot（4.17）・consent-api（4.18）・admin-auth（4.19）の `CodeUri`（TypeScript のソースと開発用の依存）がそのまま zip になり、`index.handler` が無いまま作られる。** 親のテンプレートは 3 つのスタックを無条件で作るため、使わない場合でも build は省けない（faq-bot は受信箱にボットを接続しない限り、訪問者には影響しない。consent-api と admin-auth は ALB から呼ばれるので、build を飛ばすと同意の受け口とログインが 502 になる）。スクリプトが `sam build` を必ず先に実行するので、通常は意識しなくてよい。
+
+作られるもの: ネットワーク、**WireGuard の EC2（Elastic IP つき）と、private サブネットの経路**、ECR、SNS、データストア、Secrets、ALB と WAF、CloudFront、SES のドメイン ID、アラーム、デプロイの記録の SSM パラメータ `/comegin/<env>/deployed-commit`（4.2.0）、
 **IAM ユーザー 2 つ（オンプレの Strapi・n8n 用。アクセスキーは無い）**、ECS のサービス（**すべて DesiredCount 0**）。
 サービスは 0 台のまま作られ、イメージがまだ無くても問題ない（タスク定義はイメージの存在を検査しない）。
 WireGuard の EC2 は、デプロイの直後から起動する（オンプレの公開鍵が空のあいだは、ピアを持たず、トンネルは張れない）。次の 4.2.1 で鍵を受け渡す。
+
+#### 4.2.0 デプロイの記録（`DeployedCommit`）と、デプロイ忘れの検知
+
+親のスタックと global のスタックは、パラメータ `DeployedCommit`（文字列。既定 `unrecorded` = 記録なし。形は `^(unrecorded|[0-9a-f]{40})$`。NoEcho ではない）を持つ。`node cloud/deploy.mjs` が、デプロイしたときの HEAD の 40 桁のコミットをここに入れる。SSM パラメータ `/comegin/<env>/deployed-commit`（global は `/comegin/<env>/global-deployed-commit`。`String`）が同じ値を持つ。**パラメータだけを変えると、リソースに変更が無いとき変更セットが空になって記録が残らない**ので、値を小さなリソース（この SSM パラメータ）に渡し、記録が変わるたびに変更セットへ必ず 1 件出るようにしてある（リソースに変更が無くても、デプロイし直せば記録は新しくなる）。
+
+監視アプリの「設定の状況」（と `node setup/setup.mjs --target prod --phase deploy --check`）は、`cloudformation:DescribeStacks` の `Parameters` の `DeployedCommit` を読み（SSM は読まない。権限を足さない）、そのコミットから `origin/main` までに、関係するパスを変えたコミットがあるかを調べる。`*.md`・テスト（`*.test.*`・`tests/`・`integration/`・`e2e/`）だけの変更は数えない。結果は 4 つの項目（止める判定には混ぜない。段階 `deploy` の `ok` は変わらない）:
+
+| 項目（key） | 比べるパス | 「更新が必要」のとき |
+|---|---|---|
+| `cloud.global-commit` | `cloud/global` | `node cloud/deploy.mjs --config-env global` |
+| `cloud.stack-commit` | `cloud/template.yaml`・`cloud/stacks` | `node cloud/deploy.mjs` |
+| `cloud.lambda-code` | `backend/faq-bot`・`backend/consent-api`・`backend/admin-auth` の `src`・`package.json`・`pnpm-lock.yaml`・`pnpm-workspace.yaml`・`Makefile`・`tsconfig.json`（`sam build` の入力。faq-bot が実行時に読む Astro の `faq.json` は含めない） | `node cloud/deploy.mjs`（`cloud.stack-commit` と同じコマンドで直る。何が古いかを分けて示す） |
+| `cloud.stack-params` | `samconfig.toml`（作業ツリーの追跡しないファイル）の `parameter_overrides` と、スタックの `Parameters` の値の食い違い。**名前だけ**を出し、値は出さない。NoEcho（値が `****`）と `DeployedCommit` は比べない | タグなどを書き換えたのにデプロイしていない。`node cloud/deploy.mjs`（global は `--config-env global`） |
+
+- **記録が無い**（`unrecorded`、または 40 桁の16進でない値）: 「更新が必要」。この仕組みより前のデプロイで、記録がまだ一度も入っていない。直すのは記録付きのデプロイ。確かめられない（`?`）のではなく、人の作業が残っている状態として扱う。
+- **`cloud.stack-params` が比べるのは、`samconfig.toml` に書いたキーだけ。** 書いていないパラメータは、既存のスタックでは前の値のまま残る（下の出典）ので、手で変えた値が `samconfig.toml` に無くても食い違いとしては出ない。既定値に戻したいパラメータは、既定値を `samconfig.toml` に明示して書く（2 節の「重要」）。
+- **生の `sam deploy` でデプロイすると、記録は前のまま残る**（既定の `unrecorded` に戻るのではない）。SAM CLI は、`parameter_overrides` に無いテンプレートのパラメータを `UsePreviousValue: true`（既存のスタックでは前の値を使う）で渡すため。そのため `DeployedCommit` を渡さない生のデプロイをしても、古い記録のコミットが残り、その後の変更が「更新が必要」として出続ける（`node cloud/deploy.mjs` でデプロイし直すと消える）。出典: SAM CLI のソース `samcli/commands/deploy/deploy_context.py` の `merge_parameters`（`key in parameter_overrides` なら `ParameterValue`、そうでなければ `UsePreviousValue = True`）と、`samcli/lib/deploy/deployer.py` の `create_changeset`（`UsePreviousValue` を外すのは、新しく作るスタックと、既存のテンプレートに無いパラメータだけ）（https://github.com/aws/aws-sam-cli。2026-11-11 に確かめた）。
+- **失敗して戻されたスタック**（`ROLLBACK_COMPLETE`）の記録は信用しない。試みたときの `DeployedCommit` が `Parameters` に残るが、動いているものは無い。`cloud.stack-commit`・`cloud.lambda-code`・`cloud.global-commit` は「更新が必要」（消して作り直す）になる。更新中や `*_FAILED` などのときは「確かめられない」。記録を信用するのは `CREATE_COMPLETE`・`UPDATE_COMPLETE`・`UPDATE_ROLLBACK_COMPLETE`・`IMPORT_COMPLETE` だけ。
+- **記録のコミットが `origin/main` の履歴に無い**（ブランチからデプロイした、`git fetch` していない）: 「警告」。マージ前のブランチからデプロイした後にマージすれば、履歴に入って比べられる。それでも出るなら、main のチェックアウトで記録付きでデプロイし直すと消える。
+- git が使えない・`origin/main` が読めないときは、その項目だけ「確かめられない」。`origin/main` を新しくするのは監視アプリ（1 時間ごと）か、人が直接確かめるときの `git fetch`。
+- **導入の直後**（この仕組みを入れた直後）は、スタックの記録が無いので 3 つの項目がまとめて「記録が無い」と出る。`node cloud/deploy.mjs --config-env global` と `node cloud/deploy.mjs` を 1 回ずつ実行して、記録付きでデプロイし直すと消える（テンプレートに `DeployedCommit` と SSM パラメータを足した変更の最初のデプロイで、変更セットに SSM パラメータの作成が出る）。
 
 #### 4.2.1 WireGuard（オンプレとの接続）: 鍵の受け渡しとオンプレ側の設定
 
@@ -326,7 +356,7 @@ sudo wg show                                             # interface: wg0 と li
 本番スタックの出力 `DistributionArn` を、global の `DistributionArn` に入れて更新する。`samconfig.toml` の `[global.deploy.parameters]` の `parameter_overrides` に `"DistributionArn=<ARN>"` を足す。
 
 ```bash
-sam deploy --config-env global
+node cloud/deploy.mjs --config-env global
 ```
 
 - `PlanTier` の既定は FREE（即時に有効。$0）。有料のティアは `PENDING_APPROVAL` になり、`ApprovePaidSubscription` を呼ぶまで課金されない（CloudFormation は承認しない）。
@@ -547,7 +577,7 @@ node setup/setup.mjs --target prod --phase operate --only cloud --check
 - 与えない: 書き込み全般、Secret の値の読み取り、`sns:Subscribe`・`SetTopicAttributes` などの購読・トピックの変更、アラームの変更、S3 のオブジェクトの読み取り。**`RunLogAdminPrincipalArns`（4.2）には入れない**
 
 ```bash
-# 先に cd cloud && sam build && sam deploy でポリシーを作る（人が自分の端末で行う）。
+# 先に node cloud/deploy.mjs でポリシーを作る（人が自分の端末で行う）。
 # 以降も人が自分の端末で、管理者で実行する（Claude Code の実行環境では実行しない）
 export AWS_PROFILE=comegin-prod-admin
 ACCOUNT=798560359429
@@ -653,7 +683,7 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
      - `cloud/template.yaml` の親のパラメータ `RdsCaSha256` の既定値と、`cloud/stacks/ops-tasks.yaml` の `RdsCaSha256` の既定値
      - この節の上の SHA-256 の値（と履歴）
      - **`samconfig.toml` の `parameter_overrides` の `RdsCaSha256`**（書いてある場合。**テンプレートの既定値より優先されるので、ここが古いままだとデプロイしても反映されない**。2026-10-28 に、既定値だけを直してデプロイし、タスク定義が古い値のまま残った）。`grep -n RdsCaSha256 cloud/samconfig.toml` で確かめる
-  3. `cd cloud && sam build && sam deploy` で、DB 作成のタスク定義を新しい版にする。反映されたかは、次の値が新しい SHA-256 になっていることで確かめる:
+  3. `node cloud/deploy.mjs` で、DB 作成のタスク定義を新しい版にする。反映されたかは、次の値が新しい SHA-256 になっていることで確かめる:
 
      ```bash
      aws ecs describe-task-definition --region ap-northeast-1 --task-definition comegin-prod-db-init-postgres \
@@ -661,7 +691,7 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
      ```
 
      待てないときは `aws ecs run-task` に `--overrides '{"containerOverrides":[{"name":"psql","environment":[{"name":"RDS_CA_SHA256","value":"<新しい値>"}]}]}'` を付けて 1 回だけ新しい値で照合できる（CloudFormation の値とずれるので、あとで必ずデプロイする）。
-  4. オンプレの Strapi・n8n をビルドし直す（`docker compose build --no-cache`。`onprem/README.md` の「起動の順番」）。2 つの派生イメージは、次に版を上げるときに、ビルドの連番を上げたタグでビルドし直して push する（古い束でも東京〈ap-northeast-1〉の CA が入っていれば、動いているイメージはそのままでよい）。
+  4. オンプレの Strapi・n8n をビルドし直す（`node onprem/build.mjs strapi --no-cache`・`node onprem/build.mjs n8n --no-cache`。生の `docker compose build` ではビルドしたコミットの記録が残らない。`onprem/README.md` の「起動の順番」）。2 つの派生イメージは、次に版を上げるときに、ビルドの連番を上げたタグでビルドし直して push する（古い束でも東京〈ap-northeast-1〉の CA が入っていれば、動いているイメージはそのままでよい）。
 - ElastiCache（`rediss://`）は、Amazon の公開 CA で署名されており、Node（consent-api）と Ruby（Chatwoot）の既定の信頼ストアで検証される。検証を無効にする設定は入れていない。
 - 自作の admin-auth（Lambda。ADR-26）は、Lambda の実行環境の `/var/runtime/ca-cert.pem`（RDS の CA を含む）を `NODE_EXTRA_CA_CERTS` で読む（2026-10-12 まではイメージに同梱していた）。
 
@@ -680,19 +710,28 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 #### 派生イメージ（2 本。上流をタグとダイジェストで固定してビルドする）
 
 タグは `<上流のタグ>-<ビルドの連番>`（再ビルドするときは連番を上げる。ECR のタグは上書きできない）。
-上流は **タグとダイジェストの両方**で固定する（`UPSTREAM_TAG` と `UPSTREAM_DIGEST`。どちらも必須。上流のタグは付け替えられうるので、CA の更新などで作り直したときに別の中身を取り込まないため。ダイジェストがあれば Docker はそれを使う）。ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の `Digest`（読み取りだけ）。上流の版を上げたら両方を変える。
+上流は **タグとダイジェストの両方**で固定する（`UPSTREAM_TAG` と `UPSTREAM_DIGEST`。どちらも必須。上流のタグは付け替えられうるので、CA の更新などで作り直したときに別の中身を取り込まないため。ダイジェストがあれば Docker はそれを使う）。
+**上流の版の正本は `cloud/images/<製品>/upstream.json`**（`{ "tag": …, "digest": … }`）。ビルドの包み（`cloud/images/build-push.mjs`）と `node setup/setup.mjs --target prod --phase images` の案内（`cloud/setup/index.mjs` の `IMAGES`）は、ここから読む。上流の版を上げるときは、このファイルの 2 つの値だけを変える（この README の表には版を書かない）。ダイジェストは `docker buildx imagetools inspect <イメージ>:<タグ>` の `Digest`（読み取りだけ）。
 
-| 製品 | Dockerfile | `UPSTREAM_TAG` | `UPSTREAM_DIGEST`（2026-10-27 に取得） | ECR のリポジトリ | パラメータの例 |
-|---|---|---|---|---|---|
-| Chatwoot | `cloud/images/chatwoot` | `v4.18.0`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1` | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
-| Mautic | `cloud/images/mautic` | `7.2.0-apache`（公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f` | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-3`（`-1` は 7 が無く DB に TLS で接続しない。`-2` は 6 が無くメールを作ると 500。どちらも使わない） |
+| 製品 | Dockerfile | 上流の版（正本） | ECR のリポジトリ | パラメータの例 |
+|---|---|---|---|---|
+| Chatwoot | `cloud/images/chatwoot` | `cloud/images/chatwoot/upstream.json`（**4.12 以上**。署名つき Webhook の `X-Chatwoot-Signature` は 4.12 以降。API チャネルとエージェントボットの署名は 4.13 以降） | `comegin/<env>/chatwoot` | `ChatwootImageTag=v4.18.0-1` |
+| Mautic | `cloud/images/mautic` | `cloud/images/mautic/upstream.json`（`7.2.0-apache` のような `-apache` のタグ。公式に 7.x のタグがある。取り込み済みのソースは 7.2.0） | `comegin/<env>/mautic` | `MauticImageTag=7.2.0-3`（`-1` は 7 が無く DB に TLS で接続しない。`-2` は 6 が無くメールを作ると 500。どちらも使わない） |
+
+ビルドと push は **`node cloud/images/build-push.mjs <chatwoot|mautic>`** で行う（生の `docker build`・`docker push` は使わない）。ECR へのログイン（上の `docker login`）は先に済ませておく。
 
 ```bash
-docker build --platform linux/amd64 --build-arg UPSTREAM_TAG=v4.18.0 \
-  --build-arg UPSTREAM_DIGEST=sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1 \
-  -t $ECR/comegin/prod/chatwoot:v4.18.0-1 cloud/images/chatwoot
-docker push $ECR/comegin/prod/chatwoot:v4.18.0-1
+node cloud/images/build-push.mjs chatwoot
+node cloud/images/build-push.mjs mautic
 ```
+
+スクリプトは次の順に行う。
+1. `cloud/images/<製品>` に未コミットの変更があれば止める（HEAD のコミットの名前で記録するため）。
+2. タグを、デプロイの設定ファイル（`cloud/samconfig.toml`）の `ChatwootImageTag`・`MauticImageTag` から読む。**先にタグを `samconfig.toml` に書いておく。デプロイ（`node cloud/deploy.mjs`）は push の後**（4.12）。ECR に無いタグをデプロイすると、動いているサービス（DesiredCount 1 以上）がタスクのイメージを pull できず、ECS のサーキットブレーカーが親スタックごと `UPDATE_ROLLBACK` にする（`DeployedCommit` もタグも前に戻り、設定の状況の ● も消えない）。デプロイが先でよいのは、ECR のリポジトリがまだ無い初回（4.2 の 1 回目。サービスは 0 台）だけ。
+3. `--platform linux/amd64`（Fargate は X86_64）・`--build-arg UPSTREAM_TAG`・`UPSTREAM_DIGEST`（`upstream.json` の値）・ラベル `org.opencontainers.image.revision`（HEAD のコミット）を付けて `docker build` する。
+4. **2 つのタグ**を push する: 本来のタグ `<タグ>`（スタックのパラメータが指す）と、ビルドしたコミットを残す記録のタグ `<タグ>-rev-<40 桁のコミット>`。
+
+記録のタグがある理由: 監視アプリの「設定の状況」（`cloud.image-commit`）が、スタックのパラメータが指すタグのイメージについた `-rev-` のタグからビルドしたコミットを読み、そのコミットから `origin/main` までに `cloud/images/<製品>` が変わっていないかを調べる。ECR のリポジトリは `ImageTagMutability: IMMUTABLE`（`stacks/ecr.yaml`）で、既存のタグへの push は拒否されるが、新しい名前のタグを足すのは拒否されない。`rev-<コミット>` だけにすると、同じコミットで本来のタグだけを上げて作り直したときに既にあって失敗するので、本来のタグを含めて名前を一意にしている（docker のタグは 128 文字まで。超えるならスクリプトが止まる）。記録のタグが無いイメージ（この仕組みより前の push、生の `docker push`）は「記録が無い」と出るので、記録付きでビルドし直す。
 
 **push で `file integrity checksum failed for "<パス>"` が出たとき**: 手元の Docker（overlay2）に置かれた層のファイルが、pull したときの中身から変わっている（壊れている）。
 Docker は push のときに層を組み立て直し、pull のときに記録した各ファイルのチェックサムと照合するので、壊れた中身が ECR に送られることはない（それまでに送れた層も正しい）。
@@ -701,13 +740,15 @@ Docker は push のときに層を組み立て直し、pull のときに記録�
 
 ```bash
 IMG=$ECR/comegin/prod/mautic:7.2.0-1
+SHA=$(git rev-parse HEAD)          # build-push.mjs と同じ。記録のタグ <タグ>-rev-<コミット> も付ける（付けないと「記録が無い」と出る）
+UP=cloud/images/mautic/upstream.json
 docker image rm "$IMG"
 docker builder prune -a -f        # 上流の層を持つビルドのキャッシュを消す（ほかのビルドのキャッシュも消える）
-docker build --pull --no-cache --platform linux/amd64 --build-arg UPSTREAM_TAG=7.2.0-apache \
-  --build-arg UPSTREAM_DIGEST=sha256:dea3bb71a5c5bf4c0c7d1764e58a32109898e7b2e6a710f14f50e2a913c03a0f \
-  -t "$IMG" cloud/images/mautic
+docker build --pull --no-cache --platform linux/amd64 --label org.opencontainers.image.revision=$SHA \
+  --build-arg UPSTREAM_TAG=$(node -p "require('./$UP').tag") --build-arg UPSTREAM_DIGEST=$(node -p "require('./$UP').digest") \
+  -t "$IMG" -t "$IMG-rev-$SHA" cloud/images/mautic
 docker save "$IMG" > /dev/null && echo 層はすべて読み直せる   # push と同じ照合をする。エラーなら push も失敗する
-docker push "$IMG"
+docker push "$IMG" && docker push "$IMG-rev-$SHA"
 ```
 
 取り直してもまた壊れるときは、VM（VirtualBox）のメモリかディスクを疑う（2026-10-28 に、Mautic のイメージで少なくとも 2 つのファイルが壊れていた。そのうち 1 つは Docker Hub の層と比べて 1 ビットだけ違っていた）。
@@ -1109,12 +1150,12 @@ WireGuard の EC2 は DesiredCount の対象ではない（常時 1 台。4.2.1�
 
 ### 4.12 イメージの更新
 
-1. 新しいイメージを ECR に置く（4.7）。
+1. 新しいイメージを ECR に置く（4.7。連番を上げた新しいタグを `cloud/samconfig.toml` に書き、`node cloud/images/build-push.mjs <chatwoot|mautic>` で push する）。**デプロイは push の後**（ECR に無いタグをデプロイすると、動いているサービスがタスクを起動できず、サーキットブレーカーで親スタックごと `UPDATE_ROLLBACK` になる）。
 2. **DB のスキーマが変わる製品（Chatwoot・Mautic）**（Mautic は RunTask ではなく、mautic-web の起動時に entrypoint が移行する〈4.10〉。移行が長いとヘルスチェックの猶予〈180 秒〉を超えて途中で入れ替えられるので、版を上げるときは、その間だけ親のパラメータ `MauticWebHealthCheckGracePeriodSeconds`〈例 1800〉をデプロイの設定ファイルに書いて延ばし、移行が終わったら戻す。ECS Exec で `php bin/console doctrine:migrations:migrate` を先に済ませてもよい）: 先にそのサービスを `DesiredCount=0` にして、新しいタグでデプロイする（タスク定義の新しいリビジョンができる）。マイグレーションの RunTask（4.10）が成功したら、`DesiredCount=1` に戻してデプロイする。止まっている間は、その製品の機能が止まる。
-3. **スキーマが変わらない更新**: タグを変えてデプロイするだけ（ローリング更新。サーキットブレーカーが、新しいタスクの起動が失敗し続けたときに直前に戻す）。
+3. **スキーマが変わらない更新**: 手順 1 で新しいタグを push した後に、`node cloud/deploy.mjs` でデプロイするだけ（ローリング更新。サーキットブレーカーが、新しいタスクの起動が失敗し続けたときに直前に戻す。push の前にデプロイすると、この巻き戻しで親スタックごと戻る）。
 4. Strapi と n8n の更新は、オンプレで行う（ADR-21。`onprem/` の README）。このスタックの対象外。
 5. **4.13 の確認をデプロイごとに行う。** 製品を更新すると訪問者向けのパスが変わりうる。許可リスト方式なので、変わると機能が止まる側に倒れる（管理画面が開く側には倒れない）。
-6. **admin-auth（Lambda）**: `sam build` → `sam deploy` のあと、スキーマが変わる版なら運用の Lambda で `{"action":"migrate"}` を呼ぶ（4.19）。
+6. **admin-auth（Lambda）**: `node cloud/deploy.mjs` のあと、スキーマが変わる版なら運用の Lambda で `{"action":"migrate"}` を呼ぶ（4.19）。
 
 ### 4.13 デプロイ後の確認
 
@@ -1171,7 +1212,7 @@ dig +short stats.comegin.com
 - **チェックアウトを `origin/main` に合わせてから、ビルドし直す（PR をマージするたび）。** ビルドがマージより先だと、`dist` には修正が入らない。チェックアウトを後から進めても `dist` は作り直されない。2026-11-02 には、`robots.txt` と同意 Cookie の修正（PR #52）のマージとほぼ同時（06:38）にビルドした `dist` が配信された。そのため `robots.txt` が 404 のままで、同意 Cookie の修正も本番に入っていなかった。合わせてビルドし直し、16:29 に配信し直して解消した。下の手順 2-0 で確かめる。
 - **本番の Strapi に、公開済みの記事が 1 本以上ある。** 0 件ならビルドは意図して止まる（DD-05 の 1.2。「公開済みの記事が 0 件です」）。記事の公開は `R2` が本番の管理画面（`http://127.0.0.1:1338/admin`）で行う（エージェントは下書きまで。ADR-17）。カテゴリは `know-the-issues`・`compare-methods`・`consider-adoption` の 3 つの slug で作る（`frontend/verdant-virgo/src/modules/blog/lib/categories.ts`。ほかの slug の記事は警告を出して「課題を知る」として扱われる）。
 - **`prod.conf` の `UPLOAD_S3_BUCKET` は Strapi のメディアのバケット（`comegin-prod-strapi-media-<アカウント ID>`）にする。** 下の手順 1 の `AstroBucketName`（`comegin-prod-astro-…`。同期先）と取り違えない。親スタックの出力にはメディアのバケット名が無い（入れ子の DataStack の出力 `StrapiMediaBucketName`）。ビルドは記事の画像を、Strapi が返す署名付き URL で取り込む。取り込みの許可（`image.remotePatterns`）と `dist` の検査は、このバケット名から作る（`src/modules/blog/integration.ts`）。取り違えると、画像が取り込まれずに署名付き URL のまま HTML に出る。そのためビルドは最後に「dist/ に Strapi・S3 の URL が残っています（… `X-Amz-Signature` …）」で止まる（2026-11-02 に起きた。止まらなければ 1 時間で切れる URL が公開されていた）。直したら `node setup/frontend.mjs --target prod --only verdant-virgo` で `.env.production` を書き直してから、ビルドし直す。形が違えば設定スクリプトが止める。
-- **同期の前に `dist/build-info.json` があること**（下の手順 2-0。ビルドのとき `frontend/verdant-virgo/src/modules/build-info` が書く。コミットとビルドの日時だけで、秘密値は無い）。同期すると `https://<SiteHost>/build-info.json` で公開され、監視アプリの `/setup-status` が「配信中のビルドより後に、公開サイトの変更が `origin/main` に入っていないか」を見て、入っていれば「再配信が必要」と知らせる（PR をマージした後に再配信を忘れる事故の検知。2026-11-03 の PR #60 で起きた）。
+- **同期の前に `dist/build-info.json` があること**（下の手順 2-0。ビルドのとき `frontend/verdant-virgo/src/modules/build-info` が書く。コミット・ビルドの日時・ビルドに含めた公開済みの記事の slug と日時（`articles`）だけで、秘密値・documentId は無い）。同期すると `https://<SiteHost>/build-info.json` で公開され、監視アプリの `/setup-status` が「配信中のビルドより後に、公開サイトの変更が `origin/main` に入っていないか」を見て、入っていれば「再配信が必要」と知らせる（PR をマージした後に再配信を忘れる事故の検知。2026-11-03 の PR #60 で起きた）。あわせて `articles` と Strapi の公開済みの記事を突き合わせ、公開したのに入っていない記事があれば同じく知らせる（`articles` はビルドの開始時に Strapi から取る。取れなかったビルドは `null` で、記事の未配信は判定できない）。
 - **監視アプリが画面に出す配信のコマンド（改善の周。2026-11-09）は、この節の手順 3〜4 と同じ 4 本のコマンドに、次の値を埋めたものである**（監視アプリは**配信を実行しない**。人が承認して実行する。新しい AWS のリソースは作らない）。値の出どころ:
   - `CONTROL_DEPLOY_BUCKET` ＝ 親スタック `comegin-prod` の出力 **`AstroBucketName`**（下の手順 1 の `BUCKET`。`cloud/template.yaml` の Outputs。実体は `DataStack` の出力）
   - `CONTROL_DEPLOY_DISTRIBUTION_ID` ＝ 同じ親スタックの出力 **`DistributionId`**（手順 1 の `DIST`。実体は `CdnStack` の出力）
@@ -1216,7 +1257,7 @@ git -C "$CHECKOUT" fetch -q origin main
 [ "$(stat -c %Y "$SITE_DIST/index.html")" -gt "$(git -C "$CHECKOUT" log -1 --format=%ct)" ] && echo 新しい || echo 'dist がコミットより古い。ビルドし直す'
 test -f "$SITE_DIST/robots.txt" || echo 'dist に robots.txt が無い（804863e2 より前のビルド）'
 test -f "$SITE_DIST/build-info.json" || echo 'dist に build-info.json が無い。監視アプリが再配信の要否を判定できない（この機能より前のビルド）。ビルドし直す'
-#      build-info.json は { "commit": <ビルドしたときの HEAD>, "builtAt": <日時> }。commit が null なら git を読めなかったビルド（判定できない）。2-0 の HEAD と同じ commit であること
+#      build-info.json は { "commit": <ビルドしたときの HEAD>, "builtAt": <日時>, "articles": [{ "slug", "publishedAt", "updatedAt" }, …] | null }。commit が null なら git を読めなかったビルド、articles が null なら Strapi から記事の一覧を取れなかったビルド（どちらも判定できない）。2-0 の HEAD と同じ commit であること
 # 2-1. 開発の接続先（ngrok・ポート付きの localhost／127.0.0.1）が 1 つも無いこと。出力が空なら通過
 #      （ポートを付けずに localhost だけで探すと、ライブラリの中の判定の文字列に当たるので、ポート付きで探す）
 rg -l -e 'ngrok' -e 'localhost:[0-9]' -e '127\.0\.0\.1:[0-9]' "$SITE_DIST"
@@ -1356,7 +1397,7 @@ aws ecs describe-tasks \
 ③ `chatwoot-web` を起動する。`cloud/samconfig.toml` の `parameter_overrides` に `"ChatwootWebDesiredCount=1",` を足して、デプロイする。
 
 ```bash
-cd cloud && sam build && sam deploy
+node cloud/deploy.mjs
 aws ecs wait services-stable \
   --region "$REGION" \
   --cluster "$CLUSTER" \
@@ -1368,7 +1409,7 @@ aws ecs wait services-stable \
 ④ `chatwoot-worker` を起動する。同じく `"ChatwootWorkerDesiredCount=1",` を足して、デプロイする。
 
 ```bash
-cd cloud && sam build && sam deploy
+node cloud/deploy.mjs
 aws ecs wait services-stable \
   --region "$REGION" \
   --cluster "$CLUSTER" \
@@ -1508,7 +1549,7 @@ aws ecs describe-services \
 
 VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/specs/2026-10-12-consent-api-lambda-design.md`。**`sam build` は `backend/consent-api/Makefile` を使い、pnpm と esbuild でまとめる。** ターゲットグループ（`comegin-<env>-consent-api`）は `services/consent-api.yaml` が持ち、edge のルール 106 に渡す。
 
-1. `sam build` → `sam deploy`（Secrets の `shared/VALKEY_AUTH_TOKEN` は secrets.yaml が作る。人が入れる値は無い）。
+1. `node cloud/deploy.mjs`（Secrets の `shared/VALKEY_AUTH_TOKEN` は secrets.yaml が作る。人が入れる値は無い）。
 2. 確かめる: 公開サイトのバナーで同意し、`comegin_consent` の Cookie が書かれること。`curl -s https://<ConsentHost>/v1/consent` が `{"state":"unset"}` を返すこと（4.13）。
 3. CloudWatch のアラーム `consent-api-errors`・`consent-api-throttles`・`consent-api-target-5xx` が鳴っていないこと。ロググループ `/aws/lambda/comegin-<env>-consent-api` に 1 件 1 行のログが出て、識別子と IP が無いこと。
 
@@ -1520,7 +1561,7 @@ VPC の中の Lambda（ALB のターゲット）。仕様は `docs/superpowers/s
 
 VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のターゲット）と運用（`comegin-<env>-admin-auth-ops`。ALB にはつながない）。仕様は `docs/superpowers/specs/2026-10-12-admin-auth-lambda-design.md`。**`sam build` は `backend/admin-auth/Makefile` の 2 つのターゲットを使う。** ターゲットグループ（`comegin-<env>-admin-auth`。マルチバリューヘッダー有効）は `services/admin-auth.yaml` が持ち、edge のルール 300 に渡す。
 
-1. `sam build` → `sam deploy`。Secrets の `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）と、親のパラメータ `GoogleClientId`・`AdminBootstrapEmails`（管理者の許可リストの初期値。カンマ区切り。空のまま migrate すると誰もログインできない）を `samconfig.toml` に入れておく。
+1. `node cloud/deploy.mjs`。Secrets の `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）と、親のパラメータ `GoogleClientId`・`AdminBootstrapEmails`（管理者の許可リストの初期値。カンマ区切り。空のまま migrate すると誰もログインできない）を `samconfig.toml` に入れておく。
 2. DB とアプリ用ユーザーを作る（4.8 の共有のタスク）。
 3. 移行（許可リストの初期値もここで入る）と、ALB の登録:
 
@@ -1541,7 +1582,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
    - エラーの画面の「このエラーの詳細」に、Google が受け取った `redirect_uri` と `client_id` が出る。`client_id` が `GoogleClientId` と同じクライアントか、`redirect_uri` が登録した値と**完全に**同じか（`https`・大文字小文字・末尾の `/`）を見る。
    - よくある取り違え: 開発のクライアント（`comegin-admin-auth-dev`。ngrok の URI だけ）の ID を `GoogleClientId` に書いた／URI を「承認済みの JavaScript 生成元」の欄に入れた／ALB の `https://<ChatHost>/oauth2/idpresponse` を Google に登録した（これは ALB と admin-auth のあいだの戻り先で、`register-alb-client` が admin-auth に登録するもの。Google には登録しない）。
    - 登録してから効くまで、**5 分〜数時間**かかることがある（Google の公式）。AWS 側の変更（デプロイ）は要らない。
-   - クライアントを作り直したり別のクライアントに替えたりしたら、`GoogleClientId`（samconfig.toml → `sam deploy`）と Secret `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）を**同じクライアントの値**にそろえる（片方だけだと、次は `invalid_client` になる）。
+   - クライアントを作り直したり別のクライアントに替えたりしたら、`GoogleClientId`（samconfig.toml → `node cloud/deploy.mjs`）と Secret `admin-auth/GOOGLE_CLIENT_SECRET`（4.6）を**同じクライアントの値**にそろえる（片方だけだと、次は `invalid_client` になる）。
 4. 確かめる: 管理画面（`chat.`・`mkt.`）を開き、`auth.` に飛んで Google でログインし、戻ってこられること。**ALB の認証のメトリクス（`AWS/ApplicationELB` の `ELBAuthError`・`ELBAuthFailure` が 0 であること）と、IdP の呼び出しの所要時間（`ELBAuthLatency`）**を見る（ALB のアクセスログは未設定〈5 章〉。原因を詳しく見るときは一時的に有効にして `error_reason` を見る）。アラーム `admin-auth-errors`・`admin-auth-throttles`・`admin-auth-target-5xx` が鳴っていないこと。
 
 - **ALB の IdP の呼び出し（トークン・UserInfo）が待つ時間は公式文書で確かめられていない。** 呼び出しの数秒前にブラウザが同じ関数を呼ぶため、起動済みである見込み（仕様の D1）。遅い・失敗するときは `AdminAuthProvisionedConcurrency=1` にしてデプロイする（常時 1 つ起動。月 4〜5 USD 前後）。
@@ -1625,14 +1666,14 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | 表示の id | すること |
 |---|---|
 | `cloud:env` | AWS CLI・SAM CLI（1.154 以上）・Docker・pnpm 11 を入れる。AWS の認証は `AWS_PROFILE` か `aws sso login`（アカウントが既定の `798560359429` でなければ止まる。別のアカウントに出すなら `prod.conf` の `AWS_ACCOUNT_ID`）。`cp cloud/samconfig.toml.example cloud/samconfig.toml`（600）にして、`RunLogAdminPrincipalArns`・`GoogleClientId`・`AdminBootstrapEmails` を書く（CloudFront の 2 つは次の段階で書く） |
-| `cloud:global` | `cd cloud && sam deploy --config-env global`（`cloud/README.md` の 4.1） |
+| `cloud:global` | `node cloud/deploy.mjs --config-env global`（`sam deploy` の包み。デプロイしたコミットを記録する。`cloud/README.md` の 4.1） |
 | `cloud:cloudfront-params` | 表示された global の出力（`CertificateArn`・`WebAclArn`）を `samconfig.toml` の `CloudFrontCertificateArn`・`CloudFrontWebAclArn` に書く |
-| `cloud:sam-deploy` | `cd cloud && sam build`（必須）→ `sam deploy`（4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
+| `cloud:sam-deploy` | `node cloud/deploy.mjs`（`sam build`〈必須〉→ `sam deploy` を順に行い、デプロイしたコミットを記録する。未コミットの変更があると止まる。4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
 | `cloud:rollback` | 本番スタックが `ROLLBACK_COMPLETE`（初回の作成が失敗して戻された。更新できない）。イベントで原因を確かめてテンプレートを直し、`aws cloudformation delete-stack` → `wait stack-delete-complete` で消す（入れ子のスタックの Validation failure は `aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true` で見る） |
 | `cloud:leftovers` | 本番スタックが無いのに、固定の名前の Retain のリソース（SNS 2・`comegin/prod/*` の Secret・runlog-archive の S3・ECR 2）が残っている。作成の失敗で戻されずに残ったもので、そのままでは `sam deploy` が名前の衝突で失敗する。中身が空なのを確かめてから、表示されたコマンドで消す（Secret は `--force-delete-without-recovery`。データがあるなら消さずに止まって、リソースのインポートを考える）。2026-10-27 の初回のデプロイで起きた |
 | `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は、製品ごとに `cloud:smtp-chatwoot`・`cloud:smtp-mautic` の `!` で手順を出して `yes` を待つ（Chatwoot・Mautic の DesiredCount を上げる前〈4.11〉に入れる。まだ上げないなら `yes` で進めてよい）。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
 | `cloud:db-init` | 段階 `apps` の最初。`cloud/README.md` の 4.8 の手順で `comegin-prod-db-init-postgres` と `comegin-prod-db-init-mysql` を RunTask する（ログの最後が `db-init-<engine>: done`）。スクリプトはロググループ `/comegin/prod/tasks` を、今の本番スタックの作成の後に絞って読み、見つけたら状態に残す（ログは 30 日で消えるため。スタックを作り直すとパスワードが変わるので確かめ直す）。同じ段階で、global の 2 回目・SNS の購読（`--authenticate-on-unsubscribe` 付きか）・SES の本番アクセスと DKIM・MAIL FROM・`comegin.com` の DMARC（無い・厳しい照合）・WireGuard の AMI の固定・オンプレの IAM ユーザーのキー・SMTP の Secret を読み、済んでいなければ警告する（止めない） |
-| `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
+| `cloud:push` | 表示されたコマンド（ECR へのログイン → `node cloud/images/build-push.mjs <製品>`（chatwoot か mautic）。`docker build --platform linux/amd64` と 2 つのタグの `docker push` の包み）を実行する（4.7）。タグを変えるときは、`samconfig.toml` にタグを書く → push → `node cloud/deploy.mjs` の順（push が先）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値（スクリプトは `samconfig.toml` の同じ値を読む）。上流のタグとダイジェストの正本は `cloud/images/<製品>/upstream.json`（版を上げたらこのファイルだけを変える）。同じ段階の `cloud.image-commit`（設定の状況の項目。止める判定には混ぜない）が、記録のタグ `<タグ>-rev-<コミット>` と `origin/main` の差でビルド忘れを知らせる |
 
 ### 7.2 本番の admin-auth
 

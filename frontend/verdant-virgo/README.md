@@ -35,7 +35,7 @@ src/
 │   └── accessibility.astro・sitemap.astro  ウェブアクセシビリティ方針（対応度と試験結果）・HTML のサイトマップ
 ├── modules/               機能ごとのモジュール。他モジュールは index.ts（ブラウザ側は client.ts）経由で使う
 │   ├── brand/             ロゴ、和文フォントのサブセット化（integration.ts）
-│   ├── build-info/        ビルドの最後に `dist/build-info.json`（`commit`＝ビルドしたときの HEAD の 40 桁・`builtAt`＝ISO 8601）を書く。公開される JSON で、秘密値は入れない。監視アプリが「配信中のサイトより `origin/main` が進んでいないか」（再配信の要否）を `https://<SITE>/build-info.json` で確かめるのに使う。git を読めないときは `commit: null`（ビルドは止めない）
+│   ├── build-info/        ビルドの最後に `dist/build-info.json`（`commit`＝ビルドしたときの HEAD の 40 桁・`builtAt`＝ISO 8601・`articles`＝このビルドが Strapi から読んだ公開済みの記事 `[{ slug, publishedAt, updatedAt }]` を slug の昇順で）を書く。公開される JSON で、秘密値・documentId は入れない。監視アプリが「配信中のサイトより `origin/main` が進んでいないか」「Strapi で公開した記事が配信中のサイトに入っているか」（再配信の要否）を `https://<SITE>/build-info.json` で確かめるのに使う。`articles` はビルドの開始時（`astro:build:start`）に取り、Strapi から取れなかったときは `articles: null` と警告を出す。git を読めないときは `commit: null`。どちらもビルドは止めない
 │   ├── layout/            BaseLayout・ヘッダー・Mobile メニュー・フッター・パンくず・告知帯・ページ導入
 │   ├── marketing-ui/      CTAButton・カード類・Steps・FAQ・CTA バナー・改行指定の見出しなど
 │   ├── site-content/      文言のデータ（料金・サービス・トップ・会社概要・無料相談・ブログ・404・ナビ・SEO・cta_id）

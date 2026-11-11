@@ -133,4 +133,4 @@ if ((${#missing[@]} > 0)); then
 fi
 
 echo
-echo "完了: docker compose build && docker compose up -d で起動する（WireGuard が先に上がっていること）"
+echo "完了: node ../build.mjs n8n（onprem/build.mjs。未コミットの変更があると止まり、GIT_COMMIT を付けてビルドする）&& docker compose up -d で起動する（WireGuard が先に上がっていること）"

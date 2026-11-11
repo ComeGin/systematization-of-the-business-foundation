@@ -8,7 +8,8 @@ type Callback = (error: Error | null, stdout: string, stderr: string) => void;
 const execFileMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 
-import { checkN8nWorkflows, checkSiteRedeploy } from "../../src/status/drift.js";
+import { ARTICLE_GRACE_MS, type DriftResult, checkN8nWorkflows, checkSiteArticles, checkSiteRedeploy } from "../../src/status/drift.js";
+import { toIsoJst } from "../../src/time.js";
 
 const TOKEN = "github_pat_SECRET_TOKEN_value_1234567890";
 const COMMIT = "1".repeat(40);
@@ -466,6 +467,208 @@ describe("checkN8nWorkflows", () => {
       const result = await checkN8nWorkflows(n8nOptions());
       expect(result.level).toBe("unknown");
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+const STRAPI = { baseUrl: "https://cms.example.test", readToken: "strapi_read_token_SECRET_value" };
+const NOW = new Date("2026-11-11T03:00:00.000Z"); // 12:00 JST
+const HOUR = 60 * 60 * 1000;
+/** NOW から h 時間前（Strapi と同じく UTC の ISO 8601） */
+const ago = (h: number) => new Date(NOW.getTime() - h * HOUR).toISOString();
+
+interface TestArticle {
+  slug: string;
+  publishedAt: string;
+  updatedAt: string;
+}
+const article = (slug: string, publishedHoursAgo: number, updatedHoursAgo = publishedHoursAgo): TestArticle => ({
+  slug,
+  publishedAt: ago(publishedHoursAgo),
+  updatedAt: ago(updatedHoursAgo),
+});
+
+/** 配信中の build-info.json（articles）と、本番の Strapi の公開済みの記事 */
+function mockArticles(options: { buildInfo?: Response; deployed?: TestArticle[] | null; strapi?: TestArticle[] | Response }) {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === `${SITE}/build-info.json`) {
+      return options.buildInfo ?? json({ commit: COMMIT, builtAt: BUILT_AT, articles: options.deployed === undefined ? [] : options.deployed });
+    }
+    if (String(url).startsWith(`${STRAPI.baseUrl}/api/articles?`)) {
+      if (options.strapi instanceof Response) return options.strapi;
+      const rows = (options.strapi ?? []).map((a, i) => ({ id: i + 1, documentId: `doc${i + 1}`, ...a }));
+      return json({ data: rows, meta: { pagination: { page: 1, pageCount: 1, pageSize: 100, total: rows.length } } });
+    }
+    throw new Error(`想定外の URL: ${url}`);
+  });
+}
+
+const articlesOptions = (
+  over: { strapi?: { baseUrl: string; readToken: string } | null; previous?: DriftResult; now?: Date } = {},
+) => ({
+  siteUrl: SITE,
+  strapi: over.strapi === undefined ? STRAPI : over.strapi,
+  previous: over.previous,
+  now: over.now ?? NOW,
+  signal: signal(),
+});
+
+describe("checkSiteArticles", () => {
+  describe("正常系", () => {
+    it("入力: 猶予は 48 時間", () => {
+      expect(ARTICLE_GRACE_MS).toBe(48 * HOUR);
+    });
+
+    it("入力: 配信中の記事と本番の Strapi の公開済みの記事が同じなら ok", async () => {
+      const a = article("a", 100);
+      mockArticles({ deployed: [a], strapi: [a] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.id).toBe("site-articles");
+      expect(result.level).toBe("ok");
+      expect(result.evidence).toContain("一致");
+      expect(result.firstSeen).toBeUndefined();
+    });
+
+    it("入力: 公開から 47 時間の記事だけが未配信なら ok で、根拠に「配信待ち 1 件（猶予中」", async () => {
+      const a = article("a", 100);
+      mockArticles({ deployed: [a], strapi: [a, article("b", 47)] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("ok");
+      expect(result.evidence).toContain("配信待ち 1 件（猶予中");
+      // 期限は公開の 48 時間後（NOW の 1 時間後）。JST で出す
+      expect(result.evidence).toContain(`最も古いものの期限 ${toIsoJst(new Date(NOW.getTime() + HOUR))}`);
+    });
+
+    it("入力: 公開から 48 時間ちょうどの記事が未配信なら action で、根拠に slug", async () => {
+      const a = article("a", 100);
+      mockArticles({ deployed: [a], strapi: [a, article("new-post", 48)] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("action");
+      expect(result.evidence).toContain("new-post（公開）");
+      expect(result.evidence).toContain("周の承認画面の配信の項目を承認して配信する（無ければ毎日 00:00 に作られる）");
+    });
+
+    it("入力: updatedAt が build-info と違い、49 時間たっていれば action（更新）", async () => {
+      mockArticles({ deployed: [article("a", 100, 100)], strapi: [article("a", 100, 49)] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("action");
+      expect(result.evidence).toContain("a（更新）");
+    });
+
+    it("入力: 公開と更新の新しいほうから数える（公開が古くても更新が 10 時間前なら猶予中）", async () => {
+      mockArticles({ deployed: [article("a", 100, 100)], strapi: [article("a", 100, 10)] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("ok");
+      expect(result.evidence).toContain("配信待ち 1 件（猶予中");
+    });
+
+    it("入力: 取り下げは previous.firstSeen から数え、結果の firstSeen に引き継ぐ", async () => {
+      const a = article("a", 100);
+      const gone = article("gone", 200);
+      mockArticles({ deployed: [a, gone], strapi: [a] });
+
+      // 前回の記録が無ければ、今見つけた時刻から数える（猶予中）
+      const first = await checkSiteArticles(articlesOptions());
+      expect(first.level).toBe("ok");
+      expect(first.evidence).toContain("配信待ち 1 件（猶予中");
+      expect(first.firstSeen).toEqual({ gone: toIsoJst(NOW) });
+
+      // 47 時間後: 前回の時刻を引き継ぎ、まだ猶予中
+      const later = new Date(NOW.getTime() + 47 * HOUR);
+      const second = await checkSiteArticles(articlesOptions({ previous: first, now: later }));
+      expect(second.level).toBe("ok");
+      expect(second.firstSeen).toEqual({ gone: toIsoJst(NOW) });
+
+      // 48 時間後: 過ぎたので action
+      const third = await checkSiteArticles(articlesOptions({ previous: second, now: new Date(NOW.getTime() + 48 * HOUR) }));
+      expect(third.level).toBe("action");
+      expect(third.evidence).toContain("gone（取り下げ）");
+      expect(third.firstSeen).toEqual({ gone: toIsoJst(NOW) });
+    });
+
+    it("入力: 取り下げが解消したら firstSeen から消える", async () => {
+      const a = article("a", 100);
+      mockArticles({ deployed: [a], strapi: [a] });
+      const previous: DriftResult = { id: "site-articles", level: "ok", evidence: "x", firstSeen: { gone: toIsoJst(NOW) } };
+      const result = await checkSiteArticles(articlesOptions({ previous }));
+      expect(result.level).toBe("ok");
+      expect(result.firstSeen).toBeUndefined();
+    });
+
+    it("入力: 未配信が 7 件なら slug は 5 件と「ほか 2 件」", async () => {
+      const strapi = [1, 2, 3, 4, 5, 6, 7].map((n) => article(`post-${n}`, 100 + n));
+      mockArticles({ deployed: [], strapi });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("action");
+      expect(result.evidence).toContain("7 件");
+      expect(result.evidence).toContain("ほか 2 件");
+      expect(result.evidence.match(/post-\d（公開）/g)?.length).toBe(5);
+    });
+
+    it("入力: 根拠にトークンを出さず、Strapi には読み取りのトークンだけを付ける", async () => {
+      mockArticles({ deployed: [], strapi: [article("a", 100)] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(JSON.stringify(result)).not.toContain(STRAPI.readToken);
+      const strapiCall = fetchMock.mock.calls.find((call) => String(call[0]).startsWith(STRAPI.baseUrl))!;
+      expect((strapiCall[1] as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${STRAPI.readToken}` });
+      expect(String(strapiCall[0])).toContain("status=published");
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: build-info に articles のキーが無いと action、null なら unknown", async () => {
+      mockArticles({ buildInfo: json({ commit: COMMIT, builtAt: BUILT_AT }), strapi: [article("a", 100)] });
+      const missing = await checkSiteArticles(articlesOptions());
+      expect(missing.level).toBe("action");
+      expect(missing.evidence).toContain("記録が無い");
+      expect(missing.evidence).toContain("次の配信で消える");
+
+      mockArticles({ deployed: null, strapi: [article("a", 100)] });
+      const nulled = await checkSiteArticles(articlesOptions());
+      expect(nulled.level).toBe("unknown");
+    });
+
+    it("サーバ: build-info が 404 なら action（記録が無い）", async () => {
+      mockArticles({ buildInfo: new Response("<html>not found</html>", { status: 404 }), strapi: [] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("action");
+      expect(result.evidence).toContain("次の配信で消える");
+    });
+
+    it("入力: strapi が null なら manual で、fetch を呼ばない", async () => {
+      mockArticles({ deployed: [], strapi: [] });
+      const result = await checkSiteArticles(articlesOptions({ strapi: null }));
+      expect(result.level).toBe("manual");
+      expect(result.evidence).toContain("CONTROL_STRAPI_");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("入力: Strapi が 503 なら unknown", async () => {
+      mockArticles({ deployed: [], strapi: json({ error: "unavailable" }, 503) });
+      vi.useFakeTimers();
+      const promise = checkSiteArticles(articlesOptions());
+      await vi.runAllTimersAsync();
+      const result = await promise;
+      vi.useRealTimers();
+      expect(result.level).toBe("unknown");
+      expect(result.evidence).toContain("本番の Strapi");
+      expect(JSON.stringify(result)).not.toContain(STRAPI.readToken);
+    });
+
+    it("入力: Strapi に届かなくても、前回の取り下げの時刻（firstSeen）は捨てない", async () => {
+      mockArticles({ deployed: [], strapi: json({ error: "unauthorized" }, 401) });
+      const previous: DriftResult = { id: "site-articles", level: "ok", evidence: "x", firstSeen: { gone: "2026-11-10T12:00:00.000+09:00" } };
+      const result = await checkSiteArticles(articlesOptions({ previous }));
+      expect(result.level).toBe("unknown");
+      expect(result.firstSeen).toEqual({ gone: "2026-11-10T12:00:00.000+09:00" });
+    });
+
+    it("サーバ: build-info の articles が配列でなければ unknown", async () => {
+      mockArticles({ buildInfo: json({ commit: COMMIT, builtAt: BUILT_AT, articles: "x" }), strapi: [] });
+      const result = await checkSiteArticles(articlesOptions());
+      expect(result.level).toBe("unknown");
     });
   });
 });
