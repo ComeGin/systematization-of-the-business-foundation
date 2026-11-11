@@ -184,12 +184,20 @@ export function buildConf(target, values) {
 // ---------------------------------------------------------------------------
 
 // 出力先。CLI は標準出力・標準エラー、関数として呼ぶときは provision() の io で差し替える
-let io = { log: (m) => console.log(m), warn: (m) => console.error(`  ! ${m}`) };
+// warn は人の確認が要る「!」。steps は詳しい手順。setup から呼ぶときは io.warn が ctx.confirm（yes で進む。それ以外は止まる。2026-11-10）
+// なので、async の関数の中では await warn(...) で待つ（CLI では表示するだけ）
+let io = {
+  log: (m) => console.log(m),
+  warn: (m, steps = []) => {
+    console.error(`  ! ${m}`);
+    steps.forEach((s, i) => console.error(`      ${i + 1}. ${s}`));
+  },
+};
 function log(msg) {
   io.log(msg);
 }
-function warn(msg) {
-  io.warn(msg);
+function warn(msg, steps = []) {
+  return io.warn(msg, steps);
 }
 /** 失敗は Error を投げる（CLI の main が受けて表示し、exit 1 にする） */
 function fail(msg) {
@@ -326,7 +334,11 @@ async function updateCredential(api, conf, id, c, restSession) {
     if (e.status !== 405) throw e;
   }
   if (!restSession) {
-    warn(`${c.name}: 値を入れ直せない（n8n の公開 API が資格情報の更新を受け付けない）。既にある値のまま使う。Webhook を作り直したときは n8n の画面で入れ直す`);
+    await warn(`${c.name}: 値を入れ直せない（n8n の公開 API が資格情報の更新を受け付けない）。既にある値のまま使う。Webhook を作り直したときは n8n の画面で入れ直す`, [
+      `n8n の画面（${conf.N8N_BASE_URL}）にオーナーでログイン → 左の Overview → Credentials → 「${c.name}」を開く`,
+      "設定ファイル（provision の .conf か setup の .conf）の値を入れ直して Save（値は画面にだけ入れる。チャットに貼らない）",
+      "Webhook を作り直していない（値が変わっていない）なら、何もせずに yes",
+    ]);
     return "そのまま（入れ直せない）";
   }
   const cookie = await restSession();
@@ -361,7 +373,13 @@ async function ensureCredentials(api, conf, target, secrets, restSession) {
   // （管理者のトークンを n8n に常駐させることになるので、本番では警告する）
   const chatwootToken = conf.CHATWOOT_N8N_API_TOKEN || conf.CHATWOOT_API_ACCESS_TOKEN;
   if (!conf.CHATWOOT_N8N_API_TOKEN && target === "prod") {
-    warn("CHATWOOT_N8N_API_TOKEN が空。管理者のトークンを n8n の資格情報「Chatwoot API」に入れる。棚卸しには会話の一覧を読むだけの権限で足りるので、専用のユーザーのトークンを発行して CHATWOOT_N8N_API_TOKEN に書くことを勧める");
+    await warn("CHATWOOT_N8N_API_TOKEN が空。管理者のトークンを n8n の資格情報「Chatwoot API」に入れる。棚卸しには会話の一覧を読むだけの権限で足りるので、専用のユーザーのトークンを発行して CHATWOOT_N8N_API_TOKEN に書くことを勧める", [
+      "本番の Chatwoot に管理者でログイン → Settings → Agents → Add Agent で、棚卸し専用のユーザー（Role は Agent。例 n8n-inventory@<自社のドメイン>）を招待し、届いたメールからパスワードを決める",
+      "Settings → Inboxes → 各受信箱 → Collaborators にそのユーザーを足す（会話の一覧を読むため）",
+      "そのユーザーでログインし、右下のプロフィール → Profile Settings → Access Token をコピーする",
+      "~/.config/comegin/setup/prod.conf にエディタで CHATWOOT_N8N_API_TOKEN=<トークン> を書く（echo で書かない）→ node setup/setup.mjs --target prod --only n8n-prod",
+      "管理者のトークンを n8n に置いたままにすると判断したときだけ yes",
+    ]);
   }
   // ヘッダー名はハイフンの綴り。本番の ALB（drop_invalid_header_fields）はアンダースコアを含むヘッダーを捨てる（Chatwoot はどちらでも読む）
   wanted.push({ name: CRED.chatwootApi, type: "httpHeaderAuth", data: { name: "api-access-token", value: chatwootToken } });
@@ -586,7 +604,12 @@ async function check(conf, target) {
  */
 export async function provision({ target, conf, publish = false, checkOnly = false, io: out, restSession }) {
   if (out) io = out;
-  if (target === "prod" && publish) warn("本番の親（I-11・I-12）を公開する。本番の公開は R1 の判断で行う（README の「本番」）");
+  if (target === "prod" && publish)
+    await warn("本番の親（I-11・I-12）を公開する。本番の公開は R1 の判断で行う（README の「本番」）", [
+      "公開すると、本番の Mautic のフォームと Chatwoot の会話の Webhook が n8n で処理され始める（リードの通知・SNS への発行）",
+      "R1 が公開を判断した（prod.conf の N8N_PUBLISH_PARENTS=true は R1 が書いた）なら yes。まだなら止めて、prod.conf の N8N_PUBLISH_PARENTS の行を消してから実行し直す",
+      "公開の後、Mautic・Chatwoot の管理画面から Webhook を試し送信し、オンプレの n8n の Executions に届くことを確かめる（onprem/README.md の「疎通の確かめ方」）",
+    ]);
 
   if (checkOnly) {
     await check(conf, target);

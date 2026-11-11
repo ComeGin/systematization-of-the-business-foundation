@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeCtx, itemsByKey } from "../helpers/fake-ctx.mjs";
+import { fakeCtx, itemsByKey, recordingConfirm } from "../helpers/fake-ctx.mjs";
 import { makeTempDir, removeTempDir } from "../helpers/temp-home.mjs";
 
 const aws = vi.hoisted(() => ({ responses: {}, main: null, global: null, secret: true }));
@@ -17,6 +17,10 @@ vi.mock("../../../cloud/setup/aws.mjs", async (importOriginal) => {
       return r === undefined ? null : r;
     },
     describeStack: async (_ctx, name) => (name === actual.GLOBAL_STACK ? aws.global : aws.main),
+    requireMainStack: async () => {
+      if (!aws.main) throw new Error("スタック comegin-prod が無い");
+      return aws.main;
+    },
     secretHasValue: async () => aws.secret,
     dbInitDone: async () => true,
   };
@@ -29,7 +33,7 @@ vi.mock("node:dns/promises", () => ({
   },
 }));
 
-const { check } = await import("../../../cloud/setup/index.mjs");
+const { check, apply } = await import("../../../cloud/setup/index.mjs");
 
 const MAIN_STACK = {
   StackStatus: "CREATE_COMPLETE",
@@ -291,6 +295,122 @@ describe("cloud の samconfig の読み先", () => {
       } finally {
         removeTempDir(empty);
       }
+    });
+  });
+});
+
+// apply の「!」（2026-11-10）。削除の注意は ctx.warn（止めない）、それ以外は手順付きの ctx.confirm（yes で進む・それ以外は止まる）
+describe("cloud の apply の「!」の振り分け", () => {
+  const applyCtx = (phase, answer = "yes", conf = {}) => {
+    const rec = recordingConfirm(answer);
+    const ctx = fakeCtx({ conf: { AWS_ACCOUNT_ID: "111", ...conf }, overrides: { phase, ...rec.overrides } });
+    return { ctx, rec };
+  };
+
+  describe("正常系", () => {
+    it("入力: 段階 apps で何も問題が無いと、確認も削除の注意も出さずに終わる", async () => {
+      const { ctx, rec } = applyCtx("apps");
+      await apply(ctx);
+      expect(rec.asked).toEqual([]);
+      expect(rec.warned).toEqual([]);
+    });
+
+    it("入力: 段階 apps の SES のサンドボックスと DMARC の欠けは、詳しい手順を付けて 1 件ずつ確認し、yes なら最後まで進む", async () => {
+      aws.responses["sesv2 get-account"] = { ProductionAccessEnabled: false };
+      dns.txt = [];
+      const { ctx, rec } = applyCtx("apps");
+      await apply(ctx);
+      expect(rec.asked.map((a) => a.id)).toEqual(["ses-production", "dmarc"]);
+      const [ses, dmarc] = rec.asked;
+      expect(ses.title).toContain("サンドボックス");
+      // 配信の前は申請しない（審査で Web サイトを見る）ので、yes で進めてよいことを手順に書く
+      expect(ses.steps[0]).toContain("まだ配信していないなら");
+      expect(ses.steps.join("\n")).toContain("Request production access");
+      expect(dmarc.steps.join("\n")).toContain('"v=DMARC1; p=none; rua=mailto:');
+      expect(rec.warned).toEqual([]);
+    });
+
+    it("入力: 段階 apps の SNS の未購読は、トピックの ARN を埋めた subscribe と、認証付きの confirm-subscription の手順を出す", async () => {
+      aws.responses["sns list-subscriptions-by-topic"] = { Subscriptions: [] };
+      const { ctx, rec } = applyCtx("apps");
+      await apply(ctx);
+      const sns = rec.asked.filter((a) => a.id === "sns-subscription");
+      expect(sns).toHaveLength(2);
+      const steps = sns[0].steps.join("\n");
+      expect(steps).toContain("aws sns subscribe --region ap-northeast-1 --topic-arn arn:aws:sns:ap-northeast-1:111:comegin-ops-alert");
+      expect(steps).toContain("--authenticate-on-unsubscribe true");
+    });
+
+    it("入力: 段階 apps の SMTP の Secret の欠けは、USERNAME と PASSWORD で 2 回聞かず、製品ごとに 1 回ずつ聞く", async () => {
+      aws.secret = false;
+      const { ctx, rec } = applyCtx("apps");
+      await apply(ctx);
+      const smtp = rec.asked.filter((a) => a.id === "smtp-secrets");
+      expect(smtp.map((a) => a.title.split(" ")[0])).toEqual(["Chatwoot", "Mautic"]);
+      expect(smtp[0].title).toContain("comegin/prod/chatwoot/SMTP_USERNAME・comegin/prod/chatwoot/SMTP_PASSWORD");
+      expect(smtp[1].steps.join("\n")).toContain("put_smtp ~/Downloads/<CSV>.csv mautic");
+    });
+
+    it("入力: 段階 operate の古いキーと prod.conf の初期設定用の値は、削除の注意として ctx.warn に出し、聞かずに進む（値は出さない）", async () => {
+      aws.responses["iam list-access-keys"] = {
+        AccessKeyMetadata: [
+          { Status: "Active", CreateDate: "2026-09-01T00:00:00Z" },
+          { Status: "Active", CreateDate: "2026-10-01T00:00:00Z" },
+        ],
+      };
+      const { ctx, rec } = applyCtx("operate", "no", { CHATWOOT_ADMIN_TOKEN: "tok-secret-value-0123456789" });
+      await apply(ctx);
+      expect(rec.asked).toEqual([]);
+      expect(rec.warned.length).toBeGreaterThanOrEqual(2);
+      expect(rec.warned.every((w) => w.endsWith("（削除の注意。止めずに進む）"))).toBe(true);
+      expect(rec.warned.some((w) => w.includes("有効なアクセスキーが 2 つある"))).toBe(true);
+      expect(rec.warned.some((w) => w.includes("CHATWOOT_ADMIN_TOKEN"))).toBe(true);
+      expect(rec.warned.join("\n")).not.toContain("tok-secret-value-0123456789");
+    });
+
+    it("空入力: 段階 operate で何も残っていなければ、確認も削除の注意も出さない", async () => {
+      const { ctx, rec } = applyCtx("operate", "no");
+      await apply(ctx);
+      expect(rec.asked).toEqual([]);
+      expect(rec.warned).toEqual([]);
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: yes 以外なら最初の確認で止まり、後ろの確認は聞かない", async () => {
+      aws.responses["sesv2 get-account"] = { ProductionAccessEnabled: false };
+      dns.txt = [];
+      const { ctx, rec } = applyCtx("apps", "no");
+      const err = await apply(ctx).catch((e) => e);
+      expect(err).toMatchObject({ id: "ses-production", kind: "confirm" });
+      expect(rec.asked.map((a) => a.id)).toEqual(["ses-production"]);
+    });
+
+    it("入力: 段階 operate のサンドボックスと配信用の主体なしは、削除の注意ではないので確認する", async () => {
+      aws.responses["sesv2 get-account"] = { ProductionAccessEnabled: false };
+      aws.responses["iam list-entities-for-policy"] = { PolicyUsers: [], PolicyRoles: [], PolicyGroups: [] };
+      const { ctx, rec } = applyCtx("operate");
+      await apply(ctx);
+      expect(rec.asked.map((a) => a.id)).toEqual(["deploy-principal", "ses-production"]);
+      expect(rec.asked[0].steps.join("\n")).toContain("ComeginProdDeploy");
+      // 配信の後の段階なので、「配信していないなら申請しない」の手順は付けない
+      expect(rec.asked[1].steps[0]).not.toContain("まだ配信していないなら");
+    });
+
+    it("サーバ: IAM を読めない（権限）ときは、確かめられなかったことを AWS の認証と権限の手順付きで確認する", async () => {
+      aws.responses["iam list-access-keys"] = new Error("AccessDenied: iam:ListAccessKeys");
+      const { ctx, rec } = applyCtx("operate");
+      await apply(ctx);
+      const unknown = rec.asked.find((a) => a.id === "old-keys-unknown");
+      expect(unknown.title).toContain("AccessDenied");
+      expect(unknown.steps[0]).toContain("aws sts get-caller-identity");
+    });
+
+    it("サーバ: スタックが無いと、確認の前に例外で止まる", async () => {
+      aws.main = null;
+      const { ctx, rec } = applyCtx("operate");
+      await expect(apply(ctx)).rejects.toThrow("スタック comegin-prod が無い");
+      expect(rec.asked).toEqual([]);
     });
   });
 });

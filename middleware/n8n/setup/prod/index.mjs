@@ -160,7 +160,7 @@ export async function apply(ctx) {
   ctx.state.set("N8N_API_KEY", apiKey, { secret: true });
   ctx.state.set("N8N_PROD_TOKEN", mcpToken, { secret: true });
   ctx.log(`N8N_API_KEY と N8N_PROD_TOKEN: ${apiOk && mcpOk ? "使える状態" : "用意した（prod の状態。N8N_PROD_TOKEN は mcp-prod が n8n-prod.env に書く）"}`);
-  if (!mcpOk && existsSync(join(ctx.CONFIG_DIR, "mcp", "n8n-prod.env"))) ctx.warn("MCP のトークンが変わった。mcp-prod が n8n-prod.env を書き直すまで、本番の n8n の MCP は前のトークンのまま（続けて実行すれば書き直す）");
+  if (!mcpOk && existsSync(join(ctx.CONFIG_DIR, "mcp", "n8n-prod.env"))) ctx.log("MCP のトークンが変わった。mcp-prod が n8n-prod.env を書き直すまで、本番の n8n の MCP は前のトークンのまま（続けて実行すれば書き直す）");
 
   // 3. provision（SNS のトピックは本番スタックの出力から）
   const values = {
@@ -180,11 +180,18 @@ export async function apply(ctx) {
   if (ctx.conf.CHATWOOT_BASE_URL) values.CHATWOOT_API_URL = values.CHATWOOT_URL_FROM_N8N = ctx.conf.CHATWOOT_BASE_URL;
   for (const k of PASS_THROUGH) if (ctx.conf[k]) values[k] = ctx.conf[k];
   const publish = ctx.conf.N8N_PUBLISH_PARENTS === "true";
-  await provision({ target: "prod", conf: buildConf("prod", values), publish, restSession, io: { log: (m) => ctx.log(m.replace(/^\n/, "")), warn: ctx.warn } });
+  await provision({ target: "prod", conf: buildConf("prod", values), publish, restSession, io: { log: (m) => ctx.log(m.replace(/^\n/, "")), warn: (m, steps) => ctx.confirm("provision", m, steps) } });
   if (!publish) ctx.log("親（I-11・I-12）は未公開。公開は R1 の判断（prod.conf に N8N_PUBLISH_PARENTS=true を書いて再実行するか、n8n の画面で Publish）");
 
-  // 4. ハートビート（止めない。有効にするのは人）
+  // 4. ハートビート（有効にするのは人。済んでいなければ手順を出して yes を待つ）
   const hb = await heartbeatState(ctx);
-  if (hb !== "OK") ctx.warn(`アラーム ${HEARTBEAT_ALARM} が ${hb ?? "見つからない"}。${HEARTBEAT_HINT}`);
+  if (hb !== "OK")
+    await ctx.confirm("heartbeat", `アラーム ${HEARTBEAT_ALARM} が ${hb ?? "見つからない"}。${HEARTBEAT_HINT}`, [
+      `n8n の画面（${BASE}）にオーナーでログイン → 左の Overview → Data tables → ops_settings → 行 heartbeatEnabled の value を true にする`,
+      "ワークフロー「n8n スケジュール実行のハートビート」を開き、右上の Publish（公開）を押す（middleware/n8n/workflows/GUIDE.md の 9.7）",
+      "10〜15 分待ってから状態を見る: aws cloudwatch describe-alarms --region ap-northeast-1 --alarm-names " + HEARTBEAT_ALARM + " --query 'MetricAlarms[0].StateValue' --output text（OK になる）。復旧の通知が comegin-ops-alert の購読先に届くことも確かめる（cloud/README.md の 4.10）",
+      "OK にならなければ、n8n の Executions でハートビートの実行の失敗（AWS の資格情報・SNS のトピック・名前空間 ComeGin/OnpremN8n）を見る",
+      "ハートビートをまだ有効にしない（オンプレの n8n の停止に気づけないのを承知）と判断したときだけ yes",
+    ]);
   ctx.log("Mautic・Chatwoot の管理画面から Webhook を試し送信し、オンプレの n8n の Executions に届くことを確かめる（親を公開してから。onprem/README.md の「疎通の確かめ方」）");
 }

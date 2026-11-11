@@ -16,7 +16,7 @@
 // 最初に、ECS の chatwoot-web・chatwoot-worker の DesiredCount（親のパラメータ）が 1 以上かを読み取りだけで確かめ、0 なら
 // db:chatwoot_prepare と台数を上げる手順を案内して止まる（cloud/README.md の 4.10・4.11。以前はスクリプトが確かめず、Chatwoot に届かないとだけ出ていた）
 import { createHash } from "node:crypto";
-import { isAwsUnavailable, notRunningNote, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../cloud/setup/aws.mjs";
+import { isAwsUnavailable, notRunningNote, notRunningSteps, raiseCountSteps, requireMainStack, serviceCounts, settleAwsUnavailable } from "../../../../cloud/setup/aws.mjs";
 import { ASK_RESOLVED_MACRO, FAQ_LABELS, HANDOFF_EMAIL_FLAG, ensureAskResolvedMacro, ensureFaqBot, ensureHandoffNotification, ensureInbox, ensureLabels, profile } from "../index.mjs";
 
 export const meta = { id: "chatwoot-prod", title: "Chatwoot（本番。受信箱・FAQ ボット・ラベル・マクロ）", targets: ["prod"], phases: ["apps"], after: [] };
@@ -252,11 +252,11 @@ export async function apply(ctx) {
   const counts = await ecsCounts(ctx);
   const low = counts.filter((c) => c.desiredParam < 1);
   if (low.length) ctx.manual("ecs", `本番の Chatwoot を起動する（${low.map((c) => `comegin-prod-${c.svc}`).join("・")} の DesiredCount が 0）`, raiseCountSteps(low.map((c) => c.param), PREPARE_STEPS));
-  for (const c of counts) if (c.running === 0) ctx.warn(notRunningNote(c));
+  for (const c of counts) if (c.running === 0) await ctx.confirm(`not-running-${c.svc}`, notRunningNote(c), notRunningSteps(c));
 
   const v = values(ctx);
   if (v.missing.length) {
-    ctx.warn(`prod.conf に無いキー: ${v.missing.join("・")}`);
+    ctx.log(`prod.conf に無いキー: ${v.missing.join("・")}（次の案内で書く）`);
     ctx.manual("onboarding", "本番の Chatwoot の管理者・エージェント専用ユーザーを作り、トークンと URL を prod.conf に書く", onboardingSteps(v));
   }
   const p = problems(v);

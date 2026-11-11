@@ -198,13 +198,27 @@ export async function apply(ctx) {
     );
   }
   const worktree = env.CONTROL_WORKTREE || ctx.value("CONTROL_WORKTREE") || ctx.REPO;
+  // 承認済みの main の別チェックアウトの作り方（setup/manual-steps.md の 6 節）。2 つの確認で共通
+  const separateCheckoutSteps = (fix) => [
+    `人が自分の端末で、別のチェックアウトを作る（setup は git を書き換えない）: git -C ${ctx.REPO} fetch origin && git -C ${ctx.REPO} worktree add --detach ~/ComeGin/main-checkout origin/main（既にあれば git -C ~/ComeGin/main-checkout checkout --detach origin/main）`,
+    fix,
+    "同じコマンドを実行し直す（setup/manual-steps.md の 6 節）。分離が働かないのを承知で、このまま進めると判断したときだけ yes",
+  ];
   if (realpathSync(main) === realpathSync(worktree)) {
-    ctx.warn("CONTROL_MAIN_CHECKOUT と CONTROL_WORKTREE が同じ場所。作業ツリーで書き換えた定義が次の実行に効いてしまう（ADR-18 の分離が働かない）。別のチェックアウトにする");
+    await ctx.confirm(
+      "main-checkout-same",
+      "CONTROL_MAIN_CHECKOUT と CONTROL_WORKTREE が同じ場所。作業ツリーで書き換えた定義が次の実行に効いてしまう（ADR-18 の分離が働かない）。別のチェックアウトにする",
+      separateCheckoutSteps(`~/.config/comegin/setup/dev.conf の CONTROL_MAIN_CHECKOUT を上のチェックアウトの絶対パスにする。CONTROL_WORKTREE を書いているなら、それとは別の場所にする（書いていなければ開発のリポジトリ ${ctx.REPO} が使われる）`),
+    );
   }
   // 開発のリポジトリ（ctx.REPO）・main のチェックアウト・エージェント専用の作業場（CONTROL_WORKTREE。本番は 3 本目を使う。setup/manual-steps.md の 6.2）は互いに別の場所。
-  // 開発では CONTROL_WORKTREE が開発のリポジトリ自身でもよい（既定。定期実行は動かさない）ので、そこは警告しない
+  // 開発では CONTROL_WORKTREE が開発のリポジトリ自身でもよい（既定。定期実行は動かさない）ので、そこは確かめない
   if (realpathSync(main) !== realpathSync(worktree) && realpathSync(main) === realpathSync(ctx.REPO)) {
-    ctx.warn("CONTROL_MAIN_CHECKOUT が開発のリポジトリ（作業ツリー）と同じ場所。承認済み main の別チェックアウトにする（ADR-18）");
+    await ctx.confirm(
+      "main-checkout-repo",
+      "CONTROL_MAIN_CHECKOUT が開発のリポジトリ（作業ツリー）と同じ場所。承認済み main の別チェックアウトにする（ADR-18）",
+      separateCheckoutSteps("~/.config/comegin/setup/dev.conf の CONTROL_MAIN_CHECKOUT を上のチェックアウトの絶対パスにする（エディタで）"),
+    );
   }
 
   // 開発の作業場の既定は開発のリポジトリそのものなので、cycle-open を手で起動しても origin/main に合わせない（Ruling 34）。
@@ -236,9 +250,20 @@ export async function apply(ctx) {
   const written = ctx.readEnvFile(envPath);
   const publicUrl = publicUrlOf(written);
   const domain = written.GOOGLE_HOSTED_DOMAIN || DEFAULT_HOSTED_DOMAIN;
-  if (!written.ANTHROPIC_API_KEY) ctx.warn("ANTHROPIC_API_KEY が空。エージェントの起動は skipped になる。使うなら設定ファイルに ANTHROPIC_API_KEY を書いて再実行する");
+  if (!written.ANTHROPIC_API_KEY)
+    await ctx.confirm("anthropic-key", "ANTHROPIC_API_KEY が空。エージェントの起動は skipped になる", [
+      "Claude Console（https://platform.claude.com）→ Settings → API keys → Create Key で開発用のキーを作る（名前は例 comegin-dev-control。表示は作ったときだけ）",
+      "~/.config/comegin/setup/dev.conf にエディタで ANTHROPIC_API_KEY=<キー> を書く（chmod 600。echo で書かない）",
+      "同じコマンドを実行し直す（環境変数ファイルに写る。dev サーバーが動いていれば起動し直す）。setup/manual-steps.md の 7.3",
+      "開発でエージェントを動かさない（skipped のままでよい）と判断したときだけ、書かずに yes",
+    ]);
   const outside = written.CONTROL_ADMIN_EMAILS.split(",").map((s) => s.trim()).filter((s) => s && !s.toLowerCase().endsWith(`@${domain}`));
-  if (outside.length) ctx.warn(`許可リストに ${domain} 以外のメールがある（${outside.length} 件）。Google の hd の検査で通らない`);
+  if (outside.length)
+    await ctx.confirm("admin-emails-domain", `許可リストに ${domain} 以外のメールがある（${outside.length} 件）。Google の hd の検査で通らない`, [
+      `~/.config/comegin/setup/dev.conf の CONTROL_ADMIN_EMAILS（無ければ ADMIN_EMAIL）を、@${domain} のアドレスだけのカンマ区切りにする（エディタで）`,
+      `ほかのドメインの人を入れたいなら、GOOGLE_HOSTED_DOMAIN（今は ${domain}）を変えることになる。Workspace の外の人を入れない設計（ADR-23）なので、変える前に人が判断する`,
+      "同じコマンドを実行し直す（設定で明示した CONTROL_ADMIN_EMAILS は環境変数ファイルに上書きされる）。そのアドレスがログインできないのを承知で進めるときだけ yes",
+    ]);
 
   // 2. 依存の導入（control-plane は link: で dist/ を読む）
   ctx.log("pnpm install（lockfile 固定）");
@@ -261,7 +286,7 @@ export async function apply(ctx) {
     throw new Error(`監視アプリの Google ログインを始められない: ${google.reason}`);
   }
   ctx.log(`Google ログインを始められることを確かめた（hd ${domain}、リダイレクト URI ${google.redirect}）`);
-  if (changed.length > 0) ctx.warn("環境変数を書き換えた。起動中の dev サーバーが古い値で動いていないか、ログインで確かめる（おかしければ起動し直す）");
+  if (changed.length > 0) ctx.log("環境変数を書き換えた。起動中の dev サーバーが古い値で動いていないか、ログインで確かめる（おかしければ起動し直す）");
   ctx.log(`ログイン: ${publicUrl}/login を開き「Google でログイン」。通るのは ${domain} のアカウントで、CONTROL_ADMIN_EMAILS にあるメールだけ（ユーザーは初回のログインで作られる）`);
   ctx.log("定期実行は CONTROL_SCHEDULER_ENABLED=false のまま（手動の起動・ハートビート・写しの再送は動く）");
 }

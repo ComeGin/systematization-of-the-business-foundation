@@ -65,6 +65,10 @@ export async function apply(ctx) {
   // builtin lighthouse は承認済み main のチェックアウトの node_modules を前提にする（README の「lighthouse の実行」）
   const main = ctx.value("CONTROL_MAIN_CHECKOUT");
   if (main && !existsSync(join(main, "frontend/verdant-virgo/node_modules"))) {
-    ctx.warn(`${main} の frontend/verdant-virgo で pnpm install が済んでいない。builtin の lighthouse は dependencies not installed で skipped になる（定期実行を使うなら人が済ませる）`);
+    await ctx.confirm("main-checkout-install", `${main} の frontend/verdant-virgo で pnpm install が済んでいない。builtin の lighthouse は dependencies not installed で skipped になる（定期実行を使うなら人が済ませる）`, [
+      `チェックアウトが origin/main と同じかを確かめる: git -C ${main} fetch origin && git -C ${main} status -sb（違えば git -C ${main} checkout --detach origin/main）`,
+      `依存を入れる（lockfile は変えない）: cd ${main}/frontend/verdant-virgo && pnpm install --frozen-lockfile`,
+      "同じコマンドを実行し直す。lighthouse の定期実行を使わないと判断したときだけ yes",
+    ]);
   }
 }

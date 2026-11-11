@@ -52,7 +52,7 @@ ops/
 | `weekly-observe-a11y` | agent | 毎週月曜 02:00 | `quality-checker` の項目 6 だけ。検査の完了を `after` で待ち、`QC-a11y-*` を `source: quality` に正規化。**UI を変える提案を自動で起票する前提**（下の注記） |
 | `weekly-observe-serp-audit` | agent | 毎週月曜 02:00 | `seo-auditor`。ランク追跡とサイト監査の保存済みの結果（`serp` `site_audit`） |
 | `weekly-keyword-research` | agent | 毎週月曜 02:30 | `keyword-researcher`。**費用が発生する**（1 回 2,000 クレジットまで） |
-| `weekly-content-draft` | agent | 毎週火曜 02:30 | `content-writer`。承認済みの企画から下書きを 1 本（公開は `R2`） |
+| `weekly-content-draft` | agent | 毎週火曜・金曜 02:30 | `content-writer`。承認済みの企画から下書きを 1 回 1 本・週 2 本（公開は `R2`。2026-11-11 に火曜だけから増やした） |
 | `weekly-content-plan` | agent | 毎週水曜 02:30 | `content-planner`。採用済みのキーワードから企画を起案 |
 | `heartbeat` | builtin | 5 分ごと | ハートビート（CloudWatch）。途絶えたら改善ループが止まっている |
 | `runlog-flush` | builtin | 0〜8 時の 15 分ごと（最後は 07:45） | `E-15` の写しを S3 に追記（送れていない分を送り直す） |
@@ -97,7 +97,7 @@ ops/
 | 月曜 00:05 | `cycle-close`（期間が終わった周だけ閉じる。`cycle-open` が先に閉じていれば見送る） | 00:10 |
 | 月曜 00:30 → 01:15 | `weekly-lighthouse`（`published-article-check` が 00:25 までに終わるので、`checkout-build` のリースを取れる）→ `weekly-a11y`（時刻で重ねない） | 01:00 → 01:45 |
 | 月曜 01:45・02:00 | `weekly-observe-lighthouse`・`weekly-observe-a11y`・`weekly-observe-serp-audit` | 02:15 |
-| 月・火・水 02:30 | `weekly-keyword-research`（月）・`weekly-content-draft`（火）・`weekly-content-plan`（水） | 02:50 |
+| 月・火・水・金 02:30 | `weekly-keyword-research`（月）・`weekly-content-draft`（火・金）・`weekly-content-plan`（水） | 02:50 |
 | 日・火〜土 03:00 | `article-cover`（**月曜は 03:00〜03:30 の保守の窓を避けて動かさない**。`timeout_sec` 1200） | 03:20 |
 | 毎日 04:00 | 観測 4 本（`daily-observe-*`。並列） | 04:20 |
 | 毎週火曜 04:00 | `cycle-campaign`（周の 8 日目だけ。観測 4 本と同時刻で、別のエージェント。書き先も別） | 04:30 |

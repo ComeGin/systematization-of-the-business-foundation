@@ -1,7 +1,10 @@
 id: weekly-content-draft
-description: "承認済みの企画から記事の下書きを 1 本作る。本番の Strapi には下書きまで。公開は R2 が管理画面で行う"
+description: "承認済みの企画から記事の下書きを 1 本作る（火・金の週 2 回）。本番の Strapi には下書きまで。公開は R2 が管理画面で行う"
 enabled: true
-cron: "30 2 * * 2"
+# 火曜・金曜の 02:30（週 2 本・1 周〈14 日〉で 4 本まで）。2026-11-11 にユーザーの判断で火曜だけから増やした（本番の GSC に記事が 1 本も出ておらず、2 本 / 14 日では検索の入口が増えないため）。
+# 1 回の実行で 1 本の規則は変えない（作成は冪等でなく、二重作成を 1 本に抑えるため）。本数は R2 が事実確認と公開をできる量に合わせる（AA-04 の 3.1 の考え方）。
+# 起動 + 1200 秒 = 02:50 で、article-cover（03:00）の前に終わる。金曜 02:30 にほかの定期実行は無い
+cron: "30 2 * * 2,5"
 kind: agent
 agent: content-writer
 builtin: null
@@ -18,7 +21,7 @@ timeout_sec: 1200
 max_turns: 60
 # 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
 overview: |
-  Agent content-writer を起動し、承認済み（plan_state: approved）で記事がまだ結ばれていない企画のうち最も古い 1 件から、記事の初稿を書いて本番の Strapi に下書き（E-04）として作り、企画に結ぶ。1 回の実行で 1 記事だけ。公開は R2 が管理画面で行う。
+  Agent content-writer を起動し、承認済み（plan_state: approved）で記事がまだ結ばれていない企画のうち最も古い 1 件から、記事の初稿を書いて本番の Strapi に下書き（E-04）として作り、企画に結ぶ。1 回の実行で 1 記事だけ（火・金の週 2 回）。公開は R2 が管理画面で行う。
 stage: create
 io:
   reads:

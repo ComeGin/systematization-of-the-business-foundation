@@ -843,7 +843,7 @@ SES の送信元は `comegin.com`（ドメイン ID。`ses.yaml`）。CloudForma
 | 6 | apex の DMARC を設定する | 人・画面（Route 53） | 顧客へ送り始める前 |
 | 7 | 送信を確かめる | 人・画面 | 5 の後 |
 
-設定スクリプトの段階 `apps`（`cloud`）は、本番アクセス・DKIM・MAIL FROM・DMARC・SMTP の Secret の値の有無を読み取りで確かめ、済んでいなければ警告する（止めない）。
+設定スクリプトの段階 `apps`（`cloud`）は、本番アクセス・DKIM・MAIL FROM・DMARC・SMTP の Secret の値の有無を読み取りで確かめ、済んでいなければ `!` と手順を出して `yes` を待つ（2026-11-10 から。`yes` 以外なら止まる。本番アクセスは公開サイトの配信の後に申請するので、配信の前は申請せずに `yes` で進めてよい）。
 
 #### 4.9.1 ドメインの検証を確かめる
 
@@ -986,7 +986,7 @@ aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id comegin/
   ```
 
 - **`aspf=s`（SPF の厳しい照合）を入れない。** 入れると、MAIL FROM がサブドメインの SES のメールが SPF の照合に落ちる（公式）。`adkim=s` も入れない。既にあるレコードにこれらがあれば外す。
-- このレコードは CloudFormation の外（Workspace と共有するため）。設定スクリプトの段階 `apps` は、DMARC の TXT が無い・`aspf=s` があるときに警告する。
+- このレコードは CloudFormation の外（Workspace と共有するため）。設定スクリプトの段階 `apps` は、DMARC の TXT が無い・`aspf=s` があるときに、この節の手順を出して `yes` を待つ。
 
 #### 4.9.7 送信を確かめる
 
@@ -1630,7 +1630,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | `cloud:sam-deploy` | `cd cloud && sam build`（必須）→ `sam deploy`（4.2）。ECR のリポジトリもここで作られる。実行中なら終わるまで待つ。失敗しているなら CloudFormation のイベントで原因を確かめる |
 | `cloud:rollback` | 本番スタックが `ROLLBACK_COMPLETE`（初回の作成が失敗して戻された。更新できない）。イベントで原因を確かめてテンプレートを直し、`aws cloudformation delete-stack` → `wait stack-delete-complete` で消す（入れ子のスタックの Validation failure は `aws cloudformation describe-events --stack-name <その ARN> --filters FailedEvents=true` で見る） |
 | `cloud:leftovers` | 本番スタックが無いのに、固定の名前の Retain のリソース（SNS 2・`comegin/prod/*` の Secret・runlog-archive の S3・ECR 2）が残っている。作成の失敗で戻されずに残ったもので、そのままでは `sam deploy` が名前の衝突で失敗する。中身が空なのを確かめてから、表示されたコマンドで消す（Secret は `--force-delete-without-recovery`。データがあるなら消さずに止まって、リソースのインポートを考える）。2026-10-27 の初回のデプロイで起きた |
-| `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は警告だけで、Chatwoot・Mautic の DesiredCount を上げる前（4.11）に入れる。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
+| `cloud:secrets` | `comegin/prod/admin-auth/GOOGLE_CLIENT_SECRET` に値を入れる（4.6）。SMTP の 4 つ（4.9）は、製品ごとに `cloud:smtp-chatwoot`・`cloud:smtp-mautic` の `!` で手順を出して `yes` を待つ（Chatwoot・Mautic の DesiredCount を上げる前〈4.11〉に入れる。まだ上げないなら `yes` で進めてよい）。FAQ ボットの 2 つは `chatwoot-prod`（段階 `apps`）が案内する |
 | `cloud:db-init` | 段階 `apps` の最初。`cloud/README.md` の 4.8 の手順で `comegin-prod-db-init-postgres` と `comegin-prod-db-init-mysql` を RunTask する（ログの最後が `db-init-<engine>: done`）。スクリプトはロググループ `/comegin/prod/tasks` を、今の本番スタックの作成の後に絞って読み、見つけたら状態に残す（ログは 30 日で消えるため。スタックを作り直すとパスワードが変わるので確かめ直す）。同じ段階で、global の 2 回目・SNS の購読（`--authenticate-on-unsubscribe` 付きか）・SES の本番アクセスと DKIM・MAIL FROM・`comegin.com` の DMARC（無い・厳しい照合）・WireGuard の AMI の固定・オンプレの IAM ユーザーのキー・SMTP の Secret を読み、済んでいなければ警告する（止めない） |
 | `cloud:push` | 表示されたコマンド（ECR へのログイン → `docker build --platform linux/amd64` → `docker push`）を実行する（4.7）。タグは本番スタックのパラメータ `ChatwootImageTag`・`MauticImageTag` の今の値。上流のタグとダイジェストは `cloud/README.md` の 4.7 の表と `cloud/setup/index.mjs` の `IMAGES` の両方に書いてある（版を上げたら両方を変える） |
 

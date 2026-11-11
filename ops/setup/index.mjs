@@ -188,6 +188,7 @@ async function mcpToolNames(url, token) {
 
 /** 各 MCP を読み取りだけで確かめる。届かないものは unreachable、失敗は failures に入れて、最後まで確かめる */
 async function verifyAll(ctx, files) {
+  const warnings = []; // 人の確認（apply は ctx.confirm、check は notes の「!」。2026-11-10）
   const results = [];
   const unreachable = [];
   const failures = [];
@@ -211,10 +212,18 @@ async function verifyAll(ctx, files) {
     const names = await mcpToolNames(DEFAULTS.N8N_MCP_URL, files["n8n-prod"].N8N_PROD_TOKEN);
     const humanOnly = names.filter((n) => N8N_HUMAN_ONLY.test(n));
     if (humanOnly.length)
-      ctx.warn(`n8n-prod に人間だけが行う操作のツールが出ている（${humanOnly.join(", ")}）。n8n のトークンでは絞れない。これらを tools に含むエージェント定義は control-plane が起動しない（src/runner/agent.ts の HUMAN_ONLY_PROD_TOOLS。TA-07 の 3.3）`);
+      warnings.push({
+        id: "n8n-human-only",
+        text: `n8n-prod に人間だけが行う操作のツールが出ている（${humanOnly.join(", ")}）。n8n のトークンでは絞れない。これらを tools に含むエージェント定義は control-plane が起動しない（src/runner/agent.ts の HUMAN_ONLY_PROD_TOOLS。TA-07 の 3.3）`,
+        steps: [
+          `エージェント定義に入っていないことを確かめる: rg -n "mcp__n8n-prod__(${humanOnly.join("|")})" .claude/agents（何も出なければよい。出たら、その行を消す PR を出す）`,
+          "control-plane の HUMAN_ONLY_PROD_TOOLS（backend/control-plane/src/runner/agent.ts）に、上のツールがすべて入っていることを確かめる（入っていなければ足す PR を出す）",
+          "n8n のトークンではツールを絞れない（上流の仕様）。エージェント定義と control-plane の 2 重の防ぎで足りると判断したら yes",
+        ],
+      });
     return `ツール ${names.length} 本`;
   });
-  return { results, unreachable, failures };
+  return { results, unreachable, failures, warnings };
 }
 
 function writeAll(ctx, files) {
@@ -333,8 +342,8 @@ export async function check(ctx) {
   const dist = distProblems(ctx);
   for (const m of dist) mark(false, "", m);
   if (missing.length === 0) {
-    const { results, unreachable, failures } = await verifyAll(ctx, files);
-    notes.push(...results);
+    const { results, unreachable, failures, warnings } = await verifyAll(ctx, files);
+    notes.push(...results, ...warnings.map((w) => `! ${w.text}`));
     for (const u of unreachable) {
       mark(false, "", `届かない: ${u}`);
       unreachableAll.push(`届かない: ${u}`);
@@ -367,8 +376,9 @@ export async function apply(ctx) {
   if (problems.length) throw new Error(`本番の MCP の値に問題がある: ${problems.join("／")}`);
 
   // 書く前に確かめる（誤った値のファイルを置かない）。オンプレの Strapi・n8n が止まっていて届かないものは、書いてから案内する
-  const { results, unreachable, failures } = await verifyAll(ctx, files);
+  const { results, unreachable, failures, warnings } = await verifyAll(ctx, files);
   for (const r of results) ctx.log(r);
+  for (const w of warnings) await ctx.confirm(w.id, w.text, w.steps);
   if (failures.length) throw new Error(`本番の MCP の確認に失敗した（env ファイルは書いていない）: ${failures.join("／")}`);
   const written = writeAll(ctx, files);
   ctx.log(`~/.config/comegin/mcp/ に書いた（600）: ${written.join("、")}`);

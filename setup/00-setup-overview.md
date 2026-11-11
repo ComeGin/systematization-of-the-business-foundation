@@ -22,7 +22,7 @@
 ### 見落としやすい 3 種類の手順
 
 - **〔未検査〕**: 設定スクリプトが**確かめない**手順。済ませていなくてもスクリプトは先へ進む（か、別の名前で止まる）ので、この文書の順で自分で済ませる。一覧は [4 節](#4-設定スクリプトが確かめる範囲)
-- **〔警告〕**: スクリプトが読み取りで確かめるが、**止めずに `!` の警告だけ出す**手順（済んでいなくても後の設定は進められるもの）。警告が消えるまでに済ませる
+- **〔警告〕**: スクリプトが読み取りで確かめ、済んでいなければ `!` と**詳しい手順**を出して **`yes` の入力を待つ**手順（2026-11-10 から。`yes` 以外なら終了コード 3 で止まる）。済ませてから `yes`、今は済ませられない（公開サイトの配信の後に行う SES の申請など）と判断したときだけ、済ませずに `yes` で進めてよい。**変数・キー・ファイルの削除の `!`（`prod.conf` の初期設定用の値・IAM の古いキー・作業ツリーの `.env.production`）だけは聞かずに進む**。詳しくは `setup/README.md` の「「!」の確認」
 - **〔申告〕**: スクリプトが外から確かめられないので、人が `prod.conf` に `...=yes` を書いて「済んだ」と伝える手順。書いたら信じて進むので、**済ませてから書く**。一覧は [5 節](#5-申告制のフラグprodconf)
 
 ### 設定スクリプトの基本の動き
@@ -32,6 +32,7 @@ node setup/setup.mjs --target <dev|prod> [--phase <段階>] [--check]
 ```
 
 - 止まったら（終了コード 3）、表示された手順を行い、**同じコマンドを実行し直す**。済んだ手順は飛ばす。
+- `!` と手順が出て `yes` を求められたら、手順を済ませてから `yes` と入力する（`yes` 以外は止まる。apply は端末から実行する。`setup/README.md` の「「!」の確認」）。
 - 止まったときの表示の id（例 `cloud:secrets`）は、[`setup/manual-steps.md`](manual-steps.md) の 0 節の早見表で引ける（本番の id は、そこから `cloud/README.md` の 7 節・`onprem/README.md` に飛ぶ）。
 - 人が書く値は `~/.config/comegin/setup/<dev|prod>.conf`（600）。スクリプトが作った値は `<dev|prod>.state.json` に入り、`--show <KEY>` で見る。
 
@@ -179,7 +180,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
   - Email Settings: Email DSN を Scheme `smtp`・Host `email-smtp.ap-northeast-1.amazonaws.com`・Port `587`・User と Password は Secret `comegin/prod/mautic/SMTP_*` の値（cloud 4.9.5 のコマンドで取り出し、入れたら端末を閉じる）。送信元は `@comegin.com` のアドレスと名前 → Save → Send test email
   - **SES が本番アクセスの前（サンドボックス）のあいだは、宛先も検証済みの ID だけ**。ドメイン `comegin.com` を検証済みなので `@comegin.com` 宛てなら届き、外部の宛先は SES が拒否する（上限は 24 時間で 200 通・毎秒 1 通）。本番アクセスの申請は P12
 - [ ] **人・画面** 初期設定用の API 認証情報を作る: 歯車 → API Credentials → New（Authorization Protocol `OAuth 2`・Name 例 `comegin-setup-prod`・Redirect URI `https://localhost`〈必須の欄だが使わない〉。**管理者で作る**）→ 一覧の Public Key と Secret Key を `prod.conf` の `MAUTIC_SETUP_CLIENT_ID`・`MAUTIC_SETUP_CLIENT_SECRET` に → **〔申告〕** `MAUTIC_PROD_SETTINGS_DONE=yes` — cloud 7.4
-  - `prod.conf` は `chmod 600`（ほかのユーザーが読めるとスクリプトが警告する）
+  - `prod.conf` は `chmod 600`（ほかのユーザーが読めると、スクリプトが手順を出して `yes` を待つ）
 - [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・社内通知〈`kamegin4@comegin.com` へ。個人情報を載せない。2026-11-09〉・セグメント mql。作り済みのものは名前で見つけて飛ばす）
 - [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `sam deploy`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
 
@@ -287,7 +288,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] **人・端末** `next-js-prod:deploy-values` 配信のコマンドに埋める値を決める。`CONTROL_DEPLOY_AWS_PROFILE`（人の SSO のプロファイル名。周のジョブを有効にするなら必須）を `prod.conf` に書く。バケット名とディストリビューション ID は、書かなければ親スタックの出力 `AstroBucketName`・`DistributionId` から取る（監視アプリはコマンドに埋めるだけで配信しない）— cloud 4.14
 - [ ] 〔警告〕**人・端末** `next-js-prod:openai` OpenAI の API キー `OPENAI_API_KEY` を `prod.conf` に書く（任意。無いとアイキャッチ画像が作られない〈`article-cover` が skipped〉。書くなら Strapi の書き込みトークンも要る。キーの形〈`sk-`〉が違うのは警告。`CONTROL_COVER_MAX_PER_RUN`〈1〜10〉・`CONTROL_OPENAI_IMAGE_SIZE` の形が違うときだけ止まる）— manual 7.7
 - [ ] 〔警告〕**人・端末** `next-js-prod:mautic-reader` Mautic の参照専用の API 認証情報を control-plane 用に別に発行し、`CONTROL_MAUTIC_CLIENT_ID`・`CONTROL_MAUTIC_CLIENT_SECRET` を `prod.conf` に書く（任意。無いとキャンペーンの項目の中身と送信の開始の確認が出ない。片方だけ・ほかの用途と同じ値のときだけ止まる）— manual 7.9
-- [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票）を書く。Google のクライアント・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ。**開く URL は `CONTROL_PUBLIC_URL`、無ければ `http://127.0.0.1:3200`**（作業ツリーからは引き継がない。以前は引き継いで開発の ngrok の URL が入り、`127.0.0.1:3200` で開くと `Invalid origin` だった。2026-11-03。手元以外の URL は警告。onprem「開く（監視アプリ）」） → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット・設定の状況の `CONTROL_SETUP_STATUS_ENABLED=true` と `CONTROL_STATUS_*`〈主体のキーとトークンのファイルの場所・知らせのトピック `OpsAlertTopicArn`・リンクの根は `BETTER_AUTH_URL` と同じ〉）
+- [ ] **人・端末** `next-js-prod:prod-values` `prod.conf` に `ANTHROPIC_API_KEY`・`CHATWOOT_ACCOUNT_ID`・`CHATWOOT_AGENT_TOKEN`（P7）・`PUBLIC_SITE_URL` と、任意で `GITHUB_TOKEN`・`GITHUB_REPOSITORY`・`I13_ISSUE_NUMBER`・`I13_REVIEWER`（I-13 の起票。無いと `next-js-prod:i13-github` の `!` が出る。トークンの作り方〈Resource owner は `ComeGin`・Organization の承認・Contents と Pull requests の Read and write〉・Issue とレビュアーの決め方・画面に出さない確かめ方は onprem「I-13 の起票を有効にする（`GITHUB_TOKEN`）」）を書く。Google のクライアント・許可リストは、`CONTROL_GOOGLE_*`・`CONTROL_ADMIN_EMAILS` が無ければ今の監視アプリ（作業ツリーの `.env`）から引き継ぐ。**開く URL は `CONTROL_PUBLIC_URL`、無ければ `http://127.0.0.1:3200`**（作業ツリーからは引き継がない。以前は引き継いで開発の ngrok の URL が入り、`127.0.0.1:3200` で開くと `Invalid origin` だった。2026-11-03。手元以外の URL は警告。onprem「開く（監視アプリ）」） → **自動**（チェックアウトの `.env` を書く。`CONTROL_SCHEDULER_ENABLED=true`・本番の Chatwoot の突き合わせ・E-15 のバケット・設定の状況の `CONTROL_SETUP_STATUS_ENABLED=true` と `CONTROL_STATUS_*`〈主体のキーとトークンのファイルの場所・知らせのトピック `OpsAlertTopicArn`・リンクの根は `BETTER_AUTH_URL` と同じ〉）
 - [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
 - [ ] **人・ブラウザ** `http://127.0.0.1:3200` を開き、Google でログインできる（別の端末からは `ssh -L 3200:127.0.0.1:3200`。本番は ngrok で外に出さない）。`next-js-prod` だけを実行し直すときは `node setup/setup.mjs --target prod --phase operate --only next-js-prod`（`--phase operate` が要る）— onprem「開く（監視アプリ）」
 - [ ] 〔警告〕**人・端末** OpenSEO（`127.0.0.1:3001`）が常駐している（コンテナが running・再起動の設定が `unless-stopped`・systemd のユニット `comegin-openseo` が enabled かつ active で `WorkingDirectory` が作業ツリーの `middleware/open-seo-main`）と、本番のプロジェクトと Search Console・GA4 の接続が揃っていることを `openseo` が確かめる（2026-11-04 から。止まっていれば `docker compose up -d` で上げ直し、ほかは警告だけ。エージェントが夜に MCP で読むため。ユニットの雛形は `onprem/systemd/comegin-openseo.service` で、置くのは人）— onprem「常駐させる（OpenSEO）」・manual 7.6
@@ -299,7 +300,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 
 ### P15. 段階 `operate`: 運用開始の仕上げ
 
-同じ `--phase operate` の `cloud` が読み取りで確かめ、**止めずに警告だけ出す**（2026-11-02 から）。
+同じ `--phase operate` の `cloud` が読み取りで確かめ、済んでいなければ手順を出して **`yes` を待つ**（2026-11-10 から。それまでは止めずに警告だけだった）。**古いキーの残りと `prod.conf` の初期設定用の値は削除の注意なので、聞かずに進む**。
 
 - [ ] 〔警告〕**人・端末** 配信用の主体（許可セット `ComeginProdDeploy`）がある — cloud 4.5.1
 - [ ] 〔警告〕**人・端末** IAM ユーザー（`onprem-strapi-media`・`onprem-n8n-sns`・`control-plane`）の有効なキーが 1 つだけ（入れ替えた後の古いキーは、使っている側に新しいキーが入っていることと `get-access-key-last-used` を確かめ、Inactive → 動作確認 → 削除。警告は `n8n-prod` ではなく段階 `operate` の `cloud` が出す）— cloud 4.5「古いキーを止めて消す」

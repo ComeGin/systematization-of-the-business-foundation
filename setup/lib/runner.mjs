@@ -9,9 +9,9 @@
 // 段階の順 → MODULES の順に並べて実行する（2 つの段階を持つモジュールは、それぞれの段階で 1 回ずつ呼ぶ）。
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ManualStepRequired, State, W, createContext, loadConfig, mask, resolveWorktree } from "./core.mjs";
+import { ManualStepRequired, State, W, askOnTerminal, createContext, loadConfig, mask, resolveWorktree } from "./core.mjs";
 
 // 本番の段階（ユーザーの決定。2026-10-27）。ECR のリポジトリは sam deploy が作るので、イメージのプッシュはデプロイの後。
 // google は公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く（--phase を付けないと env〜apps まで）。
@@ -52,7 +52,9 @@ ${PROD_PHASES.map((p, i) => `              ${i + 1}. ${p.id.padEnd(8)} ${p.title
   --config  設定ファイル（既定 ~/.config/comegin/setup/<target>.conf）
 
 途中で「画面での操作が必要」と表示されたら、案内に従って操作し、同じコマンドを実行し直す（終わった手順は飛ばす）。
-詳しくは setup/README.md。`;
+「!」と手順が表示されて yes の入力を求められたら、手順を済ませて（または、そのまま進めると判断して）yes と入力する。
+yes 以外を入力すると止まる（終了コード 3）。端末でない（入力できない）ときも止まるので、端末から実行する。
+変数・キー・ファイルの削除（消し忘れ）の「!」だけは、聞かずに進む。詳しくは setup/README.md。`;
 }
 
 function parseArgs(argv) {
@@ -162,7 +164,22 @@ async function main({ title, script, modules: moduleList }) {
     return console.log(state.get(args.show));
   }
 
-  const { file: confFile, conf } = loadConfig(args.target, args.config);
+  const { file: confFile, conf, insecure } = loadConfig(args.target, args.config);
+  if (insecure) {
+    const title = `${confFile} はほかのユーザーも読める（秘密値を書くファイル）。chmod 600 にする`;
+    if (args.check || args.list) console.error(`  ! ${title}`);
+    else {
+      // モジュールの ctx.confirm と同じ形（手順を出して yes を待つ。yes 以外・端末でないときは止める。2026-11-10）
+      console.error(`  ! ${title}`);
+      console.error(`      1. chmod 600 ${confFile}（ディレクトリも chmod 700 ${dirname(confFile)}）`);
+      console.error(`      2. ls -l ${confFile} が -rw------- になったことを確かめる`);
+      const answer = await askOnTerminal("  ! 上の手順を済ませた（または、このまま進めると判断した）なら yes と入力する。それ以外は止める: ");
+      if (answer !== "yes") {
+        console.log(`\n確認が必要（yes が入力されなかったので止めた）: ${title}\n  上の手順を済ませてから、端末で同じコマンドを実行し直す`);
+        process.exit(3);
+      }
+    }
+  }
   const modules = await loadModules(moduleList, args.target);
   const available = modules.filter((m) => !m.missing && m.applies);
 
@@ -243,9 +260,16 @@ async function main({ title, script, modules: moduleList }) {
       console.log("  ✓ 終わった");
     } catch (e) {
       if (e instanceof ManualStepRequired) {
+        const rerun = `${base}${args.only ? ` --only ${args.only.join(",")}` : ""}`;
+        if (e.kind === "confirm") {
+          // 手順は ctx.confirm が表示済み。yes が入力されなかった（または端末でなく入力できなかった）
+          console.log(mask(`\n確認が必要（yes が入力されなかったので止めた）: ${e.message}（${e.id}）`));
+          console.log(`  上の「!」の手順を済ませてから、端末で同じコマンドを実行し直し、聞かれたら yes と入力する:\n  ${rerun}`);
+          process.exit(3);
+        }
         console.log(`\n画面での操作が必要: ${e.message}（${e.id}）`);
         e.steps.forEach((s, i) => console.log(mask(`  ${i + 1}. ${s}`)));
-        console.log(`\n終わったら、同じコマンドを実行し直す（終わった手順は飛ばす）:\n  ${base}${args.only ? ` --only ${args.only.join(",")}` : ""}`);
+        console.log(`\n終わったら、同じコマンドを実行し直す（終わった手順は飛ばす）:\n  ${rerun}`);
         process.exit(3);
       }
       console.error(mask(`\n✗ ${mod.meta.id} で止まった: ${e.message}`));

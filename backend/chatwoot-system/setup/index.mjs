@@ -203,7 +203,7 @@ async function ensureAdmin(ctx) {
       ctx.log("管理者のトークンは有効");
       return;
     }
-    ctx.warn("状態の管理者トークンが無効。ログインし直して取り直す");
+    ctx.log("状態の管理者トークンが無効。ログインし直して取り直す");
   }
 
   const reset = String(ctx.value("CHATWOOT_RESET_ADMIN_PASSWORD") ?? "").toLowerCase() === "yes";
@@ -251,7 +251,7 @@ async function ensureAgent(ctx) {
       ctx.log("エージェント専用ユーザーのトークンは有効");
       return;
     }
-    ctx.warn("状態のエージェントのトークンが無効。取り直す");
+    ctx.log("状態のエージェントのトークンが無効。取り直す");
   }
 
   const agents = await ctx.http("Chatwoot エージェント一覧", `${base}/agents`, withToken(adminToken));

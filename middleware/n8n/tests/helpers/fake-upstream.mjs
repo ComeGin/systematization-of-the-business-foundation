@@ -192,5 +192,19 @@ export function createFakeUpstream({ pageSize = 250 } = {}) {
 export function captureIo() {
   const logs = [];
   const warns = [];
-  return { io: { log: (m) => logs.push(m), warn: (m) => warns.push(m) }, logs, warns, text: () => [...logs, ...warns].join("\n") };
+  // warn の手順（2026-11-10。setup から呼ぶときは ctx.confirm に渡る）。warns と同じ順
+  const warnSteps = [];
+  return {
+    io: {
+      log: (m) => logs.push(m),
+      warn: (m, steps = []) => {
+        warns.push(m);
+        warnSteps.push(steps);
+      },
+    },
+    logs,
+    warns,
+    warnSteps,
+    text: () => [...logs, ...warns, ...warnSteps.flat()].join("\n"),
+  };
 }

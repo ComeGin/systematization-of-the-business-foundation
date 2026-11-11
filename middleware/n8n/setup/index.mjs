@@ -154,7 +154,7 @@ export async function apply(ctx) {
   // 資格情報の更新が公開 API で 405 になったとき（n8n 2.39.5）だけ、オーナーでログインして内部の API を使う。ログインは 1 回だけ
   let session;
   const restSession = async () => (session ??= await openSession(ctx));
-  await provision({ target: "dev", conf: buildConf("dev", values), publish, restSession, io: { log: (m) => ctx.log(m.replace(/^\n/, "")), warn: ctx.warn } });
+  await provision({ target: "dev", conf: buildConf("dev", values), publish, restSession, io: { log: (m) => ctx.log(m.replace(/^\n/, "")), warn: (m, steps) => ctx.confirm("provision", m, steps) } });
   if (!publish) ctx.log("親（I-11・I-12）は未公開。確かめるときは dev.conf に N8N_PUBLISH_PARENTS=true を書いて再実行する（終わったら n8n の画面で Unpublish）");
 }
 

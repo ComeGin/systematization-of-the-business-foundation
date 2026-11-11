@@ -202,7 +202,7 @@ describe("loadConfig", () => {
     it("path を渡すとその場所を読む", () => {
       const file = join(tempDir(), "custom.conf");
       writeFileSync(file, "X=1\n", { mode: 0o600 });
-      expect(core.loadConfig("prod", file)).toEqual({ file, conf: { X: "1" } });
+      expect(core.loadConfig("prod", file)).toEqual({ file, conf: { X: "1" }, insecure: false });
     });
 
     it("キー名に SECRET・PASSWORD・TOKEN・KEY を含む値（大文字小文字を問わない）を秘密値として登録する", () => {
@@ -217,11 +217,11 @@ describe("loadConfig", () => {
       expect(core.mask("admin@example.com")).toBe("admin@example.com");
     });
 
-    it("600 のファイルでは警告しない", () => {
+    it("600 のファイルは insecure: false で、何も表示しない", () => {
       const err = vi.spyOn(console, "error").mockImplementation(() => {});
       const file = join(tempDir(), "closed.conf");
       writeFileSync(file, "A=1\n", { mode: 0o600 });
-      core.loadConfig("dev", file);
+      expect(core.loadConfig("dev", file).insecure).toBe(false);
       expect(err).not.toHaveBeenCalled();
     });
 
@@ -243,16 +243,16 @@ describe("loadConfig", () => {
       expect(() => core.loadConfig("dev", file)).toThrow(`--config の ${file} が無い`);
     });
 
-    it("入力: ほかのユーザーも読めるファイルは警告する（値は出さない）", () => {
+    it("入力: ほかのユーザーも読めるファイルは insecure: true を返す（表示と確認は親スクリプトが行う。2026-11-10）", () => {
       const err = vi.spyOn(console, "error").mockImplementation(() => {});
       const file = join(tempDir(), "open.conf");
       writeFileSync(file, "SOME_TOKEN=very-secret-value\n");
       // umask に左右されないように明示的に 644 にする
       chmodSync(file, 0o644);
-      core.loadConfig("dev", file);
-      expect(err).toHaveBeenCalledTimes(1);
-      expect(err.mock.calls[0][0]).toContain("chmod 600");
-      expect(err.mock.calls[0][0]).not.toContain("very-secret-value");
+      const r = core.loadConfig("dev", file);
+      expect(r.insecure).toBe(true);
+      expect(r.conf).toEqual({ SOME_TOKEN: "very-secret-value" });
+      expect(err).not.toHaveBeenCalled();
     });
 
     it("空入力: 秘密らしい名前のキーでも、6 文字未満・空の値は伏せ字の対象にしない", () => {
@@ -748,6 +748,26 @@ describe("ManualStepRequired", () => {
       expect(e.message).toBe("API 資格情報を作る");
       expect(e.steps).toEqual(["1 つ目", "2 つ目"]);
     });
+
+    it("種類（kind）は既定で manual、ctx.confirm が投げるものは confirm", () => {
+      expect(new core.ManualStepRequired("a:b", "t", []).kind).toBe("manual");
+      expect(new core.ManualStepRequired("a:b", "t", [], { kind: "confirm" }).kind).toBe("confirm");
+    });
+  });
+});
+
+describe("askOnTerminal", () => {
+  describe("正常系", () => {
+    it("空入力: 標準入力が端末でない（パイプ・/dev/null・子プロセス）なら、聞かずに null を返す", async () => {
+      const tty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+      Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+      try {
+        expect(await core.askOnTerminal("質問: ")).toBeNull();
+      } finally {
+        if (tty) Object.defineProperty(process.stdin, "isTTY", tty);
+        else delete process.stdin.isTTY;
+      }
+    });
   });
 });
 
@@ -790,6 +810,28 @@ describe("createContext", () => {
       core.registerSecret("warn-secret-1");
       ctx.warn("warn-secret-1 が古い");
       expect(err).toHaveBeenCalledWith("  [chatwoot] ! [伏せ字] が古い");
+    });
+
+    it("ctx.confirm は題名と番号付きの手順を（秘密値を伏せて）標準エラーに出し、yes なら「確認済み」と出して進む", async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const asked = [];
+      const state = new core.State("dev");
+      const ctx = core.createContext({ target: "dev", conf: {}, state, moduleId: "cloud", ask: async (q) => (asked.push(q), "yes") });
+      core.registerSecret("confirm-secret-1");
+      await expect(ctx.confirm("sns", "SNS を購読していない confirm-secret-1", ["購読する", "確かめる"])).resolves.toBeUndefined();
+      expect(err.mock.calls.map((c) => c[0])).toEqual(["  [cloud] ! SNS を購読していない [伏せ字]", "  [cloud]     1. 購読する", "  [cloud]     2. 確かめる"]);
+      expect(asked).toHaveLength(1);
+      expect(asked[0]).toContain("yes と入力する");
+      expect(log).toHaveBeenCalledWith("  [cloud] ! 確認済み（yes）: SNS を購読していない [伏せ字]");
+    });
+
+    it("空入力: ctx.confirm は手順が無くても題名だけを出して聞く", async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const ctx = core.createContext({ target: "dev", conf: {}, state: new core.State("dev"), moduleId: "m", ask: async () => "yes" });
+      await ctx.confirm("x", "題名");
+      expect(err.mock.calls.map((c) => c[0])).toEqual(["  [m] ! 題名"]);
     });
 
     it("ctx.value は設定を優先し、無ければ（空文字も含めて）状態の値を返す", () => {
@@ -840,6 +882,35 @@ describe("createContext", () => {
       expect(caught.id).toBe("chatwoot:admin-password");
       expect(caught.message).toBe("パスワードを書く");
       expect(caught.steps).toEqual(["手順"]);
+    });
+
+    it.each([
+      ["no", "no"],
+      ["空文字", ""],
+      ["大文字の YES", "YES"],
+      ["y", "y"],
+      ["端末でない（null）", null],
+    ])("入力: ctx.confirm は %s なら、モジュールの id を前に付けた ManualStepRequired（kind: confirm）を投げて止まる", async (_label, answer) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const ctx = core.createContext({ target: "prod", conf: {}, state: new core.State("prod"), moduleId: "cloud", ask: async () => answer });
+      const caught = await ctx.confirm("dmarc", "DMARC が無い", ["TXT を足す"]).catch((e) => e);
+      expect(caught).toBeInstanceOf(core.ManualStepRequired);
+      expect(caught).toMatchObject({ id: "cloud:dmarc", message: "DMARC が無い", steps: ["TXT を足す"], kind: "confirm" });
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it("入力: --check（checkOnly）の ctx.confirm は聞かずに例外にする（check は読むだけ）", async () => {
+      const ask = vi.fn(async () => "yes");
+      const ctx = core.createContext({ target: "prod", conf: {}, state: new core.State("prod", { readOnly: true }), moduleId: "cloud", checkOnly: true, ask });
+      await expect(ctx.confirm("sns", "題名", [])).rejects.toThrow("check の中で確認を求めた: sns");
+      expect(ask).not.toHaveBeenCalled();
+    });
+
+    it("サーバ: ctx.confirm の入力の関数が失敗したら、その例外のまま止まる（進まない）", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const ctx = core.createContext({ target: "dev", conf: {}, state: new core.State("dev"), moduleId: "m", ask: async () => Promise.reject(new Error("入力を読めない")) });
+      await expect(ctx.confirm("x", "題名", [])).rejects.toThrow("入力を読めない");
     });
 
     it("サーバ: ctx.run の失敗の出力でも、状態に置いた秘密値を伏せる", async () => {

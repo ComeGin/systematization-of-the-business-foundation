@@ -11,6 +11,8 @@ export interface SentCommand {
 export const aws = {
   s3Send: vi.fn<(command: SentCommand) => Promise<unknown>>(),
   cloudWatchSend: vi.fn<(command: SentCommand) => Promise<unknown>>(),
+  /** SNS（@aws-sdk/client-sns。改善ループの「反映 0 件」の知らせ・設定の状況の知らせ） */
+  snsSend: vi.fn<(command: SentCommand) => Promise<unknown>>(),
 };
 
 class Command {
@@ -36,13 +38,30 @@ class CloudWatchClient {
   }
 }
 
+class PublishCommand extends Command {
+  readonly command = "Publish";
+}
+class SNSClient {
+  constructor(readonly config: unknown) {}
+  send(command: SentCommand): Promise<unknown> {
+    return aws.snsSend(command);
+  }
+}
+
 export const s3Module = { S3Client, PutObjectCommand };
 export const cloudWatchModule = { CloudWatchClient, PutMetricDataCommand };
+export const snsModule = { SNSClient, PublishCommand };
 
 /** 既定は成功（PutObject は ETag を返す）。各テストの beforeEach で呼ぶ */
 export function resetAws(): void {
   aws.s3Send.mockReset().mockImplementation(async () => ({ ETag: '"it"' }));
   aws.cloudWatchSend.mockReset().mockImplementation(async () => ({}));
+  aws.snsSend.mockReset().mockImplementation(async () => ({ MessageId: "it-message" }));
+}
+
+/** 送られた SNS の Publish の input（TopicArn・Subject・Message） */
+export function snsPublishes(): Record<string, unknown>[] {
+  return aws.snsSend.mock.calls.map(([command]) => command).filter((c) => c.command === "Publish").map((c) => c.input);
 }
 
 /** AWS SDK の例外の形（name と $metadata.httpStatusCode） */

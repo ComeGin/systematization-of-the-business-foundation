@@ -254,9 +254,10 @@ function devValues(ctx, current) {
     const v = ctx.value(stateKey);
     if (v) force[envKey] = String(v);
     else if (!current[envKey])
-      warnings.push(
-        `${stateKey} が状態に無い。バックエンドの ${why}。node setup/setup.mjs --target dev を先に`,
-      );
+      warnings.push({
+        stateKey,
+        text: `${stateKey} が状態に無い。バックエンドの ${why}。node setup/setup.mjs --target dev を先に`,
+      });
   }
   // 開発の Strapi を ngrok で読むなら dev.conf に SITE_STRAPI_URL=https://comegin-strapi-dev.ngrok.app（空なら localhost:1337）
   if (ctx.conf.SITE_STRAPI_URL)
@@ -482,6 +483,81 @@ async function status(ctx, label, url, { headers, okStatus = [200] } = {}) {
 }
 
 /** 開発の受け口を確かめ、表示する行を返す。ok は全部そろったか */
+// ---------------------------------------------------------------------------
+// 「!」の詳しい手順（2026-11-10。apply では ctx.confirm で yes を待つ）
+// ---------------------------------------------------------------------------
+
+/** 状態に無い値（バックエンドのモジュールが作る）の手順。stateKey から作るモジュールを決める */
+function stateValueSteps(stateKey) {
+  const mod = stateKey.startsWith("STRAPI")
+    ? "strapi"
+    : stateKey.startsWith("CHATWOOT")
+      ? "chatwoot"
+      : "mautic";
+  return [
+    `バックエンドを先に用意する: node setup/setup.mjs --target dev --only ${mod}（初めてなら --only を付けずに全部）。画面の操作で止まったら案内に従う`,
+    `値ができたことを確かめる: node setup/setup.mjs --target dev --only ${mod} --check が「✓ 用意できている」`,
+    "同じコマンド（node setup/frontend.mjs --target dev）を実行し直す。その機能を開発で使わない（ブログ・チャット・相談フォームが動かなくてよい）と判断したときだけ yes",
+  ];
+}
+
+/** probeEndpoints の「!」の文から手順を作る（文の頭で見分ける） */
+function endpointSteps(text) {
+  const tail =
+    "直したら同じコマンドを実行し直す。今は使わない（後で直す）と判断したときだけ yes";
+  if (/^Strapi（.*に届かない/.test(text))
+    return [
+      "別のターミナルで cd backend/strapi-system && pnpm dev（http://localhost:1337。管理画面の Ready が出るまで待つ）",
+      tail,
+    ];
+  if (/^Strapi が HTTP/.test(text))
+    return [
+      "ビルド用のトークンを作り直す: node setup/setup.mjs --target dev --only strapi",
+      "公開サイトの環境変数に写し直す: node setup/frontend.mjs --target dev --only verdant-virgo（このコマンド）",
+      tail,
+    ];
+  if (/^Strapi の公開記事が 0 件/.test(text))
+    return [
+      "http://localhost:1337/admin にログイン → Content Manager → Article → 記事を 1 件作るか開き → 右上の Publish",
+      tail,
+    ];
+  if (/^STRAPI_URL か STRAPI_API_TOKEN が空/.test(text))
+    return stateValueSteps("STRAPI_BUILD_TOKEN");
+  if (/^Chatwoot のウィジェットが HTTP/.test(text))
+    return [
+      "website_token を取り直す: node setup/setup.mjs --target dev --only chatwoot（受信箱「Web サイト」の website_token が状態に入る）",
+      "node setup/frontend.mjs --target dev --only verdant-virgo で写し直す",
+      tail,
+    ];
+  if (/^Chatwoot（.*に届かない/.test(text))
+    return [
+      "cd backend/chatwoot-system && docker compose up -d（http://localhost:3100。起動に 1 分ほどかかる）",
+      tail,
+    ];
+  if (/^Mautic のフォーム .* が HTTP/.test(text))
+    return [
+      "http://localhost:8000 の管理画面 → Components → Forms → 無料相談（consult）のフォームが Published かを見る。ID が違えば node setup/setup.mjs --target dev --only mautic で作り直す",
+      tail,
+    ];
+  if (/^Mautic（.*に届かない/.test(text))
+    return [
+      "backend/mautic-system で dev/serve.sh（PHP のサーバーと MySQL・MailHog が起動する。http://localhost:8000）",
+      tail,
+    ];
+  if (/^consent-api（/.test(text))
+    return [
+      "node setup/setup.mjs --target dev --only consent-api（Valkey と開発サーバーを用意する。http://127.0.0.1:3104/healthz が 200 になる）",
+      tail,
+    ];
+  if (/^consent-api の SITE_URL/.test(text))
+    return [
+      "ブラウザで開くオリジン（localhost:4321 か ngrok の URL）を決め、~/.config/comegin/setup/dev.conf の PUBLIC_SITE_URL をそれにする（エディタで）",
+      "node setup/setup.mjs --target dev --only consent-api → node setup/frontend.mjs --target dev --only verdant-virgo の順に実行し直す（README の「スマホの実機で試すとき」）",
+      tail,
+    ];
+  return ["上の文の案内に従って直す", tail];
+}
+
 async function probeEndpoints(ctx, env) {
   const notes = [];
   let ok = true;
@@ -790,13 +866,14 @@ export async function apply(ctx) {
     const { fill, force, warnings } = devValues(ctx, current);
     changed = ctx.writeEnvFile(envPath, fill, { template });
     changed.push(...ctx.writeEnvFile(envPath, force, { onlyIfEmpty: false }));
-    for (const w of warnings) ctx.warn(w);
+    for (const w of warnings)
+      await ctx.confirm("state-value", w.text, stateValueSteps(w.stateKey));
     const problems = problemsOf(ctx, ctx.readEnvFile(envPath));
     if (problems.length)
       throw new Error(`環境変数ファイルに問題がある: ${problems.join("／")}`);
     if (existsSync(join(dir, ".env.production")))
       ctx.warn(
-        "作業ツリーに .env.production がある。この作業ツリーの pnpm build・pnpm lh は本番の値でビルドされる。本番の値は承認済みの main のチェックアウトにだけ置く（node setup/frontend.mjs --target prod）ので、人が消すか移す",
+        "作業ツリーに .env.production がある。この作業ツリーの pnpm build・pnpm lh は本番の値でビルドされる。本番の値は承認済みの main のチェックアウトにだけ置く（node setup/frontend.mjs --target prod）ので、人が消すか移す（削除の注意。止めずに進む）",
       );
   }
   // writeEnvFile は書き換えたときだけ 600 にするので、手で作った既存のファイルもここで 600 にする
@@ -809,8 +886,15 @@ export async function apply(ctx) {
   try {
     const host = new URL(env.SITE_URL).hostname;
     if (host.endsWith(".ngrok.app") && !NGROK_HOSTS.includes(host))
-      ctx.warn(
+      await ctx.confirm(
+        "allowed-hosts",
         `SITE_URL のホスト ${host} が astro.config.mjs の allowedHosts に無い。dev サーバーを ngrok で開くなら allowedHosts に足す`,
+        [
+          `frontend/verdant-virgo/astro.config.mjs の vite.server.allowedHosts（と、setup の NGROK_HOSTS）に "${host}" を足す（ブランチを切ってコミットする）`,
+          "dev サーバーが動いていれば起動し直す: cd frontend/verdant-virgo && pnpm exec astro dev stop && pnpm exec astro dev --background",
+          `ngrok で開かない（localhost だけで使う）なら、~/.config/comegin/setup/dev.conf の PUBLIC_SITE_URL を消すか http://localhost:4321 にする`,
+          "同じコマンドを実行し直す。ngrok で開いたときに Blocked request になるのを承知で進めるときだけ yes",
+        ],
       );
   } catch {
     /* SITE_URL の形は problemsOf と astro.config.mjs が見る */
@@ -821,9 +905,17 @@ export async function apply(ctx) {
   await ctx.run("pnpm", ["install", "--frozen-lockfile"], { cwd: dir });
 
   if (ctx.target === "prod") {
-    // 3. 本番の Strapi をビルドと同じトークンで読めるか（警告だけ。ビルドするときに動いていればよい）
+    // 3. 本番の Strapi をビルドと同じトークンで読めるか（読めなければ手順を出して yes を待つ。ビルドするときに動いていればよい）
     const strapi = await prodStrapiNote(ctx, env);
-    (strapi.ok ? ctx.log : ctx.warn)(strapi.text);
+    if (strapi.ok) ctx.log(strapi.text);
+    else
+      await ctx.confirm("prod-strapi", strapi.text, [
+        "本番の Strapi（オンプレ。127.0.0.1:1338）が動いているかを見る: cd onprem/strapi && docker compose ps、curl -s -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:1338/_health（204 か 200）",
+        "止まっていれば onprem/README.md の「2. Strapi」のとおり起動する（cd onprem/strapi && docker compose up -d）",
+        "HTTP 401・403 なら、本番の Strapi の管理画面 → Settings → API Tokens でビルド用（Read-only）のトークンを作り直し、~/.config/comegin/setup/prod.conf の SITE_STRAPI_API_TOKEN に書く（エディタで）",
+        "公開記事が 0 件なら、本番の Strapi の管理画面で記事を 1 件以上公開する（公開は R2 の判断）",
+        "同じコマンドを実行し直す。ビルドするまでに直せばよい（今はビルドしない）と判断したときだけ yes",
+      ]);
 
     // 4. Search Console のドメインプロパティ（OpenSEO が GSC を読む前提。使わないなら OPENSEO_SKIP_GSC=yes）
     const domain = ctx.value("GSC_DOMAIN") || "comegin.com";
@@ -847,8 +939,15 @@ export async function apply(ctx) {
   const chrome = await chromeFor(ctx);
   if (chrome) ctx.log(`Lighthouse CI の Chrome: ${chrome}`);
   else
-    ctx.warn(
+    await ctx.confirm(
+      "chrome",
       "Chrome が見つからない。pnpm lh は Chrome を起動できずに失敗する。Chrome を入れるか、CHROME_PATH に Chromium の実行ファイルを指定する",
+      [
+        "Google Chrome を入れる（人が自分の端末で。sudo が要る）: wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y /tmp/chrome.deb && rm /tmp/chrome.deb",
+        "入ったことを確かめる: google-chrome --version",
+        "Chrome を入れずに Playwright の Chromium を使うなら、ls ~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome で実行ファイルを探し、シェルの設定（~/.bashrc など）に export CHROME_PATH=<その絶対パス> を書いて端末を開き直す",
+        "同じコマンドを実行し直す。開発で pnpm lh を使わないと判断したときだけ yes",
+      ],
     );
   if (await playwrightChromiumReady(ctx))
     ctx.log("a11y の検査の Chromium は導入済み");
@@ -863,25 +962,49 @@ export async function apply(ctx) {
       });
     } catch (e) {
       // 足りない OS のライブラリは sudo が要るので、このスクリプトでは入れない（pnpm exec playwright install-deps chromium を人が実行する）
-      ctx.warn(
+      await ctx.confirm(
+        "chromium",
         `Chromium を入れられなかった（pnpm a11y が動かない）: ${e.message.split("\n")[0]}`,
+        [
+          "ネットワークのエラーなら、つながることを確かめてから同じコマンドを実行し直す（ダウンロードは ~/.cache/ms-playwright）",
+          "OS のライブラリが足りないなら、人が自分の端末で入れる（sudo が要る）: cd frontend/verdant-virgo && pnpm exec playwright install-deps chromium",
+          "手で入れて確かめる: cd frontend/verdant-virgo && pnpm exec playwright install chromium",
+          "同じコマンドを実行し直す。開発で pnpm a11y を使わないと判断したときだけ yes",
+        ],
       );
     }
   }
   const mainCheckout = ctx.value("CONTROL_MAIN_CHECKOUT");
   if (mainCheckout && !existsSync(join(mainCheckout, DIR, "node_modules"))) {
-    ctx.warn(
+    await ctx.confirm(
+      "main-checkout-install",
       `承認済みの main のチェックアウト（${mainCheckout}）の ${DIR} で pnpm install が済んでいない。監視アプリの builtin の lighthouse・a11y は skipped になる（定期実行を使うなら人が済ませる。TA-05）`,
+      [
+        `チェックアウトが origin/main と同じかを確かめる: git -C ${mainCheckout} fetch origin && git -C ${mainCheckout} status -sb（違えば git -C ${mainCheckout} checkout --detach origin/main）`,
+        `依存を入れる（lockfile は変えない）: cd ${mainCheckout}/${DIR} && pnpm install --frozen-lockfile`,
+        `a11y も使うなら: cd ${mainCheckout}/${DIR} && pnpm exec playwright install chromium`,
+        "同じコマンドを実行し直す。開発で lighthouse・a11y の定期実行を使わないと判断したときだけ yes",
+      ],
     );
   }
 
-  // 4. 受け口の確認（警告だけ）
+  // 4. 受け口の確認（届かなければ手順を出して yes を待つ）
   const endpoints = await probeEndpoints(ctx, env);
-  for (const n of endpoints.notes)
-    (n.startsWith("✓") ? ctx.log : ctx.warn)(n.replace(/^[✓!] /, ""));
+  for (const n of endpoints.notes) {
+    const text = n.replace(/^[✓!] /, "");
+    if (n.startsWith("✓")) ctx.log(text);
+    else await ctx.confirm("endpoint", text, endpointSteps(text));
+  }
   if (!env.PUBLIC_POSTHOG_PROJECT_TOKEN)
-    ctx.warn(
+    await ctx.confirm(
+      "posthog-dev",
       "PostHog の開発のプロジェクトのトークンが無い（PostHog を読み込まない）。使うなら dev.conf に SITE_POSTHOG_PROJECT_TOKEN=phc_… を書いて再実行する",
+      [
+        "PostHog（https://us.posthog.com か eu）にログイン → 左上のプロジェクトの切り替えで開発のプロジェクトを選ぶ（本番のプロジェクトのトークンを開発に使わない）",
+        "Settings → Project → General の Project token（phc_ で始まる）をコピーする",
+        "~/.config/comegin/setup/dev.conf にエディタで SITE_POSTHOG_PROJECT_TOKEN=<トークン> を書く（ホストが既定と違えば SITE_POSTHOG_HOST も）",
+        "同じコマンドを実行し直す（環境変数を書き換えたら dev サーバーは自動で起動し直す）。開発で PostHog を使わないと判断したときだけ yes",
+      ],
     );
 
   // 5. dev サーバー。環境変数を書き換えたら起動し直す（Vite は起動時にしか .env を読まない）
