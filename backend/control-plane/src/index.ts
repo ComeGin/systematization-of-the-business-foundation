@@ -15,6 +15,8 @@ import type {
   ListRunsQuery,
   ManualRunAccepted,
   ManualRunRequest,
+  ModelSettingTarget,
+  ModelSettingsView,
   RunObservations,
   MiswriteCandidate,
   RunRecord,
@@ -29,6 +31,7 @@ import { auditDatesForRuns, loadAuditIndex, observationsForRun } from "./definit
 import { type LoadedSchedules } from "./definitions/schedules.js";
 import { CycleService } from "./cycle/service.js";
 import { Engine } from "./engine.js";
+import { ModelService } from "./models/service.js";
 import { ControlPlaneInputError } from "./errors.js";
 import { createCloudWatchClient, putHeartbeat } from "./integrations/aws.js";
 import { RunLogCopier } from "./integrations/runlog.js";
@@ -40,6 +43,7 @@ import { CycleStore } from "./store/cycles.js";
 import { KvStore } from "./store/kv.js";
 import { LeaseStore } from "./store/leases.js";
 import { MiswriteStore } from "./store/miswrite.js";
+import { ModelSettingsStore } from "./store/models.js";
 import { RunStore } from "./store/runs.js";
 import { toIsoJst } from "./time.js";
 import { ULID_PATTERN } from "./ulid.js";
@@ -69,6 +73,7 @@ class ControlPlaneImpl implements ControlPlane {
   private readonly scheduler: Scheduler;
   private readonly setupStatus: SetupStatusService;
   private readonly cycleService: CycleService;
+  private readonly modelService: ModelService;
   private readonly timers: NodeJS.Timeout[] = [];
   private started = false;
   private schedulesCache: { at: number; value: LoadedSchedules } | null = null;
@@ -83,6 +88,7 @@ class ControlPlaneImpl implements ControlPlane {
       kv: new KvStore(this.db),
       cycles: new CycleStore(this.db),
       miswrite: new MiswriteStore(this.db),
+      models: new ModelSettingsStore(this.db),
       loadSchedules: () => this.loadSchedules(),
       copier: config.aws ? new RunLogCopier(runs, config.aws) : null,
     };
@@ -90,6 +96,7 @@ class ControlPlaneImpl implements ControlPlane {
     this.scheduler = new Scheduler(this.ctx, this.engine);
     this.setupStatus = new SetupStatusService(config);
     this.cycleService = new CycleService(this.ctx);
+    this.modelService = new ModelService(config, this.ctx.models);
   }
 
   private async loadSchedules(fresh = false): Promise<LoadedSchedules> {
@@ -294,6 +301,17 @@ class ControlPlaneImpl implements ControlPlane {
 
   async startCycle(actor: string): Promise<CycleView> {
     return this.cycleService.startCycle(actor);
+  }
+
+  async getModelSettings(): Promise<ModelSettingsView> {
+    return this.modelService.getView();
+  }
+
+  async setModelSetting(target: ModelSettingTarget, model: string | null, actor: string): Promise<ModelSettingsView> {
+    const view = await this.modelService.set(target, model, actor);
+    const scope = target.provider === "openai" ? "openai:image" : target.agent === null ? "anthropic:default" : `anthropic:agent:${target.agent}`;
+    logLine("INFO", "models", `実行モデルを ${model === null ? "既定に戻した" : `${model} にした`}（${scope}）`);
+    return view;
   }
 }
 

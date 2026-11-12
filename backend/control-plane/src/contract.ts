@@ -63,6 +63,11 @@ export interface RunRecord {
   /** Agent SDK の結果メッセージの subtype。builtin なら null。 */
   sdkSubtype: string | null;
   costUsd: number | null;
+  /**
+   * 実行に使ったモデル（2026-11-12）。エージェントは Agent SDK の init が返したモデル（返らなければ渡したもの）、
+   * builtin の article-cover は OpenAI の画像のモデル。それ以外・この欄を足す前の実行は null（または欠ける）。
+   */
+  model?: string | null;
   /** S3 への写しが済んだ時刻。未送なら null。 */
   copiedAt: string | null;
 }
@@ -464,6 +469,76 @@ export interface CycleView {
   previousVerification: { proposalId: string; state: string; result: string | null }[];
 }
 
+// ---- 実行モデルの選択（2026-11-12。監視アプリの「実行モデル」の画面） ----
+
+/**
+ * 選ぶ単位。"anthropic:default" は全体の既定、"anthropic:agent:<名前>" はエージェントごとの上書き、
+ * "openai:image" はアイキャッチ画像（builtin article-cover）。
+ */
+export type ModelSettingScope = "anthropic:default" | `anthropic:agent:${string}` | "openai:image";
+
+/** 変える対象（API の入力）。agent が null なら Anthropic の全体の既定 */
+export type ModelSettingTarget = { provider: "anthropic"; agent: string | null } | { provider: "openai"; use: "image" };
+
+/** 選べるモデルの一覧（各社の API から読む。ok=false のときは reason に理由〈キーの値やエラーの本文は含めない〉） */
+export interface AvailableModels {
+  ok: boolean;
+  reason: string | null;
+  models: { id: string; displayName: string; createdAt: string | null }[];
+}
+
+/** 画面で選んだ値（誰が・いつ） */
+export interface ModelChoice {
+  model: string;
+  actor: string;
+  updatedAt: string;
+}
+
+export interface ModelSettingChange {
+  scope: ModelSettingScope;
+  /** null は選択を外した（定義・環境変数の値に戻した） */
+  model: string | null;
+  previous: string | null;
+  actor: string;
+  at: string;
+}
+
+export interface ModelSettingsView {
+  anthropic: {
+    /** ANTHROPIC_API_KEY があるか */
+    configured: boolean;
+    available: AvailableModels;
+    /** 一覧の id のほかに選べる、Agent SDK のエイリアス（SDK の版が決める最新のモデルを指す） */
+    aliases: string[];
+    default: ModelChoice | null;
+    /**
+     * エージェントごと（名前の順）。effective は次の実行で使うモデル。source はその出所:
+     * agent（エージェントごとの選択）→ default（全体の既定）→ definition（定義の model）→ sdk（どれも無い。SDK の既定）
+     */
+    agents: {
+      agent: string;
+      definitionModel: string | null;
+      override: ModelChoice | null;
+      effective: string | null;
+      source: "agent" | "default" | "definition" | "sdk";
+    }[];
+  };
+  openai: {
+    /** OPENAI_API_KEY があるか（無ければアイキャッチ画像は skipped） */
+    configured: boolean;
+    available: AvailableModels;
+    image: {
+      override: ModelChoice | null;
+      /** 画面で選んでいないときの値（環境変数 CONTROL_OPENAI_IMAGE_MODEL、無ければ既定）。キーが無ければ null */
+      fallback: string | null;
+      effective: string | null;
+      source: "screen" | "fallback";
+    };
+  };
+  /** 変更の履歴（新しい順。最大 50 件） */
+  history: ModelSettingChange[];
+}
+
 export interface ControlPlane {
   /** スケジューラとハートビートを開始する（CONTROL_SCHEDULER_ENABLED=false ならハートビートと写しの再送だけ）。冪等。 */
   start(): Promise<void>;
@@ -503,6 +578,14 @@ export interface ControlPlane {
   markCycleItemExecuted(itemId: Ulid, actor: string): Promise<{ accepted: boolean }>;
   /** 今日の周を手動で開く（既に開いていれば何もしない）。 */
   startCycle(actor: string): Promise<CycleView>;
+  /** 実行モデルの選択と、選べる一覧（各社の API から読む。10 分覚える）。 */
+  getModelSettings(): Promise<ModelSettingsView>;
+  /**
+   * 実行モデルを選ぶ（model が null なら選択を外す）。次の実行から効く。model は各社の API の一覧にあるもの
+   * （Anthropic はエイリアスも可）だけ。一覧を読めないとき・一覧に無いとき・エージェント名が不正・定義が無いときは ControlPlaneInputError。
+   * actor は選んだ人（メール）。変更は履歴に残る
+   */
+  setModelSetting(target: ModelSettingTarget, model: string | null, actor: string): Promise<ModelSettingsView>;
 }
 
 /**

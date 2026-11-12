@@ -204,6 +204,7 @@ CONTROL_DEPLOY_AWS_PROFILE=
 CONTROL_DEPLOY_BUCKET=
 CONTROL_DEPLOY_DISTRIBUTION_ID=
 # アイキャッチ画像（任意。無ければ article-cover は skipped）。OpenAI の API キー（sk-）。モデル・サイズ・1 回の枚数（1〜10）は空なら既定
+# モデルは監視アプリの「実行モデル」（/models）で選ぶ（2026-11-12）。CONTROL_OPENAI_IMAGE_MODEL は画面で選ぶ前の初期値だけ
 OPENAI_API_KEY=
 CONTROL_OPENAI_IMAGE_MODEL=
 CONTROL_OPENAI_IMAGE_SIZE=

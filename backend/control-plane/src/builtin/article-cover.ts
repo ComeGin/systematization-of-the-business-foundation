@@ -23,6 +23,7 @@ import { IntegrationError } from "../integrations/http.js";
 import { createOpenAiClient, generateCoverImage } from "../integrations/openai-image.js";
 import { type DraftArticle, StrapiClient } from "../integrations/strapi.js";
 import { logLine } from "../log.js";
+import { resolveImageModel } from "../models/service.js";
 import { jstDate } from "../time.js";
 
 /** 結び待ち（アップロード済みで cover に結べなかった）の記事の印。値はアップロードしたファイルの id（結べたら消す） */
@@ -59,6 +60,8 @@ export const articleCover: BuiltinHandler = async ({ ctx, runId, signal }): Prom
   if (!config.strapi) return skipped("CONTROL_STRAPI_URL・CONTROL_STRAPI_READ_TOKEN が無い");
   if (!config.strapi.writeToken) return skipped("CONTROL_STRAPI_WRITE_TOKEN が無い（アップロードできない）");
   const openai = config.openai;
+  // 画像のモデル: 監視アプリの「実行モデル」の画面の選択 → 環境変数 CONTROL_OPENAI_IMAGE_MODEL（無ければ既定）。2026-11-12
+  const imageModel = resolveImageModel(ctx.models, config) ?? openai.imageModel;
 
   // 雛形は承認済み main から読む。無い・空・差し込み先が無いときは、生成の費用を出す前に見送る
   let template: string;
@@ -190,7 +193,7 @@ export const articleCover: BuiltinHandler = async ({ ctx, runId, signal }): Prom
     const prompt = buildCoverPrompt(template, { title: draft.title, description: draft.description ?? "" });
     let image: Uint8Array;
     try {
-      image = await generateCoverImage(openaiClient, prompt, openai.imageModel, openai.imageSize, signal);
+      image = await generateCoverImage(openaiClient, prompt, imageModel, openai.imageSize, signal);
     } catch (error) {
       bumpFailures(draft.documentId);
       fail(draft.documentId, "画像の生成", error);
@@ -227,5 +230,12 @@ export const articleCover: BuiltinHandler = async ({ ctx, runId, signal }): Prom
     .join("。");
   // 認証・権限で打ち切ったときは、結べた記事があっても failure（設定の誤りで、人が直す必要がある）
   const outcome = fatalClass || (failed > 0 && linked + pending === 0) ? "failure" : failed > 0 ? "partial" : "success";
-  return { outcome, summary, targetIds: pendingIds, failureClass: fatalClass ?? (failed === 0 ? null : firstFailureClass) };
+  return {
+    outcome,
+    summary,
+    targetIds: pendingIds,
+    failureClass: fatalClass ?? (failed === 0 ? null : firstFailureClass),
+    // 生成を 1 回でも試したときだけ、使ったモデルを残す（結び直し・引き継ぎだけの回は生成していない）
+    model: toGenerate.length > 0 ? imageModel : null,
+  };
 };

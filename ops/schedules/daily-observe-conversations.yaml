@@ -19,7 +19,7 @@ timeout_sec: 1200
 max_turns: 80
 # 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
 overview: |
-  Agent conversation-triage を起動し、本番の Chatwoot の未解決（open・pending）の会話を最大 4 ページ読んで一次切り分けする。会話に社内メモ（顧客には届かない）とラベル・優先度を付け、集計を E-12（source: conversations）に残す。Chatwoot は 22 時〜翌 3 時 45 分に止まっているので、それより後に起動する。
+  Agent conversation-triage を起動し、本番の Chatwoot の未解決（open・pending）の会話を最大 4 ページ読んで一次切り分けする。会話に社内メモ（顧客には届かない）とラベル・優先度を付け、集計を E-12（source: conversations）に残す。本番の Chatwoot は夜間も止めない（2026-11-12）。
 stage: observe
 io:
   reads:

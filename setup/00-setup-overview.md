@@ -406,7 +406,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | SES の TLS を必須のままにするか | `REQUIRE` | TLS で受けられない宛先が業務に要るか | cloud 4.9 |
 | バウンス・苦情を Mautic に返す Lambda（ADR-30）をいつ作るか | 設計だけ決定済み・未実装 | 顧客へのキャンペーンの送信を始める時期（その前が望ましい） | AA-05 の ADR-30 |
 | SES の Mail type を Marketing に改めるか | Transactional（2026-10-28 のユーザーの決定） | Mautic のキャンペーンの一斉送信が大半になったか | cloud 4.9.2 |
-| 費用を下げる手段（Savings Plans・Fargate の ARM・mautic-cron の縮小・夜間の停止の時刻） | どれも未適用（夜間の停止だけ有効） | 1〜2 か月の実績 | cloud 3.1 |
+| 費用を下げる手段（Savings Plans・Fargate の ARM・mautic-cron の縮小・夜間の停止の時刻） | どれも未適用（夜間の停止は mautic-cron だけ有効。Chatwoot は 2026-11-12 から止めない） | 1〜2 か月の実績 | cloud 3.1 |
 | 公開サイトの CSP をどこで付けるか | 付けていない | CloudFront の応答ヘッダーか Astro か | cloud 5 |
 
 ### DB のコストの比較（後で判断する）

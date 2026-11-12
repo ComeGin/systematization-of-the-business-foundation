@@ -11,6 +11,7 @@ import { useFollow } from "@/components/common/navigation";
 import { CycleHelp } from "@/components/cycle/help";
 import { JobDetailHelp, JobsListHelp } from "@/components/jobs/help";
 import { MiswriteCandidatesHelp } from "@/components/miswrite-candidates/help";
+import { ModelsHelp } from "@/components/models/help";
 import { SetupStatusHelp } from "@/components/setup-status/help";
 import { RunDetailHelp, RunsListHelp, RunsNewHelp } from "@/components/runs/help";
 import { authClient } from "@/lib/auth-client";
@@ -29,6 +30,7 @@ const HELP: Record<HelpId, React.ReactNode> = {
   "miswrite-candidates": <MiswriteCandidatesHelp />,
   "setup-status": <SetupStatusHelp />,
   cycle: <CycleHelp />,
+  models: <ModelsHelp />,
 };
 
 /**

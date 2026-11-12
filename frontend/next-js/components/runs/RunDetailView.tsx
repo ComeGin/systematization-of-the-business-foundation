@@ -68,6 +68,7 @@ export function RunDetailView({
               },
               { label: "SDK の結果", value: run.sdkSubtype ?? "-" },
               { label: "費用（USD）", value: run.costUsd === null ? "-" : run.costUsd.toFixed(4) },
+              { label: "モデル", value: run.model ?? "-" },
               { label: "S3 の写し", value: run.copiedAt ? formatTime(run.copiedAt) : run.status === "running" ? "-" : "未送" },
             ]}
           />

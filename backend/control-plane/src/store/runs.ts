@@ -18,11 +18,12 @@ interface RunRow {
   failure_class: string | null;
   sdk_subtype: string | null;
   cost_usd: number | null;
+  model: string | null;
   copied_at: string | null;
 }
 
 const COLUMNS = `run_id, job_id, agent_name, builtin, trigger_kind, status, started_at, finished_at, outcome,
-  summary, summary_redacted, target_ids, skip_reason, failure_class, sdk_subtype, cost_usd, copied_at`;
+  summary, summary_redacted, target_ids, skip_reason, failure_class, sdk_subtype, cost_usd, model, copied_at`;
 
 function toRecord(row: RunRow): RunRecord {
   return {
@@ -42,6 +43,7 @@ function toRecord(row: RunRow): RunRecord {
     failureClass: row.failure_class as FailureClass | null,
     sdkSubtype: row.sdk_subtype,
     costUsd: row.cost_usd,
+    model: row.model,
     copiedAt: row.copied_at,
   };
 }
@@ -66,6 +68,8 @@ export interface RunFinish {
   failureClass: FailureClass | null;
   sdkSubtype: string | null;
   costUsd: number | null;
+  /** 実行に使ったモデル（2026-11-12）。無ければ null */
+  model?: string | null;
 }
 
 const MAX_LIST_LIMIT = 200;
@@ -103,12 +107,13 @@ export class RunStore {
       failureClass: result.failureClass,
       sdkSubtype: result.sdkSubtype,
       costUsd: result.costUsd,
+      model: result.model ?? null,
       copiedAt: null,
     };
     const updated = this.db
       .prepare(
         `UPDATE runs SET status = 'finished', finished_at = ?, outcome = ?, summary = ?, summary_redacted = ?,
-           target_ids = ?, skip_reason = ?, failure_class = ?, sdk_subtype = ?, cost_usd = ?, snapshot_json = ?
+           target_ids = ?, skip_reason = ?, failure_class = ?, sdk_subtype = ?, cost_usd = ?, model = ?, snapshot_json = ?
          WHERE run_id = ? AND status = 'running'`,
       )
       .run(
@@ -121,6 +126,7 @@ export class RunStore {
         result.failureClass,
         result.sdkSubtype,
         result.costUsd,
+        result.model ?? null,
         JSON.stringify(finished),
         runId,
       );

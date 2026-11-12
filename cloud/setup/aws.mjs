@@ -118,8 +118,14 @@ export function dbInitSteps(engines) {
 // ---------------------------------------------------------------------------
 
 /**
+ * 夜間の停止があるサービス（cloud/template.yaml の NightlyStop*。22 時〜翌 3 時 45 分に 0 台）。
+ * chatwoot-web・chatwoot-worker は 2026-11-12 に外した（ユーザーの決定。mautic-web と同じく止めない）
+ */
+export const NIGHTLY_STOP_SERVICES = new Set(["mautic-cron"]);
+
+/**
  * サービスの台数。param は親のパラメータ（CloudFormation の DesiredCount。昼の台数）、running は今動いているタスクの数。
- * 夜間の停止（chatwoot-web・chatwoot-worker・mautic-cron）のあいだは、ECS の desiredCount が 0 になるので、上げたかは param で見る
+ * 夜間の停止（NIGHTLY_STOP_SERVICES）のあいだは、ECS の desiredCount が 0 になるので、上げたかは param で見る
  */
 export async function serviceCounts(ctx, main, svc, param) {
   const cluster = outputOf(main, "ClusterName") || STACK;
@@ -128,17 +134,23 @@ export async function serviceCounts(ctx, main, svc, param) {
   return { svc, param, desiredParam: Number(parameterOf(main, param) ?? 0), desired: s?.desiredCount ?? 0, running: s?.runningCount ?? 0, exists: Boolean(s && s.status === "ACTIVE") };
 }
 
-/** 動いているべきなのに running が 0 のサービスへの警告文（夜間の停止の可能性を添える） */
+/** 動いているべきなのに running が 0 のサービスへの警告文（夜間の停止があるサービスにはその可能性を添える） */
 export function notRunningNote(c) {
-  return `comegin-${ENV_NAME}-${c.svc} は DesiredCount ${c.desiredParam} だが、動いているタスクが 0（ECS の desiredCount ${c.desired}。0 なら夜間の停止〈既定 22 時〜翌 3 時 45 分〉の最中。昼なら ECS のサービスのイベントとタスク数のアラームを見る）`;
+  const why = NIGHTLY_STOP_SERVICES.has(c.svc)
+    ? "0 なら夜間の停止〈既定 22 時〜翌 3 時 45 分〉の最中。昼なら ECS のサービスのイベントとタスク数のアラームを見る"
+    : "このサービスに夜間の停止は無い。0 なら夜間の停止を外すデプロイを夜に行って 0 台のまま残った見込み。0 でなければ ECS のサービスのイベントとタスク数のアラームを見る";
+  return `comegin-${ENV_NAME}-${c.svc} は DesiredCount ${c.desiredParam} だが、動いているタスクが 0（ECS の desiredCount ${c.desired}。${why}）`;
 }
 
 /** notRunningNote の詳しい手順（apply の ctx.confirm に渡す。2026-11-10） */
 export function notRunningSteps(c) {
   const svc = `comegin-${ENV_NAME}-${c.svc}`;
+  const first = NIGHTLY_STOP_SERVICES.has(c.svc)
+    ? `ECS の desiredCount が 0（今は ${c.desired}）で、時刻が 22 時〜翌 3 時 45 分なら夜間の停止の最中。3 時 45 分を過ぎてから同じコマンドを実行し直すか、このまま進めると判断して yes`
+    : `ECS の desiredCount が 0（今は ${c.desired}）なら、夜間の停止の最中に停止を外すデプロイをして 0 台のまま残っている（2026-11-12 から ${c.svc} は止めない。cloud/README.md の 4.11）。CloudFormation の値（${c.desiredParam}）に戻す: aws ecs update-service --region ${REGION} --cluster ${STACK} --service ${svc} --desired-count ${c.desiredParam}`;
   return [
-    `ECS の desiredCount が 0（今は ${c.desired}）で、時刻が 22 時〜翌 3 時 45 分なら夜間の停止の最中。3 時 45 分を過ぎてから同じコマンドを実行し直すか、このまま進めると判断して yes`,
-    `昼なら、サービスのイベントを見る: aws ecs describe-services --region ${REGION} --cluster ${STACK} --services ${svc} --query 'services[0].events[:10].[createdAt,message]' --output table`,
+    first,
+    `それ以外なら、サービスのイベントを見る:aws ecs describe-services --region ${REGION} --cluster ${STACK} --services ${svc} --query 'services[0].events[:10].[createdAt,message]' --output table`,
     `止まったタスクの理由を見る: aws ecs list-tasks --region ${REGION} --cluster ${STACK} --service-name ${svc} --desired-status STOPPED --query 'taskArns[:3]' --output text → aws ecs describe-tasks --region ${REGION} --cluster ${STACK} --tasks <ARN> --query 'tasks[].[stoppedReason,containers[].reason]'`,
     `ログを見る: aws logs tail /comegin/${ENV_NAME}/${c.svc} --region ${REGION} --since 30m（cloud/stacks/cluster.yaml のロググループ）`,
     "よくある原因: Secret に値が無い（ResourceInitializationError）・イメージのタグが ECR に無い（CannotPullContainerError）・DB に届かない。直したら aws ecs update-service --region ap-northeast-1 --cluster comegin-prod --service <名前> --force-new-deployment（台数は変わらない。cloud/README.md の 4.11・4.13）",

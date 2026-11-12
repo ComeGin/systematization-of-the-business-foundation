@@ -425,7 +425,7 @@ docker inspect -f '{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}' open-se
 記事のアイキャッチ画像を作る builtin `article-cover` が使う。**任意**（無ければ `article-cover` は `skipped` で、画像が作られないだけ）。費用が出るので、上限を決めてから発行する。
 
 1. OpenAI の Platform（https://platform.openai.com）の API keys で、**このプロジェクト専用のプロジェクトキー**を作る（名前は `comegin-control-prod` など）。使う API は Images API だけなので、プロジェクトの権限は **Images のみ**に絞り、月の使用上限（Usage limits）を決める
-2. `prod.conf` に `OPENAI_API_KEY=sk-…` を書く（エディタで。画面・履歴に出さない。chmod 600）。モデルとサイズは既定（`gpt-image-2.5-sunburst`・`1536x1024`）でよく、変えるときだけ `CONTROL_OPENAI_IMAGE_MODEL`・`CONTROL_OPENAI_IMAGE_SIZE` を書く
+2. `prod.conf` に `OPENAI_API_KEY=sk-…` を書く（エディタで。画面・履歴に出さない。chmod 600）。モデルとサイズは既定（`gpt-image-2.5-sunburst`・`1536x1024`）でよい。**モデルは後から監視アプリの「実行モデル」（`/models`）で選ぶ**（2026-11-12。OpenAI の models.list の画像のモデルから選び、すぐ次の実行から効く）。`CONTROL_OPENAI_IMAGE_MODEL` は画面で選ぶ前の初期値。サイズを変えるときだけ `CONTROL_OPENAI_IMAGE_SIZE` を書く
 3. **1 回の実行で作る枚数は `CONTROL_COVER_MAX_PER_RUN`（既定 3。1〜10）が上限**で、費用の上限でもある。上げるときは `ops/schedules/article-cover.yaml` の `timeout_sec`（いまは 1200）も同じ PR で上げる（`ops/README.md`）
 4. 動かすには、次の 7.8 の**書き込み用**の Strapi のトークンも要る（アップロードに使う。無ければ費用を出す前に `skipped`）
 5. キーは監視アプリのサーバー側だけが持ち、エージェントの子プロセスには渡らない
