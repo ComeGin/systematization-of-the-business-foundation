@@ -444,6 +444,8 @@ export interface CycleView {
     /** OK の後に表示する手順（コピーできるコマンド付き） */
     steps: { text: string; command: string | null }[];
     approvals: CycleApproval[];
+    /** 記事を Strapi の管理画面で開く URL（article・campaign の記事。本番の Strapi の設定が無い・中身がまだ無いときは null） */
+    strapiAdminUrl: string | null;
   })[];
   summary: {
     /** この周の項目に結びつく E-13 の数（改修案から作った項目。manual・proposal の項目は除く） */

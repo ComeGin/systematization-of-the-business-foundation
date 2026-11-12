@@ -82,6 +82,7 @@ export const KNOWN_ITEM_KEYS = [
   { key: "next-js-prod.systemd", steps: ["P14"] },
   { key: "next-js-prod.respond", steps: ["P14"] },
   { key: "next-js-prod.heartbeat-alarm", steps: ["P14"] },
+  { key: "openseo.image", steps: ["P14"] },
   { key: "next-js-prod.schedules-enabled", steps: ["P14"] },
   { key: "cloud.old-keys", steps: ["P15"] },
   { key: "cloud.setup-only-values", steps: ["P15"] },
@@ -111,6 +112,7 @@ const ON_N8N_BOOT = "3. n8n";
 const ON_BOOT_ORDER = "起動の順番";
 const ON_SYSTEMD = "常駐させる（systemd）";
 const ON_CONTROL_SYSTEMD = "常駐させる（監視アプリ）";
+const ON_CONTROL_BUILD = "ビルドする（監視アプリ）";
 const ON_OPEN = "開く（監視アプリ）";
 const ON_STATUS = "設定の状況を有効にする";
 const ON_N8N_PROD = "本番の n8n";
@@ -411,8 +413,8 @@ export const STEPS = [
     items: [
       { id: "P14.checkout", title: "チェックアウトを origin/main に合わせる", who: "人・端末", kind: "検査",
         overviewText: "`next-js-prod:checkout` チェックアウトを", probe: item("next-js-prod.checkout"), docs: manual("6"), stopId: "next-js-prod:checkout" },
-      { id: "P14.build", title: "チェックアウトで backend/control-plane → frontend/next-js の順にビルドする", who: "人・端末", kind: "検査",
-        overviewText: "`next-js-prod:build` チェックアウトで", probe: item("next-js-prod.build"), docs: [], stopId: "next-js-prod:build" },
+      { id: "P14.build", title: "チェックアウトにある包み（onprem/build.mjs control）で、記録付きでビルドして起動し直す", who: "人・端末", kind: "検査",
+        overviewText: "`next-js-prod:build` **チェックアウトにある**包みで", probe: item("next-js-prod.build"), docs: onprem(ON_CONTROL_BUILD), stopId: "next-js-prod:build" },
       { id: "P14.principal", title: "IAM ユーザー comegin-prod-control-plane を作り、キーを資格情報ファイルに書く", who: "人・端末", kind: "検査",
         overviewText: "`next-js-prod:principal` IAM ユーザー", probe: item("next-js-prod.principal"), docs: cloud("4.5.2"), stopId: "next-js-prod:principal" },
       { id: "P14.status-principal", title: "IAM ユーザー comegin-prod-status-reader を作り、キーを資格情報ファイルに書く（設定の状況の主体）", who: "人・端末", kind: "検査",
@@ -439,6 +441,8 @@ export const STEPS = [
         overviewText: "`http://127.0.0.1:3200` を開き、Google でログインできる", probe: item("next-js-prod.respond"), docs: onprem(ON_OPEN), stopId: "next-js-prod:start" },
       { id: "P14.openseo", title: "OpenSEO が常駐し、本番のプロジェクトと Search Console・GA4 の接続が揃っている", who: "人・端末", kind: "警告",
         overviewText: "OpenSEO（`127.0.0.1:3001`）が常駐している", probe: mod("openseo", "operate"), docs: [...onprem("常駐させる（OpenSEO）"), ...manual("7.6")] },
+      { id: "P14.openseo-image", title: "OpenSEO のコンテナが、固定した版の環境変数ファイルで作り直されている", who: "人・端末", kind: "検査",
+        overviewText: "`openseo:image` OpenSEO のコンテナが", probe: item("openseo.image"), docs: onprem("常駐させる（OpenSEO）"), stopId: "openseo:image" },
       { id: "P14.heartbeat-alarm", title: "アラーム comegin-prod-onprem-heartbeat が OK に戻る", who: "自動", kind: "警告",
         overviewText: "アラーム `comegin-prod-onprem-heartbeat` が OK に戻る", probe: item("next-js-prod.heartbeat-alarm"), docs: cloud("4.13") },
       { id: "P14.schedules", title: "ops/schedules/*.yaml の有効な定期実行が 1 本以上ある", who: "人・GitHub", kind: "警告",

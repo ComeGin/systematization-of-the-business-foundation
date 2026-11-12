@@ -25,6 +25,7 @@
 | `openseo:project`（`--target prod` だけ） | OpenSEO に Domain が `comegin.com` のプロジェクトが無い（または 2 つ以上ある） | OpenSEO の画面でプロジェクトの Domain を `comegin.com` にする（エージェントはこれで対象を決める） | [7.4](#74-openseodataforseo-と-search-console) |
 | `openseo:gsc-connect`（`--target prod` だけ） | そのプロジェクトで Search Console に接続していない（MCP で確かめる） | OpenSEO の画面で接続する（使わないなら `OPENSEO_SKIP_GSC=yes`） | [7.4](#74-openseodataforseo-と-search-console) |
 | `openseo:ga4-connect`（`--target prod` だけ） | そのプロジェクトで GA4 に接続していない（MCP で確かめる） | 2 つの API の有効化・リダイレクト URI の追加・OpenSEO の画面で本番の GA4 プロパティに接続（使わないなら `OPENSEO_SKIP_GA4=yes`） | [7.5](#75-ga4adr-25) |
+| `openseo:image`（`--phase operate` だけ） | 動いている OpenSEO のコンテナが、環境変数ファイルの `OPEN_SEO_IMAGE`（固定した版）と違う・同じ名前で取り直した後・環境変数ファイルを書き換えた後に作り直していない | 版を上げたなら `node setup/setup.mjs --target prod --phase google --only openseo`、書いてあるなら `middleware/open-seo-main` で `docker compose up -d --force-recreate open-seo`（夜の定期実行と重ならないときに） | [7.6](#76-openseo-の設定の通し常駐と確かめ方) |
 | （`--phase operate` の `openseo` の警告） | OpenSEO が常駐していない・プロジェクトや接続が欠けた | 止まらない。表示に従って直す | [7.6](#76-openseo-の設定の通し常駐と確かめ方) |
 | `ga4:property`（`--target prod` だけ） | GA4 のプロパティ ID・測定 ID が設定に無い | 本番の GA4 プロパティを作って設定し、2 つの値を設定に書く | [7.5](#75-ga4adr-25) |
 | （ga4 の失敗）`PUBLIC_GA4_MEASUREMENT_ID` がある | 開発の Astro の環境変数ファイルに測定 ID が書かれている | その行を消して `--from ga4` で再実行（開発ではタグを出さない） | [7.5](#75-ga4adr-25) |

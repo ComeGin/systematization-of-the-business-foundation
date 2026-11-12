@@ -295,7 +295,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 再帰的自己改善の起動元は、オンプレの監視アプリ（`frontend/next-js` ＋ `backend/control-plane`。127.0.0.1:3200）だけ（TA-07 の 3.5）。`next-js-prod` が、承認済みの main のチェックアウトの `frontend/next-js/.env` を本番の値で書き、主体・ビルド・常駐・応答を確かめる。止まる id と、人が行うことは次のとおり（手順の正本と背景は onprem「監視アプリ（改善ループ）を本番で動かす」）。
 
 - [ ] **人・端末** `next-js-prod:checkout` チェックアウトを `checkout --detach origin/main` で合わせる — manual 6
-- [ ] **人・端末** `next-js-prod:build` チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（チェックアウトを動かした後のビルドかを日時で見る。**定義の yaml だけの PR でも、チェックアウトを動かしたらビルドし直して restart する**）
+- [ ] **人・端末** `next-js-prod:build` **チェックアウトにある**包みで `node <チェックアウト>/onprem/build.mjs control`（control-plane → next-js の順に `pnpm install --frozen-lockfile && pnpm build` し、ビルドしたコミットを `frontend/next-js/.next/comegin-build.json` に記録する。生の `pnpm build` では記録が消える）→ `sudo systemctl restart comegin-control`。スクリプトは記録から `origin/main` までのコードの変更・依存が lockfile と同じか・ビルドの後に起動し直したか（`next-js-prod:restart`）を見る。定義の yaml だけの PR では、チェックアウトを合わせるだけでビルドも再起動も要らない（2026-11-12） — onprem「ビルドする（監視アプリ）」
 - [ ] **人・端末** `next-js-prod:principal` IAM ユーザー `comegin-prod-control-plane`（管理ポリシー `comegin-prod-control-plane` だけ）を作り、キーを `~/.config/comegin/control-plane/aws-credentials`（600）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる — cloud 4.5.2
 - [ ] **人・端末** `next-js-prod:status-principal` IAM ユーザー `comegin-prod-status-reader`（管理ポリシー `comegin-prod-status-reader` だけ。`comegin-prod-control-plane` とは別のユーザー）を作り、キーを `~/.config/comegin/status-reader/aws-credentials`（600。プロファイル名 `default`）に直接書く。スクリプトはそのキーで `sts get-caller-identity` して主体を確かめる。先に `node cloud/deploy.mjs` で管理ポリシーを作る — cloud 4.5.3
 - [ ] **人・端末** `next-js-prod:status-github` 参照専用の GitHub のトークン（fine-grained PAT。このリポジトリだけ、Contents と Pull requests の Read だけ。I-13 の `GITHUB_TOKEN` とは別）を `~/.config/comegin/status-reader/github-token`（600）に直接書く。スクリプトは fine-grained PAT（`github_pat_` で始まる）で `GET /repos/<リポジトリ>` が 200 で、classic の印（`X-OAuth-Scopes`）が無いことを確かめる。**Contents と Pull requests が Read-only かは機械で確かめられない**ので、人が作るときに選ぶ（トークンは表示しない）— onprem「設定の状況を有効にする」
@@ -309,6 +309,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 - [ ] **人・端末** `next-js-prod:systemd`・`systemd-dir`・`restart` `onprem/systemd/comegin-control.service` を書き換えて `/etc/systemd/system/` に置き、`enable --now`（`.env` を書き換えた後は `restart`）— onprem「常駐させる」
 - [ ] **人・ブラウザ** `http://127.0.0.1:3200` を開き、Google でログインできる（別の端末からは `ssh -L 3200:127.0.0.1:3200`。本番は ngrok で外に出さない）。`next-js-prod` だけを実行し直すときは `node setup/setup.mjs --target prod --phase operate --only next-js-prod`（`--phase operate` が要る）— onprem「開く（監視アプリ）」
 - [ ] 〔警告〕**人・端末** OpenSEO（`127.0.0.1:3001`）が常駐している（コンテナが running・再起動の設定が `unless-stopped`・systemd のユニット `comegin-openseo` が enabled かつ active で `WorkingDirectory` が作業ツリーの `middleware/open-seo-main`）と、本番のプロジェクトと Search Console・GA4 の接続が揃っていることを `openseo` が確かめる（2026-11-04 から。止まっていれば `docker compose up -d` で上げ直し、ほかは警告だけ。エージェントが夜に MCP で読むため。ユニットの雛形は `onprem/systemd/comegin-openseo.service` で、置くのは人）— onprem「常駐させる（OpenSEO）」・manual 7.6
+- [ ] **人・端末** `openseo:image` OpenSEO のコンテナが、環境変数ファイルの `OPEN_SEO_IMAGE`（コードの `PINNED_IMAGE` で固定した版。設定の `OPEN_SEO_IMAGE` があればそれ）で作られ、環境変数ファイルを書き換えた後に作り直されている（版を上げた・同じ名前で取り直した・書き換えたのに作り直していない、を `openseo` が見つける。2026-11-12）。版を上げたら `node setup/setup.mjs --target prod --phase google --only openseo`（書いて作り直す）、書いてあるのに古いなら `middleware/open-seo-main` で `docker compose up -d --force-recreate open-seo` — onprem「常駐させる（OpenSEO）」
 - [ ] 〔警告〕アラーム `comegin-prod-onprem-heartbeat` が OK に戻る（起動から 15 分ほど）— cloud 4.13
 - [ ] 〔警告〕**人・GitHub** 有効な定期実行が 0 本のうちは警告が出る。`ops/schedules/*.yaml` の `enabled: true` を PR で段階的に main に入れ、チェックアウトを合わせる（順の目安は onprem「監視アプリ（改善ループ）を本番で動かす」の 5）。**`heartbeat.yaml` は有効にしない**（有効にすると警告。2026-11-02 に、まとめて有効にした中に入っていて、PR #58 で戻した）。`daily-n8n-export` は [6 節](#6-判断が残っている項目r1)の判断の後に有効にする
 - [ ] **人・画面** 最初の定期実行の後、監視アプリの画面（または `journalctl -u comegin-control`）で `success`・`skipped` の理由を見る。いつ何が動くかは onprem「監視アプリ…」の 5 の表（**2026-11-03 からすべて 0〜8 時〈JST〉に起動し、07:10 までに終わる**。`ops/README.md` の「時刻の決め方」）
@@ -362,7 +363,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 
 ### 導入の直後は「記録が無い」の ● がまとめて出る
 
-ビルド・デプロイの記録（`DeployedCommit`・`<タグ>-rev-<コミット>`・イメージのラベル・`build-info.json` の `articles`）は、この仕組みを入れた後の最初のデプロイから付く。**入れる前に作った本番には記録が無い**ので、設定の状況に次の 8 つが「更新が必要」(●) で出る（確かめられないのではなく、記録付きでやり直すという人の作業が残っているため）。それぞれ**記録付きでやり直すと消える**。リソースに変更が無くても、記録だけは新しくなる。
+ビルド・デプロイの記録（`DeployedCommit`・`<タグ>-rev-<コミット>`・イメージのラベル・`build-info.json` の `articles`）は、この仕組みを入れた後の最初のデプロイから付く。**入れる前に作った本番には記録が無い**ので、設定の状況に次の 9 つが「更新が必要」(●) で出る（確かめられないのではなく、記録付きでやり直すという人の作業が残っているため）。それぞれ**記録付きでやり直すと消える**。リソースに変更が無くても、記録だけは新しくなる。
 
 | ● の項目 | 記録付きでやり直す方法 | 正本 |
 |---|---|---|
@@ -372,11 +373,12 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | Chatwoot のイメージ・Mautic のイメージ（`cloud.image-commit`。2 つのうち重いほうが出て、根拠に両方の状態が並ぶ） | 製品ごとに、タグの末尾の連番を上げる（ECR のタグは上書きできない）→ 設定ファイル（`cloud/samconfig.toml`）に書く → `node cloud/images/build-push.mjs <chatwoot または mautic>` → `node cloud/deploy.mjs`（**push が先**。ECR に無いタグをデプロイすると、動いているサービスがタスクを起動できずスタックごと戻される。順は cloud 4.7・4.12 のとおり）。`cloud.stack-params` は、タグを書いたのにデプロイしていない間だけ出る | cloud 4.7・4.12 |
 | Strapi のイメージ（`onprem.strapi-image`） | `node onprem/build.mjs strapi`（未コミットの変更があると止まり、`GIT_COMMIT=<HEAD>` を付けて `docker compose build` する）→ `sudo systemctl restart comegin-strapi` | onprem 2 |
 | n8n のイメージ（`onprem.n8n-image`） | `node onprem/build.mjs n8n` → `sudo systemctl restart comegin-n8n` | onprem 3 |
+| 監視アプリのビルド（`next-js-prod.build`。2026-11-12 に追加） | `node <チェックアウト>/onprem/build.mjs control`（承認済みの main のチェックアウトにある包み）→ `sudo systemctl restart comegin-control` | onprem「ビルドする（監視アプリ）」 |
 | 記事（`site-articles`。`articles` の記録が無い古いビルド） | 次の公開サイトの配信（P12。`build-info.json` に `articles` が入る）。急ぐなら、承認済みの main のチェックアウトでビルドし直して配信する | cloud 4.14 |
 
-- 上の 8 つ（イメージを 2 つに数える）が全部消えたら、導入は終わり。順番は決まっていない。ただし、ビルドとデプロイは **`origin/main` に入れたコミット**から行う（未コミットの変更があると、包みのスクリプトが止まる）。
+- 上の 9 つ（イメージを 2 つに数える）が全部消えたら、導入は終わり。順番は決まっていない。ただし、ビルドとデプロイは **`origin/main` に入れたコミット**から行う（未コミットの変更があると、包みのスクリプトが止まる）。
 - `onprem.n8n-version`・`cloud.stack-params` は記録に頼らない検査なので、導入の直後に「記録が無い」とは出ない（版・パラメータが、動いているものと違うときだけ出る）。
-- 記録付きのデプロイは、**生の `sam deploy`・`docker build`・`docker push`・`docker compose build` では付かない**（包みのスクリプト `node cloud/deploy.mjs`・`node cloud/images/build-push.mjs`・`node onprem/build.mjs` を使う）。生のデプロイをすると記録は前のまま残り、その後の変更が ● として出続ける（包みで上げ直すと消える）。
+- 記録付きのデプロイは、**生の `sam deploy`・`docker build`・`docker push`・`docker compose build`・監視アプリの `pnpm build` では付かない**（包みのスクリプト `node cloud/deploy.mjs`・`node cloud/images/build-push.mjs`・`node onprem/build.mjs` を使う）。生のデプロイをすると記録は前のまま残り、その後の変更が ● として出続ける（包みで上げ直すと消える）。
 - 消えない ● が残ったら、まず根拠の「何を実行すれば直るか」の行を実行する。それでも残るときは、記録のコミットが `origin/main` の履歴に無い（ブランチからデプロイした）ことが多い。この場合は ! で出るので、main で記録付きでやり直す。
 
 ## 5. 申告制のフラグ（`prod.conf`）

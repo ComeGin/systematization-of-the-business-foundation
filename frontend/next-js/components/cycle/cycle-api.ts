@@ -35,3 +35,8 @@ export function executeItem(itemId: string) {
 export function startCycle() {
   return post<unknown>("/api/cycle", undefined);
 }
+
+/** 段階のジョブを今すぐ実行する（手動の起動。/api/runs）。見送り（前回が実行中など）は accepted=false で返る */
+export function runJobNow(jobId: string) {
+  return post<{ runId: string; accepted: boolean }>("/api/runs", { target: { kind: "job", jobId } });
+}

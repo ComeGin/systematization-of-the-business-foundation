@@ -4,8 +4,10 @@
 # 動かすのは承認済みの main のチェックアウト（CONTROL_MAIN_CHECKOUT）の frontend/next-js（ADR-18。作業ツリーの未承認の変更を
 # 管制のコードに効かせない。定期実行の定義とエージェント定義をそこから読むのと同じ考え方）。
 # 差し替える箇所: User・WorkingDirectory・Environment の PATH（node と pnpm のある場所。`command -v node pnpm` で確かめる）。
-# 初回とチェックアウトの更新のたびに、人が backend/control-plane と frontend/next-js で pnpm install && pnpm build を済ませておく
-# （起動時にはビルドしない。next start は .next が無いと起動に失敗する）。
+# 初回と、control-plane・next-js のコードが変わったチェックアウトの更新のたびに、人がチェックアウトにある包みで
+# node <チェックアウト>/onprem/build.mjs control（control-plane → next-js の順に pnpm install --frozen-lockfile && pnpm build し、
+# ビルドしたコミットを .next/comegin-build.json に残す）を済ませてから sudo systemctl restart comegin-control する
+# （起動時にはビルドしない。next start は .next が無いと起動に失敗する。動いているプロセスは起動したときのビルドを使い続ける）。
 # .env は WorkingDirectory の .env（next start が読む）。秘密値はここに書かない。
 
 [Unit]

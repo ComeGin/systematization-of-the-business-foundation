@@ -95,8 +95,18 @@ export function isSafeCodeFile(path: string): boolean {
 
 const COMMIT_TITLE_MAX = 72;
 
-function strapiArticleAdmin(ctx: StepsContext, documentId: string): string | null {
+function strapiArticleAdmin(ctx: Pick<StepsContext, "strapiAdminUrl">, documentId: string): string | null {
   return ctx.strapiAdminUrl ? `${ctx.strapiAdminUrl}/content-manager/collection-types/api::article.article/${encodeURIComponent(documentId)}` : null;
+}
+
+/**
+ * 項目の記事を Strapi の管理画面で開く URL（画面のリンク。article は記事、campaign はキャンペーンの記事）。
+ * Strapi の設定が無い・中身がまだ無い・記事でない項目は null
+ */
+export function itemStrapiAdminUrl(item: CycleItem, ctx: Pick<StepsContext, "strapiAdminUrl">): string | null {
+  const preview = item.preview;
+  const documentId = preview.kind === "article" ? preview.documentId : preview.kind === "campaign" ? preview.articleDocumentId : null;
+  return documentId ? strapiArticleAdmin(ctx, documentId) : null;
 }
 
 function coverStep(ctx: StepsContext, documentId: string, fileId: number | null | undefined): CycleStep[] {

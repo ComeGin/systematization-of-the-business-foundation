@@ -8,6 +8,11 @@
 //   - --target prod（段階 google。公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く）:
 //     dev の内容に加えて、Google の OAuth クライアント・本番のドメイン（GSC_DOMAIN。既定 comegin.com）のプロジェクト・
 //     Search Console の接続・GA4 の接続を案内する
+//   - --target prod の段階 operate（2026-11-12 に追加）: 動いているコンテナが、環境変数ファイルの OPEN_SEO_IMAGE（固定した版）で作られ、
+//     環境変数ファイルを書き換えた後に作り直されているか（項目 openseo.image。「設定の状況」の P14。版を上げた・取り直した・書き換えたのに
+//     作り直していない、を見つける）。環境変数ファイルとユニットの場所は人の作業ツリー（ctx.WORKTREE）で決める
+//     （監視アプリが承認済みの main のチェックアウトから --check するときも、作業ツリーの環境変数ファイルとコンテナを見るため。2026-11-12 まで ctx.W で、
+//     監視アプリからは「確かめられない」になっていた）
 //   - --target prod の段階 operate（2026-11-04 に追加）: 改善ループのエージェントが夜に MCP で呼ぶので、常駐しているか
 //     （コンテナが running・再起動の設定が unless-stopped か always・systemd のユニット comegin-openseo が enabled かつ active で、
 //     WorkingDirectory がこの作業ツリーの middleware/open-seo-main）と、プロジェクトと接続が揃っているかを
@@ -61,6 +66,7 @@
 //   src/server/mcp/tools/google-analytics-tools.ts（get_google_analytics_measurement_health は GA4 の Admin API を読むだけ。接続済みなら structuredContent.source.propertyId）
 //   /mcp は local_noauth で認証が無く、initialize を送らずに tools/call 1 回で応答する（2026-11-04 に 0.1.8 で curl して確かめた。応答は JSON）
 //   画面: プロジェクトの Domain は Project settings → General、Google の接続は Project settings → Integrations（src/routes/_project/p/$projectId/settings*）
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export const meta = { id: "openseo", title: "OpenSEO（SEO のデータ。Search Console と GA4 の接続は prod の google、常駐の確認は prod の operate）", targets: ["dev", "prod"], phases: ["google", "operate"], after: [] };
@@ -81,7 +87,11 @@ const UNIT_TEMPLATE = "onprem/systemd/comegin-openseo.service";
 // 出典: docker buildx imagetools inspect ghcr.io/every-app/open-seo:0.1.8（:v0.1.8・2026-10-06 時点の :latest と同じダイジェスト）
 const PINNED_IMAGE = "ghcr.io/every-app/open-seo:0.1.8@sha256:79f19fb7100e71133effa43898a2ba1ad4702075f3127e6ca91cd076e1101538";
 
-const root = (ctx) => join(ctx.W, DIR);
+// 環境変数ファイルとコンテナの場所は人の作業ツリー（ユニットの WorkingDirectory と同じ）。人が実行するときは ctx.WORKTREE は ctx.W と同じ。
+// 監視アプリが main のチェックアウトから --check するときは SETUP_WORKTREE で作業ツリーが渡る（チェックアウトには環境変数ファイルが無い）
+const root = (ctx) => join(ctx.WORKTREE, DIR);
+const IMAGE_ITEM = { key: "openseo.image", step: "P14", title: "OpenSEO のコンテナが、環境変数ファイルのイメージ（固定した版）で作られ、書き換えの後に作り直されている" };
+const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
 const envPath = (ctx) => join(root(ctx), ".env");
 const templatePath = (ctx) => join(root(ctx), ".env.example");
 const yes = (v) => /^(yes|true|1)$/i.test(String(v ?? "").trim());
@@ -259,12 +269,86 @@ async function unitState(ctx) {
 const unitInstallHint = (ctx) =>
   `${UNIT_TEMPLATE} の User と WorkingDirectory（${root(ctx)}）を書き換え、人が自分の端末で置く: sudo install -m 644 ${UNIT_TEMPLATE} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now ${UNIT}`;
 
+/** open-seo のコンテナの ID。無ければ ""（compose の警告などの、ID の形でない行は読まない） */
+async function containerId(ctx) {
+  const out = await ctx.run("docker", ["compose", "ps", "-a", "-q", "open-seo"], { cwd: root(ctx), timeoutMs: 30_000 });
+  return out.split("\n").map((line) => line.trim()).find((line) => CONTAINER_ID.test(line)) ?? "";
+}
+
+/**
+ * 項目 openseo.image（2026-11-12）。{ level, evidence, problems }。problems は人が行うこと（action の文）。
+ * 1. 環境変数ファイルの OPEN_SEO_IMAGE が、固定した版（設定の OPEN_SEO_IMAGE、無ければ PINNED_IMAGE）と同じか（版を上げた後に setup で書いたか）
+ * 2. 動いているコンテナを作ったときのイメージの指定（.Config.Image）が、環境変数ファイルのものと同じか（書いた後に作り直したか）
+ * 3. コンテナのイメージの ID が、その名前のローカルのイメージの ID と同じか（同じ名前で取り直した後に作り直したか。タグだけの指定のとき）
+ * 4. 環境変数ファイルの更新が、コンテナを作った時刻より前か（env_file は作るときにしか読まれない。restart では反映されない）
+ */
+async function inspectImage(ctx) {
+  const env = ctx.readEnvFile(envPath(ctx));
+  const expected = ctx.conf.OPEN_SEO_IMAGE || PINNED_IMAGE;
+  const written = env.OPEN_SEO_IMAGE || "";
+  const setupCmd = "node setup/setup.mjs --target prod --phase google --only openseo（環境変数ファイルに書き、コンテナを作り直す）";
+  const recreate = `cd ${DIR} && docker compose up -d --force-recreate open-seo（作業ツリーで。ユニットの restart は、指定が同じだと作り直さない）`;
+  const problems = [];
+  const unknowns = [];
+  if (!written) problems.push(`環境変数ファイルに OPEN_SEO_IMAGE が無い（上流の既定 :latest で動く）: ${setupCmd}`);
+  else if (written !== expected) problems.push(`環境変数ファイルの OPEN_SEO_IMAGE（${versionOf(written)}）が、固定した版（${versionOf(expected)}）と違う。版を上げた後に書いていない: ${setupCmd}`);
+
+  let id = "";
+  try {
+    id = await containerId(ctx);
+  } catch (e) {
+    unknowns.push(`docker compose ps が失敗した（${String(e.message).split("\n")[0]}）`);
+  }
+  if (!id && unknowns.length === 0) unknowns.push("コンテナが無いので、動いているイメージは確かめられない（常駐の項目を先に直す）");
+  if (id) {
+    const [configImage, imageId, created] = (await ctx.run("docker", ["inspect", "-f", "{{.Config.Image}}\t{{.Image}}\t{{.Created}}", id], { timeoutMs: 30_000 })).trim().split("\t");
+    if (written && configImage !== written) {
+      problems.push(`動いているコンテナのイメージ（${versionOf(configImage)}）が、環境変数ファイルの OPEN_SEO_IMAGE（${versionOf(written)}）と違う。書いた後に作り直していない: ${recreate}`);
+    } else if (written) {
+      let localId = "";
+      try {
+        localId = (await ctx.run("docker", ["image", "inspect", "-f", "{{.Id}}", written], { timeoutMs: 30_000 })).trim();
+      } catch {
+        /* ローカルに無い（コンテナが使っているイメージとは別の名前で消えた）。比べない */
+      }
+      if (localId && imageId && localId !== imageId) problems.push(`同じ名前のイメージ（${versionOf(written)}）を取り直した後に、コンテナを作り直していない: ${recreate}`);
+    }
+    const createdMs = Date.parse(created ?? "");
+    if (Number.isFinite(createdMs) && existsSync(envPath(ctx))) {
+      const envMtime = statSync(envPath(ctx)).mtimeMs;
+      if (envMtime > createdMs) problems.push(`環境変数ファイルを書き換えた後に、コンテナを作り直していない（env_file は作るときにしか読まれない）: ${recreate}`);
+    }
+  }
+  if (problems.length) return { level: "action", evidence: [...problems, ...unknowns].join("／"), problems };
+  if (unknowns.length) return { level: "unknown", evidence: unknowns.join("／"), problems };
+  return { level: "ok", evidence: `動いているコンテナは固定した版（${versionOf(written)}）で作られ、環境変数ファイルを書いた後に作り直している`, problems };
+}
+
+/** イメージの指定から版だけを出す（ダイジェストは長いので省く。版が無ければ 50 文字まで） */
+function versionOf(ref) {
+  const m = /:([^:@/]+)(?:@sha256:[0-9a-f]+)?$/.exec(ref ?? "");
+  if (m) return m[1];
+  const s = String(ref ?? "");
+  return s.length > 50 ? `${s.slice(0, 49)}…` : s || "（空）";
+}
+
+/** check の items（段階 operate だけ）。docker を読めないときは ? */
+async function imageItems(ctx) {
+  let result;
+  try {
+    result = await inspectImage(ctx);
+  } catch (e) {
+    result = { level: "unknown", evidence: `確かめられない（${String(e?.message ?? e).split("\n")[0]}）`, problems: [] };
+  }
+  return { result, items: [{ ...IMAGE_ITEM, level: result.level, evidence: result.evidence, ...(result.level === "action" ? { stopId: "openseo:image" } : {}) }] };
+}
+
 /** { ok, notes, running } */
 async function inspectResidency(ctx) {
   const notes = [];
   let id = "";
   try {
-    id = (await ctx.run("docker", ["compose", "ps", "-a", "-q", "open-seo"], { cwd: root(ctx), timeoutMs: 30_000 })).trim().split("\n")[0] ?? "";
+    id = await containerId(ctx);
   } catch (e) {
     return { ok: false, running: false, notes: [`docker compose ps が失敗した（${String(e.message).split("\n")[0]}）`] };
   }
@@ -407,12 +491,17 @@ async function inspectOperate(ctx, health) {
 
 export async function check(ctx) {
   const health = await readHealth(ctx);
-  if (!health) {
-    const notes = [`OpenSEO が ${BASE_URL} で応答しない`];
-    if (ctx.phase === "operate") notes.push(...(await inspectResidency(ctx)).notes);
-    return { ok: false, notes };
+  if (ctx.phase === "operate") {
+    const image = await imageItems(ctx);
+    const imageNotes = image.result.level === "ok" ? [image.result.evidence] : image.result.evidence.split("／").map((t) => `! ${t}`);
+    if (!health) {
+      const notes = [`OpenSEO が ${BASE_URL} で応答しない`, ...(await inspectResidency(ctx)).notes, ...imageNotes];
+      return { ok: false, notes, items: image.items };
+    }
+    const r = await inspectOperate(ctx, health);
+    return { ok: r.ok && image.result.level !== "action", notes: [...r.notes, ...imageNotes], items: image.items };
   }
-  if (ctx.phase === "operate") return inspectOperate(ctx, health);
+  if (!health) return { ok: false, notes: [`OpenSEO が ${BASE_URL} で応答しない`] };
 
   const { ok, notes } = healthBasics(health);
 
@@ -448,6 +537,15 @@ async function applyOperate(ctx) {
     ]);
     return;
   }
+  const image = await inspectImage(ctx).catch((e) => ({ level: "unknown", evidence: `確かめられない（${String(e?.message ?? e).split("\n")[0]}）`, problems: [] }));
+  if (image.problems.length)
+    await ctx.confirm("image", "OpenSEO のコンテナが、固定した版の環境変数ファイルで作られていない（下の手順）。onprem/README.md の「常駐させる（OpenSEO）」", [
+      ...image.problems.map((p) => `いまの状態: ${p}`),
+      "作り直すと数十秒〜1〜2 分止まる（初回の起動はコンテナの中でビルドする）。夜の定期実行（JST 0〜8 時）と重ならないときに行う",
+      `済んだら応答を確かめる: curl -s ${BASE_URL}/api/health（version が固定した版になる）`,
+      "同じコマンドを実行し直す。今は作り直さないと判断したときだけ yes",
+    ]);
+  else ctx.log(image.evidence);
   const r = await inspectOperate(ctx, health);
   for (const n of r.notes) ctx.log(n);
   if (r.ok) ctx.log(`常駐している（ユニット ${UNIT} が起動時に上げる）。本番のプロジェクトと Google の接続も揃っている`);
