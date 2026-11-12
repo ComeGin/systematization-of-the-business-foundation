@@ -95,6 +95,9 @@ const RawSchema = z.object({
   CONTROL_STATUS_GITHUB_TOKEN_FILE: optionalString,
   CONTROL_STATUS_ALERT_TOPIC_ARN: optionalString,
   CONTROL_STATUS_LINK_BASE: optionalString,
+  // 設定の確認に渡す作業ツリー（SETUP_WORKTREE）。追跡しないファイル（cloud/samconfig.toml・onprem/*/.env など）を読む、人が開発している
+  // リポジトリ。CONTROL_WORKTREE（エージェント専用の作業場。改善の周の設計 4 の 10）とは別の場所なので、そちらを流用しない
+  CONTROL_STATUS_WORKTREE: optionalString,
 });
 
 type Raw = z.infer<typeof RawSchema>;
@@ -137,6 +140,11 @@ export interface ControlPlaneConfig {
     awsCredentialsFile: string;
     awsProfile: string;
     githubTokenFile: string;
+    /**
+     * 設定の確認の子プロセスに SETUP_WORKTREE として渡す作業ツリー（CONTROL_STATUS_WORKTREE）。追跡しないファイルと突き合わせの基点。
+     * エージェント専用の作業場（worktree）には追跡しないファイルが無いので、それとは分ける
+     */
+    worktree: string;
     alertTopicArn: string;
     /** 知らせのメールに載せる、監視アプリの画面の URL の根（末尾の / なし） */
     linkBase: string;
@@ -186,13 +194,14 @@ function statusGroup(env: Raw): { status: ControlPlaneConfig["status"]; statusCo
       "CONTROL_STATUS_AWS_CREDENTIALS_FILE",
       "CONTROL_STATUS_GITHUB_TOKEN_FILE",
       "CONTROL_STATUS_ALERT_TOPIC_ARN",
+      "CONTROL_STATUS_WORKTREE",
       "AWS_REGION",
       "SITE_URL",
     ];
     for (const name of required) {
       if (env[name] === undefined) problem(name, "CONTROL_SETUP_STATUS_ENABLED=true のため必須です");
     }
-    for (const name of ["CONTROL_STATUS_AWS_CREDENTIALS_FILE", "CONTROL_STATUS_GITHUB_TOKEN_FILE"] as const) {
+    for (const name of ["CONTROL_STATUS_AWS_CREDENTIALS_FILE", "CONTROL_STATUS_GITHUB_TOKEN_FILE", "CONTROL_STATUS_WORKTREE"] as const) {
       const value = env[name];
       if (value !== undefined && !isAbsolute(expandHome(value))) problem(name, "絶対パスにしてください");
     }
@@ -214,6 +223,7 @@ function statusGroup(env: Raw): { status: ControlPlaneConfig["status"]; statusCo
       awsCredentialsFile: expandHome(env.CONTROL_STATUS_AWS_CREDENTIALS_FILE!),
       awsProfile: env.CONTROL_STATUS_AWS_PROFILE ?? "default",
       githubTokenFile: expandHome(env.CONTROL_STATUS_GITHUB_TOKEN_FILE!),
+      worktree: expandHome(env.CONTROL_STATUS_WORKTREE!),
       alertTopicArn: env.CONTROL_STATUS_ALERT_TOPIC_ARN!,
       linkBase: (env.CONTROL_STATUS_LINK_BASE ?? "http://127.0.0.1:3200").replace(/\/+$/, ""),
       region: env.AWS_REGION!,
