@@ -23,6 +23,14 @@ Parameters:
     Type: String
     Default: runs/
     Description: 写しのキーの接頭辞。runlog-archive.yaml の値と一致させる。
+  BackupKeyPrefix:
+    Type: String
+    Default: backups/
+    Description: E-15 のスナップショットの接頭辞。runlog-archive.yaml の値と一致させる（2026-11-12）。
+  AuditKeyPrefix:
+    Type: String
+    Default: audits/
+    Description: 観測（E-12）の写しの接頭辞。runlog-archive.yaml の値と一致させる（2026-11-12）。
   HeartbeatNamespace:
     Type: String
     Default: ComeGin/Onprem
@@ -60,14 +68,19 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: !Sub 'comegin-${EnvName}-control-plane'
-      Description: 監視アプリ用。E-15 の写しへの追記と、ハートビートの送信だけ。
+      Description: 監視アプリ用。E-15 の写し・スナップショットと観測の写しへの追記と、ハートビートの送信だけ。
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          # 2026-11-12: E-15 の SQLite のスナップショット（backups/）と観測の写し（audits/）も足した（builtin backup）。
+          # 上書きはバケットのポリシーが拒む（If-None-Match: * が無い PutObject を拒否）
           - Sid: AppendRunLogArchive
             Effect: Allow
             Action: s3:PutObject
-            Resource: !Sub '${RunLogBucketArn}/${RunLogKeyPrefix}*'
+            Resource:
+              - !Sub '${RunLogBucketArn}/${RunLogKeyPrefix}*'
+              - !Sub '${RunLogBucketArn}/${BackupKeyPrefix}*'
+              - !Sub '${RunLogBucketArn}/${AuditKeyPrefix}*'
           # PutMetricData はリソースを絞れないため、条件キーで名前空間を限定する。
           # cfn-guard の IAM_POLICYDOCUMENT_NO_WILDCARD_RESOURCE は、この 1 件だけ意図した例外
           # （このアクションはリソースレベルの権限に対応しない）。

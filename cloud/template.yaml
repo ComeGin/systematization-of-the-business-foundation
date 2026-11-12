@@ -1043,6 +1043,8 @@ Resources:
         EnvName: !Ref EnvName
         RunLogBucketArn: !GetAtt RunLogArchiveStack.Outputs.RunLogBucketArn
         RunLogKeyPrefix: !GetAtt RunLogArchiveStack.Outputs.RunLogKeyPrefix
+        BackupKeyPrefix: !GetAtt RunLogArchiveStack.Outputs.BackupKeyPrefix
+        AuditKeyPrefix: !GetAtt RunLogArchiveStack.Outputs.AuditKeyPrefix
         HeartbeatNamespace: !GetAtt ObservabilityStack.Outputs.HeartbeatNamespace
         N8nHeartbeatNamespace: !GetAtt ObservabilityStack.Outputs.N8nHeartbeatNamespace
         AstroBucketArn: !GetAtt DataStack.Outputs.AstroBucketArn

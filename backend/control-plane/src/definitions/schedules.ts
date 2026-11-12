@@ -26,6 +26,7 @@ const BUILTIN_JOBS = [
   "cycle-close",
   "article-cover",
   "campaign-asset-upload",
+  "backup",
 ] as const satisfies readonly BuiltinJob[];
 
 /** 改善ループの中の段階（設計 2026-11-06 の 4 節。画面ではこの順に並べる） */

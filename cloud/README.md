@@ -27,7 +27,7 @@ cloud/
     wireguard.yaml           オンプレとの WireGuard の終端（EC2 t4g.nano 1 台、Elastic IP、private サブネットの経路、SSM のパラメータ）
     ecr.yaml                 ECR（Mautic・Chatwoot の 2 本。自作のサービス〈admin-auth・consent-api・faq-bot〉は Lambda で ECR を使わない）
     observability.yaml       SNS（comegin-lead-alert / comegin-ops-alert）、ハートビートのアラーム 2 つ（オンプレの監視アプリ、オンプレの n8n のスケジュール実行）
-    runlog-archive.yaml      E-15（実行記録）の写しのバケット。追記だけ
+    runlog-archive.yaml      E-15（実行記録）の写し・E-15 の SQLite のスナップショット・観測 E-12 の写しのバケット。追記だけ
     iam.yaml                 監視アプリ用とデプロイ用の管理ポリシー、オンプレの Strapi・n8n 用の IAM ユーザー 2 つ（アクセスキーは作らない）
     secrets.yaml             Secrets Manager（20 個。faq-bot の 2 個を含む）
     data.yaml                Aurora Serverless v2（MySQL 8.4 互換〈Mautic〉と PostgreSQL 16 互換〈4 アプリで共有〉）、Valkey、EFS、S3
@@ -388,7 +388,7 @@ TA-05 の「AWS コンソールで確認 URL を貼り付けて確認する」�
 
 | ポリシー（出力） | 付ける先 | 許すこと | 作り方 |
 |---|---|---|---|
-| `ControlPlanePolicyArn` | 監視アプリ（ローカル）の写し用の主体。**Claude Code の実行環境には渡さない** | E-15 の写しへの追記（`runs/` の `s3:PutObject` だけ）、名前空間 `ComeGin/Onprem` への `cloudwatch:PutMetricData` だけ。削除・読み取り・設定変更・アラームの操作は不可 | 4.5.2（IAM ユーザー。常駐するプロセスが使うのでアクセスキー） |
+| `ControlPlanePolicyArn` | 監視アプリ（ローカル）の写し用の主体。**Claude Code の実行環境には渡さない** | E-15 の写しへの追記（`runs/`・`backups/`〈E-15 の SQLite のスナップショット〉・`audits/`〈観測 E-12 の写し〉の `s3:PutObject` だけ。2026-11-12 に後ろの 2 つを足した）、名前空間 `ComeGin/Onprem` への `cloudwatch:PutMetricData` だけ。削除・読み取り・設定変更・アラームの操作は不可 | 4.5.2（IAM ユーザー。常駐するプロセスが使うのでアクセスキー） |
 | `DeployPolicyArn` | Astro の配信を承認して実行する人間の主体。**Claude Code の実行環境に置かない** | Astro バケットへの Put / Delete / List と、そのディストリビューションの `cloudfront:CreateInvalidation` だけ | 4.5.1（IAM Identity Center の許可セット。人が都度ログインするので長期のキーを作らない） |
 | `StatusReaderPolicyArn` | 監視アプリの「設定の状況」（設定スクリプトの `--check` を 10 分ごとに子プロセスで実行）専用の主体。**監視アプリの主体（`ControlPlanePolicyArn`）とは別のユーザー**。Claude Code の実行環境には渡さない | `--check` が読む本番の設定の読み取りだけ（スタック・ECS・ECR・ログ・SES・SNS の購読・IAM のキーの一覧・アラーム。Secret は `DescribeSecret` まで）と、`comegin-ops-alert` への `sns:Publish` だけ。書き込み・Secret の値の読み取り・購読やアラームの変更は不可 | 4.5.3（IAM ユーザー。常駐するプロセスが使うのでアクセスキー） |
 
@@ -483,7 +483,7 @@ aws iam list-attached-user-policies --user-name comegin-prod-control-plane   # c
 
 - 監視アプリの `.env`（P14 のチェックアウトの `frontend/next-js/.env`）に、`AWS_PROFILE=comegin-prod-control-plane` と `AWS_SHARED_CREDENTIALS_FILE=/home/<ユーザー>/.config/comegin/control-plane/aws-credentials`（絶対パス）を書く。AWS SDK はこの 2 つで上のファイルの節を読む（`backend/control-plane/src/integrations/aws.ts` の `fromIni`）。値（キー）は `.env` に書かない。
 - このファイルは `shred` しない（監視アプリが読み続ける）。ローテーションは上の「キーは 1 ユーザーあたり 2 つまで」と同じで、新しいキーをこのファイルに書いて監視アプリを起動し直し、ハートビートが届き続けることを確かめてから古いキーを止めて消す。
-- 確かめ方: 監視アプリの起動のログに `heartbeat=on`、5〜15 分後にアラーム `comegin-prod-onprem-heartbeat` が OK（4.13）、最初の実行の後に `s3://comegin-prod-runlog-archive-<アカウント ID>/runs/` にオブジェクトが増える。403 で `permission_denied` が出たら、ポリシーが付いていないか、`RUNLOG_BUCKET`・`AWS_REGION` が違う。
+- 確かめ方: 監視アプリの起動のログに `heartbeat=on`、5〜15 分後にアラーム `comegin-prod-onprem-heartbeat` が OK（4.13）、最初の実行の後に `s3://comegin-prod-runlog-archive-<アカウント ID>/runs/` にオブジェクトが増える。毎朝 07:20 の `nightly-backup` の後に `backups/e15/` と `audits/` にも増える（2026-11-12。`node cloud/deploy.mjs` で権限とバケットのポリシーを入れた後から。それまでは `nightly-backup` が `permission_denied` で失敗する）。403 で `permission_denied` が出たら、ポリシーが付いていないか、`RUNLOG_BUCKET`・`AWS_REGION` が違う。
 
 **オンプレの IAM ユーザー（ADR-21）**: 次の 2 つは、スタックが作る（ポリシーも付いている）。アクセスキーは人が発行する。
 
@@ -1599,7 +1599,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 |---|---|---|
 | **訪問者向けパス** | TA-06 の 5.3 の想定値で入れてある。各製品のバージョンで DevTools により実測して確定する（Chatwoot は `/packs/*` 以外のアセットのパスがあるか、Mautic は `/form/generate.js` などの埋め込み用のパス）。ヘルスチェックのパスも実測 | `edge.yaml` |
 | **SES** | 本番アクセスの申請（4.9.2。Transactional・公開サイトの配信の後）、apex の DMARC（4.9.6。Google Workspace と共有）、バウンスと苦情を Mautic に返す Lambda `ses-feedback` の実装（ADR-30。設計は決定済み）。SMTP 認証情報の IAM ユーザーは CloudFormation の外（コンソールが作る。4.9.3） | 4.9、`ses.yaml` |
-| **E-15 の写し** | 頻度と形式、保持期間とライフサイクル（決まるまで設定しない）、Object Lock（保持期間が決まってから）。`If-None-Match` を必須にするバケットポリシーの Deny は実機未検証（書き込みは単発の `PutObject` で、マルチパートを使わないこと） | `runlog-archive.yaml` |
+| **E-15 の写し** | 頻度と形式、`runs/` の保持期間とライフサイクル（決まるまで設定しない。`backups/`・`audits/` は 2026-11-12 に 30 日と決めて設定済み）、Object Lock（保持期間が決まってから）。`If-None-Match` を必須にするバケットポリシーの Deny は実機未検証（書き込みは単発の `PutObject` で、マルチパートを使わないこと） | `runlog-archive.yaml` |
 | **SNS の購読** | `AuthenticateOnUnsubscribe` を付けた確認（4.4）。購読状態（`Confirmed` の数）の監視は未作成（SNS 以外の手段が要る。TA-05 の項目 8） | 4.4 |
 | **外形監視** | 訪問者向けパスが認証なしで 200 を返すこと、管理画面が 302 を返すこと（200 は認証が外れた異常）、`cms.`・`n8n.`・`stats.` の名前が引けないことの定期確認は未作成（TA-05 の項目 6・7。CloudWatch Synthetics か Route 53 のヘルスチェックの案）。4.13 を手で行う | — |
 | **WireGuard（ADR-21）** | ①**実機で一度も動かしていない**。AL2023 のカーネルに `wireguard` のモジュールがあるか、`wireguard-tools` が core のリポジトリにあるか（無ければ user-data が失敗し、`/var/log/wireguard-setup.log` に残る）。②nftables のルール（forward の既定 drop、両方向の masquerade）と、WireGuard の応答が SG の egress の許可なしで通るか（SG はステートフルなので通る想定。オンプレの `PersistentKeepalive` が通信を保つ）。③`ec2:recover`（`WireguardSystemRecoverAlarm`）が t4g で使えるか。④**トンネルそのもの（`latest handshake` の途絶）の監視は未作成**（EC2 の中から `PutMetricData` する案。IAM と名前空間を足す必要がある）。EC2 の死活（ステータスチェック）だけを見ている。⑤Webhook の再送の有無（Mautic・Chatwoot がオンプレの停止中に取りこぼした分を後から送るか）は、DD-07 の縮退運転で確かめる。⑥OS の更新は手動（4.2.1）。自動更新は入れていない。⑦AMI の変更で EC2 を置き換えると、ENI が「使用中」で失敗する見込み（未検証。4.2.1）。⑧`WireguardIngressCidr` は `0.0.0.0/0`（オンプレの IP が固定でないため）。固定の IP が使えるなら絞る | `wireguard.yaml`、`network.yaml`、4.2.1 |

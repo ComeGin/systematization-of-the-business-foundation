@@ -14,6 +14,7 @@ import { type Checklists, ChecklistError, loadChecklists } from "./checklists.js
 import { buildStepsContext, itemStrapiAdminUrl, stepsFor } from "./commands.js";
 import { buildConfirmDeps, confirmExecutedItem } from "./confirm.js";
 import { readProposals } from "./proposals.js";
+import { type StageRunner, orderStageJobs } from "./stage-runner.js";
 import { countReflection, listRecentItems } from "./reflection.js";
 
 const CYCLE_ID_PATTERN = /^C-\d{4}-\d{2}-\d{2}$/;
@@ -25,7 +26,7 @@ const REJECT_REASON_MAX_LENGTH = 500;
 const CONFIRM_TIMEOUT_MS = 60_000;
 
 /** 画面の ①〜⑦（この順） */
-const STAGES: readonly CycleStage[] = ["collect", "propose", "draft", "review", "publish", "evaluate", "deploy"];
+export const STAGES: readonly CycleStage[] = ["collect", "propose", "draft", "review", "publish", "evaluate", "deploy"];
 
 /** 段階ごとの、定期実行のジョブの id の判定（定義に無い id は出さない）。review は人の確認だけでジョブが無い */
 const STAGE_JOB: Record<CycleStage, (jobId: string) => boolean> = {
@@ -38,6 +39,22 @@ const STAGE_JOB: Record<CycleStage, (jobId: string) => boolean> = {
   evaluate: (id) => ["weekly-lighthouse", "weekly-a11y", "cycle-apply-code"].includes(id),
   deploy: (id) => id === "published-article-check",
 };
+
+/**
+ * 「今すぐ実行」で 1 回で通すときの順（定期実行の時刻の順と違う段階だけ。2026-11-12）。
+ * ③: 企画 → 初稿 → 改修案の反映（記事の下書き）→ キャンペーン（記事とメール）→ アイキャッチ（できた下書きに付ける）→ 配布ファイル（キャンペーンの記事に結ぶ）
+ */
+const STAGE_ORDER: Partial<Record<CycleStage, readonly string[]>> = {
+  draft: ["weekly-content-plan", "weekly-content-draft", "cycle-apply-content", "cycle-campaign", "article-cover", "campaign-asset-upload"],
+};
+
+/** 段階のジョブ（定義にあるものだけ）を、「今すぐ実行」で起動する順に並べる */
+export function stageJobs<T extends { id: string; cron: string; after: string[] }>(stage: CycleStage, jobs: readonly T[]): T[] {
+  return orderStageJobs(
+    jobs.filter((job) => STAGE_JOB[stage](job.id)),
+    STAGE_ORDER[stage] ?? [],
+  );
+}
 
 type StageStatus = CycleView["stages"][number]["status"];
 
@@ -104,7 +121,11 @@ export class CycleService {
   /** 「実行した」の後の確かめ（非同期）の打ち切り用。stop() で打ち切る */
   private readonly confirming = new Set<AbortController>();
 
-  constructor(private readonly ctx: EngineContext) {}
+  constructor(
+    private readonly ctx: EngineContext,
+    /** 段階の「今すぐ実行」の進み具合（画面に出す）。無ければ出さない */
+    private readonly stageRunner: StageRunner | null = null,
+  ) {}
 
   /** 実行中の確かめを打ち切る（ControlPlane.stop から。冪等） */
   stop(): void {
@@ -149,7 +170,8 @@ export class CycleService {
         stage,
         status: stageStatus(stage, items),
         count: items.filter((item) => item.stage === stage).length,
-        jobIds: jobs.filter((job) => STAGE_JOB[stage](job.id)).map((job) => job.id),
+        jobIds: stageJobs(stage, jobs).map((job) => job.id),
+        run: this.stageRunner?.state(stage) ?? null,
       })),
       items: items.map((item) => ({
         ...item,

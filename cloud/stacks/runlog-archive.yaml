@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   E-15（エージェントの実行記録）の写しのバケット。TA-06 の 4.7（ADR-18 の追加の決定）。
+  2026-11-12 から、E-15 の SQLite の毎晩のスナップショット（backups/）と、作業場の観測 E-12 の写し（audits/）も置く。
   写しは正本ではない（正本は開発機の監視アプリ）。追記だけを許し、削除・上書き・設定変更を許さない。
 
 Parameters:
@@ -18,13 +19,34 @@ Parameters:
     Type: String
     Default: runs/
     Description: 監視アプリが書くキーの接頭辞（runs/YYYY/MM/DD/<ULID>.json）。iam.yaml の PutObject の許可範囲と一致させる。
+  BackupRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    Description: backups/ と audits/ のオブジェクトを置いてから消すまでの日数（2026-11-12。1 か月）。
+  BackupKeyPrefix:
+    Type: String
+    Default: backups/
+    Description: >-
+      E-15 の SQLite のスナップショットの接頭辞（backups/e15/YYYY/MM/DD/e15-<時刻>-<ULID>.sqlite。builtin backup。2026-11-12）。
+      backend/control-plane/src/builtin/backup.ts の E15_BACKUP_PREFIX・iam.yaml と一致させる。
+  AuditKeyPrefix:
+    Type: String
+    Default: audits/
+    Description: >-
+      作業場の観測（E-12）の写しの接頭辞（audits/<source>/<audit_id>.md。builtin backup。2026-11-12）。
+      backend/control-plane/src/builtin/backup.ts の AUDIT_COPY_PREFIX・iam.yaml と一致させる。
 
 # cfn-guard の compliance 検査で残る指摘（意図した例外）:
 #   - S3_BUCKET_DEFAULT_LOCK_ENABLED: Object Lock は保持期間が決まってから（TODO。下記）
 #   - S3_BUCKET_LOGGING_ENABLED / S3_BUCKET_REPLICATION_ENABLED: 中身は要約と ID だけ。このバケット自体が E-15 のバックアップ
 #   - S3_BUCKET_NO_PUBLIC_RW_ACL: ACL は BucketOwnerEnforced で無効化済み（AccessControl を併記すると CloudFormation がエラーにする）
-# ライフサイクルは設定しない。保持期間はローカルの E-15 と合わせて決めるまで未決定（TA-06 の 4.7・11 節）。
-#   決まったら、運用者が人の操作で設定する（エージェントにも監視アプリにも権限を渡さない）。
+# ライフサイクル（2026-11-12。ユーザーの決定）: バックアップ（backups/ の E-15 のスナップショットと audits/ の観測 E-12 の写し）は
+#   置いてから 30 日（1 か月）で消す。バージョニングが有効なので、期限で付く削除の印と古い版も片付ける（下の 4 つの規則）。
+#   runs/（E-15 の写し）の保持期間はローカルの E-15 と合わせて決めるまで未決定（TA-06 の 4.7・11 節）で、規則を付けない。
+#   期限切れによる削除は S3 が行うため、DenyObjectDeletion の影響を受けない。ライフサイクルの変更は DenyBucketConfigurationChange が
+#   RunLogAdminPrincipalArns 以外に拒むので、このスタックのデプロイ（管理者）でしか変えられない（エージェントにも監視アプリにも権限を渡さない）。
+#   注意: audits/ の観測は 1 件につき 1 回しか送らないので、30 日より古い観測は S3 から消え、オンプレの作業場にしか残らない（承知のうえで決めた）。
 # TODO: Object Lock は保持期間が決まってから検討する（TA-06 の 11 節）。
 Resources:
   RunLogArchiveBucket:
@@ -43,6 +65,29 @@ Resources:
           - ObjectOwnership: BucketOwnerEnforced
       VersioningConfiguration:
         Status: Enabled
+      # バックアップの保存期間（上のコメント）。runs/ には規則を付けない
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireE15Snapshots
+            Status: Enabled
+            Prefix: !Ref BackupKeyPrefix
+            ExpirationInDays: !Ref BackupRetentionDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+          - Id: CleanE15SnapshotDeleteMarkers
+            Status: Enabled
+            Prefix: !Ref BackupKeyPrefix
+            ExpiredObjectDeleteMarker: true
+          - Id: ExpireAuditCopies
+            Status: Enabled
+            Prefix: !Ref AuditKeyPrefix
+            ExpirationInDays: !Ref BackupRetentionDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+          - Id: CleanAuditCopyDeleteMarkers
+            Status: Enabled
+            Prefix: !Ref AuditKeyPrefix
+            ExpiredObjectDeleteMarker: true
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - BucketKeyEnabled: true
@@ -105,7 +150,10 @@ Resources:
             Effect: Deny
             Principal: '*'
             Action: s3:PutObject
-            Resource: !Sub '${RunLogArchiveBucket.Arn}/${RunLogKeyPrefix}*'
+            Resource:
+              - !Sub '${RunLogArchiveBucket.Arn}/${RunLogKeyPrefix}*'
+              - !Sub '${RunLogArchiveBucket.Arn}/${BackupKeyPrefix}*'
+              - !Sub '${RunLogArchiveBucket.Arn}/${AuditKeyPrefix}*'
             Condition:
               'Null':
                 's3:if-none-match': 'true'
@@ -121,3 +169,7 @@ Outputs:
     Value: !GetAtt RunLogArchiveBucket.Arn
   RunLogKeyPrefix:
     Value: !Ref RunLogKeyPrefix
+  BackupKeyPrefix:
+    Value: !Ref BackupKeyPrefix
+  AuditKeyPrefix:
+    Value: !Ref AuditKeyPrefix

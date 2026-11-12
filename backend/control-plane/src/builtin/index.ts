@@ -8,6 +8,7 @@ import { lighthouse } from "./lighthouse.js";
 import { a11y } from "./a11y.js";
 import { n8nExport } from "./n8n-export.js";
 import { articleCover } from "./article-cover.js";
+import { backup } from "./backup.js";
 import { campaignAssetUpload } from "./campaign-asset-upload.js";
 import { cycleClose, cycleOpen } from "./cycle.js";
 import { cycleCollect } from "./cycle-collect.js";
@@ -29,6 +30,7 @@ export const BUILTIN_HANDLERS: Readonly<Record<BuiltinJob, BuiltinHandler>> = {
   "cycle-open": cycleOpen,
   "cycle-collect": cycleCollect,
   "cycle-close": cycleClose,
+  backup,
 };
 
 const AWS_VARS = ["AWS_REGION", "RUNLOG_BUCKET"];
@@ -82,6 +84,7 @@ export function missingConfigFor(builtin: BuiltinJob, config: ControlPlaneConfig
       return config.cycleAnchor ? [] : ["CONTROL_CYCLE_ANCHOR"];
     case "heartbeat":
     case "runlog-flush":
+    case "backup":
       return config.aws ? [] : AWS_VARS;
     default:
       return [];

@@ -56,6 +56,7 @@ ops/
 | `weekly-content-plan` | agent | 毎週水曜 02:30 | `content-planner`。採用済みのキーワードから企画を起案 |
 | `heartbeat` | builtin | 5 分ごと | ハートビート（CloudWatch）。途絶えたら改善ループが止まっている |
 | `runlog-flush` | builtin | 0〜8 時の 15 分ごと（最後は 07:45） | `E-15` の写しを S3 に追記（送れていない分を送り直す） |
+| `nightly-backup` | builtin | 毎日 07:20 | オンプレにしか無いものを S3 に置く（2026-11-12）。E-15 の SQLite（実行の記録・改善の周と承認・実行モデルの選択）の毎晩のスナップショットと、作業場の観測（E-12）の写し。正本はオンプレのまま。戻し方は `backend/control-plane/README.md` の「バックアップ」 |
 | `daily-i13-file` | builtin | 毎日 05:30 | `I-13`。`draft` の `E-13` から GitHub に PR を作る |
 | `daily-miswrite-check` | builtin | 毎日 05:45 | 誤った書き込みの突き合わせ |
 | `daily-silence-check` | builtin | 毎日 06:00 | 沈黙の検出 |
@@ -108,6 +109,7 @@ ops/
 | 毎日 06:00 | `campaign-asset-upload`（対象が無ければ何もしない。失敗した分を翌日に再試行する） | 06:10 |
 | 毎日 06:30 | `cycle-apply-content`（`content-writer`。E-13 の経路） | 06:50 |
 | 毎日 07:00 | `cycle-collect`（作用のジョブが終わった後に項目を集める） | 07:10 |
+| 毎日 07:20 | `nightly-backup`（`cycle-collect` が周の状態を更新した後に、E-15 の SQLite と観測を S3 に置く） | 07:25 |
 | 0〜8 時の 15 分ごと | `runlog-flush`（E-15 の写しの送り直し。最後は 07:45） | 07:50 |
 
 - **改善ループの本体はすべて 07:10 までに終わる**（最長の上限。周のジョブの `cycle-collect`）。8 時までの残りは、機械の遅れや手動の再実行のための余白。`runlog-flush` も 07:50 までに終わる
