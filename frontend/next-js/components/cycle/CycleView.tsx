@@ -24,7 +24,7 @@ import {
   CYCLE_STAGE_STATUS_TYPE,
 } from "@/components/layout/labels";
 import { CycleItemPanel } from "./CycleItemPanel";
-import { RunJobNowButton } from "./RunJobNowButton";
+import { RunStageNowButton, StageRunProgress } from "./RunStageNowButton";
 import { CycleStageNav } from "./CycleStageNav";
 import { CycleSummaryHeader } from "./CycleSummaryHeader";
 
@@ -35,7 +35,7 @@ function initialStage(stages: CycleViewData["stages"]): CycleStage | null {
   return (stages.find((s) => s.status === "awaiting") ?? stages.find((s) => s.status === "stuck") ?? stages[0])?.stage ?? null;
 }
 
-/** 右: 選んだ段階の概要（その段階のジョブが何を作るか。ジョブ詳細へのリンク。今の周では「今すぐ実行」）と、項目の一覧 */
+/** 右: 選んだ段階の概要（その段階のジョブが何を作るか。ジョブ詳細へのリンク。今の周では段階の「今すぐ実行」と進み具合）と、項目の一覧 */
 function StagePanel({
   stage,
   stageInfo,
@@ -51,7 +51,7 @@ function StagePanel({
   items: Item[];
   selectedId: string | null;
   onSelectItem: (itemId: string | null) => void;
-  /** 今の周のページ。「今すぐ実行」はここだけに出す（過去の周の画面から今のジョブを起動させない） */
+  /** 今の周のページ。段階の「今すぐ実行」はここだけに出す（過去の周の画面から今のジョブを起動させない） */
   current: boolean;
 }) {
   const follow = useFollow();
@@ -66,25 +66,33 @@ function StagePanel({
             variant="h2"
             counter={`(${stageInfo.count})`}
             actions={
-              <StatusIndicator type={CYCLE_STAGE_STATUS_TYPE[stageInfo.status]}>{CYCLE_STAGE_STATUS_LABEL[stageInfo.status]}</StatusIndicator>
+              <SpaceBetween size="s" direction="horizontal" alignItems="center">
+                <StatusIndicator type={CYCLE_STAGE_STATUS_TYPE[stageInfo.status]}>{CYCLE_STAGE_STATUS_LABEL[stageInfo.status]}</StatusIndicator>
+                {current ? (
+                  <RunStageNowButton stage={stage} jobIds={stageInfo.jobIds} running={Boolean(stageInfo.run && stageInfo.run.finishedAt === null)} />
+                ) : null}
+              </SpaceBetween>
             }
           >
             {CYCLE_STAGE_LABEL[stage]}
           </Header>
         }
       >
+        {stageInfo.run ? (
+          <div style={{ marginBlockEnd: 16 }}>
+            <Box variant="awsui-key-label">今すぐ実行（直近）</Box>
+            <StageRunProgress run={stageInfo.run} />
+          </div>
+        ) : null}
         {stageJobs.length === 0 ? (
           <Box color="text-body-secondary">この段階に結びつく定期実行のジョブはありません（人が行う段階）</Box>
         ) : (
           <SpaceBetween size="s">
             {stageJobs.map(({ id, definition }) => (
               <div key={id}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
-                  <Link href={`/jobs/${encodeURIComponent(id)}`} onFollow={follow}>
-                    {id}
-                  </Link>
-                  {current && definition ? <RunJobNowButton jobId={id} enabled={definition.enabled} /> : null}
-                </div>
+                <Link href={`/jobs/${encodeURIComponent(id)}`} onFollow={follow}>
+                  {id}
+                </Link>
                 {definition?.description ? (
                   <Box variant="small" color="text-body-secondary" display="block">
                     {definition.description}
@@ -174,7 +182,8 @@ export function CycleView({
 
   return (
     <ContentLayout>
-      <AutoRefresh active intervalMs={30_000} />
+      {/* 段階の「今すぐ実行」が動いている間は 5 秒ごと、それ以外は 30 秒ごとに読み直す */}
+      <AutoRefresh active intervalMs={view.stages.some((entry) => entry.run && entry.run.finishedAt === null) ? 5_000 : 30_000} />
       <SpaceBetween size="l">
         <CycleSummaryHeader view={view} cycles={cycles} current={current} />
         {stage && stageInfo ? (

@@ -16,7 +16,7 @@ function tables(db: DatabaseSync): string[] {
 
 describe("migrate", () => {
   describe("正常系", () => {
-    it("空入力: 空の DB に 7 つのテーブルを作り、user_version を進める", () => {
+    it("空入力: 空の DB に 9 つのテーブルを作り、user_version を進める", () => {
       const db = new DatabaseSync(":memory:");
       migrate(db);
       expect(tables(db)).toEqual([
@@ -26,6 +26,8 @@ describe("migrate", () => {
         "kv",
         "leases",
         "miswrite_candidates",
+        "model_setting_changes",
+        "model_settings",
         "runs"
       ]);
       expect(userVersion(db)).toBeGreaterThanOrEqual(1);

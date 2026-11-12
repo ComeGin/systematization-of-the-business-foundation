@@ -38,6 +38,7 @@ const BUILTINS: BuiltinJob[] = [
   "cycle-open",
   "cycle-collect",
   "cycle-close",
+  "backup",
 ];
 
 let root: string;

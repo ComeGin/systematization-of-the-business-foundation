@@ -87,7 +87,8 @@ export type BuiltinJob =
   | "cycle-collect"
   | "cycle-close"
   | "article-cover"
-  | "campaign-asset-upload";
+  | "campaign-asset-upload"
+  | "backup";
 
 /** 改善ループの周の ID（C-<起点の日付>。例 C-2026-11-16。周は 14 日） */
 export type CycleId = string;
@@ -435,6 +436,19 @@ export interface CycleRow {
 }
 
 /** 画面の「改善ループ」の 1 周分。cycle が null のときは reason に理由（設定が無い・まだ開かれていない）が入り、ほかは空 */
+/** 改善ループの段階の「今すぐ実行」1 回分（2026-11-12）。段階のジョブを順に 1 本ずつ起動する */
+export interface CycleStageRun {
+  startedAt: string;
+  /** 全部終わった（または止まった）時刻。実行中は null */
+  finishedAt: string | null;
+  /** 押した人（メール） */
+  actor: string;
+  /** 残りを起動せずに止まった理由（監視アプリの停止・待つ時間を過ぎた）。無ければ null */
+  stoppedReason: string | null;
+  /** 起動する順。state: waiting（まだ）・running・finished・not_run（止まったので起動しなかった） */
+  jobs: { jobId: string; runId: Ulid | null; state: "waiting" | "running" | "finished" | "not_run"; outcome: RunOutcome | null }[];
+}
+
 export interface CycleView {
   cycle: CycleRow | null;
   /**
@@ -442,7 +456,15 @@ export interface CycleView {
    */
   reason: string | null;
   /** 7 段階すべて（collect → deploy の順）。count はその段階の項目の数。jobIds は定期実行の定義にある、その段階のジョブの id */
-  stages: { stage: CycleStage; status: "done" | "awaiting" | "not_started" | "stuck"; count: number; jobIds: string[] }[];
+  stages: {
+    stage: CycleStage;
+    status: "done" | "awaiting" | "not_started" | "stuck";
+    count: number;
+    /** その段階のジョブの id。並びは「今すぐ実行」で起動する順（after の依存 → 定期実行の時刻 → id） */
+    jobIds: string[];
+    /** 「今すぐ実行」の直近の実行（実行中・終わったもの。監視アプリを起動し直すと消える）。無ければ null か欠ける */
+    run?: CycleStageRun | null;
+  }[];
   items: (CycleItem & {
     /** その種類の確認項目（ops/approval-checklists.yaml。OK は全部入れたときだけ押せる） */
     checklist: { id: string; label: string }[];
@@ -578,6 +600,11 @@ export interface ControlPlane {
   markCycleItemExecuted(itemId: Ulid, actor: string): Promise<{ accepted: boolean }>;
   /** 今日の周を手動で開く（既に開いていれば何もしない）。 */
   startCycle(actor: string): Promise<CycleView>;
+  /**
+   * 段階（①〜⑦）のジョブを今すぐ実行する（2026-11-12）。段階のジョブを決めた順に 1 本ずつ手動で起動し、前が終わってから次を起動する。
+   * 完了は待たない。実行中の段階・ジョブの無い段階は accepted=false と理由。段階名が不正なら ControlPlaneInputError
+   */
+  runCycleStage(stage: CycleStage, actor: string): Promise<{ accepted: boolean; reason: string | null }>;
   /** 実行モデルの選択と、選べる一覧（各社の API から読む。10 分覚える）。 */
   getModelSettings(): Promise<ModelSettingsView>;
   /**

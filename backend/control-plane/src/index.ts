@@ -10,6 +10,7 @@ import type {
   CreateControlPlane,
   CycleId,
   CycleRow,
+  CycleStage,
   CycleView,
   JobStatus,
   ListRunsQuery,
@@ -29,7 +30,8 @@ import { AGENT_NAME_PATTERN, AgentDefinitionError, loadAgentDefinition } from ".
 import { type McpRegistry, loadMcpRegistry } from "./definitions/registry.js";
 import { auditDatesForRuns, loadAuditIndex, observationsForRun } from "./definitions/audits.js";
 import { type LoadedSchedules } from "./definitions/schedules.js";
-import { CycleService } from "./cycle/service.js";
+import { CycleService, STAGES, stageJobs } from "./cycle/service.js";
+import { StageRunner } from "./cycle/stage-runner.js";
 import { Engine } from "./engine.js";
 import { ModelService } from "./models/service.js";
 import { ControlPlaneInputError } from "./errors.js";
@@ -38,7 +40,7 @@ import { RunLogCopier } from "./integrations/runlog.js";
 import { logLine } from "./log.js";
 import { Scheduler, nextRunAt } from "./scheduler.js";
 import { SetupStatusService } from "./status/service.js";
-import { openE15Database } from "./store/db.js";
+import { openE15Database, snapshotDatabase } from "./store/db.js";
 import { CycleStore } from "./store/cycles.js";
 import { KvStore } from "./store/kv.js";
 import { LeaseStore } from "./store/leases.js";
@@ -73,6 +75,7 @@ class ControlPlaneImpl implements ControlPlane {
   private readonly scheduler: Scheduler;
   private readonly setupStatus: SetupStatusService;
   private readonly cycleService: CycleService;
+  private readonly stageRunner: StageRunner;
   private readonly modelService: ModelService;
   private readonly timers: NodeJS.Timeout[] = [];
   private started = false;
@@ -89,13 +92,15 @@ class ControlPlaneImpl implements ControlPlane {
       cycles: new CycleStore(this.db),
       miswrite: new MiswriteStore(this.db),
       models: new ModelSettingsStore(this.db),
+      snapshotE15: (dest) => snapshotDatabase(this.db, dest),
       loadSchedules: () => this.loadSchedules(),
       copier: config.aws ? new RunLogCopier(runs, config.aws) : null,
     };
     this.engine = new Engine(this.ctx);
     this.scheduler = new Scheduler(this.ctx, this.engine);
     this.setupStatus = new SetupStatusService(config);
-    this.cycleService = new CycleService(this.ctx);
+    this.stageRunner = new StageRunner(this.ctx, this.engine);
+    this.cycleService = new CycleService(this.ctx, this.stageRunner);
     this.modelService = new ModelService(config, this.ctx.models);
   }
 
@@ -157,6 +162,7 @@ class ControlPlaneImpl implements ControlPlane {
     this.scheduler.stop();
     this.setupStatus.stop();
     this.cycleService.stop();
+    this.stageRunner.stop();
     await this.engine.stopAll();
     if (wasStarted) logLine("INFO", "control-plane", "停止");
   }
@@ -301,6 +307,14 @@ class ControlPlaneImpl implements ControlPlane {
 
   async startCycle(actor: string): Promise<CycleView> {
     return this.cycleService.startCycle(actor);
+  }
+
+  async runCycleStage(stage: CycleStage, actor: string): Promise<{ accepted: boolean; reason: string | null }> {
+    if (!STAGES.includes(stage)) throw new ControlPlaneInputError("段階が不正");
+    const who = actor.trim();
+    if (!who || who.length > 200) throw new ControlPlaneInputError("操作した人が不正");
+    const { jobs } = await this.loadSchedules(true);
+    return this.stageRunner.start(stage, stageJobs(stage, jobs), who);
   }
 
   async getModelSettings(): Promise<ModelSettingsView> {

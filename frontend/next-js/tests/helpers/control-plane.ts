@@ -1,6 +1,6 @@
 // Route Handler のテストで使う control-plane の差し替え。実体（dist/）は読み込まない
 import { vi } from "vitest";
-import type { AgentInfo, ControlPlane, CycleView, JobDefinition, JobStatus, ObservationSummary, RunObservations, RunRecord } from "control-plane";
+import type { AgentInfo, ControlPlane, CycleView, JobDefinition, JobStatus, ModelSettingsView, ObservationSummary, RunObservations, RunRecord } from "control-plane";
 
 export const SAMPLE_RUN_ID = "01J9ZK3M4N5P6Q7R8S9T0V1W2X";
 
@@ -12,6 +12,17 @@ const EMPTY_CYCLE_VIEW: CycleView = {
   items: [],
   summary: { proposals: 0, reflected: 0, awaiting: 0, rejected: 0, stuck: 0, keywordReflected: 0 },
   previousVerification: [],
+};
+
+/** 実行モデルの画面（差し替えの既定。キーも一覧も無い） */
+const EMPTY_MODEL_SETTINGS: ModelSettingsView = {
+  anthropic: { configured: false, available: { ok: false, reason: "テスト", models: [] }, aliases: [], default: null, agents: [] },
+  openai: {
+    configured: false,
+    available: { ok: false, reason: "テスト", models: [] },
+    image: { override: null, fallback: null, effective: null, source: "fallback" },
+  },
+  history: [],
 };
 
 export function createFakePlane() {
@@ -44,6 +55,9 @@ export function createFakePlane() {
     rejectCycleItem: vi.fn<ControlPlane["rejectCycleItem"]>(async () => EMPTY_CYCLE_VIEW),
     markCycleItemExecuted: vi.fn<ControlPlane["markCycleItemExecuted"]>(async () => ({ accepted: true })),
     startCycle: vi.fn<ControlPlane["startCycle"]>(async () => EMPTY_CYCLE_VIEW),
+    runCycleStage: vi.fn<ControlPlane["runCycleStage"]>(async () => ({ accepted: true, reason: null })),
+    getModelSettings: vi.fn<ControlPlane["getModelSettings"]>(async () => EMPTY_MODEL_SETTINGS),
+    setModelSetting: vi.fn<ControlPlane["setModelSetting"]>(async () => EMPTY_MODEL_SETTINGS),
   } satisfies ControlPlane;
 }
 

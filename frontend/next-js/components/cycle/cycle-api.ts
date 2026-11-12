@@ -36,7 +36,7 @@ export function startCycle() {
   return post<unknown>("/api/cycle", undefined);
 }
 
-/** 段階のジョブを今すぐ実行する（手動の起動。/api/runs）。見送り（前回が実行中など）は accepted=false で返る */
-export function runJobNow(jobId: string) {
-  return post<{ runId: string; accepted: boolean }>("/api/runs", { target: { kind: "job", jobId } });
+/** 段階（①〜⑦）のジョブを今すぐ実行する。段階のジョブを順に 1 本ずつ起動する。実行中・ジョブの無い段階は accepted=false と reason */
+export function runStageNow(stage: string) {
+  return post<{ accepted: boolean; reason: string | null }>(`/api/cycle/stages/${stage}`, undefined);
 }

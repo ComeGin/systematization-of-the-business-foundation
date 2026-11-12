@@ -32,7 +32,7 @@ src/config.ts         zod。中核は必須、機能ごとのグループは「�
 src/engine.ts         1 回の起動 = E-15 の 1 件。見送り判定 → 相関 ID の発行 → running を先に書く → 実行 → 確定
 src/scheduler.ts      croner（Asia/Tokyo）。ジョブ定義は 1 時間ごとに再読み込み
 src/runner/           agent.ts（SDK 起動）・hooks.ts（PreToolUse）・mcp.ts（登録表 → mcpServers）・output.ts
-src/builtin/          i13-file・miswrite-check・silence-check・simple（heartbeat・runlog-flush）・lighthouse・a11y・published-article-check・article-cover・campaign-asset-upload・cycle（cycle-open・cycle-close）・cycle-collect
+src/builtin/          i13-file・miswrite-check・silence-check・simple（heartbeat・runlog-flush）・backup・lighthouse・a11y・published-article-check・article-cover・campaign-asset-upload・cycle（cycle-open・cycle-close）・cycle-collect
 src/cycle/            改善ループの周の部品（calendar・service・proposals・previews・confirm・reflection・commands・git・cycle-doc・checklists・urls）。ADR-31
 src/integrations/     http.ts（失敗分類 + 再試行）・github.ts・chatwoot.ts・aws.ts・runlog.ts・strapi.ts・mautic.ts・openai-image.ts
 src/definitions/      schedules.ts・registry.ts・agent-def.ts・proposal.ts（E-13 の zod）
@@ -114,12 +114,47 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 
 `runs/YYYY/MM/DD/<ULID>.json`（日付は `startedAt` の日本時間）を、**単発の `PutObject`** に毎回 `IfNoneMatch: "*"` を付けて書く（バケットのポリシーが、`If-None-Match` の無い PutObject とマルチパートなどの作成系を拒否するため、`@aws-sdk/lib-storage` の `Upload` は使わない）。412 は「写し済み」として印だけ付ける。403 は `permission_denied`（ポリシーの拒否か資格情報の誤り）としてその回の送信を止める。1 件のスナップショットが 1 MiB を超えたら写さず、`invalid_response` の失敗として扱う（要約と ID だけなので通常は起きない）。未送は E-15 の `copied_at IS NULL` の行で、起動時・10 分ごと・各実行の終了時に古い順に再送する。写す内容は終了時に固めた `snapshot_json` で、再送でも変わらない。写しは正本ではない。
 
+## バックアップ（2026-11-12。builtin `backup`・定義 `ops/schedules/nightly-backup.yaml`。毎朝 07:20）
+
+オンプレのディスクにしか無いものを、E-15 の写しと同じバケット（`RUNLOG_BUCKET`。追記だけで、削除・上書きを拒む）に置く。**正本はオンプレのまま**で、ここに置くのはディスクを失ったときに戻すためのもの。
+
+| 何を | S3 のキー | どう |
+|---|---|---|
+| A. E-15 の SQLite 丸ごと（実行の記録・改善の周と項目と承認・実行モデルの選択と履歴・kv） | `backups/e15/YYYY/MM/DD/e15-<HHmmss>-<ULID>.sqlite`（日本時間） | `VACUUM INTO` で一貫した 1 時点の写しに固めて（データディレクトリに一時ファイル。送ったら消す）、毎晩新しいキーに置く。512 MiB を超えたら `failure` |
+| C. 作業場の観測（E-12。`<CONTROL_WORKTREE>/docs/audits/<source>/AUD-*.md`。コミットされない） | `audits/<source>/<audit_id>.md`（中身が変わった版は `audits/<source>/<audit_id>.<sha256 の先頭 12 桁>.md`） | 送った版の sha256 を kv の `backup:audit:<source>/<audit_id>` に覚え、同じ中身は送らない。1 回 500 件まで（残りは次の夜）。1 MiB を超えるものは写さない |
+
+- 結果: A が送れないと `failure`（周と承認の記録が守られていない）、C だけの失敗は `partial`（次の夜に続きを送る）。`targetIds` に A のキー
+- ログイン用の `auth.sqlite` は置かない（セッションだけで、失っても Google でログインし直せば作られる）
+- **保存期間は 30 日（1 か月。2026-11-12 のユーザーの決定）**。`backups/`・`audits/` は置いてから 30 日で S3 のライフサイクルが消す（`cloud/stacks/runlog-archive.yaml` の `BackupRetentionDays`）。スナップショットは毎晩新しく置くので、いつでも直近 30 日のどの日にも戻せる。**観測（E-12）は 1 件につき 1 回しか送らないので、30 日より古い観測は S3 から消え、作業場にしか残らない**（承知のうえ）。`runs/`（E-15 の写し）は未決定のままで消さない
+- 監視アプリの主体は `PutObject` だけを持ち、読めない。**戻すのは人が管理者のプロファイルで行う**
+
+### 戻し方（ディスクを失った・SQLite が壊れたとき）
+
+```bash
+B=comegin-prod-runlog-archive-<アカウント ID>
+# 1. いちばん新しいスナップショットを探す（日付のフォルダを新しい順に見る）
+aws s3 ls "s3://$B/backups/e15/$(date +%Y/%m/%d)/"     # 無ければ前の日
+# 2. 監視アプリを止めてから置き換える（動いたまま置き換えない）
+sudo systemctl stop comegin-control
+D=${CONTROL_DATA_DIR:-$HOME/.local/share/comegin-control}
+mv "$D/e15.sqlite" "$D/e15.sqlite.broken-$(date +%Y%m%d%H%M)" 2>/dev/null   # 壊れたものは消さずに残す
+rm -f "$D/e15.sqlite-wal" "$D/e15.sqlite-shm"
+aws s3 cp "s3://$B/backups/e15/<YYYY/MM/DD>/<ファイル>.sqlite" "$D/e15.sqlite" && chmod 600 "$D/e15.sqlite"
+sudo systemctl start comegin-control
+# 3. 観測（E-12）を作業場に戻す（同じ名前のファイルが作業場にあれば上書きしない）
+aws s3 sync "s3://$B/audits/" "<CONTROL_WORKTREE>/docs/audits/" --exclude "*.*.md"
+```
+
+- スナップショットの後（その日の 07:20 以降）の実行の記録は、S3 の `runs/` に写しがある（中身は確かめられるが、SQLite には戻らない）。周・承認の変更は、最後のスナップショットまで戻る
+- `--exclude "*.*.md"` は、中身が変わった後の版（`<audit_id>.<sha>.md`）を除く。最新の版が要るときは、その版を `<audit_id>.md` の名前で置き直す
+
 ## builtin
 
 | `builtin` | 内容 |
 |---|---|
 | `i13-file` | `docs/proposals/*.md` のうち `approval.state: draft` で `change.diff_ref` が null のものを、GitHub REST API でブランチ作成・コミット・PR 作成（Reviewer に `I13_REVIEWER`）し、`diff_ref` に `PR #n` を書き戻す。冪等キーは `proposal_id`（base に同名ファイルがあれば起票しない。途中で止まった続きのため、同じブランチの PR があれば再利用する）。30 秒、401 は再試行しない。ブランチは `<I13_ISSUE_NUMBER>-feature-proposal-<proposal_id>` |
 | `runlog-flush` | S3 への写し（上記） |
+| `backup` | 下の「バックアップ」（2026-11-12）。E-15 の SQLite のスナップショットと、作業場の観測（E-12）の写しを S3 に置く。`AWS_REGION`・`RUNLOG_BUCKET` が要る |
 | `heartbeat` | CloudWatch `PutMetricData`（`HEARTBEAT_NAMESPACE`、`Heartbeat=1`）。通常は内部の 5 分タイマーが送る |
 | `miswrite-check` | 下記 |
 | `silence-check` | 下記 |

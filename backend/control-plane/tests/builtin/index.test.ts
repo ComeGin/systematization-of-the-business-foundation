@@ -28,6 +28,7 @@ const ALL_BUILTINS: BuiltinJob[] = [
   "cycle-close",
   "article-cover",
   "campaign-asset-upload",
+  "backup",
 ];
 
 describe("missingConfigFor", () => {
@@ -40,7 +41,7 @@ describe("missingConfigFor", () => {
       expect(missingConfigFor("miswrite-check", makeConfig({ miswrite }))).toEqual([]);
     });
 
-    it.each(["heartbeat", "runlog-flush"] as const)("%s は AWS のグループがあれば何も挙げない", (builtin) => {
+    it.each(["heartbeat", "runlog-flush", "backup"] as const)("%s は AWS のグループがあれば何も挙げない", (builtin) => {
       expect(missingConfigFor(builtin, makeConfig({ aws }))).toEqual([]);
     });
 
@@ -67,7 +68,7 @@ describe("missingConfigFor", () => {
       ]);
     });
 
-    it.each(["heartbeat", "runlog-flush"] as const)("空入力: %s は AWS のグループが無ければ REGION と BUCKET を返す", (builtin) => {
+    it.each(["heartbeat", "runlog-flush", "backup"] as const)("空入力: %s は AWS のグループが無ければ REGION と BUCKET を返す", (builtin) => {
       expect(missingConfigFor(builtin, makeConfig())).toEqual(["AWS_REGION", "RUNLOG_BUCKET"]);
     });
 

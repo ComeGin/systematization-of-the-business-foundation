@@ -34,6 +34,15 @@ export function openAuthDatabase(dataDir: string): DatabaseSync {
   return db;
 }
 
+/**
+ * データベースを、一貫した 1 時点の写しとして dest に書き出す（SQLite の VACUUM INTO。書き込み中でも読み取りの一時点で固まる）。
+ * dest は既にあってはならない（SQLite がエラーにする）。トランザクションの中では呼べない。権限は 600 にする
+ */
+export function snapshotDatabase(db: DatabaseSync, dest: string): void {
+  db.prepare("VACUUM INTO ?").run(dest);
+  chmodSync(dest, 0o600);
+}
+
 /** BEGIN IMMEDIATE で書き込みの競合を先に取る。 */
 export function transaction<T>(db: DatabaseSync, fn: () => T): T {
   db.exec("BEGIN IMMEDIATE");

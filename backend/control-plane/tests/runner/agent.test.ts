@@ -326,6 +326,8 @@ describe("runAgent の結果の分類", () => {
         targetIds: ["AUD-2026-1004-gsc-0001"],
         sdkSubtype: "success",
         costUsd: 0.42,
+        // 偽の SDK の init はモデルを返さず、定義にも model が無いので null（2026-11-12 に足した欄）
+        model: null,
       });
     });
 

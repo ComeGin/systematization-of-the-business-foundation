@@ -63,6 +63,7 @@ describe("RunStore.insertRunning", () => {
         failureClass: null,
         sdkSubtype: null,
         costUsd: null,
+        model: null,
         copiedAt: null,
       });
     });

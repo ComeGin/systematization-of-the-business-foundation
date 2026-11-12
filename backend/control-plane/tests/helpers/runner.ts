@@ -8,10 +8,12 @@ import type { ControlPlaneConfig } from "../../src/config.js";
 import type { EngineContext } from "../../src/context.js";
 import type { LoadedSchedules, ScheduleDefinition } from "../../src/definitions/schedules.js";
 import { CycleStore } from "../../src/store/cycles.js";
+import { snapshotDatabase } from "../../src/store/db.js";
 import { KvStore } from "../../src/store/kv.js";
 import { LeaseStore } from "../../src/store/leases.js";
 import { migrate } from "../../src/store/migrations.js";
 import { MiswriteStore } from "../../src/store/miswrite.js";
+import { ModelSettingsStore } from "../../src/store/models.js";
 import { RunStore } from "../../src/store/runs.js";
 
 export const SAMPLE_ULID = "01K6PZ3T8Q4M2N7R9S5V1W3X6Y";
@@ -41,6 +43,7 @@ export function memoryStores() {
     kv: new KvStore(db),
     cycles: new CycleStore(db),
     miswrite: new MiswriteStore(db),
+    models: new ModelSettingsStore(db),
   };
 }
 
@@ -78,6 +81,7 @@ export function makeCtx(
     config,
     ...stores,
     loadSchedules: vi.fn(async (): Promise<LoadedSchedules> => ({ jobs: [], errors: [] })),
+    snapshotE15: (dest: string) => snapshotDatabase(stores.db, dest),
     copier: null,
     ...overrides,
   };

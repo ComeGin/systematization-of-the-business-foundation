@@ -1,0 +1,24 @@
+id: nightly-backup
+description: "オンプレにしか無い E-15 の SQLite（実行の記録・改善の周と承認・実行モデルの選択）と、作業場の観測（E-12）を S3 に置く（2026-11-12）"
+enabled: true
+# cycle-collect（07:10 まで）が周の状態を更新した後。runlog-flush の最後（07:45）とも重ねない
+cron: "20 7 * * *"
+kind: builtin
+agent: null
+builtin: backup
+after: []
+timeout_sec: 300
+# 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
+overview: |
+  エージェントを使わない決まった処理。E-15 の SQLite を一貫した 1 時点の写しに固めて S3 に置き（毎晩 1 ファイル。上書きしない）、エージェントの作業場の観測（E-12。コミットされない）のうち、まだ送っていない版を S3 に写す。正本はオンプレのまま。ディスクを失ったときに戻すためのもの（戻し方は backend/control-plane/README.md の「バックアップ」）。
+stage: maintain
+io:
+  reads:
+    - "E-15 の SQLite（実行の記録・改善の周と項目と承認・実行モデルの選択と履歴・kv）"
+    - "エージェントの作業場の docs/audits/<source>/AUD-*.md"
+  writes:
+    - "S3 の backups/e15/YYYY/MM/DD/e15-<時刻>-<ULID>.sqlite（毎晩 1 つ。上書きしない。30 日で S3 が消す）"
+    - "S3 の audits/<source>/<audit_id>.md（中身が変わった版は <audit_id>.<sha256 の先頭 12 桁>.md に足す。30 日で S3 が消す）"
+    - "E-15 の kv（送った観測の版）"
+  does_not_write:
+    - "作業場・main のチェックアウトのファイル（読むだけ）"

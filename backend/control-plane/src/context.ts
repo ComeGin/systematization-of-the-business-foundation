@@ -32,6 +32,8 @@ export interface EngineContext {
   miswrite: MiswriteStore;
   /** 画面で選んだ実行モデル（2026-11-12） */
   models: ModelSettingsStore;
+  /** E-15 の SQLite を、一貫した 1 時点の写しとして dest に書き出す（VACUUM INTO。builtin backup が使う。2026-11-12） */
+  snapshotE15(dest: string): void;
   loadSchedules(): Promise<LoadedSchedules>;
   /** AWS が無効なら null */
   copier: RunLogCopier | null;
