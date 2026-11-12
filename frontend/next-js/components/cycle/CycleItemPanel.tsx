@@ -8,6 +8,7 @@ import Container from "@cloudscape-design/components/container";
 import FormField from "@cloudscape-design/components/form-field";
 import Header from "@cloudscape-design/components/header";
 import KeyValuePairs from "@cloudscape-design/components/key-value-pairs";
+import Link from "@cloudscape-design/components/link";
 import Modal from "@cloudscape-design/components/modal";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
@@ -166,6 +167,16 @@ export function CycleItemPanel({ item }: { item: Item }) {
             </ul>
           )}
         </Box>
+
+        {item.strapiAdminUrl ? (
+          <Box>
+            <Box variant="awsui-key-label">Strapi の記事</Box>
+            {/* 本番の Strapi はオンプレの 127.0.0.1 だけに開くので、この機械のブラウザから開く */}
+            <Link href={item.strapiAdminUrl} external externalIconAriaLabel="（新しいタブで開く）">
+              Strapi の管理画面で記事を開く
+            </Link>
+          </Box>
+        ) : null}
 
         <div>
           <Box variant="awsui-key-label">中身</Box>

@@ -155,6 +155,8 @@ node setup/setup.mjs --target prod --phase operate --only openseo
 
 既に `docker compose up -d` で動いているところにユニットを入れても、`enable --now` の `up -d` は何もせず終わる（コンテナを作り直さない）。
 
+**版を上げたら、コンテナを作り直す**（2026-11-12）。イメージは `middleware/open-seo-main/dev/setup/index.mjs` の `PINNED_IMAGE` で版とダイジェストを固定していて、設定スクリプトが環境変数ファイルの `OPEN_SEO_IMAGE` に書く（書いた回は `--force-recreate` で作り直す）。**環境変数ファイルは、コンテナを作るときにしか読まれない**ので、手で書き換えた・取り直した・書いた後に作り直しが失敗した、のどれでも、動いているコンテナは前のままになる。「設定の状況」の `openseo.image`（P14。止まる id `openseo:image`）が次の 4 つを見て、どれかなら ● にする: (1) 環境変数ファイルの `OPEN_SEO_IMAGE` が固定した版と違う（版を上げた後に書いていない → `node setup/setup.mjs --target prod --phase google --only openseo`）、(2) 動いているコンテナを作ったときのイメージの指定が、環境変数ファイルのものと違う、(3) 同じ名前のローカルのイメージを取り直したのに、コンテナが前のイメージ、(4) 環境変数ファイルの更新がコンテナを作った時刻より後。(2)〜(4) は `middleware/open-seo-main` で `docker compose up -d --force-recreate open-seo`（`systemctl restart comegin-openseo` は、指定が同じだと作り直さない）。作り直すと数十秒〜1〜2 分止まるので、夜の定期実行（JST 0〜8 時）と重ねない。
+
 守ること:
 
 - **作業で止めるときは `sudo systemctl stop comegin-openseo`、戻すときは `sudo systemctl start comegin-openseo`。** `docker compose stop` で止めると、ユニットは active のまま残り、`systemctl start` しても何もしない（`RemainAfterExit=yes`）。そのときは `sudo systemctl restart comegin-openseo` か、`middleware/open-seo-main` で `docker compose up -d` で戻す。
@@ -182,12 +184,24 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 - AWS のキーは、監視アプリ専用の資格情報ファイル（既定 `~/.config/comegin/control-plane/aws-credentials`。600）にだけ置く。`~/.aws/credentials`（管理者のキーと混ざる）や作業ツリーの中（エージェントの cwd）に置かない（`cloud/README.md` の 4.5.2）
 - `ops/schedules/*.yaml` は**すべて `enabled: false`** で、`CONTROL_SCHEDULER_ENABLED=true` にしただけでは定期実行は 1 本も動かない。有効にするのは人が PR で行う（下の手順 5。`ops/README.md`）
 
+### ビルドする（監視アプリ）
+
+**ビルドは生の `pnpm build` ではなく、承認済みの main のチェックアウトにある包みで `node <チェックアウト>/onprem/build.mjs control` と行う**（2026-11-12。Strapi・n8n の `node onprem/build.mjs <名前>` と同じ考え方）。包みは、自分のファイルの場所のリポジトリをビルドするので、**作業ツリーの `onprem/build.mjs` を実行しない**（作業ツリーをビルドしてしまう）。中で行うこと:
+
+1. `backend/control-plane`・`frontend/next-js` に未コミットの変更があれば止まる（HEAD のコミットの名前で記録するため）
+2. HEAD が `origin/main` の履歴に無ければ警告だけ出す（設定の状況で ! になる）
+3. `backend/control-plane` → `frontend/next-js` の順に `pnpm install --frozen-lockfile && pnpm build`（next-js は control-plane の `dist` を取り込むので、この順。lockfile は書き換えない）
+4. ビルドしたコミットを `frontend/next-js/.next/comegin-build.json` に書く
+5. 再起動の案内を出す。**ビルドしただけでは、動いている監視アプリは前のビルドのまま**（`sudo systemctl restart comegin-control`）
+
+「設定の状況」の `next-js-prod.build` は、記録のコミットから `origin/main` までに `backend/control-plane`・`frontend/next-js`（`*.md`・テスト類・`frontend/next-js/setup` を除く）を変えたコミットがあれば ● にする。`next build` は `.next/` を作り直すので、包まずに `pnpm build` すると記録が消えて「記録が無い」の ● になる。定義（`ops/schedules`・`.claude/agents`）と設定の状況のカタログは、動いている監視アプリが読み直すので、定義だけの PR ではビルドも再起動も要らない（チェックアウトを `origin/main` に合わせるだけ）。`next-js-prod.systemd` は、ビルドや依存の入れ直しの後に起動し直していないと ●（`next-js-prod:restart`）になる。
+
 ### 止まる id と、人が行うこと
 
 | 表示の id | いつ止まるか | すること |
 |---|---|---|
 | `next-js-prod:checkout` | `CONTROL_MAIN_CHECKOUT` が無い・作業ツリーと同じ・`origin/main` と違うコミット | `git -C <作業ツリー> fetch origin && git -C <チェックアウト> checkout --detach origin/main`（setup は git を書き換えない。`setup/manual-steps.md` の 6 節） |
-| `next-js-prod:build` | `backend/control-plane/dist/`・`frontend/next-js/.next/` が無い、またはチェックアウトを動かす前のビルド | チェックアウトで `backend/control-plane` → `frontend/next-js` の順に `pnpm install && pnpm build`（next-js は control-plane の `dist` を読む） |
+| `next-js-prod:build` | `backend/control-plane/dist/`・`frontend/next-js/.next/` が無い・ビルドしたコミットの記録（`frontend/next-js/.next/comegin-build.json`）が無い・記録から `origin/main` までに `backend/control-plane`・`frontend/next-js` のコードが変わった・依存が `pnpm-lock.yaml` と違う（`node_modules/.pnpm/lock.yaml` と比べる）・依存を入れ直す前のビルド・control-plane をビルドし直す前の next-js のビルド | **チェックアウトにある**包みで `node <チェックアウト>/onprem/build.mjs control`（下の「ビルドする（監視アプリ）」）→ `sudo systemctl restart comegin-control` |
 | `next-js-prod:principal` | IAM ユーザー `comegin-prod-control-plane` が無い・管理ポリシー `comegin-prod-control-plane` 以外も付いている・資格情報ファイルが無い／600 でない・そのキーの主体が違う | `cloud/README.md` の 4.5.2（ユーザーの作成・ポリシーの付与・キーの発行を人が自分の端末で）。別の場所に置いたなら `prod.conf` に `CONTROL_AWS_CREDENTIALS_FILE=` |
 | `next-js-prod:status-principal` | IAM ユーザー `comegin-prod-status-reader` が無い・管理ポリシー `comegin-prod-status-reader` 以外も付いている・資格情報ファイルが無い／600 でない・そのキーの主体が違う | `cloud/README.md` の 4.5.3（下の「設定の状況を有効にする」の 1）。別の場所に置いたなら `prod.conf` に `CONTROL_STATUS_AWS_CREDENTIALS_FILE=` |
 | `next-js-prod:status-github` | 参照専用の GitHub のトークンのファイルが無い／600 でない／空・`github_pat_` で始まらない（classic など）・トークンでリポジトリを読めない（401・403・404）・応答に `X-OAuth-Scopes` が付く（classic の印） | 下の「設定の状況を有効にする」の 2。別の場所に置いたなら `prod.conf` に `CONTROL_STATUS_GITHUB_TOKEN_FILE=` |
@@ -200,7 +214,7 @@ node setup/setup.mjs --target prod --phase operate           # 止まったら�
 | `next-js-prod:prod-values` | 下の表の必須の値が `prod.conf` に無い | 表示されたキーを `prod.conf` に書く |
 | `next-js-prod:i13-github` | **任意の機能。止まらず `!` で確認を求める**。`GITHUB_TOKEN` が `.env` に無い（I-13 の起票・n8n の書き出しが `skipped`、改修案のマージを確かめられない） | 下の「I-13 の起票を有効にする（`GITHUB_TOKEN`）」。まだ使わないなら yes で進む |
 | `next-js-prod:systemd`・`systemd-dir` | ユニット `comegin-control` が無い・動いていない・チェックアウト以外で動いている | 下の「常駐させる（監視アプリ）」 |
-| `next-js-prod:restart` | `.env` を書き換えた後に `comegin-control` を起動し直していない | `sudo systemctl restart comegin-control` |
+| `next-js-prod:restart` | `.env` を書き換えた後、またはビルド・依存の入れ直しの後に `comegin-control` を起動し直していない（ビルドと `node_modules/.pnpm/lock.yaml` の日時を、動いているプロセスの起動時刻と比べる。2026-11-12） | `sudo systemctl restart comegin-control` |
 | `next-js-prod:start` | ユニットは active だが 3200 が応答しない | `journalctl -u comegin-control -n 50` で起動の失敗を見る（control-plane の設定不正は変数名だけが出る） |
 
 ### チェックアウトの `.env` に書く値

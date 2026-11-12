@@ -7,7 +7,8 @@
 //
 // 行うこと（止まるのは 1〜6 と 4b。どれも人の作業を案内して止まる）:
 //   1. チェックアウトが origin/main と同じコミットか（git の状態は人が変える。setup は git を書き換えない）
-//   2. control-plane（dist/）と next-js（.next/）のビルドが、チェックアウトを動かした後のものか（ビルドは人が行う）
+//   2. control-plane（dist/）と next-js（.next/）のビルドが origin/main に追いついているか（ビルドは人が node <チェックアウト>/onprem/build.mjs control で行い、
+//      そのときのコミットが .next/comegin-build.json に残る）・依存が lockfile と同じか・依存を入れ直した後にビルドしたか（2026-11-12）
 //   3. 監視アプリの主体: IAM ユーザー comegin-prod-control-plane と管理ポリシー comegin-prod-control-plane（作成とキーの発行は人。cloud/README.md の 4.5.2）
 //   4. 監視アプリ専用の資格情報ファイル（600）と、そのキーが 3 のユーザーのものであること（sts get-caller-identity。読み取りだけ）
 //   4b. 「設定の状況」(/setup-status) の読み取り専用の主体: IAM ユーザー comegin-prod-status-reader（管理ポリシー comegin-prod-status-reader だけ）と、
@@ -24,7 +25,7 @@
 //       形の誤り・グループの片方だけ・同じ値の使い回し・作業場が main や開発のリポジトリと同じ場所、は常に止まる。OpenAI・Strapi の書き込みトークン・Mautic の参照用は、
 //       アイキャッチ・配布ファイルのアップロード・キャンペーンの確認を有効にする（無いと該当の builtin は skipped）
 //   5. 本番の値（prod.conf と状態）がそろっていること → チェックアウトの .env に書く（600。値は表示しない。設定の状況の 6 変数も）
-//   6. systemd のユニット comegin-control が、このチェックアウトで動いていて、.env を書いた後に起動していること（/etc は人が書く）
+//   6. systemd のユニット comegin-control が、このチェックアウトで動いていて、.env を書いた後・ビルドした後に起動していること（/etc は人が書く）
 //   7. 127.0.0.1:3200 が応答し、Google ログインを始められること（開発のモジュールと同じ確かめ方）
 //   8. 警告だけ: ハートビートのアラーム・有効な定期実行の数・heartbeat.yaml の誤った有効化
 //
@@ -49,11 +50,13 @@
 //         OPENAI_API_KEY（任意）・CONTROL_OPENAI_IMAGE_MODEL・CONTROL_OPENAI_IMAGE_SIZE・CONTROL_COVER_MAX_PER_RUN（任意）・
 //         CONTROL_MAUTIC_CLIENT_ID・CONTROL_MAUTIC_CLIENT_SECRET（任意。2 つで 1 組）・CONTROL_MAUTIC_URL（既定は MAUTIC_BASE_URL、無ければ https://mkt.comegin.com）・
 //         CONTROL_WORKTREE_SYNC（任意）
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { REGION, STACK, awsJson, describeStack, outputOf, requireMainStack } from "../../../../cloud/setup/aws.mjs";
 import { registerSecret } from "../../../../setup/lib/core.mjs";
+import { commitDrift, describeChanges } from "../../../../setup/lib/drift.mjs";
 import { DEFAULT_HOSTED_DOMAIN, GROUPS, LOCAL_URL, probe, publicUrlOf, validateGroups, verifyGoogle } from "../index.mjs";
 
 export const meta = { id: "next-js-prod", title: "監視アプリ（本番。改善ループの常駐）", targets: ["prod"], phases: ["operate"], after: [] };
@@ -133,39 +136,101 @@ async function checkoutProblem(ctx, main) {
   return null;
 }
 
-/** チェックアウトの HEAD を最後に動かした時刻（秒）。worktree ごとの HEAD の reflog。無ければコミットの時刻 */
-async function headMovedAt(ctx, main) {
-  try {
-    const t = await git(ctx, ["-C", main, "log", "-g", "-1", "--format=%ct", "HEAD"]);
-    if (t) return Number(t);
-  } catch {
-    /* reflog が無い */
-  }
-  return Number(await git(ctx, ["-C", main, "log", "-1", "--format=%ct", "HEAD"]));
+// 2. ビルド（2026-11-12 にコミットの記録の方式へ改めた。以前は HEAD を動かした時刻とビルドの日時を比べていて、README だけの変更でも ● になった）
+//   - 記録: node <チェックアウト>/onprem/build.mjs control が、ビルドしたコミットを frontend/next-js/.next/comegin-build.json に書く。
+//     そこから origin/main までに CONTROL_BUILD_PATHS を変えたコミットがあればビルドし直しが要る（setup/lib/drift.mjs。Strapi・n8n のイメージと同じ）。
+//     定義（ops/・.claude/agents）と設定の状況のカタログは、動いている監視アプリが読み直すので、ビルドも再起動も要らない
+//   - 依存: node_modules/.pnpm/lock.yaml（pnpm が最後に入れた lockfile の写し）が pnpm-lock.yaml と同じか。違えば pnpm install していない
+//   - 順: 依存を入れ直した後にビルドしたか・control-plane の dist の後に next-js をビルドしたか（next-js は control-plane を取り込む）
+const BUILD_RECORD = "frontend/next-js/.next/comegin-build.json";
+const CONTROL_BUILD_PATHS = ["backend/control-plane", "frontend/next-js", ":(exclude)frontend/next-js/setup"];
+const COMMIT = /^[0-9a-f]{40}$/;
+const BUILD_RANK = { ok: 0, warn: 1, unknown: 2, action: 3 };
+const buildCommand = (main) => `node ${join(main, "onprem/build.mjs")} control`;
+/** ビルドと依存の、見る場所。pkg はリポジトリのルートからの相対 */
+const PACKAGES = [
+  { pkg: "backend/control-plane", artifact: "dist/index.js", artifactLabel: "dist/（pnpm build）" },
+  { pkg: "frontend/next-js", artifact: ".next/BUILD_ID", artifactLabel: ".next/（next build）" },
+];
+
+const sha256Of = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
+const mtimeOf = (file) => statSync(file).mtimeMs;
+
+/** 依存の写しと lockfile が同じか。問題があれば文を返す */
+function depsProblem(main, pkg) {
+  const lock = join(main, pkg, "pnpm-lock.yaml");
+  const installed = join(main, pkg, "node_modules/.pnpm/lock.yaml");
+  if (!existsSync(join(main, pkg, "node_modules"))) return `${pkg} の node_modules が無い（pnpm install していない）`;
+  if (!existsSync(installed)) return `${pkg} の node_modules/.pnpm/lock.yaml が無い（pnpm install が途中で止まったか、別の道具で入れた）`;
+  if (existsSync(lock) && sha256Of(lock) !== sha256Of(installed)) return `${pkg} の依存が pnpm-lock.yaml と違う（lockfile が変わった後に pnpm install していない）`;
+  return null;
 }
 
-/** 2. ビルドが無い・チェックアウトを動かす前のもの */
-async function buildProblems(ctx, main) {
-  const moved = await headMovedAt(ctx, main);
-  const items = [
-    { label: "backend/control-plane の dist/", file: join(main, "backend/control-plane/dist/index.js") },
-    { label: "frontend/next-js の node_modules", file: join(main, "frontend/next-js/node_modules") },
-    { label: "frontend/next-js の .next/（next build）", file: join(main, "frontend/next-js/.next/BUILD_ID") },
-  ];
-  const problems = [];
-  for (const it of items) {
-    if (!existsSync(it.file)) problems.push(`${it.label} が無い`);
-    else if (it.label.includes("node_modules")) continue; // pnpm install は中身を差し替えても日時が変わらないことがある
-    else if (statSync(it.file).mtimeMs / 1000 < moved) problems.push(`${it.label} がチェックアウトを動かす前のビルド`);
+/** ビルドの記録（コミット）。無い・読めないときは null */
+function readBuildRecord(main) {
+  try {
+    const record = JSON.parse(readFileSync(join(main, BUILD_RECORD), "utf8"));
+    return COMMIT.test(record?.commit ?? "") ? record : null;
+  } catch {
+    return null;
   }
-  return problems;
+}
+
+/**
+ * 2. ビルドの確かめ。{ level, text }[] を返す（action はビルドし直しが要る。warn・unknown は止めない）。
+ * 動いている監視アプリがビルドより前に起動しているか（再起動の要否）は systemd の項目が見る（builtAtOf）
+ */
+async function buildFindings(ctx, main) {
+  const findings = [];
+  const action = (text) => findings.push({ level: "action", text });
+  for (const { pkg, artifact, artifactLabel } of PACKAGES) {
+    const file = join(main, pkg, artifact);
+    const deps = depsProblem(main, pkg);
+    if (deps) action(deps);
+    if (!existsSync(file)) {
+      action(`${pkg} の ${artifactLabel} が無い`);
+      continue;
+    }
+    const installed = join(main, pkg, "node_modules/.pnpm/lock.yaml");
+    if (!deps && existsSync(installed) && mtimeOf(file) < mtimeOf(installed)) action(`${pkg} の ${artifactLabel} が、依存を入れ直す前のビルド`);
+  }
+  const cpDist = join(main, "backend/control-plane/dist/index.js");
+  const buildId = join(main, "frontend/next-js/.next/BUILD_ID");
+  if (existsSync(cpDist) && existsSync(buildId) && mtimeOf(buildId) < mtimeOf(cpDist)) {
+    action("frontend/next-js の .next/ が、control-plane をビルドし直す前のもの（next-js は control-plane を取り込むので、control-plane の後にビルドし直す）");
+  }
+
+  if (existsSync(buildId)) {
+    const record = readBuildRecord(main);
+    if (!record) {
+      action(`ビルドしたコミットの記録（${BUILD_RECORD}）が無い（この仕組みより前のビルド、または包まずに pnpm build した）`);
+    } else {
+      try {
+        const drift = await commitDrift(ctx, { recorded: record.commit, paths: CONTROL_BUILD_PATHS });
+        if (drift.kind === "outside-main") findings.push({ level: "warn", text: `ビルドのコミット ${record.commit.slice(0, 7)} が origin/main の履歴に無い（git fetch するか、チェックアウトで記録付きでビルドし直す）` });
+        else if (drift.kind === "changed") action(`ビルドのコミット ${record.commit.slice(0, 7)} の後に、control-plane・監視アプリのコードが origin/main で変わった（${describeChanges(drift.entries)}）`);
+      } catch (e) {
+        findings.push({ level: "unknown", text: `origin/main との差を git で確かめられない（${String(e?.message ?? e).split("\n")[0]}）` });
+      }
+    }
+  }
+  return findings;
+}
+
+/** findings のうち最も重い印 */
+const worstLevel = (findings) => findings.reduce((worst, f) => (BUILD_RANK[f.level] > BUILD_RANK[worst] ? f.level : worst), "ok");
+
+/** 動いている監視アプリが読み込むもの（ビルドと依存）のうち、いちばん新しい日時（ミリ秒）。無ければ null */
+function builtAtOf(main) {
+  const files = PACKAGES.flatMap(({ pkg, artifact }) => [join(main, pkg, artifact), join(main, pkg, "node_modules/.pnpm/lock.yaml")]).filter((file) => existsSync(file));
+  return files.length ? Math.max(...files.map(mtimeOf)) : null;
 }
 
 function buildSteps(main, problems) {
   return [
     ...problems.map((p) => `いまの状態: ${p}`),
-    `(cd ${main}/backend/control-plane && pnpm install && pnpm build)`,
-    `(cd ${main}/frontend/next-js && pnpm install && pnpm build)（next-js は control-plane の dist を読むので、この順）`,
+    `人が自分の端末で: ${buildCommand(main)}（チェックアウトにあるこのファイルを実行する。control-plane → next-js の順に pnpm install --frozen-lockfile && pnpm build し、ビルドしたコミットを記録する。包まずに pnpm build すると記録が消える）`,
+    `続けて: sudo systemctl restart ${UNIT}（動いている監視アプリは、起動したときのビルドを使い続ける）`,
     "同じコマンドを実行し直す",
   ];
 }
@@ -715,7 +780,7 @@ async function operateWarnings(ctx, main) {
 const STEP = "P14";
 const ITEM_TITLES = {
   checkout: "チェックアウトが origin/main と同じコミット",
-  build: "control-plane と監視アプリのビルドが、チェックアウトを動かした後のもの",
+  build: "control-plane と監視アプリのビルドが origin/main に追いつき、依存が lockfile と同じ",
   principal: "監視アプリの主体（IAM ユーザー comegin-prod-control-plane と資格情報ファイルのキー）",
   "status-principal": "設定の状況の主体（IAM ユーザー comegin-prod-status-reader と資格情報ファイルのキー）",
   "status-github": "設定の状況用の GitHub のトークン（fine-grained PAT。読み取り専用かは人が確かめる）",
@@ -753,10 +818,14 @@ export async function check(ctx) {
   notes.push(`チェックアウト ${main} は origin/main と同じ`);
   item("checkout", "ok", `チェックアウト ${main} は origin/main と同じコミット`);
 
-  const builds = await buildProblems(ctx, main);
-  for (const p of builds) bad(p);
-  if (builds.length) item("build", "action", builds.join("／"), "build");
-  else item("build", "ok", "control-plane の dist/ と next-js の .next/ は、チェックアウトを動かした後のビルド");
+  const builds = await buildFindings(ctx, main);
+  for (const f of builds) {
+    if (f.level === "action") bad(f.text);
+    else notes.push(`! ${f.text}`);
+  }
+  const buildLevel = worstLevel(builds);
+  if (buildLevel === "ok") item("build", "ok", "control-plane と next-js のビルドの記録から origin/main までにコードの変更は無く、依存は lockfile と同じで、依存を入れた後にビルドしている");
+  else item("build", buildLevel, builds.map((f) => f.text).join("／"), buildLevel === "action" ? "build" : undefined);
 
   let pp;
   let principalUnknown = false;
@@ -883,13 +952,16 @@ export async function check(ctx) {
   } else if (existsSync(envPath) && unit.startedAt && statSync(envPath).mtimeMs > unit.startedAt) {
     unitProblem = `.env を書いた後に ${UNIT} を起動し直していない`;
     unitStop = "restart";
+  } else if (unit.startedAt && (builtAtOf(main) ?? 0) > unit.startedAt) {
+    unitProblem = `ビルド（または依存の入れ直し）の後に ${UNIT} を起動し直していない。動いているのは前のビルド: sudo systemctl restart ${UNIT}`;
+    unitStop = "restart";
   }
   if (unitProblem) {
     bad(unitProblem);
     item("systemd", "action", unitProblem, unitStop);
   } else {
     notes.push(`ユニット ${UNIT} は動いている`);
-    item("systemd", "ok", `ユニット ${UNIT} は動いていて、WorkingDirectory はチェックアウトで、.env を書いた後に起動している`);
+    item("systemd", "ok", `ユニット ${UNIT} は動いていて、WorkingDirectory はチェックアウトで、.env を書いた後・ビルドした後に起動している`);
   }
 
   const state = await probe(ctx).catch((e) => `error:${e.message}`);
@@ -922,7 +994,7 @@ export async function apply(ctx) {
       `いまの状態: ${cp}`,
       "人が自分の端末で: git -C <作業ツリー> fetch origin && git -C <チェックアウト> checkout --detach origin/main（setup は git を書き換えない。setup/manual-steps.md の 6 節）",
       "prod.conf に CONTROL_MAIN_CHECKOUT=<チェックアウトの絶対パス> を書く（空なら SITE_BUILD_CHECKOUT を使う）",
-      "チェックアウトを動かしたら、ビルドもし直す（次の手順で止まる）",
+      "チェックアウトを動かしたら、control-plane・監視アプリのコードが変わっていればビルドし直す（次の手順で止まる。定義〈ops/・.claude/agents〉だけの変更ならビルドも再起動も要らない）",
       "同じコマンドを実行し直す",
     ]);
   }
@@ -939,9 +1011,11 @@ export async function apply(ctx) {
   else ctx.log(`エージェント専用の作業場 ${ctx.conf.CONTROL_WORKTREE} は、開発のリポジトリ・承認済みの main のチェックアウトと別の場所`);
 
   // 2. ビルド
-  const builds = await buildProblems(ctx, main);
-  if (builds.length) ctx.manual("build", "チェックアウトで control-plane と監視アプリをビルドする", buildSteps(main, builds));
-  ctx.log("control-plane と監視アプリのビルドは、チェックアウトを動かした後のもの");
+  const builds = await buildFindings(ctx, main);
+  const buildActions = builds.filter((f) => f.level === "action").map((f) => f.text);
+  if (buildActions.length) ctx.manual("build", "チェックアウトで control-plane と監視アプリをビルドする（記録付き）", buildSteps(main, buildActions));
+  for (const f of builds) ctx.log(`! ${f.text}`);
+  ctx.log("control-plane と監視アプリのビルドは origin/main に追いついていて、依存は lockfile と同じ");
 
   // 3・4. 監視アプリの主体とキー
   const file = credentialsOf(ctx);
@@ -1020,7 +1094,14 @@ export async function apply(ctx) {
       "同じコマンドを実行し直す",
     ]);
   }
-  ctx.log(`${UNIT} はチェックアウトで動いていて、.env を書いた後に起動している`);
+  if (unit.startedAt && (builtAtOf(main) ?? 0) > unit.startedAt) {
+    ctx.manual("restart", `${UNIT} を起動し直す（ビルドした・依存を入れ直したため。動いている監視アプリは、起動したときのビルドを使い続ける）`, [
+      `人が自分の端末で: sudo systemctl restart ${UNIT}`,
+      `journalctl -u ${UNIT} -n 50 に「開始 scheduler=on heartbeat=on」が出ること`,
+      "同じコマンドを実行し直す",
+    ]);
+  }
+  ctx.log(`${UNIT} はチェックアウトで動いていて、.env を書いた後・ビルドした後に起動している`);
 
   // 7. 応答と Google ログイン
   if ((await probe(ctx)) === "down") ctx.manual("start", `監視アプリが応答しない（${LOCAL_URL}）`, unitSteps(main, `${UNIT} は active だが 3200 が応答しない（journalctl -u ${UNIT} で起動の失敗を見る。control-plane の設定不正は変数名だけが出る）`));

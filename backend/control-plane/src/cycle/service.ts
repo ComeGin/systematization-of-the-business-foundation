@@ -11,7 +11,7 @@ import { toIsoJst } from "../time.js";
 import { ULID_PATTERN } from "../ulid.js";
 import { CYCLE_LENGTH_DAYS, cycleOf } from "./calendar.js";
 import { type Checklists, ChecklistError, loadChecklists } from "./checklists.js";
-import { buildStepsContext, stepsFor } from "./commands.js";
+import { buildStepsContext, itemStrapiAdminUrl, stepsFor } from "./commands.js";
 import { buildConfirmDeps, confirmExecutedItem } from "./confirm.js";
 import { readProposals } from "./proposals.js";
 import { countReflection, listRecentItems } from "./reflection.js";
@@ -156,6 +156,7 @@ export class CycleService {
         checklist: checklists?.[item.kind] ?? [],
         steps: stepsFor(item, stepsContext),
         approvals: cycles.listApprovals(item.itemId),
+        strapiAdminUrl: itemStrapiAdminUrl(item, stepsContext),
       })),
       summary: this.summarize(cycle, items, recent),
       previousVerification: await this.previousVerification(cycle, recent),

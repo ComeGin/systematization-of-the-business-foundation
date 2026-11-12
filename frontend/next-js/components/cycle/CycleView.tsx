@@ -24,6 +24,7 @@ import {
   CYCLE_STAGE_STATUS_TYPE,
 } from "@/components/layout/labels";
 import { CycleItemPanel } from "./CycleItemPanel";
+import { RunJobNowButton } from "./RunJobNowButton";
 import { CycleStageNav } from "./CycleStageNav";
 import { CycleSummaryHeader } from "./CycleSummaryHeader";
 
@@ -34,7 +35,7 @@ function initialStage(stages: CycleViewData["stages"]): CycleStage | null {
   return (stages.find((s) => s.status === "awaiting") ?? stages.find((s) => s.status === "stuck") ?? stages[0])?.stage ?? null;
 }
 
-/** 右: 選んだ段階の概要（その段階のジョブが何を作るか。ジョブ詳細へのリンク）と、項目の一覧 */
+/** 右: 選んだ段階の概要（その段階のジョブが何を作るか。ジョブ詳細へのリンク。今の周では「今すぐ実行」）と、項目の一覧 */
 function StagePanel({
   stage,
   stageInfo,
@@ -42,6 +43,7 @@ function StagePanel({
   items,
   selectedId,
   onSelectItem,
+  current,
 }: {
   stage: CycleStage;
   stageInfo: CycleViewData["stages"][number];
@@ -49,6 +51,8 @@ function StagePanel({
   items: Item[];
   selectedId: string | null;
   onSelectItem: (itemId: string | null) => void;
+  /** 今の周のページ。「今すぐ実行」はここだけに出す（過去の周の画面から今のジョブを起動させない） */
+  current: boolean;
 }) {
   const follow = useFollow();
   const stageJobs = stageInfo.jobIds.map((id) => ({ id, definition: jobs.find((job) => job.id === id) ?? null }));
@@ -75,9 +79,12 @@ function StagePanel({
           <SpaceBetween size="s">
             {stageJobs.map(({ id, definition }) => (
               <div key={id}>
-                <Link href={`/jobs/${encodeURIComponent(id)}`} onFollow={follow}>
-                  {id}
-                </Link>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
+                  <Link href={`/jobs/${encodeURIComponent(id)}`} onFollow={follow}>
+                    {id}
+                  </Link>
+                  {current && definition ? <RunJobNowButton jobId={id} enabled={definition.enabled} /> : null}
+                </div>
                 {definition?.description ? (
                   <Box variant="small" color="text-body-secondary" display="block">
                     {definition.description}
@@ -118,6 +125,18 @@ function StagePanel({
             ),
           },
           { id: "kind", header: "種類", cell: (item) => CYCLE_ITEM_KIND_LABEL[item.kind] },
+          {
+            id: "strapi",
+            header: "Strapi",
+            cell: (item) =>
+              item.strapiAdminUrl ? (
+                <Link href={item.strapiAdminUrl} external externalIconAriaLabel="（新しいタブで開く）" ariaLabel={`${item.title} を Strapi で開く`}>
+                  開く
+                </Link>
+              ) : (
+                "-"
+              ),
+          },
           {
             id: "state",
             header: "状態",
@@ -175,6 +194,7 @@ export function CycleView({
               items={view.items.filter((item) => item.stage === stage)}
               selectedId={selectedId}
               onSelectItem={setSelectedId}
+              current={current}
             />
           </Grid>
         ) : null}
