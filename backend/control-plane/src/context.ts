@@ -6,6 +6,7 @@ import type { CycleStore } from "./store/cycles.js";
 import type { KvStore } from "./store/kv.js";
 import type { LeaseStore } from "./store/leases.js";
 import type { MiswriteStore } from "./store/miswrite.js";
+import type { ModelSettingsStore } from "./store/models.js";
 import type { RunStore } from "./store/runs.js";
 
 /** 実行（エージェント・builtin）が返す結果。E-15 に書くのはエンジンで、実行側は書かない。 */
@@ -18,6 +19,8 @@ export interface RunResult {
   failureClass?: FailureClass | null;
   sdkSubtype?: string | null;
   costUsd?: number | null;
+  /** 実行に使ったモデル（2026-11-12。E-15 の model） */
+  model?: string | null;
 }
 
 export interface EngineContext {
@@ -27,6 +30,8 @@ export interface EngineContext {
   kv: KvStore;
   cycles: CycleStore;
   miswrite: MiswriteStore;
+  /** 画面で選んだ実行モデル（2026-11-12） */
+  models: ModelSettingsStore;
   loadSchedules(): Promise<LoadedSchedules>;
   /** AWS が無効なら null */
   copier: RunLogCopier | null;

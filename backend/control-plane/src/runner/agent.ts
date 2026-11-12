@@ -18,6 +18,7 @@ import { MANUAL_AGENT_DEFAULTS } from "../constants/timeouts.js";
 import { type AgentDefinition, splitTools } from "../definitions/agent-def.js";
 import { loadMcpRegistry } from "../definitions/registry.js";
 import { logLine } from "../log.js";
+import { resolveAgentModel } from "../models/service.js";
 import { redactSummary } from "../pii.js";
 import { createPreToolUseGuard } from "./hooks.js";
 import { McpSetupError, buildMcpServers } from "./mcp.js";
@@ -144,6 +145,11 @@ export async function runAgent(input: AgentRunInput): Promise<RunResult> {
     abortController.abort();
   };
 
+  // 実行モデル: 画面の選択（エージェントごと → 全体の既定）→ 定義の model → SDK の既定（2026-11-12。models/service.ts）
+  const { model } = resolveAgentModel(ctx.models, definition.name, definition.model);
+  // SDK の init が返す、実際に使うモデル（エイリアスを解決した id）。返らなければ渡したもの
+  let initModel: string | null = null;
+
   const options: Options = {
     cwd: config.worktree,
     env: { PATH: process.env.PATH, HOME: agentHome ?? realHome, ANTHROPIC_API_KEY: config.anthropic.apiKey },
@@ -177,7 +183,7 @@ export async function runAgent(input: AgentRunInput): Promise<RunResult> {
     abortController,
     maxTurns: input.maxTurns ?? MANUAL_AGENT_DEFAULTS.maxTurns,
     persistSession: false,
-    ...(definition.model ? { model: definition.model } : {}),
+    ...(model ? { model } : {}),
     stderr: (data) => logLine("INFO", "agent-stderr", redactSummary(data).text, runId),
   };
 
@@ -188,6 +194,7 @@ export async function runAgent(input: AgentRunInput): Promise<RunResult> {
     // 相関 ID は起動の直前に発行して先に E-15 に書いた値を、プロンプトの先頭行で渡す（DD-01 の 3.2）
     for await (const message of query({ prompt: `${promptHeader(runId, startedAt)}\n\n${prompt}`, options })) {
       if (message.type === "system" && message.subtype === "init") {
+        initModel = typeof message.model === "string" && message.model ? message.model : null;
         mcpFailed = message.mcp_servers.filter((s) => s.status === "failed").map((s) => s.name);
         if (message.permissionMode !== "dontAsk") abortWith("権限モードが dontAsk になっていない");
         else if (message.apiKeySource !== "ANTHROPIC_API_KEY") abortWith("ANTHROPIC_API_KEY で認証されていない");
@@ -211,6 +218,7 @@ export async function runAgent(input: AgentRunInput): Promise<RunResult> {
   const base = {
     sdkSubtype: result?.subtype ?? null,
     costUsd: result?.total_cost_usd ?? null,
+    model: initModel ?? model ?? null,
   };
 
   if (violation) {

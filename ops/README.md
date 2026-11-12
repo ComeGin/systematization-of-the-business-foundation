@@ -111,7 +111,7 @@ ops/
 | 0〜8 時の 15 分ごと | `runlog-flush`（E-15 の写しの送り直し。最後は 07:45） | 07:50 |
 
 - **改善ループの本体はすべて 07:10 までに終わる**（最長の上限。周のジョブの `cycle-collect`）。8 時までの残りは、機械の遅れや手動の再実行のための余白。`runlog-flush` も 07:50 までに終わる
-- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と mautic-cron は 22 時〜翌 3 時 45 分に止まっている**（`cloud/template.yaml` の `NightlyStopSchedule`・`NightlyStartSchedule`。`cloud/README.md` の 4.11 の「夜間の停止」）。止まっているあいだ、Chatwoot への要求は ALB の 503 になる（control-plane の分類では `invalid_response`）。**Chatwoot を読む定期実行（`daily-observe-conversations`・`daily-miswrite-check`）は 03:45 より後に置く。** 2026-11-04 まで再開が 8 時で、この 2 本が毎晩失敗していたので、再開を 3 時 45 分に早めた。mautic-web は止めないので、Mautic を読む `daily-observe-analytics` は時刻を選ばない
+- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と mautic-web は夜間も止めない**（2026-11-12。ユーザーの決定。`cloud/README.md` の 4.11 の「夜間の停止」）。Chatwoot・Mautic を読み書きする定期実行は時刻を選ばない。2026-11-11 までは Chatwoot も 22 時〜翌 3 時 45 分（11-04 までは 8 時まで）に止めていて、そのあいだの要求は ALB の 503（control-plane の分類では `invalid_response`）で失敗していた。**夜間に止まるのは mautic-cron だけ**（22 時〜翌 3 時 45 分。`cloud/template.yaml` の `NightlyStopSchedule`・`NightlyStartSchedule`）で、Mautic の Webhook（I-11）・キャンペーン・セグメントの更新が 3 時 45 分以降にまとめて処理される。Mautic の API（mautic-web）は動いているので、定期実行の読み書きには影響しない
 - **03:00〜03:30 を空けてある。** RDS の保守の窓（`cloud/stacks/data.yaml` の `DbMaintenanceWindow`。日曜 18:00 UTC＝**月曜 03:00 JST**）と重ねない。日次バックアップ（02:00〜02:30 JST）は書き込みを止めないので重なってもよいが、週次の書き込み（02:30〜）はその後に置いた
 - 順序は以前と同じ（月曜の計測 → 週次の観測 → 日次の観測 → 提案 → 起票・突き合わせ）。`after` は「当日（JST の 0 時から）`success`」なので、0 時より後に並べれば崩れない。`monthly-analysis` は以前は `daily-i13-file` と同時刻（08:00）で起票が翌日に回っていたが、i13 の前に置いたので当日に PR になる
 - 観測の取得範囲は「3 日前まで」「直近 24 時間」の相対指定なので、起動を早めても範囲は変わらない

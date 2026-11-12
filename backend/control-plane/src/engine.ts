@@ -319,6 +319,7 @@ export class Engine {
         failureClass: result.failureClass ?? null,
         sdkSubtype: result.sdkSubtype ?? null,
         costUsd: result.costUsd ?? null,
+        model: result.model ?? null,
       });
       logLine("INFO", "engine", `終了 outcome=${result.outcome} class=${result.failureClass ?? "-"}`, runId);
     } catch (error) {

@@ -93,6 +93,26 @@ const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX cycle_approvals_item ON cycle_approvals (item_id, id);
   `,
+  // 2026-11-12: 実行モデルの選択（監視アプリの画面）と変更の履歴、実行に使ったモデル
+  `
+  CREATE TABLE model_settings (
+    scope TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE model_setting_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    model TEXT,
+    previous TEXT,
+    actor TEXT NOT NULL,
+    at TEXT NOT NULL
+  );
+
+  ALTER TABLE runs ADD COLUMN model TEXT;
+  `,
 ];
 
 export function migrate(db: DatabaseSync): void {
