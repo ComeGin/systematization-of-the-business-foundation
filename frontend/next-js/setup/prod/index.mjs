@@ -372,7 +372,8 @@ function statusGithubSteps(problem, file) {
  * 開く URL（BETTER_AUTH_URL）は環境ごとに違う値なので引き継がない（publicUrlConfOf）
  */
 function inherited(ctx) {
-  const env = ctx.readEnvFile(join(ctx.conf.CONTROL_WORKTREE || ctx.WORKTREE, "frontend/next-js/.env"));
+  // CONTROL_WORKTREE（エージェント専用の作業場）ではなく、開発のモジュールが .env を書いた作業ツリー
+  const env = ctx.readEnvFile(join(ctx.WORKTREE, "frontend/next-js/.env"));
   return { GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET, CONTROL_ADMIN_EMAILS: env.CONTROL_ADMIN_EMAILS };
 }
 
@@ -432,6 +433,9 @@ export async function prodValues(ctx, main, file) {
     CONTROL_STATUS_GITHUB_TOKEN_FILE: statusGithubTokenOf(ctx),
     CONTROL_STATUS_ALERT_TOPIC_ARN: alertTopic,
     CONTROL_STATUS_LINK_BASE: publicUrl,
+    // 設定の確認の子プロセスに SETUP_WORKTREE として渡す作業ツリー。追跡しないファイル（samconfig.toml・onprem の .env など）は
+    // この apply を動かしている作業ツリーにある。CONTROL_WORKTREE（エージェント専用の作業場）には無いので流用しない
+    CONTROL_STATUS_WORKTREE: ctx.WORKTREE,
     MISWRITE_CHATWOOT_BASE_URL: String(ctx.conf.CHATWOOT_BASE_URL || DEFAULT_CHATWOOT).replace(/\/+$/, ""),
     MISWRITE_CHATWOOT_ACCOUNT_ID: req("CHATWOOT_ACCOUNT_ID", "本番の Chatwoot のアカウント ID。P7"),
     MISWRITE_CHATWOOT_API_TOKEN: req("CHATWOOT_AGENT_TOKEN", "本番の Chatwoot のエージェント専用ユーザーのトークン。P7"),
@@ -504,6 +508,23 @@ export function agentWorktreeIssue(ctx, main) {
   if (real !== null && real === realpathOrNull(main)) return { lack: false, text: "CONTROL_WORKTREE が承認済みの main のチェックアウトと同じ場所（エージェントが書いた未承認の変更が、実行条件を読む場所に入る。ADR-18）" };
   if (real !== null && real === realpathOrNull(ctx.WORKTREE)) return { lack: false, text: "CONTROL_WORKTREE が開発のリポジトリ（作業ツリー）と同じ場所。エージェント専用の 3 本目のチェックアウトにする（夜中の差分が開発中の変更と混ざる）" };
   if (!existsSync(join(wt, ".git"))) return { lack: true, text: `CONTROL_WORKTREE（${wt}）が git のチェックアウトではない（無いか、.git が無い）。git worktree add で作る` };
+  return null;
+}
+
+/**
+ * チェックアウトの .env の CONTROL_STATUS_WORKTREE（設定の確認に渡す作業ツリー）の問題。無ければ null。
+ * 人が作業ツリーで実行するときは ctx.WORKTREE（追跡しないファイルのある場所）と同じであること。
+ * 監視アプリが実行するときは ctx.WORKTREE がこの値そのものなので、同じかどうかは常に成り立つ（エージェントの作業場・チェックアウトとの比較が効く）
+ */
+export function statusWorktreeProblem(ctx, env, main) {
+  const fix = "apply で書き直して restart する";
+  const wt = env.CONTROL_STATUS_WORKTREE;
+  if (!wt) return `チェックアウトの .env に CONTROL_STATUS_WORKTREE（設定の確認で追跡しないファイルを読む作業ツリー）が無い。無いと監視アプリの設定の状況が止まる。${fix}`;
+  const real = realpathOrNull(wt);
+  if (real === null) return `チェックアウトの .env の CONTROL_STATUS_WORKTREE（${wt}）が無い場所を指している。${fix}`;
+  if (real === realpathOrNull(main)) return `チェックアウトの .env の CONTROL_STATUS_WORKTREE が承認済みの main のチェックアウトと同じ場所（cloud/samconfig.toml などの追跡しないファイルが無く、設定の状況が「無い」と出る）。${fix}`;
+  if (ctx.conf.CONTROL_WORKTREE && real === realpathOrNull(ctx.conf.CONTROL_WORKTREE)) return `チェックアウトの .env の CONTROL_STATUS_WORKTREE がエージェント専用の作業場（CONTROL_WORKTREE）と同じ場所（追跡しないファイルが無く、設定の状況が「無い」と出る）。${fix}`;
+  if (real !== realpathOrNull(ctx.WORKTREE)) return `チェックアウトの .env の CONTROL_STATUS_WORKTREE（${wt}）が、この作業ツリー（${ctx.WORKTREE}）と違う。${fix}`;
   return null;
 }
 
@@ -926,6 +947,10 @@ export async function check(ctx) {
     const env = ctx.readEnvFile(envPath);
     if (env.CONTROL_SCHEDULER_ENABLED !== "true") badValue("チェックアウトの .env の CONTROL_SCHEDULER_ENABLED が true ではない");
     if (env.CONTROL_SETUP_STATUS_ENABLED !== "true" || !env.CONTROL_STATUS_ALERT_TOPIC_ARN) badValue("チェックアウトの .env の設定の状況（CONTROL_SETUP_STATUS_ENABLED・CONTROL_STATUS_*）が本番の値ではない。apply で書き直して restart する");
+    else {
+      const statusWorktree = statusWorktreeProblem(ctx, env, main);
+      if (statusWorktree) badValue(statusWorktree);
+    }
     if (/127\.0\.0\.1:3100|localhost:3100/.test(env.MISWRITE_CHATWOOT_BASE_URL ?? "")) badValue("MISWRITE_CHATWOOT_BASE_URL が開発の Chatwoot のまま");
     if (env.AWS_PROFILE !== IAM_USER || !env.RUNLOG_BUCKET) badValue("チェックアウトの .env の AWS の設定（AWS_PROFILE・RUNLOG_BUCKET）が本番の値ではない");
     // 開く URL。.env に書かれた値が、apply が書く値（prod.conf の CONTROL_PUBLIC_URL、無ければ 127.0.0.1:3200）と同じか

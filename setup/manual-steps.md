@@ -206,7 +206,7 @@ git -C ~/ComeGin/main-checkout checkout --detach origin/main
 
 | 場所 | 役割 | 設定 |
 |---|---|---|
-| 開発のリポジトリ（作業ツリー） | 人が普段開発する。`SETUP_WORKTREE`・スクリプトを実行する場所 | — |
+| 開発のリポジトリ（作業ツリー） | 人が普段開発する。`SETUP_WORKTREE`・スクリプトを実行する場所（監視アプリは `.env` の `CONTROL_STATUS_WORKTREE` でここを `SETUP_WORKTREE` に渡す） | — |
 | 承認済みの main のチェックアウト | 実行条件（`ops/`・`.claude/agents/`）を読む。ビルドして配信する元 | `CONTROL_MAIN_CHECKOUT`（6 節） |
 | **エージェント専用の作業場** | エージェントの cwd。観測・提案・下書き・差分の書き先。周の始まり（`cycle-open`）に、未コミットの変更が無ければ `origin/main` に合わせられる | `CONTROL_WORKTREE`（本番は `prod.conf`） |
 

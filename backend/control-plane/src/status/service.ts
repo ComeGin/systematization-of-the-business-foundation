@@ -408,7 +408,8 @@ export class SetupStatusService {
           SETUP_SCRIPTS.map((script) =>
             deps.runSetupCheck({
               mainCheckout,
-              worktree: this.config.worktree,
+              // エージェント専用の作業場（config.worktree）ではなく、追跡しないファイルのある作業ツリー
+              worktree: status.worktree,
               status,
               script,
               skip: skipFor(script),
