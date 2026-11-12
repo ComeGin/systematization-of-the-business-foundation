@@ -68,7 +68,10 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: !Sub 'comegin-${EnvName}-control-plane'
-      Description: 監視アプリ用。E-15 の写し・スナップショットと観測の写しへの追記と、ハートビートの送信だけ。
+      # Description は変えない。IAM の管理ポリシーの説明文は後から変えられず、CloudFormation が作り直そうとして、
+      # ManagedPolicyName を固定しているため「同じ名前が既にある」（409）で失敗する（2026-11-12 に本番のデプロイで起きた）。
+      # 中身（2026-11-12 に足した backups/・audits/ の追記）は PolicyDocument のほうに書き、説明文は作ったときのままにする
+      Description: 監視アプリ用。E-15 の写しへの追記と、ハートビートの送信だけ。
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
