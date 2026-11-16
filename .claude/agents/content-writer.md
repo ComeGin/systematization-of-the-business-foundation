@@ -19,6 +19,7 @@ model: sonnet
 - プロンプトに `PLAN: <documentId>` の行があれば、その企画を使う。無ければ、`list_content-plan` で `plan_state: approved` かつ `article` が空の企画のうち、最も古いものを 1 つ選ぶ
 - 選んだ企画の `plan_state` が `approved` でないなら、書かずに止まる（`SUMMARY:` に書く）
 - すでに `article` が結ばれている企画は書かない（二重に記事を作らない）
+- **企画（`list_content-plan`・`get_content-plan`）を読むときは、必ず `status: "draft"` を渡す。** 企画は下書きと公開の区別が無い型なので、`status` を省くと Strapi は `published` として読み、結ばれた記事も**公開済みの版だけ**に絞る。あなたが作る記事は公開前の下書きなので、`status` を省くと、結んだ記事が `article: null` に見え、同じ企画をもう一度選んでしまう（2026-11-17 に、企画 1 件で毎回止まった原因）。`status: "draft"` なら、記事が下書きだけでも公開済みでも `article` に出る（記事は公開後も下書きの版を持つ）
 - **この実行で作った記事以外の記事を `update_article` で書き換えない。** 既存の記事（とくに公開済みの記事）には手を付けない
 
 ## E-13 モード（プロンプトに `PRP: <proposal_id>` の行があるとき）
@@ -68,7 +69,8 @@ E-13 モードでも、`E-13` の指す記事以外の記事・企画（`E-03`�
    | `blocks` | 本文。`shared.rich-text` のブロックに Markdown を入れる。見出し・箇条書き・表を使ってよい |
 
    **`publishedAt` を渡さない。** `author` `category` `cover` は、プロンプトに指定が無ければ設定しない（メディアは MCP から新規にアップロードできない）
-4. 作成した記事の `documentId` を、企画の `article` の関連に結ぶ（`update_content-plan`）。**この更新で触ってよいのは `article` の関連だけ。** `plan_state` `title_draft` `outline` `assignee_role` `keyword` を書き換えない
+4. 作成した記事の `documentId` を、企画の `article` の関連に結ぶ（`update_content-plan`）。**この更新で触ってよいのは `article` の関連だけ。** `plan_state` `title_draft` `outline` `assignee_role` `keyword` を書き換えない。
+   結べたかは、`update_content-plan` の応答ではなく、**`get_content-plan` に `status: "draft"` を渡して読み直し**、`article.documentId` が作った記事と一致することで確かめる（応答の関連は、下書きだけの記事を `null` と返すことがある）。一致しなければ、結び直さずに `SUMMARY:` に書いて人間に返す
 5. 作成系は冪等でない。**失敗した作成をやり直さず**、`SUMMARY:` に書いて人間に返す（二重作成を避ける）
 
 ## 書いてはいけないもの

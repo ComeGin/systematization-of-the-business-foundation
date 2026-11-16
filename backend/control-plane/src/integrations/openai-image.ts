@@ -10,10 +10,12 @@ import { IntegrationError } from "./http.js";
 const GENERATE_TIMEOUT_MS = 180_000;
 
 /**
- * 画質。1 枚あたりの費用の上限を決めるため "medium" に固定する（設定にはしない）。
+ * 画質。1 枚あたりの費用の上限を決めるため固定する（設定にはしない）。
  * GPT Image 系は low・medium・high を受け付ける（gpt-image-2.5-sunburst・flare はさらに xhigh・max）。2026-11-09 に OpenAI の公式ドキュメントで確認。
+ * 2026-11-17 に medium から high に上げた。同じ雛形の試し刷りで、medium は模型の部品が意味の無い箱になり、記事の中身（比較の軸など）を
+ * 表せなかった。出力のトークンは medium の約 4 倍（1536x1024 で 343 → 1,372）。記事の下書き 1 本につき 1 枚なので、週に数枚の費用。
  */
-const COVER_QUALITY = "medium";
+const COVER_QUALITY = "high";
 
 export function createOpenAiClient(apiKey: string): OpenAI {
   return new OpenAI({ apiKey, maxRetries: 0, timeout: GENERATE_TIMEOUT_MS });
