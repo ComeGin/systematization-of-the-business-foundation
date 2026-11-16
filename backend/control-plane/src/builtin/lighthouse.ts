@@ -20,8 +20,13 @@ import {
 
 const SCRIPT = "lh";
 const RESULT_DIR = ".lighthouse";
-/** 写してよいファイル名（結果の lhr-*.json と manifest.json だけ） */
-const RESULT_FILE = /^(?:lhr-[\w.-]+|manifest)\.json$/;
+/**
+ * 写してよいファイル名（結果の JSON と manifest.json だけ。.report.html は写さない）。
+ * LHCI の upload.target: filesystem は `<host>-<path>-<日時>.report.json` の名前で出す（lighthouserc.cjs）。
+ * seo-auditor は manifest の jsonPath のファイル名で作業ツリーの .report.json を読むので、これを写さないと
+ * fetchTime を確かめられず E-12 が invalid_response になり、proposal-writer の検査 8 で起票が止まる（2026-11-16）。
+ */
+const RESULT_FILE = /^(?:lhr-[\w.-]+|[\w.-]+\.report|manifest)\.json$/;
 
 /** 子プロセスの env。許可リスト。 */
 export function lighthouseEnv(home: string, siteUrl: string | null): NodeJS.ProcessEnv {
