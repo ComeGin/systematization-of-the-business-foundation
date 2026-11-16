@@ -71,7 +71,9 @@ export class StageRunner {
     if (current && current.finishedAt === null) return { accepted: false, reason: "この段階は実行中（終わってから押す）" };
     if (jobs.length === 0) return { accepted: false, reason: "この段階に定期実行のジョブが無い（人が行う段階）" };
     if (this.controller.signal.aborted) return { accepted: false, reason: "監視アプリが停止中" };
-    const ordered = orderStageJobs(jobs);
+    // 呼び出し側（cycle/service.ts の stageJobs）が STAGE_ORDER で並べた順のまま使う。ここで orderStageJobs を明示の順なしで
+    // かけ直すと時刻と id の順に戻り、③ で weekly-content-draft が weekly-content-plan より先に走っていた（2026-11-16）
+    const ordered = [...jobs];
     const run: CycleStageRun = {
       startedAt: toIsoJst(),
       finishedAt: null,
