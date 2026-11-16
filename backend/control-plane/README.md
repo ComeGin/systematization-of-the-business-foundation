@@ -194,7 +194,7 @@ control-plane が子プロセスを起動するのはここ 1 か所だけ（`sr
 | 前提 | **人が main のチェックアウトで `pnpm install` を済ませておく。** `node_modules` が無ければ実行せず、`skipped`（理由: dependencies not installed）を記録する |
 | `HOME` | 実ホームを渡さない。`CONTROL_AGENT_HOME`、無ければ使い捨ての一時ディレクトリ（実行後に削除） |
 | env | `PATH`・`HOME`・`npm_config_ignore_scripts=true`（万一 pnpm が依存の解決に入ってもライフサイクルスクリプトを動かさない）・`SITE_URL`（`SITE_URL` を設定していれば）だけ |
-| 結果の写し | main 側の `.lighthouse/` の、今回の実行で更新された `lhr-*.json` と `manifest.json` だけを、作業ツリー側の同じ場所に control-plane がコピーする（seo-auditor は作業ツリーの中しか読めない）。通常のファイルだけで、シンボリックリンクはたどらず、写し先がシンボリックリンクなら拒否する。25 MiB を超えるものは写さない |
+| 結果の写し | main 側の `.lighthouse/` の、今回の実行で更新された結果の JSON（LHCI の filesystem 出力の `*.report.json`。`lhr-*.json` も受ける。`.report.html` は写さない）と `manifest.json` だけを、作業ツリー側の同じ場所に control-plane がコピーする（seo-auditor は作業ツリーの中しか読めない）。通常のファイルだけで、シンボリックリンクはたどらず、写し先がシンボリックリンクなら拒否する。25 MiB を超えるものは写さない |
 
 ### miswrite-check（照合の規則は仮置き）
 
