@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ManualStepRequired, State, W, askOnTerminal, createContext, loadConfig, mask, resolveWorktree } from "./core.mjs";
+import { fixGuide } from "./fix-guides.mjs";
 
 // 本番の段階（ユーザーの決定。2026-10-27）。ECR のリポジトリは sam deploy が作るので、イメージのプッシュはデプロイの後。
 // google は公開サイトが Route 53 から配信された後に --phase google で明示したときだけ動く（--phase を付けないと env〜apps まで）。
@@ -52,6 +53,9 @@ ${PROD_PHASES.map((p, i) => `              ${i + 1}. ${p.id.padEnd(8)} ${p.title
   --config  設定ファイル（既定 ~/.config/comegin/setup/<target>.conf）
 
 途中で「画面での操作が必要」と表示されたら、案内に従って操作し、同じコマンドを実行し直す（終わった手順は飛ばす）。
+--check なしの実行では、各モジュールの実行の後に読み取りだけの確認をし、「✗ 更新が必要」（デプロイ・ビルド忘れなど）が
+1 つでもあれば、詳しい直し方を出してそのモジュールで止まる（終了コード 4）。直してから、案内の --from で続きから実行する。
+まだ確かめていない「!」（警告）があれば、手順を出して yes を待つ（yes 以外は終了コード 3 で止まる。削除の注意は聞かない）。
 「!」と手順が表示されて yes の入力を求められたら、手順を済ませて（または、そのまま進めると判断して）yes と入力する。
 yes 以外を入力すると止まる（終了コード 3）。端末でない（入力できない）ときも止まるので、端末から実行する。
 変数・キー・ファイルの削除（消し忘れ）の「!」だけは、聞かずに進む。詳しくは setup/README.md。`;
@@ -142,6 +146,84 @@ function normalizeItems(items) {
   return Array.isArray(items) ? items.filter((i) => i && typeof i === "object" && !Array.isArray(i)).map(maskDeep) : [];
 }
 
+/** 同じ警告の文か（片方がもう片方を含む。空の文は何とも同じにしない）。末尾の「（削除の注意。…）」は比べない */
+function sameText(a, b) {
+  const norm = (s) => String(s ?? "").replace(/（削除の注意。[^）]*）\s*$/, "").trim();
+  const x = norm(a);
+  const y = norm(b);
+  return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x));
+}
+
+// items のうち、端末に出すもの（ok・manual は出さない。監視アプリの /setup-status と同じ呼び方）
+const ITEM_MARKS = { action: "✗ 更新が必要", warn: "! 警告", unknown: "? 確かめられない" };
+
+/**
+ * 端末の集計（--check と実行の両方。最後にまとめて出す）。
+ * actions は ✗ の項目、warnings は ! の項目（どちらも直し方を出すため。{ label, moduleId, phase, item }。
+ * 「! 」の notes から来た警告は item が { key: null, title: 文 } になる）
+ */
+function newTally() {
+  return { notReady: [], action: 0, warn: 0, unknown: 0, actions: [], warnings: [] };
+}
+
+/**
+ * モジュールの check の結果（ok・notes・items）を端末に出し、集計に足す。
+ * items は ok と notes に混ぜない設計（デプロイ忘れの検知など。cloud/setup/index.mjs の deploy・images）なので、
+ * ここで出さないと端末では ✓ のまま見えなくなる（監視アプリの画面とずれる。2026-11-13）。
+ * 警告の item は、同じ文が「! 」の notes として出ているなら重ねて出さない
+ */
+function reportCheck(r, items, label, tally, { header, moduleId, phase }) {
+  const notes = r.notes ?? [];
+  const shown = items.filter((i) => ITEM_MARKS[i.level]);
+  const lagging = shown.some((i) => i.level === "action");
+  if (header) console.log(`  ${r.ok ? (lagging ? "✓ 用意できている（ただし下の ✗ が追いついていない）" : "✓ 用意できている") : "… まだ"}`);
+  for (const n of notes) console.log(mask(`    - ${n}`));
+  const warnNotes = notes.filter((n) => n.startsWith("! ")).map((n) => n.slice(2));
+  for (const n of warnNotes) tally.warnings.push({ label, moduleId, phase, item: { key: null, title: n, evidence: "" } });
+  for (const i of shown) {
+    const evidence = typeof i.evidence === "string" ? i.evidence : "";
+    if (i.level === "warn" && warnNotes.some((n) => sameText(n, evidence))) continue;
+    if (i.level === "warn") tally.warnings.push({ label, moduleId, phase, item: i });
+    console.log(mask(`    ${ITEM_MARKS[i.level]}${i.step ? `（${i.step}）` : ""}: ${i.title || i.key}${evidence ? ` — ${evidence}` : ""}`));
+  }
+  if (!r.ok) tally.notReady.push(label);
+  for (const item of shown.filter((i) => i.level === "action")) tally.actions.push({ label, moduleId, phase, item });
+  tally.action += shown.filter((i) => i.level === "action").length;
+  tally.unknown += shown.filter((i) => i.level === "unknown").length;
+  // 警告は item と「! 」の notes の多いほう（同じ文を二重に数えない）
+  tally.warn += Math.max(shown.filter((i) => i.level === "warn").length, warnNotes.length);
+}
+
+/** 最後の集計の表示 */
+function printTally(tally, base, target, { guides = true } = {}) {
+  const parts = [];
+  if (tally.notReady.length) parts.push(`まだ ${tally.notReady.length}（${tally.notReady.join("・")}）`);
+  if (tally.action) parts.push(`更新が必要 ${tally.action}`);
+  if (tally.warn) parts.push(`警告 ${tally.warn}`);
+  if (tally.unknown) parts.push(`確かめられない ${tally.unknown}`);
+  console.log(`\n確認の結果: ${parts.length ? parts.join("・") : "すべて用意できていて、追いついている"}`);
+  if (tally.action) console.log(`  ✗ の項目の詳しい直し方は${guides ? "上の「直し方」" : " --json を付けずに --check すると出る"}。全部を直したら確かめ直す: ${base} --check`);
+  if (target === "prod") console.log("  公開サイトの配信の遅れ・記事の配信・本番の n8n のスケジュールは、監視アプリだけが確かめる（/setup-status の P12・P14）");
+}
+
+/**
+ * ✗ の項目ごとの詳しい直し方（setup/lib/fix-guides.mjs）。いまの状態・手順・詳しい場所・確かめ直すコマンド。
+ * script・target は確かめ直すコマンドに使う（モジュールと段階だけに絞る）
+ */
+function printFixGuides(entries, { script, target, mark = "✗" }) {
+  if (!entries.length) return;
+  console.log(mark === "✗" ? `\n━━ 直し方（✗ 更新が必要 ${entries.length} 件。上から順に行う）` : `\n━━ 対応が必要な警告（! ${entries.length} 件。手順を済ませるか、このまま進めてよいかを判断する）`);
+  entries.forEach(({ label, moduleId, phase, item }, n) => {
+    const { steps, refs } = fixGuide(item, { level: mark === "✗" ? "action" : "warn" });
+    console.log(mask(`\n  ${mark} ${n + 1}. ${item.title || item.key}（${label}${item.step ? `・${item.step}` : ""}）`));
+    if (typeof item.evidence === "string" && item.evidence) console.log(mask(`     いまの状態: ${item.evidence}`));
+    console.log("     手順:");
+    steps.forEach((s, i) => console.log(mask(`       ${i + 1}) ${s}`)));
+    if (refs.length) console.log(mask(`     詳しくは: ${refs.join("／")}`));
+    console.log(`     確かめ直す: node ${script} --target ${target} --check${phase ? ` --phase ${phase}` : ""} --only ${moduleId}（この項目が ${mark} でなくなれば済み）`);
+  });
+}
+
 async function main({ title, script, modules: moduleList }) {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return console.log(helpText(title, script));
@@ -228,13 +310,28 @@ async function main({ title, script, modules: moduleList }) {
   if (missing.length) console.log(`（未実装のモジュール: ${missing.map((m) => m.rel).join(", ")}）`);
 
   const results = []; // --json の結果
+  const tally = newTally(); // 端末の最後の集計
   let currentPhase = null;
   for (const { mod, phase } of runs) {
     if (phase && phase !== currentPhase) {
       console.log(`\n━━ ${phaseTitle(phase)}`);
       currentPhase = phase;
     }
+    const label = `${mod.meta.id}${phase && mod.meta.phases.length > 1 ? `・${phase}` : ""}`;
     const ctx = createContext({ target: args.target, conf, state, moduleId: mod.meta.id, phase, checkOnly: args.check });
+    // 実行の中で人が yes で確かめた「!」（ctx.confirm）と、削除の注意（ctx.warn）の文。実行の後の確認で同じ「!」をもう一度聞かない
+    const handled = [];
+    if (!args.check) {
+      const { confirm, warn } = ctx;
+      ctx.confirm = async (id, text, steps) => {
+        await confirm(id, text, steps);
+        handled.push(String(text));
+      };
+      ctx.warn = (msg) => {
+        warn(msg);
+        handled.push(String(msg));
+      };
+    }
     console.log(`\n■ ${mod.meta.title}（${mod.meta.id}${phase && mod.meta.phases.length > 1 ? `・${phase}` : ""}）`);
     if (args.skip?.includes(mod.meta.id)) {
       console.log("  - 飛ばした（--skip）");
@@ -245,12 +342,13 @@ async function main({ title, script, modules: moduleList }) {
       const result = { moduleId: mod.meta.id, phase, ok: false, notes: [], items: [], error: null, skipped: false };
       try {
         const r = await mod.check(ctx);
-        console.log(`  ${r.ok ? "✓ 用意できている" : "… まだ"}`);
-        for (const n of r.notes ?? []) console.log(mask(`    - ${n}`));
-        Object.assign(result, { ok: Boolean(r.ok), notes: (r.notes ?? []).map((n) => mask(String(n))), items: normalizeItems(r.items) });
+        const items = normalizeItems(r.items);
+        reportCheck(r, items, label, tally, { header: true, moduleId: mod.meta.id, phase });
+        Object.assign(result, { ok: Boolean(r.ok), notes: (r.notes ?? []).map((n) => mask(String(n))), items });
       } catch (e) {
         console.log(mask(`  ? 確かめられない（${e.message}）`));
         result.error = mask(String(e.message));
+        tally.unknown += 1;
       }
       results.push(result);
       continue;
@@ -258,6 +356,46 @@ async function main({ title, script, modules: moduleList }) {
     try {
       await mod.apply(ctx);
       console.log("  ✓ 終わった");
+      // 実行が通っても、最新に追いついているか（デプロイ忘れなど）は check の items にしか出ない。
+      // 読み取りだけの確認をもう一度して、追いついていない項目を出す。✗（更新が必要）が 1 つでもあれば、
+      // 詳しい直し方を出してここで止める（後ろのモジュールを古い前提のまま進めないため。2026-11-16 のユーザーの決定）。
+      // 確認そのものが失敗したとき（?）は止めない（確かめられないだけで、更新が必要とは分からない）
+      try {
+        const readOnlyCtx = createContext({ target: args.target, conf, state, moduleId: mod.meta.id, phase, checkOnly: true });
+        const r = await mod.check(readOnlyCtx);
+        reportCheck({ ...r, ok: true, notes: (r.notes ?? []).filter((n) => n.startsWith("! ")) }, normalizeItems(r.items), label, tally, { header: false, moduleId: mod.meta.id, phase });
+      } catch (e) {
+        console.log(mask(`    ? 実行の後の確認ができなかった（${e.message}）`));
+        tally.unknown += 1;
+      }
+      const lagging = tally.actions.filter((a) => a.moduleId === mod.meta.id && a.phase === phase);
+      if (lagging.length) {
+        printFixGuides(lagging, { script, target: args.target });
+        const only = args.only ? ` --only ${args.only.join(",")}` : "";
+        const many = mod.meta.phases?.length > 1 && args.target === "prod" ? "（すべての段階で飛ばす）" : "";
+        console.log(`\n✗ 更新が必要な項目が ${lagging.length} 件あるので、${label} で止めた（後ろのモジュールは実行していない。終了コード 4）`);
+        console.log(`  1. 上の「直し方」の手順を、✗ の項目ごとに行う（各項目の「確かめ直す」で ✗ が消えたことを確かめる）`);
+        console.log(`  2. 続きから実行する: ${base}${only} --from ${mod.meta.id}`);
+        console.log(`  直さずに先へ進めると判断したときだけ、このモジュールを飛ばして続ける${many}: ${base}${only} --from ${mod.meta.id} --skip ${mod.meta.id}`);
+        process.exit(4);
+      }
+      // 「!」（警告）も、対応が要るかを人が判断するまで先へ進めない（2026-11-16 のユーザーの決定）。ctx.confirm と同じ扱い:
+      // 手順を出して yes を待ち、yes 以外・端末でないときは終了コード 3 で止める。
+      // 聞かないもの: この実行の中で yes で確かめ済みの「!」（モジュールの apply の ctx.confirm）と、削除の注意（ctx.warn・「削除の注意」）
+      const pending = tally.warnings.filter(
+        (w) => w.moduleId === mod.meta.id && w.phase === phase && ![w.item.title, w.item.evidence].some((t) => /削除の注意/.test(String(t ?? "")) || handled.some((h) => sameText(h, t))),
+      );
+      if (pending.length) {
+        printFixGuides(pending, { script, target: args.target, mark: "!" });
+        const answer = await askOnTerminal(`\n  ! 上の ${pending.length} 件の手順を済ませた（または、このまま進めると判断した）なら yes と入力する。それ以外は止める: `);
+        if (answer !== "yes") {
+          const only = args.only ? ` --only ${args.only.join(",")}` : "";
+          console.log(`\n確認が必要（yes が入力されなかったので、${label} で止めた。後ろのモジュールは実行していない。終了コード 3）`);
+          console.log(`  上の「!」の手順を済ませてから、端末で続きから実行し、聞かれたら yes と入力する:\n  ${base}${only} --from ${mod.meta.id}`);
+          process.exit(3);
+        }
+        console.log(`  ! 確認済み（yes）: ${label} の警告 ${pending.length} 件`);
+      }
     } catch (e) {
       if (e instanceof ManualStepRequired) {
         const rerun = `${base}${args.only ? ` --only ${args.only.join(",")}` : ""}`;
@@ -281,8 +419,18 @@ async function main({ title, script, modules: moduleList }) {
     const report = { version: REPORT_VERSION, target: args.target, script, startedAt: jstIso(startedAt), finishedAt: jstIso(new Date()), results };
     process.stdout.write(`${JSON.stringify(report)}\n`);
   }
-  if (args.check) return;
-  console.log("\n✓ すべて終わった。作った管理者のパスワードなどは `--show <KEY>` で見る（README の「作られる値」）");
+  if (args.check) {
+    // --json では詳しい直し方を出さない（標準エラーは監視アプリが読む。画面は早見表から自分で出す）
+    if (!args.json) {
+      printFixGuides(tally.actions, { script, target: args.target });
+      printFixGuides(tally.warnings, { script, target: args.target, mark: "!" });
+    }
+    printTally(tally, base, args.target, { guides: !args.json });
+    return;
+  }
+  // ここまで来たなら ✗ は無い（あればそのモジュールで止めている）
+  printTally(tally, base, args.target);
+  console.log(`\n✓ すべて終わった。作った管理者のパスワードなどは \`--show <KEY>\` で見る（README の「作られる値」）`);
   if (args.target !== "prod") return;
   const next = args.phase ? PROD_PHASES[PROD_PHASES.findIndex((p) => p.id === args.phase) + 1] : PROD_PHASES.find((p) => p.id === "google");
   if (next?.id === "google") console.log(`  公開サイトを配信し（cloud/README.md の 4.14）、Route 53 で届くようになったら: node ${script} --target prod --phase google`);

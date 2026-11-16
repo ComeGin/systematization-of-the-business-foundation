@@ -30,7 +30,7 @@ node setup/setup.mjs --target dev
 | オプション | 意味 |
 |---|---|
 | `--phase <段階>` | **prod だけ**。その段階だけを実行する（下の「本番の段階」）。省略すると `env` から `apps` までを順に進める。`google` は明示したときだけ動く。**`--phase all` は `--check` のときだけ**で、`env` から `operate` までのすべての段階を確かめる。dev に付けたとき・無い段階のとき・`--check` なしの `--phase all` は、何もせずに `1` で終わる |
-| `--check` | 何も変えずに、各モジュールの状態を表示する。**状態ファイルにも書かない**（`ctx.state.set` は「check の中で状態を書こうとした: <key>」を投げ、そのモジュールは「? 確かめられない」になって次へ進む） |
+| `--check` | 何も変えずに、各モジュールの状態を表示する。**状態ファイルにも書かない**（`ctx.state.set` は「check の中で状態を書こうとした: <key>」を投げ、そのモジュールは「? 確かめられない」になって次へ進む）。モジュールが返す `items` のうち `action`・`warn`・`unknown` も「✗ 更新が必要」「! 警告」「? 確かめられない」の行で出し（デプロイ忘れの検知のように `ok` と `notes` に混ぜない項目があるため。監視アプリの「設定の状況」と同じ項目）、✗ と ! の項目ごとの**詳しい直し方**（下の「✗ 更新が必要で止まったとき」）と、最後に件数をまとめる。`--check` なしの実行では、各モジュールの実行の後に読み取りだけの確認をして同じ行を出し、**✗ が 1 つでもあればそのモジュールで止まる**（終了コード `4`）。**まだ確かめていない ! があれば手順を出して `yes` を待つ**（`yes` 以外は終了コード `3`） |
 | `--json` | **`--check` のときだけ**（監視アプリが子プロセスとして読む）。人向けの表示をすべて標準エラーに回し、標準出力の最後の 1 行に結果の JSON を出す。形は下の「`--json` の結果」。終了コードは確かめた結果に関わらず `0`。`--check` なしや `--list`・`--show` との組み合わせは `1` |
 | `--only <id,...>` | 指定したモジュールだけ（id は `--list` で見る） |
 | `--skip <id,...>` | 指定したモジュールを飛ばす（id は `--list` で見る。`--json` の結果には `skipped: true` で残る） |
@@ -41,7 +41,72 @@ node setup/setup.mjs --target dev
 
 `--only`・`--skip`・`--from`・`--show`・`--config` の値が無い・空・次のオプション（`-` で始まる）のとき、`--only`・`--skip`・`--from` に `--list` に無い id（この target では動かないものを含む）を渡したときは、何も実行せずに `1` で終わる。
 
-終了コード: `0` 終わった／`1` 失敗（直してから `--from <id>`）／`3` 画面の操作が必要か、「!」の確認で `yes` が入力されなかった（案内に従って再実行）。
+終了コード: `0` 終わった／`1` 失敗（直してから `--from <id>`）／`3` 画面の操作が必要か、「!」の確認（モジュールの中のものと、実行の後の確認で見つかったもの）で `yes` が入力されなかった（案内に従って再実行）／`4` 実行の後の確認で「✗ 更新が必要」が残った（下の「✗ 更新が必要で止まったとき」。直してから `--from <id>`）。
+
+### ✗ 更新が必要で止まったとき（2026-11-16）
+
+`--check` なしの実行では、各モジュールの `apply` が通った後に、そのモジュールの `check` を**読み取りだけ**でもう一度動かす。`items` に `action`（✗ 更新が必要）が 1 つでもあれば、**後ろのモジュールを実行せずに止まる**（終了コード `4`）。デプロイ・ビルドの忘れ（スタック・Lambda・ECR のイメージ・オンプレの Strapi と n8n）を残したまま、古い前提で後ろの設定を進めないため。`?`（確かめられない。確認そのものが失敗したときを含む）では止まらない。
+
+**`!`（警告）は「未対応のままでよい」という意味ではない。** 人が対応するか、このまま進めてよいかを判断することを表す。実行の後の確認で見つかった `!` も、上の「!」の確認と同じ扱いにする（2026-11-16）: ✗ が無ければ、`!` ごとに手順（「対応が必要な警告」）を出して `yes` を待ち、`yes` 以外・端末でないときは**後ろのモジュールを実行せずに止まる**（終了コード `3`。手順を済ませてから `--from <id>` で続きから実行し、聞かれたら `yes`）。次の 2 つは聞かない。
+
+- そのモジュールの apply の中で、もう `yes` で確かめた `!`（同じ文。2 回は聞かない）
+- 削除の注意（`ctx.warn`。「削除の注意」を含む文。今までどおり止めずに進む）
+
+`!` の例と対応:
+
+| `!` の例 | 対応 |
+|---|---|
+| 記録のコミットが origin/main の履歴に無い（P2・P3・P6・監視アプリのビルド） | `git fetch origin` で直ることが多い。残れば main で記録付きでやり直す（表示の「やり直すときの参考」） |
+| n8n の版が origin/main の雛形より新しい（P6） | 人が先に上げたなら、雛形 `onprem/n8n/.env.example` を同じ版に上げて PR にする |
+| n8n・runners のコンテナが動いていないので比べられない（P6） | `sudo systemctl status comegin-n8n` で止まっている理由を見て起動する（意図して止めているなら、そう判断して `yes`） |
+| 監視アプリの設定（周のジョブが無効なので止めない など。P14） | 表示の文と `setup/manual-steps.md` の早見表の行に従う |
+
+止まったときの表示（例。本番のスタックのデプロイ忘れ）:
+
+```
+■ AWS（本番のスタック。…）（cloud・deploy）
+  ✓ 終わった
+    ✗ 更新が必要（P2）: global（us-east-1）のデプロイが origin/main に追いついている — デプロイしたコミットの記録が無い（…）。記録付きでデプロイし直す: node cloud/deploy.mjs --config-env global
+
+━━ 直し方（✗ 更新が必要 1 件。上から順に行う）
+
+  ✗ 1. global（us-east-1）のデプロイが origin/main に追いついている（cloud・deploy・P2）
+     いまの状態: デプロイしたコミットの記録が無い（…）
+     手順:
+       1) 開発のリポジトリを origin/main にそろえる: …
+       2) node cloud/deploy.mjs --config-env global を実行する（…）
+       3) CloudFormation（us-east-1）で global のスタックが UPDATE_COMPLETE になったことを確かめる
+     詳しくは: setup/00-setup-overview.md の「P2. 段階 deploy: スタックを作る」
+     確かめ直す: node setup/setup.mjs --target prod --check --phase deploy --only cloud（この項目が ✗ でなくなれば済み）
+
+✗ 更新が必要な項目が 1 件あるので、cloud・deploy で止めた（後ろのモジュールは実行していない。終了コード 4）
+  1. 上の「直し方」の手順を、✗ の項目ごとに行う（…）
+  2. 続きから実行する: node setup/setup.mjs --target prod --from cloud
+  直さずに先へ進めると判断したときだけ、このモジュールを飛ばして続ける（すべての段階で飛ばす）: node setup/setup.mjs --target prod --from cloud --skip cloud
+```
+
+操作の順番:
+
+1. **「直し方」の手順を、✗ の項目ごとに上から行う。** 手順は次の 3 つから組み立てる（`setup/lib/fix-guides.mjs`）。
+   - 項目ごとの手順（デプロイ・ビルド忘れの 8 項目。下の表）。作業ツリーをそろえる → 包みのスクリプト → 反映（再起動・デプロイ）→ 確かめる、の順。
+   - 止まる id（`stopId`）がある項目は、`setup/manual-steps.md` の 0 節（早見表）の行（何をするか・いつ止まるか・節）。監視アプリの「止まったとき」と同じ表。
+   - 段階（`P2` など）がある項目は、`setup/00-setup-overview.md` の「### P<n>.」の節を「詳しくは」に出す。
+2. **項目ごとの「確かめ直す」で、✗ が消えたことを確かめる**（`--check --phase <段階> --only <モジュール>`。何も変えない）。
+3. **「続きから実行する」のコマンドで再開する**（`--from <止まったモジュール>`。止まったモジュールから後ろをもう一度実行する。段階を複数持つモジュールは最初の段階から通り直すが、apply は冪等）。
+4. 直せない・直さないと判断したときだけ、`--skip <モジュール>` を付けて先へ進める（そのモジュールの apply ごと飛ばす。段階を複数持つモジュールは、すべての段階で飛ぶ）。✗ は監視アプリの「設定の状況」に残り続ける。
+
+| 項目（key） | 段階 | 直し方の要点（全文は `setup/lib/fix-guides.mjs`） |
+|---|---|---|
+| `cloud.global-commit` | P2 | origin/main にそろえる → `node cloud/deploy.mjs --config-env global` → us-east-1 のスタックが `UPDATE_COMPLETE` |
+| `cloud.stack-commit`・`cloud.lambda-code` | P2 | origin/main にそろえる → `node cloud/deploy.mjs`（生の `sam deploy` は使わない）→ `UPDATE_COMPLETE` → ECS が動いているか（昼にデプロイする。cloud/README.md の 4.11） |
+| `cloud.stack-params` | P2 | 違うパラメータの名前を見て `cloud/samconfig.toml` を確かめる → 本番は `node cloud/deploy.mjs`、global は `--config-env global` |
+| `cloud.image-commit` | P3 | origin/main にそろえる → `samconfig.toml` のタグの連番を上げる → ECR にログイン → `node cloud/images/build-push.mjs <chatwoot\|mautic>` → **push の後に** `node cloud/deploy.mjs` |
+| `onprem.strapi-image` | P6 | origin/main にそろえる → `node onprem/build.mjs strapi` → `sudo systemctl restart comegin-strapi` |
+| `onprem.n8n-image` | P6 | origin/main にそろえる → `node onprem/build.mjs n8n` → `sudo systemctl restart comegin-n8n` |
+| `onprem.n8n-version` | P6 | 版・ダイジェストが違えば雛形（`onprem/n8n/.env.example`）の 3 つの値を写す → `node onprem/build.mjs n8n` → `sudo systemctl restart comegin-n8n` |
+
+- `--check` でも、最後に同じ「直し方」と「対応が必要な警告」を出す（止まらない。聞かない。`--json` のときは出さない〈標準出力の JSON と監視アプリの画面は変えない〉）。
+- 項目を足すとき: デプロイ・ビルド忘れのように止まる id を持たない `action` の項目は、`FIX_STEPS` に key で手順を足す。止まる id を持つ項目は、早見表の行を書けばそれが出る。
 
 ### 「!」の確認（2026-11-10）
 
