@@ -18,13 +18,17 @@ model: sonnet
 | `docs/audits/**`（全 `source` の `E-12`）、`docs/proposals/**`（全 `E-13`。却下されたものも含む） | `docs/proposals/<proposal_id>.md` だけ |
 
 - 形式は `docs/proposals/README.md` と `docs/proposals/_template.md` に従う。型と項目の意味は `docs/RequirementDefinition/DA/01-conceptual-data-model.md` の 6 節
-- `proposal_id` は `PRP-<西暦>-<連番 4 桁>`。書く直前に `docs/proposals/` を Glob し、**既存ファイルの最大連番 + 1**（無ければ `0001`）。ファイル名に ULID を使わない
+- `proposal_id` は `PRP-<西暦>-<連番 4 桁>`。書く直前に `docs/proposals/PRP-<西暦>-*.md` を Glob し、**既存ファイルの最大連番 + 1**（無ければ `0001`）。Glob は更新の古い順に 100 件までしか返さないので、結果に打ち切りの注記が出たら `PRP-<西暦>-01*` のように連番で分けて Glob し直し、本当の最大値を確かめる（重なると既存の提案を上書きする）。ファイル名に ULID を使わない
 - **既存の `E-13` を書き換えない・削除しない。** 却下された提案も残す（同じ提案の再起票を検出するため）。新しい提案は新しいファイルにする
 - ワークフロー（n8n）を対象にする提案を設計するときだけ、リポジトリの `.claude/skills/using-n8n-skills-official/` のメタスキルを Read し、そこからの振り分けに従う。ほかの n8n スキルを直接読みに行かない。スキルは知識であって権限ではない
 
 ## 手順
 
-1. **観測を集める。** `docs/audits/*/` の `E-12` を Glob・Read する。frontmatter の `fetch.outcome`・`measured_at`・`metrics`・`target_ref` を使う。続けて `docs/proposals/` の既存の `E-13` を全件読む
+1. **観測を集める。** `docs/audits/<source>/` の `E-12` を **source ごとに** Glob・Read する。frontmatter の `fetch.outcome`・`measured_at`・`metrics`・`target_ref` を使う。続けて `docs/proposals/` の既存の `E-13` を全件読む
+   - **Glob は 1 回に 100 件までしか返さず、残すのは更新の古い順である（新しい観測から先に落ちる）。** `docs/audits/*/`・`docs/audits/**` をまとめて Glob しない。source のディレクトリごとに、ファイル名の日付で**今日から 14 日前まで**（検査 3 の範囲）に絞って Glob する（例 `docs/audits/analytics/AUD-2026-{1117,1116,1115,…,1103}-*.md`）
+   - Glob の結果の末尾に `(Results are truncated…)`・`(Showing … more are not listed…)`・`(Showing the first … files…)` のどれかが出たら、その結果は**欠けている**。日付の範囲を半分に分けて Glob し直し、注記の出ない結果だけを使う。欠けた結果で「最新」を決めない
+   - 14 日より前の `E-12` は検査 3 で根拠にできないので読まない。ある `target_ref` の指標が 14 日以内に 1 件も無ければ、その指標は「確認できない」として扱う（検査 8・15 の安全側）
+   - `docs/proposals/` も同じ上限がある。注記が出たら `PRP-<西暦>-00*`・`PRP-<西暦>-01*` のように連番で分けて Glob する
 2. **提案の候補を決める。** 根拠にできる観測が示す、実在する差だけを対象にする。優先順位は次のとおり。観測に無いことを推測で提案しない
    1. `LH-seo` が 1.0 を割っている → 1.0 に戻す提案（最優先。`LH-seo` の 1.0 は死守ライン）
    2. 最新の `QC-a11y-serious`（`source: quality` の項目 6 の `E-12`）が 0 でない → その違反を直す `change.kind: accessibility` の提案。**ほかの UI を変える提案より先にする**（AA-04 の 3.8。公開サイトは JIS X 8341-3:2016 の AA 準拠を表明している）

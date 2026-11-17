@@ -122,11 +122,29 @@ src/constants/        failure.ts（9 値と判定順）・retry.ts・timeouts.ts
 |---|---|---|
 | A. E-15 の SQLite 丸ごと（実行の記録・改善の周と項目と承認・実行モデルの選択と履歴・kv） | `backups/e15/YYYY/MM/DD/e15-<HHmmss>-<ULID>.sqlite`（日本時間） | `VACUUM INTO` で一貫した 1 時点の写しに固めて（データディレクトリに一時ファイル。送ったら消す）、毎晩新しいキーに置く。512 MiB を超えたら `failure` |
 | C. 作業場の観測（E-12。`<CONTROL_WORKTREE>/docs/audits/<source>/AUD-*.md`。コミットされない） | `audits/<source>/<audit_id>.md`（中身が変わった版は `audits/<source>/<audit_id>.<sha256 の先頭 12 桁>.md`） | 送った版の sha256 を kv の `backup:audit:<source>/<audit_id>` に覚え、同じ中身は送らない。1 回 500 件まで（残りは次の夜）。1 MiB を超えるものは写さない |
+| D. 作業場の古い観測を作業場の外へ移す（2026-11-17。S3 には送らない） | （ローカル）`<CONTROL_DATA_DIR>/audits-archive/<source>/<audit_id>.md` | 下の「古い観測を作業場から外す」 |
 
-- 結果: A が送れないと `failure`（周と承認の記録が守られていない）、C だけの失敗は `partial`（次の夜に続きを送る）。`targetIds` に A のキー
+- 結果: A が送れないと `failure`（周と承認の記録が守られていない）、C だけ・D だけの失敗は `partial`（次の夜に続きを送る・移す）。`targetIds` に A のキー
 - ログイン用の `auth.sqlite` は置かない（セッションだけで、失っても Google でログインし直せば作られる）
-- **保存期間は 30 日（1 か月。2026-11-12 のユーザーの決定）**。`backups/`・`audits/` は置いてから 30 日で S3 のライフサイクルが消す（`cloud/stacks/runlog-archive.yaml` の `BackupRetentionDays`）。スナップショットは毎晩新しく置くので、いつでも直近 30 日のどの日にも戻せる。**観測（E-12）は 1 件につき 1 回しか送らないので、30 日より古い観測は S3 から消え、作業場にしか残らない**（承知のうえ）。`runs/`（E-15 の写し）は未決定のままで消さない
+- **保存期間は 30 日（1 か月。2026-11-12 のユーザーの決定）**。`backups/`・`audits/` は置いてから 30 日で S3 のライフサイクルが消す（`cloud/stacks/runlog-archive.yaml` の `BackupRetentionDays`）。スナップショットは毎晩新しく置くので、いつでも直近 30 日のどの日にも戻せる。**観測（E-12）は 1 件につき 1 回しか送らないので、30 日より古い観測は S3 から消え、オンプレ（作業場か、D で移した先）にしか残らない**（承知のうえ）。`runs/`（E-15 の写し）は未決定のままで消さない
 - 監視アプリの主体は `PutObject` だけを持ち、読めない。**戻すのは人が管理者のプロファイルで行う**
+
+### 古い観測を作業場から外す（D。2026-11-17）
+
+エージェントの Glob は**更新の古い順に並べて 100 件で打ち切る**（Agent SDK 0.3.283。`rg --files --sort=modified`）。作業場の `docs/audits/` が 100 件を超えると、**新しい観測から先に見えなくなる**。2026-11-17 に 119 件になり、proposal-writer がその日の lighthouse の観測を読めず、前の日の `invalid_response` を「最新」として検査 8 で止まり続けた。エージェントの定義は日付で絞って Glob するように直した（`.claude/agents/proposal-writer.md` の手順 1、観測を書く 6 本の連番）。そのうえで、作業場に溜まる数そのものも抑える。
+
+C の後、作業場の観測のうち**次をすべて満たすもの**を `<CONTROL_DATA_DIR>/audits-archive/<source>/` へ移す（同じファイルシステムなら rename、違えば写してから消す）。
+
+| 条件 | 理由 |
+|---|---|
+| `audit_id` の日付が今日（JST）から **30 日**（`AUDIT_KEEP_DAYS`）より前 | proposal-writer が根拠にできる 14 日（起票前チェックの検査 3）と、改善の検証の期間（既定 30 日）を覆う |
+| 同じ `source`・同じ `target_ref` の**最新ではない** | seo-auditor の前回比と、更新の少ない source（`serp`・`site_audit`・`market`）の最新を残す |
+| 今の中身の sha256 が kv の `backup:audit:<source>/<audit_id>`（S3 に送った版）と同じ | 送っていない版を作業場から消さない。違えば次の夜に C が送ってから移す |
+| main のチェックアウトに同じパスが無い | 追跡されているファイルを消すと git の変更になり、cycle-open の合わせが止まる |
+
+- 移し先はデータディレクトリなので、**エージェントからは読めない**（`runner/hooks.ts`）。監視アプリの画面（実行の「書いた観測」「対象にした観測」）は、作業ツリー → main → 移した先の順で読む（`definitions/audits.ts`）
+- 移し先に同じ ID のファイルがあるときは、中身が同じなら作業場の方を消し、違えば両方残して `WARN` を出す
+- 移した観測を作業場に戻すときは、ファイルを `docs/audits/<source>/` へ手で移す（同じ名前のファイルが作業場にあれば上書きしない）
 
 ### 戻し方（ディスクを失った・SQLite が壊れたとき）
 

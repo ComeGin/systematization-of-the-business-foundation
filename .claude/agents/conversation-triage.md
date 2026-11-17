@@ -52,7 +52,7 @@ model: sonnet
 
 ## E-12 の書き方（共通。形式の正本は `docs/audits/README.md` と `_template.md`）
 
-- ファイル名は `docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に同じディレクトリを Glob し、**同じ日・同じ `source` の既存ファイルの最大値 + 1**（無ければ `0001`）
+- ファイル名は `docs/audits/<source>/<audit_id>.md`。`audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`。日付は今日（JST。プロンプトの `TODAY:` 行、無ければコンテキストの現在日付）。連番は書く直前に**今日の分だけ**を Glob し（パターン `docs/audits/<source>/AUD-<西暦>-<月日>-<source>-*.md`。ディレクトリ全体を Glob しない。Glob は更新の古い順に 100 件までしか返さないため、ファイルが増えると今日の分が落ち、連番が重なって前の観測を上書きする）、**その最大値 + 1**（無ければ `0001`）
 - **書いてよいのは、担当の `source` のディレクトリだけ。** 他のエージェントのディレクトリは読んでよいが書かない。**既存のファイルを書き換えない・追記しない**（新しい観測は新しいファイルにする）
 - `created_by` はこのエージェントの識別子（`agent/<name>`）。`fetch.correlation_id` はプロンプトの `CORRELATION_ID:` の値
 - `measured_at`（上位）は**データが表す時刻**、`fetch.measured_at` は**取得を完了した時刻**（JST、ISO 8601。プロンプトの `NOW:` 行、無ければコンテキストの現在日時）。混同しない

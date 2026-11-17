@@ -3,6 +3,12 @@
 
 export const PROPOSALS_DIR = "docs/proposals";
 export const AUDITS_DIR = "docs/audits";
+/**
+ * 作業場から外した古い観測（E-12）の置き場。データディレクトリ（CONTROL_DATA_DIR）からの相対で、下は <source>/<audit_id>.md。
+ * エージェントの Glob は更新の古い順に 100 件で打ち切られ、溜まると新しい観測が見えなくなる（2026-11-17）ため、builtin backup が
+ * S3 に送った後で移す。データディレクトリはエージェントから読めない（hooks.ts）。監視アプリの画面だけが読む
+ */
+export const AUDIT_ARCHIVE_SUBDIR = "audits-archive";
 export const OPS_DIR = "ops";
 export const CLOUD_DIR = "cloud";
 export const SCHEDULES_DIR = `${OPS_DIR}/schedules`;
