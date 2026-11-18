@@ -78,15 +78,27 @@ async function listDirectories(dir: string): Promise<string[]> {
   }
 }
 
+/** frontmatter の target_ref。読めない・無いときは null（builtin backup が「target_ref ごとの最新」を残すために読む） */
+export function targetRefOf(content: string): string | null {
+  const match = FRONTMATTER.exec(content);
+  if (!match) return null;
+  try {
+    return text(record(parseYaml(match[1] ?? ""))?.target_ref);
+  } catch {
+    return null;
+  }
+}
+
 /** audit_id の日付の部分（AUD-<西暦>-<月日>-… の「<西暦>-<月日>」） */
-function auditDateOf(auditId: string): string {
+export function auditDateOf(auditId: string): string {
   return auditId.slice(4, 13);
 }
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function jstAuditDate(ms: number): string {
+/** 時刻（ms）の JST の日付を audit_id の形（<西暦>-<月日>）で。文字列の大小が日付の前後と一致する */
+export function jstAuditDate(ms: number): string {
   const iso = new Date(ms + JST_OFFSET_MS).toISOString(); // YYYY-MM-DDT…（JST の日付）
   return `${iso.slice(0, 4)}-${iso.slice(5, 7)}${iso.slice(8, 10)}`;
 }
@@ -109,9 +121,9 @@ export function auditDatesForRuns(runs: Pick<RunRecord, "startedAt" | "targetIds
   return dates;
 }
 
-async function readRoot(root: string, dates: Set<string> | null): Promise<Map<string, IndexedObservation>> {
+/** base は docs/audits に当たるディレクトリ（その下が <source>/<audit_id>.md） */
+async function readRoot(base: string, dates: Set<string> | null): Promise<Map<string, IndexedObservation>> {
   const result = new Map<string, IndexedObservation>();
-  const base = join(root, AUDITS_DIR);
   for (const directory of (await listDirectories(base)).sort()) {
     const names = (await readdir(join(base, directory))).filter((name) => name.endsWith(".md")).sort();
     for (const name of names) {
@@ -137,12 +149,14 @@ async function readRoot(root: string, dates: Set<string> | null): Promise<Map<st
  * options.dates を渡すと、その日付（auditDatesForRuns）の観測だけを読む
  */
 export async function loadAuditIndex(
-  roots: { worktree: string; mainCheckout: string },
+  roots: { worktree: string; mainCheckout: string; archive?: string },
   options: { dates?: Set<string> } = {},
 ): Promise<AuditIndex> {
   const dates = options.dates ?? null;
-  const merged = await readRoot(roots.mainCheckout, dates);
-  for (const [auditId, observation] of await readRoot(roots.worktree, dates)) merged.set(auditId, observation); // 作業ツリーを優先
+  // 優先の低い順に重ねる: 作業場から外した観測（builtin backup。2026-11-17）→ main → 作業ツリー
+  const merged = roots.archive ? await readRoot(roots.archive, dates) : new Map<string, IndexedObservation>();
+  for (const [auditId, observation] of await readRoot(join(roots.mainCheckout, AUDITS_DIR), dates)) merged.set(auditId, observation);
+  for (const [auditId, observation] of await readRoot(join(roots.worktree, AUDITS_DIR), dates)) merged.set(auditId, observation); // 作業ツリーを優先
 
   const byId = new Map<string, ObservationSummary>();
   const byCorrelation = new Map<string, ObservationSummary[]>();

@@ -1,6 +1,8 @@
 // control-plane の入口。監視アプリ（frontend/next-js）はここから export した型と createControlPlane だけを使う。
 // 境界の型は contract.ts（リード所有）。
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { AUDIT_ARCHIVE_SUBDIR } from "./constants/paths.js";
 import { loadControlPlaneConfig, type ControlPlaneConfig } from "./config.js";
 import type { EngineContext } from "./context.js";
 import type {
@@ -228,7 +230,7 @@ class ControlPlaneImpl implements ControlPlane {
       .filter((run): run is RunRecord => run !== null);
     if (runs.length === 0) return [];
     const index = await loadAuditIndex(
-      { worktree: this.config.worktree, mainCheckout: this.config.mainCheckout },
+      { worktree: this.config.worktree, mainCheckout: this.config.mainCheckout, archive: join(this.config.dataDir, AUDIT_ARCHIVE_SUBDIR) },
       { dates: auditDatesForRuns(runs) },
     );
     return runs.map((run) => observationsForRun(run, index));
