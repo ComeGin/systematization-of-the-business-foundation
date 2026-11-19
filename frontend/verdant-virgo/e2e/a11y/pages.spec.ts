@@ -7,6 +7,12 @@ import { NOT_FOUND_ROUTE, distRoutes, sitemapPaths } from "./routes";
 
 const routes = distRoutes();
 
+// 第三者の iframe の中は検査から除く（部分適合の記述の対象。計画書の P-7・2026-10-18 の G-2。states.spec.ts の予約枠と同じ扱い）。
+// 除くのは Cal.com の予約枠（BookingFrame の根の data-booking-state）に差し込まれた iframe だけで、外側の枠とページは検査する。
+// 2026-11-19: モバイルの /contact/thanks/ で、読み込みの早さによっては iframe の中（時間枠の並び）まで数え、
+// QC-a11y-serious が直しようのない 35 になって proposal-writer の検査 15 が UI の提案を止め続けた
+const THIRD_PARTY_FRAMES = ["[data-booking-state] iframe"];
+
 test.describe("全ルートの axe 検査", () => {
   test.describe("正常系", () => {
     test("sitemap の URL はすべて dist のルートにある", () => {
@@ -37,7 +43,10 @@ test.describe("全ルートの axe 検査", () => {
           const columns = t.querySelectorAll("thead th").length;
           return [...t.querySelectorAll("tbody tr")]
             .filter((tr) => tr.querySelectorAll("th, td").length !== columns)
-            .map((tr) => `${tr.querySelector("th, td")?.textContent?.trim()}: ${tr.querySelectorAll("th, td").length}/${columns}`);
+            .map(
+              (tr) =>
+                `${tr.querySelector("th, td")?.textContent?.trim()}: ${tr.querySelectorAll("th, td").length}/${columns}`,
+            );
         }),
       );
       expect(misaligned).toEqual([]);
@@ -53,6 +62,7 @@ test.describe("全ルートの axe 検査", () => {
           route,
           "default",
           () => open(page, route),
+          THIRD_PARTY_FRAMES,
         );
         expect(response?.status()).toBe(200);
         expect(brief(result.violation_items)).toEqual([]);

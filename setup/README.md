@@ -6,7 +6,7 @@
 
 本番（`--target prod`）は、外部の値の形式の確認（GA4）・OpenSEO・admin-auth の確認・オンプレの確認・本番の Chatwoot と Mautic の API でできる初期設定（`chatwoot-prod`・`mautic-prod`）・本番の MCP の env ファイル（`mcp-prod`）と、段階 `operate` の改善ループ（監視アプリ）の常駐（`next-js-prod`）・運用開始の仕上げの確認まで。画面でしかできないこと（Chatwoot の onboarding、Mautic のインストールと設定）と AWS への書き込み（Secrets Manager・運用の Lambda）は、案内して止まり、人が行う。
 
-**全体の順番（設定スクリプトが確かめない AWS・オンプレの手順を含む）と、人が行う作業の一覧は [`setup/00-setup-overview.md`](../setup/00-setup-overview.md)。** 段階 `apps` の前提（DB の作成・ECS の台数）と本番の n8n の provision は、2026-10-28 からスクリプトが確かめる・行う。それでも確かめられない手順（公開サイトのビルドと配信など）は、そちらの 4 節にある。
+**全体の順番（設定スクリプトが確かめない AWS・オンプレの手順を含む）と、人が行う作業の一覧は [`setup/00-setup-overview.md`](../setup/00-setup-overview.md)。** 段階 `apps` の前提（DB の作成・ECS の台数）と本番の n8n の provision は、2026-10-28 からスクリプトが確かめる・行う。それでも確かめられない手順（公開サイトのビルドと配信など）は、そちらの 4 節にある。**設定の後の毎週の運用（記事の下書きから公開・配信まで。週 2 本）は [`setup/10-article-publishing.md`](10-article-publishing.md)。**
 
 親スクリプトは 2 本ある。**バックエンド全体**（`setup/setup.mjs`）を先に、**フロントエンド全体**（`setup/frontend.mjs`。公開サイトと監視アプリ）を後に実行する（[フロントエンド全体](#フロントエンド全体setupfrontendmjs)）。オプション・終了コード・設定ファイル・状態ファイルは 2 本で共通（引数の解釈と実行の順番は `setup/lib/runner.mjs`）。
 
