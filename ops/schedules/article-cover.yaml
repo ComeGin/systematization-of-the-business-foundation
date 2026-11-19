@@ -1,6 +1,7 @@
 id: article-cover
 description: "記事のアイキャッチ画像の生成。cover の無い下書きの記事に OpenAI の Images API で画像を作り、Strapi にアップロードして cover に設定する（エージェントは使わない。公開はしない）"
-enabled: false
+enabled: true
+# 2026-11-19 に有効にした（記事の公開を週 2 本〈火・金の weekly-content-draft〉にするため。下書きの 02:30〜02:50 の後に同じ朝に付く）
 # 月曜以外の 03:00（日・火〜土）。月曜 03:00〜03:30 の RDS の保守の窓（cloud/stacks/data.yaml の DbMaintenanceWindow）を避ける。
 # 起動 + 1200 秒 = 03:20 で、8 時より前。1 回の実行の枚数の上限（CONTROL_COVER_MAX_PER_RUN。既定 3）を 10 に上げるなら、1 枚あたりの所要から timeout_sec も上げる（ops/README.md）
 cron: "0 3 * * 0,2-6"
