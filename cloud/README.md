@@ -1208,6 +1208,15 @@ dig +short stats.comegin.com
 
 ビルドはオンプレで行い、配信（同期と無効化）は人間が承認して実行する（ADR-15。`DeployPolicyArn` を付けた主体で）。**同期 → 無効化の順を入れ替えない**（逆にすると更新が一巡遅れる）。
 
+**この節の手順 1〜5 は `node cloud/deploy-site.mjs` が 1 本で行う（2026-11-19）。** 人がオンプレの端末で実行する（Claude Code の実行環境では実行しない）。
+
+- 配る `dist` は候補から番号で選ぶ（監視アプリの写し〈新しい順〉→ main のチェックアウトの `dist`）か、`--dist <絶対パス>` で指定する。**監視アプリの配信の項目があるなら、項目に出た `dist`（監視アプリの写し）を配る。** 項目の「実行した」は公開サイトの `/_build.json` のコミットで確かめるが、`_build.json` は夜のビルドの `dist` にだけ入る。手でビルドした `dist` を配ると、2 本目の同期の `--delete` で公開中の `_build.json` が消え、項目を確かめられなくなる（スクリプトは警告して `yes` を待つ）
+- 値は `prod.conf` から読む（`PUBLIC_SITE_URL`・`CALCOM_LINK`・`GA4_MEASUREMENT_ID`・`SITE_BUILD_CHECKOUT`〈空なら `CONTROL_MAIN_CHECKOUT`〉・`CONTROL_DATA_DIR`・`CONTROL_DEPLOY_*`）。バケット名とディストリビューション ID が `prod.conf` に無ければ、管理者のプロファイル（`--admin-profile`。既定 `comegin-prod-admin`）で手順 1 の出力を読む
+- 手順 2-0〜2-5 を確かめ、通らなければ止める。main のチェックアウトの `dist` を選び、チェックアウトが `origin/main` と違うか `dist` が古いときだけ、`checkout --detach origin/main` と `pnpm install --frozen-lockfile`・`pnpm build` を `yes` で行える（夜のジョブが同じチェックアウトを使う 0〜8 時は避ける）
+- **入力待ち（`yes` 以外なら何もせずに終了コード 3）**: `dist` の選択・チェックアウトを合わせる・ビルドし直す・警告（`_build.json` が無い・`origin/main` より古いビルド）・配信の実行・`aws sso login`（セッションが切れているときだけ）・`aws sso logout`
+- 主体が配信用（`AWSReservedSSO_ComeginProdDeploy_…`。または IAM ユーザー `comegin-prod-deploy`）でなければ止める。同期 2 本と無効化の後、公開サイトの `build-info.json` が配ったビルドに変わるまで最長 10 分待ち（配信用の主体は `GetInvalidation` を持たないので、公開サイトの側で待つ）、`sitemap-0.xml`・`robots.txt`・`_build.json` を確かめる（手順 5）
+- `--check` は確かめるだけ（AWS に触れない。チェックアウトは `git fetch` だけ）。監視アプリの画面に出る 4 本のコマンドを手で実行してもよい（同じ操作。確かめは手順 2・5 を手で行う）
+
 **ビルドの前提（どれかが欠けると、壊れたサイトか開発のサイトが公開される）**
 
 - **ビルドは承認済みの `main` のチェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）で行う。作業ツリーでビルドしない。** 本番の値の `.env.production` は `node setup/frontend.mjs --target prod` がそのチェックアウトにだけ書く。作業ツリーでビルドすると、開発の `.env` の値（`SITE_URL`・Mautic・Chatwoot が開発の ngrok、記事が開発の Strapi の試験記事）がそのまま焼き込まれる。開発の `.env` には `BUILD_TARGET=production` が無いため、「本番のビルドが開発の Strapi を読んだら止める」検査（`src/modules/blog/integration.ts`）も働かず、ビルドは成功してしまう（2026-11-02 に、この経路で開発の値のサイトが本番に配信された。フォームの送信とチャットが失敗し、sitemap と canonical が開発の ngrok を指していた）。

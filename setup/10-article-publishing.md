@@ -24,6 +24,20 @@
 - 週 2 本の上限は「`weekly-content-draft` が 1 回 1 本 × 火・金」で決まる。1 回止まると、その週は 1 本になる（1 回で 2 本は作らない）。**承認済みの企画の在庫を切らさないこと**が、いちばん効く
 - 配信を週 1 回にまとめたいなら、金曜の分を公開した後にまとめて配信してよい（どちらも 48 時間以内に収まるようにする）
 
+### 1.1 下書きを手で作るとき（火・金を待たない）
+
+下書きを作るのは、改善ループの **③ 下書き** の段階のジョブ `weekly-content-draft`。手で動かす方法は 2 つある。
+
+| 方法 | 動くもの | 向いているとき |
+|---|---|---|
+| **ジョブを 1 本ずつ**（おすすめ）: 監視アプリ → ジョブ → `weekly-content-draft` →「手動で起動」。終わったら `article-cover` も同じく「手動で起動」 | その 2 本だけ | 下書きを 1 本足したいだけのとき |
+| **段階をまとめて**: 改善の周 → ③ 下書き →「この段階を今すぐ実行」 | ③ のジョブ 6 本を順に: `weekly-content-plan` → `weekly-content-draft` → `cycle-apply-content` → `cycle-campaign` → `article-cover` → `campaign-asset-upload` | 企画の起案から画像まで一度に進めたいとき |
+
+- どちらも手動の起動なので、定義の `enabled: false` は見ない。段階をまとめて動かすと、無効にしてある `cycle-apply-content`・`cycle-campaign` も動く（承認済みの E-13 が無ければ何もしない）。`weekly-content-plan` は企画を新しく起案する（R2 の承認の手間が増える）
+- 段階をまとめて動かしたとき、前のジョブが失敗・見送りでも次へ進む（止まるのは、待つ時間を過ぎたときと監視アプリの停止だけ）
+- 1 回の起動で作る下書きは 1 本（`weekly-content-draft` の規則）。2 本目は、1 本目が企画に結ばれた後にもう一度起動する
+- `article-cover` は OpenAI の費用が出る。下書きができたのを確かめてから起動する
+
 ## 2. キーワードを採否する（R2。月〜火）
 
 1. 本番の Strapi の管理画面 → Content Manager → **Keyword** で、`adoption_status` が `candidate` のものを見る（検索ボリューム・検索意図はエージェントが書いている）
@@ -77,7 +91,7 @@ content-planner は、取材が要る見出しに「**R4 の素材が必要**」
    - **`author`**: 必要なら
    - `slug` が記事の内容に合っているか（URL は `/blog/<slug>/`。公開の後に変えると URL が変わる）
 4. 画面右上の **Publish** で公開する
-5. `cover` が空のまま公開しない。`article-cover` がまだ動いていない・失敗したときは、監視アプリのジョブの画面で `article-cover` を「今すぐ実行」してから公開する
+5. `cover` が空のまま公開しない。`article-cover` がまだ動いていない・失敗したときは、監視アプリのジョブの画面で `article-cover` を「手動で起動」してから公開する
 
 > 周のジョブ（`cycle-collect`）を有効にしている場合は、この下書きが監視アプリの改善の周の画面に**記事の項目**として出る。確認項目を入れて OK → 出てきた手順（Strapi で公開）→「実行した」で、システムが `publishedAt` を確かめる。公開そのものは同じく Strapi の管理画面で行う。2026-11-19 時点では `cycle-collect` は無効なので、項目は出ない（上の手順で公開する）。
 
@@ -89,7 +103,10 @@ content-planner は、取材が要る見出しに「**R4 の素材が必要**」
 2. 配信の項目の確認項目（`ops/approval-checklists.yaml` の `deploy`）を入れて OK する
    - Lighthouse の SEO が 1.0（未満なら配信の手順は出ない）
    - 含まれる記事と差分が承認済みのものだけ
-3. OK の後に出るコマンド（`aws sso login`・`aws s3 sync` を 2 回〈`_astro/*` を先に、削除を最後に〉・`aws cloudfront create-invalidation`。バケット名・ディストリビューション ID・dist のパスは埋めてある）を、**画面に出た順のまま**オンプレの端末で実行する。配信用の主体（`comegin-prod-deploy`）を使う。詳しくは `cloud/README.md` の 4.14
+3. オンプレの端末で配信する。どちらか一方で行う。
+   - **スクリプト（推奨）**: `node cloud/deploy-site.mjs --dist <配信の項目に出た dist の絶対パス>`。`dist` の確かめ（開発の接続先・sitemap・canonical・受け口・Cal.com・GA4）→ 要約 → `yes` → ログイン → 同期 → 無効化 → 公開サイトでの確かめまで行い、途中で `yes` を待つ。`--dist` を省くと候補から番号で選べる（項目があるなら監視アプリの写しを選ぶ）
+   - **手で**: OK の後に出るコマンド（`aws sso login`・`aws s3 sync` を 2 回〈`_astro/*` を先に、削除を最後に〉・`aws cloudfront create-invalidation`。バケット名・ディストリビューション ID・dist のパスは埋めてある）を、**画面に出た順のまま**実行する
+   - どちらも配信用の主体（`comegin-prod-deploy`）を使う。詳しくは `cloud/README.md` の 4.14
 4. 「実行した」を押す。システムが、公開サイトで記事の URL が 200 を返し、ビルドの印が一致することを確かめる
 5. **配信の項目は、毎回最後まで閉じる。** OK 済み・実行済み・確かめられなかった（`failed_check`）の配信の項目が残っているあいだ、`published-article-check` は新しい項目を作らない（次の公開がサイトに出なくなる）
    - 確かめられなかったときは理由が出る。直して、同じ項目で「実行した」を押し直す（差し戻さない）
@@ -100,7 +117,7 @@ content-planner は、取材が要る見出しに「**R4 の素材が必要**」
 
 | 症状 | 見るところ | 直し方 |
 |---|---|---|
-| 火・金に下書きが出ない（`weekly-content-draft` が `skipped`） | 監視アプリの実行の要約 | 「承認済みの企画が無い」なら、3 節で企画を承認する（次の火・金に作られる。急ぐならジョブを「今すぐ実行」） |
+| 火・金に下書きが出ない（`weekly-content-draft` が `skipped`） | 監視アプリの実行の要約 | 「承認済みの企画が無い」なら、3 節で企画を承認する（次の火・金に作られる。急ぐなら 1.1 の手順で手で起動） |
 | 下書きが出ない（`success` だが「R4 の素材が無い」「書かずに止まった」） | 実行の要約（足りない素材が書いてある） | R4 が素材を書き足す。急がないなら、その企画を `sent_back` にして、後ろの企画を先に進める |
 | アイキャッチが付かない | `article-cover` の実行の要約 | `skipped`（OpenAI のキー・Strapi の書き込みトークンが無い）は設定を確かめる（`onprem/README.md` の `next-js-prod:openai`・`strapi-tokens`）。`permission_denied` は Strapi の書き込みトークンの権限（Upload の `upload` と Article の `update`。`setup/manual-steps.md` の 7.8） |
 | 公開した翌朝に配信の項目が出ない（`published-article-check` が `skipped`） | 実行の要約 | 古い配信の項目（OK 済み・実行済み・`failed_check`）が残っている。その項目を閉じる（5 節の 5） |
