@@ -3,7 +3,7 @@
 //      main で承認済みになった・PR がマージされたら confirmed、却下・閉じられたら rejected
 //   2. main の承認済みで未適用（applied_at が null）の config_change を manual の項目に
 //   3. 作用のジョブの E-15（trigger が proposal）の CREATED: と targetIds から、article・campaign・code の中身を埋めて awaiting_review に。
-//      失敗・見送り・成果物の無い partial で終わった実行の準備中の項目は failed_check に（差し戻せる。I2）
+//      失敗・見送り・成果物の無い partial／success で終わった実行の準備中の項目は failed_check に（差し戻せる。I2）
 //   4. キーワードの経路の下書き（content-writer の通常の実行）を article の項目に（sourceRef は strapi:article:<documentId>）
 //   5. article-cover の cover-pending・campaign-asset-upload の asset の印を、項目の中身（手順の元）に入れる
 //   6. executed の項目を確かめ（confirmed／failed_check）、確かめ済みの article・code が配信に含まれたら反映を記録する
@@ -192,7 +192,7 @@ function hasArtifacts(run: RunRecord, kind: CycleItemKind): boolean {
 }
 
 const OUTCOME_LABEL: Record<NonNullable<RunRecord["outcome"]>, string> = {
-  success: "成功",
+  success: "成功（成果物なし）",
   failure: "失敗",
   partial: "一部の失敗（成果物なし）",
   skipped: "見送り",
@@ -228,9 +228,14 @@ async function collectActionRuns(
     if (!proposalId || seen.has(`${kind}:${proposalId}`)) continue;
     seen.add(`${kind}:${proposalId}`);
 
-    // 作用のジョブが失敗・見送り・成果物の無い partial で終わったら、準備中の項目を failed_check にする（I2。準備中のまま止めない）。
-    // 差し戻せる。差し戻しても E-13 は項目を持つので、作用のジョブに選び直されない
-    const failed = run.outcome === "failure" || run.outcome === "skipped" || (run.outcome === "partial" && !hasArtifacts(run, kind));
+    // 作用のジョブが失敗・見送り・成果物の無い partial／success で終わったら、準備中の項目を failed_check にする（I2。準備中のまま止めない）。
+    // 差し戻せる。差し戻しても E-13 は項目を持つので、作用のジョブに選び直されない。
+    // success でも成果物（CREATED: の行・code は公開サイトのファイル）が無ければ中身を作れない（エージェントが入力を読めずに
+    // 「何も書かずに止まる」と success で返す。2026-11-19 の PRP-2026-0001）。中身を埋めに進むと、項目が準備中のまま残り画面から差し戻せない
+    const failed =
+      run.outcome === "failure" ||
+      run.outcome === "skipped" ||
+      ((run.outcome === "partial" || run.outcome === "success") && !hasArtifacts(run, kind));
     if (failed) {
       const item = cycles.findItem(kind, proposalId);
       if (item?.state === "preparing") markActionFailed(c, item, run);
