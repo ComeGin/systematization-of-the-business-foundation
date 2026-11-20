@@ -240,6 +240,48 @@
       "sourceType": "github",
       "skillPath": "skills/using-n8n-skills-official/SKILL.md",
       "computedHash": "73cf279da4de724648de5f2cfb1b49aa0ae824c69b4ed6af11ee896bf71d19d4"
+    },
+    "building-livekit-agents": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/building-livekit-agents/SKILL.md",
+      "computedHash": "4fbc5b50eb19c42c79041821a86bafd514c0f8f83cb6b90fd53bf4ad054ac982"
+    },
+    "debugging-livekit-agents": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/debugging-livekit-agents/SKILL.md",
+      "computedHash": "edfdc9ffbc6c63559295d21277cbbcdc9dad096941d5ea7be91a8d12ca67094c"
+    },
+    "operating-livekit-agents": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/operating-livekit-agents/SKILL.md",
+      "computedHash": "c613bfccbb5624d6f45efd849a6bb08e6adb3d023458fcfa181085fb44f646ea"
+    },
+    "reading-livekit-docs": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/reading-livekit-docs/SKILL.md",
+      "computedHash": "458289b552e444db576ce67831e054ade91bce0a6fd7bfe62df036e3f1cbf2fe"
+    },
+    "running-livekit-simulations": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/running-livekit-simulations/SKILL.md",
+      "computedHash": "b4ef075020cf5ecac3f8775be2f4f0607058cdad6c027dd7ba0668852a4c56aa"
+    },
+    "testing-livekit-agents": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/testing-livekit-agents/SKILL.md",
+      "computedHash": "899128103051626aa5872efdb03d4ead8430ce2ed55c02da08c7cc1f42de0b1d"
+    },
+    "writing-livekit-scenarios": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/writing-livekit-scenarios/SKILL.md",
+      "computedHash": "b6094c05889e7d46567398c18e857f5debb7fc3a0a3d07e63cdd302cda9830c1"
     }
   }
 }
