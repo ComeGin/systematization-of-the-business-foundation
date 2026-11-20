@@ -14,6 +14,7 @@ import { type Checklists, ChecklistError, loadChecklists } from "./checklists.js
 import { buildStepsContext, itemStrapiAdminUrl, stepsFor } from "./commands.js";
 import { buildConfirmDeps, confirmExecutedItem } from "./confirm.js";
 import { readProposals } from "./proposals.js";
+import { ITEM_MAKING_JOBS, stageItemBlocked, stageItemSource } from "./stage-guide.js";
 import { type StageRunner, orderStageJobs } from "./stage-runner.js";
 import { countReflection, listRecentItems } from "./reflection.js";
 
@@ -62,6 +63,9 @@ const AWAITING_STATES: readonly CycleItemState[] = ["awaiting_review", "approved
 /** 準備中・OK 待ち（summary の awaiting） */
 const OPEN_STATES: readonly CycleItemState[] = ["preparing", "awaiting_review"];
 
+/** 作成中、または「実行した」の後の確認中（理由の付いていない executed）の項目（進行中） */
+const isInProgress = (item: CycleItem): boolean => item.state === "preparing" || (item.state === "executed" && item.stateReason === null);
+
 /** 確かめられなかった項目、または確認の途中で理由が付いている項目（止まっている） */
 const isStuck = (item: CycleItem): boolean => item.state === "failed_check" || (item.state === "executed" && item.stateReason !== null);
 
@@ -69,7 +73,7 @@ function emptyView(reason: string): CycleView {
   return {
     cycle: null,
     reason,
-    stages: STAGES.map((stage) => ({ stage, status: "not_started", count: 0, jobIds: [] })),
+    stages: STAGES.map((stage) => ({ stage, status: "not_started", count: 0, jobIds: [], itemSource: stageItemSource(stage), itemBlocked: null, jobs: [] })),
     items: [],
     summary: { proposals: 0, reflected: 0, awaiting: 0, rejected: 0, stuck: 0, keywordReflected: 0 },
     previousVerification: [],
@@ -81,6 +85,7 @@ function emptyView(reason: string): CycleView {
  *   done        項目があり、すべて確認済み（confirmed）か差し戻し済み（rejected）。または項目が無いが、後の段階に項目がある
  *   stuck       確かめられなかった項目・理由つきで executed の項目がある
  *   awaiting    OK 待ち・OK 済み（実行待ち）の項目がある
+ *   in_progress 作成中・確認中の項目がある（項目が無くても、その段階のジョブが実行中なら getCycle が in_progress にする）
  *   not_started それ以外
  */
 function stageStatus(stage: CycleStage, items: readonly CycleItem[]): StageStatus {
@@ -92,6 +97,7 @@ function stageStatus(stage: CycleStage, items: readonly CycleItem[]): StageStatu
   if (own.every((item) => item.state === "confirmed" || item.state === "rejected")) return "done";
   if (own.some(isStuck)) return "stuck";
   if (own.some((item) => AWAITING_STATES.includes(item.state))) return "awaiting";
+  if (own.some(isInProgress)) return "in_progress";
   return "not_started";
 }
 
@@ -166,13 +172,36 @@ export class CycleService {
     return {
       cycle,
       reason: warning,
-      stages: STAGES.map((stage) => ({
-        stage,
-        status: stageStatus(stage, items),
-        count: items.filter((item) => item.stage === stage).length,
-        jobIds: stageJobs(stage, jobs).map((job) => job.id),
-        run: this.stageRunner?.state(stage) ?? null,
-      })),
+      stages: STAGES.map((stage) => {
+        const own = stageJobs(stage, jobs);
+        const stageJobRows = own.map((job) => {
+          const last = this.ctx.runs.latestByJob(job.id);
+          return {
+            id: job.id,
+            enabled: job.enabled,
+            makesItems: ITEM_MAKING_JOBS.has(job.id),
+            lastRun: last
+              ? { runId: last.runId, status: last.status, outcome: last.outcome, startedAt: last.startedAt, finishedAt: last.finishedAt, summary: last.summary }
+              : null,
+          };
+        });
+        const run = this.stageRunner?.state(stage) ?? null;
+        let status = stageStatus(stage, items);
+        // 項目がまだ無くても、その段階のジョブが動いていれば進行中（定期実行でも「今すぐ実行」でも）
+        const running = stageJobRows.some((job) => job.lastRun?.status === "running") || Boolean(run && run.finishedAt === null);
+        if (status === "not_started" && running) status = "in_progress";
+        return {
+          stage,
+          status,
+          count: items.filter((item) => item.stage === stage).length,
+          jobIds: own.map((job) => job.id),
+          itemSource: stageItemSource(stage),
+          // cycle-collect が無効かは、段階に関係なく定義全体から見る（⑤ 以外の段階のジョブ一覧には入っていない）
+          itemBlocked: stageItemBlocked(stage, jobs),
+          jobs: stageJobRows,
+          run,
+        };
+      }),
       items: items.map((item) => ({
         ...item,
         checklist: checklists?.[item.kind] ?? [],

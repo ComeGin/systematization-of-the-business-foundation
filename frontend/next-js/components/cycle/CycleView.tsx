@@ -1,5 +1,7 @@
 "use client";
 
+import Alert from "@cloudscape-design/components/alert";
+import Badge from "@cloudscape-design/components/badge";
 import Box from "@cloudscape-design/components/box";
 import Button from "@cloudscape-design/components/button";
 import Container from "@cloudscape-design/components/container";
@@ -24,15 +26,80 @@ import {
   CYCLE_STAGE_STATUS_TYPE,
 } from "@/components/layout/labels";
 import { CycleItemPanel } from "./CycleItemPanel";
-import { RunStageNowButton, StageRunProgress } from "./RunStageNowButton";
+import { OUTCOME_LABEL, RunStageNowButton, StageRunProgress } from "./RunStageNowButton";
 import { CycleStageNav } from "./CycleStageNav";
 import { CycleSummaryHeader } from "./CycleSummaryHeader";
 
 type Item = CycleViewData["items"][number];
+type StageJob = CycleViewData["stages"][number]["jobs"][number];
 
-/** 最初に開く段階: 承認待ちがあればその段階、止まっているものがあればその段階、なければ先頭 */
+const SUMMARY_MAX = 160;
+
+/** ジョブの直近の実行の状態（実行中・成功・一部・失敗・見送り・まだ無い） */
+function lastRunStatus(job: StageJob) {
+  const run = job.lastRun;
+  if (!run) return { type: "stopped" as const, text: "まだ実行していない" };
+  if (run.status === "running") return { type: "in-progress" as const, text: "実行中" };
+  return run.outcome ? OUTCOME_LABEL[run.outcome] : { type: "info" as const, text: "終わった" };
+}
+
+/** ジョブ 1 本の、有効・無効、項目を作るか、直近の実行（時刻・結果・要約・詳細へのリンク） */
+function StageJobRow({ job, description, overview }: { job: StageJob; description: string | null; overview: string | null }) {
+  const follow = useFollow();
+  const run = job.lastRun;
+  const status = lastRunStatus(job);
+  const summary = run?.summary ? (Array.from(run.summary).length > SUMMARY_MAX ? `${Array.from(run.summary).slice(0, SUMMARY_MAX).join("")}…` : run.summary) : null;
+  return (
+    <div>
+      <SpaceBetween size="xs" direction="horizontal" alignItems="center">
+        <Link href={`/jobs/${encodeURIComponent(job.id)}`} onFollow={follow}>
+          {job.id}
+        </Link>
+        {job.enabled ? null : <Badge color="grey">定期実行は無効</Badge>}
+        <Badge color={job.makesItems ? "blue" : "grey"}>{job.makesItems ? "項目を作る" : "項目を作らない"}</Badge>
+      </SpaceBetween>
+      {description ? (
+        <Box variant="small" color="text-body-secondary" display="block">
+          {description}
+        </Box>
+      ) : null}
+      <SpaceBetween size="xs" direction="horizontal" alignItems="center">
+        <Box variant="small">直近の実行:</Box>
+        <StatusIndicator type={status.type}>{status.text}</StatusIndicator>
+        {run ? (
+          <>
+            <Box variant="small" color="text-body-secondary">
+              {formatTime(run.startedAt, "minute")}
+              {run.finishedAt ? ` 〜 ${formatTime(run.finishedAt, "minute")}` : ""}
+            </Box>
+            <Link href={`/runs/${run.runId}`} onFollow={follow} variant="secondary">
+              実行の詳細
+            </Link>
+          </>
+        ) : null}
+      </SpaceBetween>
+      {summary ? (
+        <Box variant="small" color="text-body-secondary" display="block">
+          {summary}
+        </Box>
+      ) : null}
+      {overview ? (
+        <ExpandableSection variant="footer" headerText="処理の概要">
+          <span style={{ whiteSpace: "pre-wrap" }}>{overview}</span>
+        </ExpandableSection>
+      ) : null}
+    </div>
+  );
+}
+
+/** 最初に開く段階: 承認待ち → 止まっている → 進行中 → 先頭 */
 function initialStage(stages: CycleViewData["stages"]): CycleStage | null {
-  return (stages.find((s) => s.status === "awaiting") ?? stages.find((s) => s.status === "stuck") ?? stages[0])?.stage ?? null;
+  return (
+    stages.find((s) => s.status === "awaiting") ??
+    stages.find((s) => s.status === "stuck") ??
+    stages.find((s) => s.status === "in_progress") ??
+    stages[0]
+  )?.stage ?? null;
 }
 
 /** 右: 選んだ段階の概要（その段階のジョブが何を作るか。ジョブ詳細へのリンク。今の周では段階の「今すぐ実行」と進み具合）と、項目の一覧 */
@@ -44,6 +111,7 @@ function StagePanel({
   selectedId,
   onSelectItem,
   current,
+  collectBlocked,
 }: {
   stage: CycleStage;
   stageInfo: CycleViewData["stages"][number];
@@ -53,9 +121,14 @@ function StagePanel({
   onSelectItem: (itemId: string | null) => void;
   /** 今の周のページ。段階の「今すぐ実行」はここだけに出す（過去の周の画面から今のジョブを起動させない） */
   current: boolean;
+  /** cycle-collect が無効（「作成中」の項目が進まない） */
+  collectBlocked: boolean;
 }) {
-  const follow = useFollow();
-  const stageJobs = stageInfo.jobIds.map((id) => ({ id, definition: jobs.find((job) => job.id === id) ?? null }));
+  const stageJobs = stageInfo.jobIds.map((id) => ({
+    id,
+    definition: jobs.find((job) => job.id === id) ?? null,
+    info: stageInfo.jobs.find((job) => job.id === id) ?? { id, enabled: false, makesItems: false, lastRun: null },
+  }));
   const selected = items.find((item) => item.itemId === selectedId) ?? null;
 
   return (
@@ -84,29 +157,26 @@ function StagePanel({
             <StageRunProgress run={stageInfo.run} />
           </div>
         ) : null}
-        {stageJobs.length === 0 ? (
-          <Box color="text-body-secondary">この段階に結びつく定期実行のジョブはありません（人が行う段階）</Box>
-        ) : (
-          <SpaceBetween size="s">
-            {stageJobs.map(({ id, definition }) => (
-              <div key={id}>
-                <Link href={`/jobs/${encodeURIComponent(id)}`} onFollow={follow}>
-                  {id}
-                </Link>
-                {definition?.description ? (
-                  <Box variant="small" color="text-body-secondary" display="block">
-                    {definition.description}
-                  </Box>
-                ) : null}
-                {definition?.overview ? (
-                  <ExpandableSection variant="footer" headerText="処理の概要">
-                    <span style={{ whiteSpace: "pre-wrap" }}>{definition.overview}</span>
-                  </ExpandableSection>
-                ) : null}
-              </div>
-            ))}
-          </SpaceBetween>
-        )}
+        <SpaceBetween size="m">
+          <div>
+            <Box variant="awsui-key-label">この段階の項目を作るもの</Box>
+            <Box variant="p">{stageInfo.itemSource}</Box>
+          </div>
+          {stageInfo.itemBlocked ? (
+            <Alert type="warning" header="項目が作られない・進まない">
+              {stageInfo.itemBlocked}
+            </Alert>
+          ) : null}
+          {stageJobs.length === 0 ? (
+            <Box color="text-body-secondary">この段階に結びつく定期実行のジョブはありません（人が行う段階）</Box>
+          ) : (
+            <SpaceBetween size="m">
+              {stageJobs.map(({ id, definition, info }) => (
+                <StageJobRow key={id} job={info} description={definition?.description ?? null} overview={definition?.overview ?? null} />
+              ))}
+            </SpaceBetween>
+          )}
+        </SpaceBetween>
       </Container>
 
       <Table
@@ -121,7 +191,11 @@ function StagePanel({
           selectionGroupLabel: "項目の選択",
           itemSelectionLabel: ({ selectedItems }, item) => `${item.title}${selectedItems.includes(item) ? "（選択中）" : ""}`,
         }}
-        empty="この段階の項目はまだありません"
+        empty={
+          <Box color="text-body-secondary" textAlign="center">
+            この周のこの段階の項目は 0 件。{stageInfo.itemBlocked ?? "ジョブが成功しても、上の「この段階の項目を作るもの」に当たらなければ項目は増えない（結果はジョブの直近の実行で見る）。"}
+          </Box>
+        }
         columnDefinitions={[
           {
             id: "title",
@@ -155,7 +229,7 @@ function StagePanel({
         wrapLines
       />
 
-      {selected ? <CycleItemPanel key={`${selected.itemId}:${selected.updatedAt}`} item={selected} /> : null}
+      {selected ? <CycleItemPanel key={`${selected.itemId}:${selected.updatedAt}`} item={selected} collectBlocked={collectBlocked} /> : null}
     </SpaceBetween>
   );
 }
@@ -204,6 +278,7 @@ export function CycleView({
               selectedId={selectedId}
               onSelectItem={setSelectedId}
               current={current}
+              collectBlocked={view.stages.some((entry) => entry.stage === "publish" && entry.itemBlocked !== null)}
             />
           </Grid>
         ) : null}
