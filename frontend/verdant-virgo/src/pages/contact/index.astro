@@ -35,10 +35,15 @@ const breadcrumb = contact.breadcrumb.slice(1).map((crumb) => ({ ...crumb }));
     </div>
   </PageIntro>
 
-  {/* 6-3 の本文の下: 業務棚卸しの内容（Desktop 2 列 ×2 段、Mobile 1 列）と合計の 1 行 */}
-  <Section class="pt-0 pb-0 md:pt-0 md:pb-0">
+  {/* 6-3 の本文の下: ご契約前の現場訪問の内容（見出し h2 と導入 1 文、Desktop 2 列 ×2 段、Mobile 1 列）と合計の 1 行。
+      2026-11-20: 無料相談（オンライン）と取り違えないよう、見出しと導入を足した（カードの見出しは h3） */}
+  <Section class="pt-0 pb-0 md:pt-0 md:pb-0" labelledby="contact-visit">
+    <div class="mb-4 flex max-w-[720px] flex-col gap-2 md:mb-8">
+      <h2 id="contact-visit" class="type-h3 text-text-heading">{inventory.heading}</h2>
+      <p class="type-body phrase text-text-body">{inventory.lead}</p>
+    </div>
     <div class="grid gap-4 md:grid-cols-2 md:gap-8">
-      {inventory.items.map((item) => <InventoryCard duration={item.duration} title={item.title} body={item.body} />)}
+      {inventory.items.map((item) => <InventoryCard title={item.title} body={item.body} />)}
     </div>
     <p class="type-body mt-4 text-text-body">{inventory.total}</p>
   </Section>
