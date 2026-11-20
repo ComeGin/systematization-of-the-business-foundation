@@ -1,4 +1,4 @@
-// 包むスクリプト（cloud/deploy.mjs・cloud/images/build-push.mjs・onprem/build.mjs）が使う、本物のコマンドの実行と、直接実行かどうかの判定。
+// 包むスクリプト（cloud/deploy.mjs・cloud/deploy-site.mjs・cloud/images/build-push.mjs・onprem/build.mjs）が使う、本物のコマンドの実行と、直接実行かどうかの判定。
 // テストはここを使わず、run を偽物に差し替える。run の形は `(cmd, args, { cwd, inherit, env }) => Promise<string>`。
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";

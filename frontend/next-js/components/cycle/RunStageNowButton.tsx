@@ -16,7 +16,7 @@ import { runStageNow } from "./cycle-api";
 
 type JobState = CycleStageRun["jobs"][number];
 
-const OUTCOME_LABEL: Record<NonNullable<JobState["outcome"]>, { type: StatusIndicatorProps.Type; text: string }> = {
+export const OUTCOME_LABEL: Record<NonNullable<JobState["outcome"]>, { type: StatusIndicatorProps.Type; text: string }> = {
   success: { type: "success", text: "成功" },
   partial: { type: "warning", text: "一部" },
   failure: { type: "error", text: "失敗" },

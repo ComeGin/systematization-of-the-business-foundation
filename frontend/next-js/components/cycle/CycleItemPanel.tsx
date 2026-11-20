@@ -50,6 +50,24 @@ function notApprovableReason(item: Item): string {
   return "この項目には OK を出せない（中身がまだ無いか、配信の条件を満たしていない）。";
 }
 
+/** 「作成中」の項目を作る作用のジョブ（engine.ts の openPreparingItem。kind ごと） */
+const PREPARING_JOB: Partial<Record<Item["kind"], string>> = {
+  article: "cycle-apply-content",
+  campaign: "cycle-campaign",
+  code: "cycle-apply-code",
+};
+
+/** 「作成中」の項目が、次に何で進むか（cycle-collect が無効なら進まないことも書く） */
+function preparingNote(item: Item, collectBlocked: boolean): string {
+  const job = PREPARING_JOB[item.kind] ?? "作用のジョブ";
+  const flow =
+    `${job} が起動したときに作った項目。${job} が終わった後、cycle-collect が次に動いたときに中身を入れて「承認待ち」にする` +
+    "（成果物が無い・失敗・見送りなら「確認できなかった」にする）。";
+  return collectBlocked
+    ? `${flow}いまは cycle-collect が無効なので、このままでは進まない。⑤ 公開・送信の「今すぐ実行」で cycle-collect を動かすか、要らない項目なら差し戻す。${job} の結果は、⑥・③ の段階のジョブの直近の実行で見られる。`
+    : `${flow}cycle-collect は毎日の定期実行で動く（急ぐなら ⑤ 公開・送信の「今すぐ実行」）。`;
+}
+
 /** 手順を出す状態（OK の後）。それ以前は、OK の前に行う手順（アイキャッチを表紙に結ぶ）があるときだけ出す */
 const STEP_STATES: ReadonlySet<Item["state"]> = new Set(["approved", "executed", "failed_check", "confirmed"]);
 const PRE_APPROVAL_STATES: ReadonlySet<Item["state"]> = new Set(["preparing", "awaiting_review"]);
@@ -59,7 +77,7 @@ const PRE_APPROVAL_STATES: ReadonlySet<Item["state"]> = new Set(["preparing", "a
  * OK の後の手順（コマンドはコピーできる）と「実行した」・確かめた結果を出す。
  * 親が key に itemId と updatedAt を渡す（項目の中身が差し替わったら、チェックを入れ直す）。
  */
-export function CycleItemPanel({ item }: { item: Item }) {
+export function CycleItemPanel({ item, collectBlocked = false }: { item: Item; collectBlocked?: boolean }) {
   const router = useRouter();
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState<keyof typeof ACTION_LABEL | null>(null);
@@ -145,6 +163,12 @@ export function CycleItemPanel({ item }: { item: Item }) {
         {item.stateReason ? (
           <Alert type={item.state === "failed_check" ? "error" : "info"} header={CYCLE_ITEM_STATE_LABEL[item.state]}>
             {item.stateReason}
+          </Alert>
+        ) : null}
+
+        {item.state === "preparing" ? (
+          <Alert type={collectBlocked ? "warning" : "info"} header="作成中（次に進むまで）">
+            {preparingNote(item, collectBlocked)}
           </Alert>
         ) : null}
 

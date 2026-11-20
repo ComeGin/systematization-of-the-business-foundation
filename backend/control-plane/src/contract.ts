@@ -458,10 +458,23 @@ export interface CycleView {
   /** 7 段階すべて（collect → deploy の順）。count はその段階の項目の数。jobIds は定期実行の定義にある、その段階のジョブの id */
   stages: {
     stage: CycleStage;
-    status: "done" | "awaiting" | "not_started" | "stuck";
+    /** in_progress は「作成中・確認中の項目がある、またはその段階のジョブが実行中」（2026-11-20） */
+    status: "done" | "awaiting" | "in_progress" | "not_started" | "stuck";
     count: number;
     /** その段階のジョブの id。並びは「今すぐ実行」で起動する順（after の依存 → 定期実行の時刻 → id） */
     jobIds: string[];
+    /** この段階の項目を、どのジョブがいつ作るか（段階ごとに決まった説明。2026-11-20） */
+    itemSource: string;
+    /** 項目が作られない・「作成中」から進まない理由（cycle-collect が無効など）。無ければ null */
+    itemBlocked: string | null;
+    /** その段階のジョブ（jobIds と同じ順）の有効・無効と、直近の実行（定期・手動を問わない。周をまたぐ） */
+    jobs: {
+      id: string;
+      enabled: boolean;
+      /** この段階の項目を作るジョブか（作らないジョブの結果は、実行の記録と E-12 に残る） */
+      makesItems: boolean;
+      lastRun: Pick<RunRecord, "runId" | "status" | "outcome" | "startedAt" | "finishedAt" | "summary"> | null;
+    }[];
     /** 「今すぐ実行」の直近の実行（実行中・終わったもの。監視アプリを起動し直すと消える）。無ければ null か欠ける */
     run?: CycleStageRun | null;
   }[];
