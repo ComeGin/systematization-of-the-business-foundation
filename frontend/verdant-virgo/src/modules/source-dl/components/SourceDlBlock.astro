@@ -10,7 +10,8 @@
 import { ExternalLink } from 'lucide-react';
 import { CTAButton } from '@/modules/marketing-ui';
 import type { CtaId, CtaRole } from '@/modules/site-content/cta';
-import { SOURCE_REPO_URL, SOURCE_ZIP_URL } from '@/modules/site-content/nav';
+import { SOURCE_REPO_URL } from '@/modules/site-content/nav';
+import { resolveSourceZipUrl } from '../lib/release';
 import { NewTabNotice } from '@/modules/a11y';
 import { NEW_TAB_NOTICE } from '@/modules/site-content/a11y';
 
@@ -33,6 +34,8 @@ interface Props {
 const { ctaId, title, body, buttonLabel, note, repositoryLinkLabel, ctaRole, class: className } = Astro.props;
 // ボタンの下の注記の id。CTA の aria-describedby で結び、押すと別のタブでダウンロードが始まり無料相談へ移ることを伝える（新しい文言を足さない）
 const noteId = `${ctaId}-note`;
+// ボタンの href（JS が動かないときにそのまま開く zip）。公開リポジトリの最新リリースから、ビルドのときに決める（lib/release.ts。2026-11-21）
+const zipUrl = await resolveSourceZipUrl();
 ---
 
 <section
@@ -61,7 +64,7 @@ const noteId = `${ctaId}-note`;
     }
   </div>
   <div class="mt-6 grid gap-3 md:mt-0">
-    <CTAButton ctaId={ctaId} ctaRole={ctaRole} href={SOURCE_ZIP_URL} variant="outline" size="lg" fullWidth icon="download" describedBy={noteId}>
+    <CTAButton ctaId={ctaId} ctaRole={ctaRole} href={zipUrl} variant="outline" size="lg" fullWidth icon="download" describedBy={noteId}>
       {buttonLabel}
     </CTAButton>
     <p id={noteId} class="phrase type-small text-text-muted">{note}</p>

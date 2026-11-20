@@ -1210,6 +1210,15 @@ dig +short stats.comegin.com
 
 **この節の手順 1〜5 は `node cloud/deploy-site.mjs` が 1 本で行う（2026-11-19）。** 人がオンプレの端末で実行する（Claude Code の実行環境では実行しない）。
 
+**監視アプリの配信の項目を待たずに配るときは、先に `node cloud/build-site.mjs` で本番用にビルドする（2026-11-21）。** 下の「ビルドの前提」を 1 本で守るためのもの。
+
+- 前提を確かめる: チェックアウト（`SITE_BUILD_CHECKOUT`。空なら `CONTROL_MAIN_CHECKOUT`）が作業ツリーと重ならない・`frontend/verdant-virgo/.env.production` がある（中身は読まない）・同じチェックアウトで astro・lhci が動いていない（動いていれば止める）。JST 0〜8 時（監視アプリの夜のジョブの時間帯）は `yes` を待つ
+- `git fetch` して、HEAD が `origin/main` と違えば、未コミットの変更が無いことを確かめて `yes` で `checkout --detach origin/main`
+- `yes` で `pnpm install --frozen-lockfile`・`pnpm build`。夜のビルド（`published-article-check`）と同じく `BUILD_COMMIT_SHA`（HEAD）を渡すので、`dist/_build.json` が入る（2 本目の同期の `--delete` で公開中の `_build.json` を消さない）。環境変数は許可リスト（`PATH`・`HOME`・プロキシなど）だけを渡し、端末に export された開発の値が `.env.production` より優先されないようにする
+- できた `dist` を `deploy-site.mjs` と同じ手順 2-0〜2-5 で確かめ、`_build.json` の commit が HEAD と同じことも確かめる。通れば `<CONTROL_DATA_DIR>/deploy-manual/<コミット 12 桁>-<UTC の日時>/dist` に写す（配るまでの間に夜のジョブがチェックアウトの `dist/` を作り直しても中身が変わらないように。新しい 3 つだけ残す）
+- 最後に `node cloud/deploy-site.mjs --dist <写した dist>` を出し、`yes` ならそのまま起動する。`deploy-site.mjs` を引数なしで実行したときも、この写しが候補に出る（監視アプリの写しの次）
+- `--check` は確かめるだけ（`git fetch` だけ。ビルドしない）。Lighthouse は測らない（夜のビルドの `pnpm lh` と違う）。手で配っても監視アプリの「最後に確かめた配信」は進まないので、次の 00:00 の `published-article-check` が同じ内容の配信の項目を作ることがある（そのまま確かめて閉じてよい）
+
 - 配る `dist` は候補から番号で選ぶ（監視アプリの写し〈新しい順〉→ main のチェックアウトの `dist`）か、`--dist <絶対パス>` で指定する。**監視アプリの配信の項目があるなら、項目に出た `dist`（監視アプリの写し）を配る。** 項目の「実行した」は公開サイトの `/_build.json` のコミットで確かめるが、`_build.json` は夜のビルドの `dist` にだけ入る。手でビルドした `dist` を配ると、2 本目の同期の `--delete` で公開中の `_build.json` が消え、項目を確かめられなくなる（スクリプトは警告して `yes` を待つ）
 - 値は `prod.conf` から読む（`PUBLIC_SITE_URL`・`CALCOM_LINK`・`GA4_MEASUREMENT_ID`・`SITE_BUILD_CHECKOUT`〈空なら `CONTROL_MAIN_CHECKOUT`〉・`CONTROL_DATA_DIR`・`CONTROL_DEPLOY_*`）。バケット名とディストリビューション ID が `prod.conf` に無ければ、管理者のプロファイル（`--admin-profile`。既定 `comegin-prod-admin`）で手順 1 の出力を読む
 - 手順 2-0〜2-5 を確かめ、通らなければ止める。main のチェックアウトの `dist` を選び、チェックアウトが `origin/main` と違うか `dist` が古いときだけ、`checkout --detach origin/main` と `pnpm install --frozen-lockfile`・`pnpm build` を `yes` で行える（夜のジョブが同じチェックアウトを使う 0〜8 時は避ける）
