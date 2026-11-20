@@ -19,12 +19,8 @@ const REPOSITORY =
   "https://github.com/kamegin4-aws/systematization-of-the-business-foundation";
 export const SOURCE_REPO_URL: string | null = REPOSITORY;
 
-/**
- * 「ソースコードを無料 DL」を押したときにダウンロードさせる zip（GitHub のタグのアーカイブ）。2026-10-14 にユーザーが決めた。
- * 押すと別のタブでこの zip を開き（GitHub が添付ファイルとして返すのでダウンロードが始まる）、元のタブは無料相談（/contact）へ移る。
- * 動きは source-dl モジュール。新しいタグを切ったら、ここを差し替える。
- */
-export const SOURCE_ZIP_URL = `${REPOSITORY}/archive/refs/tags/test-v0.1.zip`;
+// 「ソースコードを無料 DL」でダウンロードさせる zip は、2026-11-21 から公開リポジトリの最新リリースの Assets の zip を
+// ビルドのときに読んで決める（source-dl モジュールの lib/release.ts）。それまではここにタグ test-v0.1 のアーカイブを決め打ちしていた。
 
 /** ヘッダーのナビ（§1.3。Mobile の Sheet のリンク 4 つも同じ） */
 export const headerNav: readonly NavLink[] = [

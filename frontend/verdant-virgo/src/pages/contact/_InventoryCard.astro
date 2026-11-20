@@ -1,20 +1,18 @@
 ---
 // 無料相談の「業務棚卸しの内容」の 1 枚（01-content-spec.md §4.6 の 6-3）。
 // Figma では手組みのカード（42:132）で、実装では 1 つの部品にする（03-handoff.md §0.3）。
-// 所要時間は role/text-heading の H3 相当、名前は Card Title、説明は本文（Body・role/text-body）。
-// 見出しは h2（ページの h1 の直下に置くため。見た目は Card Title のまま。1.3.1）。
+// 名前は Card Title、説明は本文（Body・role/text-body）。所要時間は 2026-11-20 に外した（企業の規模や業務の量で変わるため）。
+// 見出しは h3（2026-11-20 に h2 の「ご契約の前に、現場に伺います」の下へ移した。見た目は Card Title のまま。1.3.1）。
 // ファイル名の先頭の _ でページにならない（Astro のルーティングの対象外）。
 interface Props {
-  duration: string;
   title: string;
   body: string;
 }
 
-const { duration, title, body } = Astro.props;
+const { title, body } = Astro.props;
 ---
 
 <article class="flex flex-col items-start gap-2 rounded-md border border-border bg-surface p-6">
-  <p class="type-h3 text-text-heading">{duration}</p>
-  <h2 class="type-card-title text-text-heading">{title}</h2>
+  <h3 class="type-card-title text-text-heading">{title}</h3>
   <p class="type-body phrase text-text-body">{body}</p>
 </article>

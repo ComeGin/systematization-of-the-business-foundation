@@ -16,7 +16,7 @@ import { open } from "./axe";
 import { BASE_URL, distRoutes } from "./routes";
 import { VALIDATION } from "../../src/modules/forms/lib/messages";
 import { blogIndex } from "../../src/modules/site-content/blog";
-import { SOURCE_ZIP_URL } from "../../src/modules/site-content/nav";
+import { isSourceZipUrl } from "../../src/modules/source-dl/lib/release";
 
 // 入力目的のある欄（1.3.5）。tel の欄を足したら tel も足す
 const AUTOCOMPLETE: Record<string, string> = {
@@ -238,7 +238,8 @@ test.describe("無料 DL の CTA（ブログ）", () => {
         await expect(block.locator("form, input")).toHaveCount(0);
         await expect(block.getByRole("heading", { level: 2 })).toHaveText(blogIndex.sourceDownload.copy.title);
         const cta = block.getByRole("link", { name: blogIndex.sourceDownload.buttonLabel });
-        await expect(cta).toHaveAttribute("href", SOURCE_ZIP_URL);
+        // zip はビルドのときに最新のリリースから決まる（2026-11-21）。決まった値ではなく形を確かめる
+        expect(isSourceZipUrl((await cta.getAttribute("href")) ?? "")).toBe(true);
         await expect(cta).toHaveAttribute("data-cta-id", ctaId);
         await expect(cta).toHaveAttribute("data-cta-type", "source_dl");
         await expect(cta).toHaveAccessibleDescription(blogIndex.sourceDownload.note);
@@ -248,12 +249,15 @@ test.describe("無料 DL の CTA（ブログ）", () => {
         await recordWindowOpen(page);
         const path = route();
         await open(page, path);
-        await page.locator("#source-dl").getByRole("link", { name: blogIndex.sourceDownload.buttonLabel }).click();
+        const cta = page.locator("#source-dl").getByRole("link", { name: blogIndex.sourceDownload.buttonLabel });
+        const zipUrl = (await cta.getAttribute("href")) ?? "";
+        expect(isSourceZipUrl(zipUrl)).toBe(true);
+        await cta.click();
         await page.waitForURL((url) => url.pathname.startsWith("/contact"), { waitUntil: "commit" });
         const url = new URL(page.url());
         expect(url.searchParams.get("cta")).toBe(ctaId);
         expect(url.searchParams.get("from")).toBe(path);
-        expect(await openedCalls(page)).toEqual([[SOURCE_ZIP_URL, "_blank", "noopener"]]);
+        expect(await openedCalls(page)).toEqual([[zipUrl, "_blank", "noopener"]]);
       });
     }
   });
@@ -264,9 +268,8 @@ test.describe("無料 DL の CTA（ブログ）", () => {
       try {
         const page = await context.newPage();
         await page.goto("/blog/");
-        await expect(
-          page.locator("#source-dl").getByRole("link", { name: blogIndex.sourceDownload.buttonLabel }),
-        ).toHaveAttribute("href", SOURCE_ZIP_URL);
+        const href = await page.locator("#source-dl").getByRole("link", { name: blogIndex.sourceDownload.buttonLabel }).getAttribute("href");
+        expect(isSourceZipUrl(href ?? "")).toBe(true);
       } finally {
         await context.close();
       }

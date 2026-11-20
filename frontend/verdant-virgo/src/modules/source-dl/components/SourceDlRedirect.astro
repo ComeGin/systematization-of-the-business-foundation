@@ -1,11 +1,19 @@
 ---
 // 「ソースコードを無料 DL」の CTA の動き（zip のダウンロード ＋ 無料相談へ遷移）の差し込み口。BaseLayout の <body> の末尾に置く（props なし）。
 // 実体は lib/redirect.ts。同意（Cookie）とは関係なく動かす（計測ではないため）。
+// zip の URL はビルドのときに最新のリリースから決め（lib/release.ts。2026-11-21）、data 属性でスクリプトに渡す
+// （スクリプトから release.ts を import すると、GitHub を読む処理がブラウザに入るため）。
+import { resolveSourceZipUrl } from '../lib/release';
+
+const zipUrl = await resolveSourceZipUrl();
 ---
 
+<div id="source-dl-config" data-zip-url={zipUrl} hidden></div>
+
 <script>
-  import { SOURCE_ZIP_URL } from '@/modules/site-content/nav';
   import { installSourceDlRedirect } from '../lib/redirect';
 
-  installSourceDlRedirect(SOURCE_ZIP_URL);
+  const zipUrl = document.getElementById('source-dl-config')?.dataset.zipUrl;
+  if (zipUrl) installSourceDlRedirect(zipUrl);
+  else console.error('[source-dl] ダウンロードの zip の URL がありません（#source-dl-config）');
 </script>

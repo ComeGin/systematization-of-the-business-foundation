@@ -12,7 +12,8 @@
 // 手順（この順。4.14 と同じ）:
 //   1. prod.conf を読む（PUBLIC_SITE_URL・CALCOM_LINK・GA4_MEASUREMENT_ID・SITE_BUILD_CHECKOUT〈空なら CONTROL_MAIN_CHECKOUT〉・
 //      CONTROL_DATA_DIR・CONTROL_DEPLOY_*）。秘密値は読んでも使わず、画面に出さない
-//   2. 配る dist を決める。候補は ① 監視アプリが夜のビルドの後に写した dist（<CONTROL_DATA_DIR>/deploy/<名前>/dist。新しい順）と
+//   2. 配る dist を決める。候補は ① 監視アプリが夜のビルドの後に写した dist（<CONTROL_DATA_DIR>/deploy/<名前>/dist。新しい順）、
+//      ①' cloud/build-site.mjs が手でビルドして写した dist（<CONTROL_DATA_DIR>/deploy-manual/<名前>/dist。新しい順。2026-11-21）と
 //      ② main のチェックアウトの dist。監視アプリの配信の項目があるなら ① を選ぶ（下の「_build.json」）
 //   3. 確かめる（4.14 の手順 2-0〜2-5）。チェックアウトが origin/main と違う・dist が古いときは、
 //      ② を選んだ場合だけ「合わせる（checkout --detach origin/main）」「ビルドし直す（pnpm install・pnpm build）」を yes で行える
@@ -47,6 +48,9 @@ const DEFAULT_DEPLOY_PROFILE = "comegin-prod-deploy";
 /** 監視アプリの dist の写しの置き場（published-article-check の DEPLOY_COPIES_DIR・DEPLOY_COPY_NAME と同じ） */
 const DEPLOY_COPIES_DIR = "deploy";
 const DEPLOY_COPY_NAME = /^[0-9a-f]{12}-[0-9a-f]{12}$/;
+/** cloud/build-site.mjs が手でビルドした dist の写しの置き場（build-site.mjs の MANUAL_COPIES_DIR・MANUAL_COPY_NAME と同じ） */
+const MANUAL_COPIES_DIR = "deploy-manual";
+const MANUAL_COPY_NAME = /^[0-9a-f]{12}-\d{8}T\d{6}Z$/;
 const SITE_DIR = "frontend/verdant-virgo";
 /** プロファイル名・バケット名・ディストリビューション ID に許す文字（backend/control-plane/src/cycle/commands.ts の SAFE_TOKEN と同じ） */
 const SAFE_TOKEN = /^[A-Za-z0-9._-]+$/;
@@ -138,17 +142,20 @@ export function distMarks(dist) {
   return { info: readJson(join(dist, "build-info.json")), mark: readJson(join(dist, "_build.json")) };
 }
 
-/** 配る dist の候補。監視アプリの写し（新しい順）→ main のチェックアウトの dist */
+/** 置き場の下の写しの dist（新しい順） */
+function copiesIn(dir, pattern) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && pattern.test(e.name) && existsSync(join(dir, e.name, "dist", "index.html")))
+    .map((e) => join(dir, e.name, "dist"))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+}
+
+/** 配る dist の候補。監視アプリの写し（新しい順）→ build-site.mjs の写し（新しい順）→ main のチェックアウトの dist */
 export function distCandidates(settings) {
   const out = [];
-  const copiesDir = join(settings.dataDir, DEPLOY_COPIES_DIR);
-  if (existsSync(copiesDir)) {
-    const copies = readdirSync(copiesDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && DEPLOY_COPY_NAME.test(e.name) && existsSync(join(copiesDir, e.name, "dist", "index.html")))
-      .map((e) => join(copiesDir, e.name, "dist"))
-      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-    for (const dist of copies) out.push({ dist, kind: "copy" });
-  }
+  for (const dist of copiesIn(join(settings.dataDir, DEPLOY_COPIES_DIR), DEPLOY_COPY_NAME)) out.push({ dist, kind: "copy" });
+  for (const dist of copiesIn(join(settings.dataDir, MANUAL_COPIES_DIR), MANUAL_COPY_NAME)) out.push({ dist, kind: "manual" });
   const checkoutDist = join(settings.checkout, SITE_DIR, "dist");
   if (existsSync(join(checkoutDist, "index.html"))) out.push({ dist: checkoutDist, kind: "checkout" });
   return out;
@@ -156,7 +163,8 @@ export function distCandidates(settings) {
 
 function describeCandidate({ dist, kind }) {
   const { info, mark } = distMarks(dist);
-  const label = kind === "copy" ? "監視アプリの写し（夜のビルド）" : "main のチェックアウトの dist（手でビルドしたもの）";
+  const label =
+    kind === "copy" ? "監視アプリの写し（夜のビルド）" : kind === "manual" ? "build-site.mjs の写し（手でビルドしたもの・_build.json あり）" : "main のチェックアウトの dist（手でビルドしたもの）";
   const commit = info?.commit ? info.commit.slice(0, 7) : "不明";
   const articles = Array.isArray(info?.articles) ? `${info.articles.length} 本` : "不明";
   return `${label}\n     ${dist}\n     コミット ${commit}・ビルド ${info?.builtAt ?? "不明"}・記事 ${articles}・_build.json ${mark ? "あり" : "なし"}`;
@@ -387,11 +395,14 @@ export async function runSiteDeploy(opts, deps) {
   if (opts.dist) {
     const dist = resolve(opts.dist);
     if (!existsSync(join(dist, "index.html"))) throw new Error(`${dist} に index.html が無い（ビルドの済んだ dist を指定する）`);
-    candidate = { dist, kind: dist === join(settings.checkout, SITE_DIR, "dist") ? "checkout" : "copy" };
+    candidate = {
+      dist,
+      kind: dist === join(settings.checkout, SITE_DIR, "dist") ? "checkout" : dist.startsWith(join(settings.dataDir, MANUAL_COPIES_DIR)) ? "manual" : "copy",
+    };
   } else {
     const list = distCandidates(settings);
     if (list.length === 0) {
-      throw new Error(`配る dist が無い（${join(settings.dataDir, DEPLOY_COPIES_DIR)} の写しも、${join(settings.checkout, SITE_DIR, "dist")} も無い）。ビルドしてから実行する（setup/00-setup-overview.md の P12）`);
+      throw new Error(`配る dist が無い（${join(settings.dataDir, DEPLOY_COPIES_DIR)}・${join(settings.dataDir, MANUAL_COPIES_DIR)} の写しも、${join(settings.checkout, SITE_DIR, "dist")} も無い）。node cloud/build-site.mjs でビルドしてから実行する（setup/00-setup-overview.md の P12）`);
     }
     log("\n配る dist の候補（監視アプリの配信の項目があるなら、項目に出た dist〈監視アプリの写し〉を選ぶ）:");
     list.forEach((c, i) => log(`  ${i + 1}. ${describeCandidate(c)}`));
@@ -423,6 +434,8 @@ export async function runSiteDeploy(opts, deps) {
       throw new Error(
         candidate.kind === "copy"
           ? "確かめを通らないため止めた（監視アプリの写しはここでは作り直せない。チェックアウトの dist を選ぶか、次の 00:00 の published-article-check を待つ）"
+          : candidate.kind === "manual"
+          ? "確かめを通らないため止めた（node cloud/build-site.mjs でビルドし直す）"
           : "確かめを通らないため止めた（ビルドのチェックアウトと .env.production を確かめてビルドし直す。cloud/README.md の 4.14）",
       );
     }
