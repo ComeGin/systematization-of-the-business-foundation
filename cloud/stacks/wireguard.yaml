@@ -11,6 +11,7 @@ Description: >-
 #   オンプレの公開鍵は SSM のパラメータ（このスタックが作る）に入れ、EC2 が数分ごとに読んでピアを更新する（インスタンスを置き換えない）。
 # - SG は network.yaml（SG はすべてそこにまとめる流儀）。入ってよい通信は SG と nftables の二重で絞る。
 # - 運用は SSM Session Manager（SSH の鍵と 22 番は使わない）。IMDSv2 必須、ルートボリュームは暗号化。
+#   ロールは Session Manager の最小権限と、WireGuard の 2 つの公開鍵のパラメータだけ（AmazonSSMManagedInstanceCore は付けない。2026-11-23）。
 # 重要: インスタンスが置き換わる（AMI の変更など）と秘密鍵が失われ、公開鍵が変わる。オンプレの wg0.conf の更新が要る（README の 4.2）。
 
 Parameters:
@@ -87,15 +88,18 @@ Resources:
     Properties:
       RoleName: !Sub 'comegin-${EnvName}-wireguard'
       # Description は ASCII と Latin-1 だけ（CreateRole の制約。日本語を入れると作成が失敗する）
-      Description: WireGuard EC2. SSM Session Manager and read/write of the public key parameters only.
+      Description: WireGuard EC2. SSM Session Manager (minimal) and read/write of the public key parameters only.
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal: { Service: ec2.amazonaws.com }
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      # AWS 管理の AmazonSSMManagedInstanceCore は付けない（2026-11-23。livekit-sfu.yaml と同じ形にそろえた。TA-06 の 11 節の未決定事項を閉じた）。
+      # あれは ssm:GetParameter(s) を Resource "*" で許すので、インターネットに開いたこの EC2 から、アカウントのすべての SSM パラメータ
+      # 〈aws/ssm の鍵の SecureString を含む〉が読めてしまう。Session Manager は下のポリシーの最小権限で許す。
+      # この EC2 で使う Systems Manager の機能は Session Manager（start-session と、RDS へのポートフォワード）だけで、
+      # Run Command・State Manager・Patch Manager・Inventory は使っていない（cloud/README.md の 4.2・4.8）。
 
   # インラインポリシーは使わず、管理ポリシーをロールにアタッチする（cfn-guard の IAM_NO_INLINE_POLICY_CHECK）。
   InstancePolicy:
@@ -107,6 +111,19 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          # SSM Session Manager の最小権限（SSM Agent の登録とセッションのチャネル）。livekit-sfu.yaml の SessionManagerOnly と同じ。
+          # 出典: AWS Systems Manager のユーザーガイド「Create a custom IAM role for Session Manager」。セッションの KMS 暗号化と
+          # S3・CloudWatch Logs へのセッションの記録は使わないので、kms:Decrypt・s3・logs は無し。
+          # ec2messages:*（Run Command 用）は付けない。これらの操作はリソースで絞れない（"*" だけ）
+          - Sid: SessionManagerOnly
+            Effect: Allow
+            Action:
+              - ssm:UpdateInstanceInformation
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+            Resource: '*'
           # EC2 の公開鍵を書く（初回の起動時）。秘密鍵は書かない。
           - Sid: WriteServerPublicKey
             Effect: Allow

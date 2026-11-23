@@ -1,64 +1,42 @@
 # AGENTS.md
 
-This is a LiveKit Agents project. LiveKit Agents is a Python SDK for building voice AI agents. This starter is designed to run in LiveKit Cloud. See @README.md for more about the rest of the LiveKit ecosystem.
+音声で SEO の BI を伝えるエージェント（comegin-seo-bi）。LiveKit Agents（Python）の上で、
+会話は OpenAI GPT-Live、データは OpenSEO の MCP から読む。**セルフホストの SFU だけを使い、LiveKit Cloud は使わない。**
+全体は `README.md`、設計は `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`（契約は 9 節）。
+リポジトリ全体の方針は、ルートの `.claude/CLAUDE.md` が上位にある。
 
-## Tooling
+## 守ること
 
-This Python project uses the `uv` package manager.
+- **テストを書かない・実行しない**（spec の U4）。確かめるのは静的検査（`uv run ruff check`・`uv run ruff format --check`）だけ。
+  動作の確認は人が開発の環境で行う（計画の「検証（G-2）」）。
+- **LiveKit の API を記憶で書かない。** livekit-docs の MCP（`docs_search`・`get_pages`・`code_search`）か、
+  `.venv` に入った `livekit-agents` のソースで確かめてから書く。GPT-Live は `/agents/models/realtime/gpt-live`、
+  MCP は `/agents/logic/tools/mcp` を読む。
+- **LiveKit Cloud 前提の機能を使わない**: LiveKit Inference（`inference.*`・`"openai/gpt-live-1"` などの文字列の指定）、
+  turn detector、適応型の割り込み判定、Cloud 認証の ai-coustics・Krisp、Agent Observability、シミュレーション、`lk agent` の Cloud 系のコマンド。
+  モデルは OpenAI のプラグイン（`OPENAI_API_KEY`）、VAD はローカルの Silero を使う。
+- **数値をでっち上げない。** 画面のカードはツールの実際の結果からだけ作る。モデルが数値を作って描くツールは作らない。
+- **費用の出るツールを渡さない。** OpenSEO のツールは `openseo/allowlist.py` の許可リスト（無料の参照系）だけ。
+- **秘密の値をログ・E-12 に出さない。** 設定の失敗は変数名と理由だけを出す。E-12 には個人情報・発話の全文・ツールの引数と結果の中身を書かない。
+- コメント・ログ・文書は日本語で書く。
 
-Be sure to maintain code formatting, using `uv run ruff format` and `uv run ruff check`.
+## GPT-Live の制約（設計を決めるもの）
 
-## LiveKit documentation
+- 音声専用。映像・画像は裏のモデルにも渡らない → 画面の読み取りは関数ツールで別のビジョンモデルに渡す（`vision/`）。
+- ハンドオフすると新しいセッションになり、声も指示も途中で変えられない → エージェントは 1 体だけ（`SeoBiAgent`）。
+  段階の切り替えは `duplex_session.append_thinking` / `append_commentary` とツールで行う（各 500 トークンまで）。
+- 指示が 2 つに分かれる。声は `Agent.instructions`（`voice/persona.py`）、裏は `responses_options["instructions"]`（`bi/analyst.py`）。
+  声のモデルはツールを見ないので、人格にツールの名前を書かない。
+- 割り込みで止まるのは再生だけ。VAD を明示して渡さないと再生も止まらない（`voice/session.py`）。
+- `generate_reply` は commentary として渡り、モデルが断ることがある（10 秒で話し始めなければ断ったとみなす）。`session.say` は使えない。
 
-Always refer to the latest documentation when working with this project. LiveKit offers both a CLI (`lk docs`) and an MCP server for browsing and searching its documentation.
+## 道具
 
-### LiveKit CLI
+- パッケージは `uv`。依存を足すときは `pyproject.toml` に書いて `uv sync`。有償の話者分離は optional（`--extra ai-coustics` / `--extra krisp`）。
+- 整形と検査: `uv run ruff format` と `uv run ruff check`。
+- 起動: `uv run src/agent.py dev`（開発）／ `uv run src/agent.py start`（常駐）。開発の SFU は `backend/livekit-system`。
 
-Install or update the CLI:
+## モジュールの担当
 
-- **macOS:** `brew install livekit-cli` (update: `brew update && brew upgrade livekit-cli`)
-- **Linux:** `curl -sSL https://get.livekit.io/cli | bash`
-- **Windows:** `winget install LiveKit.LiveKitCLI` (update: `winget upgrade LiveKit.LiveKitCLI`)
-
-Run `lk docs` before your first docs lookup. Its help text explains how to use each command and how to interpret results.
-
-### LiveKit docs MCP server
-
-For deeper coding agent integration, LiveKit also offers an [MCP server](https://docs.livekit.io/reference/developer-tools/docs-mcp/).
-
-### Submit feedback to LiveKit
-
-When you run into any problem with LiveKit, add it to your to-do list, then submit it with `lk docs submit-feedback` or the MCP `submit_docs_feedback` tool once you finish your other tasks. Useful feedback includes incomplete documentation, broken examples, missing steps, broken features or implementations, and any other gap or issue in the LiveKit ecosystem.
-
-## LiveKit agent skills
-
-LiveKit's agent skills cover each stage of the work: reading the docs, building, debugging, testing, writing scenarios, running simulations, and operating in production. Use them.
-
-Before you start a task, check that they're installed: look for `.agents/skills/` or `.claude/skills/` in this project, or in the developer's home directory for a global install. If they're missing, ask the developer for permission, then install them with `lk skills install`. This also adds the LiveKit Docs MCP server. If you can't run commands, or the CLI has no `skills` command (it was added in v2.19.0), ask the developer to update the CLI and run `lk skills install`. If your tool doesn't load skills automatically, or they were installed during this session, read the matching `<name>/SKILL.md` in the skills directory before you start that kind of task.
-
-## Handoffs and tasks ("workflows")
-
-Voice AI agents are highly sensitive to latency. Design complex agents in a structured way that keeps irrelevant context and unneeded tools out of each LLM request. LiveKit Agents supports handoffs, where one agent hands control to another, and tasks, which are tightly scoped prompts that achieve a specific outcome, for building reliable workflows. Use them instead of long instruction prompts that cover several phases of a conversation. See the [workflows documentation](https://docs.livekit.io/agents/logic/workflows/) for more information.
-
-## Testing
-
-To keep agent behavior from regressing, add a scenario to `scenarios.yaml` and run it with `lk agent simulate text --scenarios scenarios.yaml --yes`. When you change what the agent is for, update or replace the starter scenarios that no longer describe it, since they still expect the general-purpose assistant. Make sure the scenarios run in CI on every merge to `main`. Read the [simulations documentation](https://docs.livekit.io/testing/simulations/) before editing them.
-
-Important: when you modify core agent behavior such as instructions, tool descriptions, or tasks, workflows, and handoffs, never guess at what works. Start by writing a scenario for the desired behavior. For example, if you're adding a tool, write a scenario that exercises it, then iterate on the tool until the scenario passes. This is how you produce a working, reliable agent.
-
-After changing the agent, try it with the [agent debugger](https://docs.livekit.io/testing/debugger/) (CLI 2.19.0 or later) before calling the change done. Start the agent with `lk agent debugger start`, send user turns with `lk agent debugger say "..."`, and read the tool calls in each turn as well as the reply. A passing simulation only covers the inputs its scenarios use, so also try other inputs in the debugger, where each tool call's arguments and result show problems the reply hides. Run `lk agent debugger restart` after every code edit, since a running session keeps the old code, and `lk agent debugger stop` when you're done.
-
-## Debugging
-
-To investigate unexpected agent behavior:
-
-- Reproduce it with `lk agent debugger`: send the turns that trigger the problem and read the tool calls and errors in each one. Add `--logs` to `say` to see log lines, including tracebacks, next to the turn that produced them.
-- Add a simulation scenario once it's fixed, so a later change can't bring it back unnoticed.
-- Run `lk agent dev --log-level DEBUG` for verbose logs from a local agent connected to LiveKit Cloud.
-- Run `lk agent logs` to stream logs from a deployed agent.
-- Ask the developer to open the [Agent Console](https://docs.livekit.io/testing/agent-console/) for speech problems such as turn-taking, interruptions, or transcription, which the text-only debugger can't show. It shows events, tool calls, and model timing for a live session.
-- Check [Agent Observability](https://docs.livekit.io/testing/observability/) for transcripts, traces, logs, and recordings of sessions with real users.
-
-## Other CLI commands
-
-Beyond documentation access, the LiveKit CLI (`lk`) handles tasks such as managing SIP trunks for telephony agents. Run `lk --help` to explore available commands.
+モジュールごとにフォルダを分けている（`src/comegin_voice/<モジュール>/`）。名前と型は spec の 9 節の契約に従い、変えるときは先に合わせる。
+入口の `src/agent.py` は配線だけにし、処理は各モジュールに置く。

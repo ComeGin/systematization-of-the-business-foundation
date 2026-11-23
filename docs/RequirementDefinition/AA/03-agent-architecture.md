@@ -33,6 +33,8 @@ BA-02 が内製化の対象とした 6 種の外部サービスのうち、**AA 
 
 **起動元は監視アプリに一本化されている**（ADR-17）。管理者の手動の指示に加えて、**観測の日次バッチなどエージェントを使う定期処理も監視アプリが起動する**（TA-07 の 3.5）。ADR-05 は日次のスケジュール起動を n8n に置いていたが、ADR-16 で n8n が AWS に移り、ローカルの Claude Code を起動できなくなったため置き換えた。本番の n8n に残るのは Webhook の受け口と、エージェントを使わない決定論的な定期処理である。
 
+> **（2026-11-21）この一覧の外に、OpenSEO を読む常駐のエージェントが 1 つある**（音声 SEO BI。`backend/livekit-agent`。AA-05 の ADR-33）。Claude Code のエージェント定義ではなく、運用者が監視アプリの `/voice` で接続したときだけ動く。出力は `E-12`（`source: voice`。`created_by: agent/voice-seo-bi`）で、`E-13` は起票しない。OpenSEO の許可リストは 2.4.1。
+
 **状態はすべて `未着手`。** `.claude/agents/` はリポジトリに存在せず、エージェントの定義ファイルは 1 つも書かれていない。上表は AA が定義した To-Be であり、現在動いているエージェントは 1 つも無い。
 
 ### 1.1 一覧の設計上の要点
@@ -93,6 +95,8 @@ OpenSEO の MCP は `ACCESS_LEVEL` を持たず、Streamable HTTP の 1 プロ�
 
 ツール名は Claude Code 上では `mcp__openseo__<ツール名>` の形になる。下表はツール名だけを書く。
 
+> **（2026-11-21）下の表は Claude Code のエージェント定義の許可リストである。** エージェント定義の外から OpenSEO につなぐ音声 SEO BI エージェント（ADR-33）の許可リストは、コードの `openseo/allowlist.py` が正本で、2.4.1 に分けて書く。
+
 | エージェント | 許可するツール | 費用 |
 |---|---|---|
 | 3 本に共通（`seo-auditor` / `keyword-researcher` / `knowledge-scout`） | `whoami` / `list_projects` / `get_project_context` | 発生しない |
@@ -117,6 +121,24 @@ OpenSEO の MCP は `ACCESS_LEVEL` を持たず、Streamable HTTP の 1 プロ�
 - **この許可リストは ADR-03 の「登録しない」をクライアント側に持ち上げたもの**である。サーバ側で登録しない方式より弱い（エージェント定義を書き換えれば外れる）が、**エージェント定義を Git の管理下に置けば、書き換えても正本にならない**（5.3）。
 - **許可リストに無いツールを呼ぶよう指示するスキルがあっても、許可リストが優先する**（7.1「スキルは知識であって権限ではない」）。たとえば `seo-audit` スキルは監査の実行を前提にしているが、`agent/seo-auditor` は結果の参照までしかできない。
 - **1 回の見積もりが 2,000 クレジットを超える調査は、実行前に `R2` の承認を求める**（BA-05）。ツールの引数で上限を指定できるのはランク追跡の実行だけであり、他の調査系では**エージェントの指示に書く約束**にとどまる。最後の歯止めは DataForSEO の前払い残高である（ADR-10）。
+
+### 2.4.1 Claude Code のエージェント定義の外からの接続（音声 SEO BI。2026-11-21 に追加。ADR-33）
+
+**OpenSEO に、Claude Code のエージェント定義（`.claude/agents/`）の外から接続する元が 1 つ増えた。** オンプレに常駐する音声 SEO BI エージェント（`backend/livekit-agent`。LiveKit Agents の Python。AA-01 の 5.6）である。**ADR-10 の決定 1（接続するエージェントを限る）と決定 2（許可リストをエージェント定義で列挙する）の改訂にあたる。**
+
+- **許可リストの正本は、エージェント定義の `tools` ではなく、コードの `backend/livekit-agent/src/comegin_voice/openseo/allowlist.py`** である（`ALLOWED_TOOLS` と、モデルに見せる `MODEL_TOOLS`）。下の表は写しで、食い違ったらコードが正しい。
+- **2 か所で効かせる。** W2（モデルのツール呼び出し）は `mcp.MCPToolset` の `allowed_tools` で、許可リストの外のツールをモデルに見せない。W1（コードの呼び出し）は `openseo/client.py` が、許可リストに無いツールを呼ばずに例外にする。
+- **Git の管理下に置くことで、書き換えても正本にならない**（5.3 と同じ考え方）。許可リストの変更は PR を通し、`main` に入ってから本番のエージェントに置く。
+
+| 区分 | ツール | 費用 |
+|---|---|---|
+| モデルに見せる（11 本） | `get_search_console_performance` / `inspect_urls` / `get_google_analytics_organic_overview` / `get_google_analytics_organic_landing_pages` / `get_google_analytics_page_performance` / `get_google_analytics_traffic_acquisition` / `get_google_analytics_key_events` / `get_google_analytics_audience_breakdown` / `get_google_analytics_measurement_health` / `get_search_opportunities` / `get_project_context` | **発生しない**（GSC・GA4 のツールは DataForSEO を使わない。GA4 の Data API の割り当ては使う） |
+| コードの内部だけ（モデルに見せない） | `list_projects`（セッションの開始時に `comegin.com` の projectId を決める） | 発生しない |
+
+- **2.4 で「誰にも持たせない」とした 3 本（`get_google_analytics_key_events`・`get_google_analytics_audience_breakdown`・`get_search_opportunities`）を、このエージェントにだけ許す。** 2.4 で持たせなかった理由は「`E-12` の指標に使わない」「`seo-auditor` と `analytics-reporter` の境界をまたぐ」で、**どちらも `E-12` の正本の作り方の話**である。このエージェントは対話で読み解くためにだけ使い、`E-12`（`source: voice`）には問い・使ったツール・結論の要約と結果 ID だけを残す（指標の正本にしない）。**キーイベントは CV の正本ではない**（DA-02 の 1.2）。話すときの区別は AA-05 の ADR-33 の未決定事項。
+- **書き込み系（`save_keywords`・`update_project_context`・`create_*`）と、費用の出るツールは載せない。** 参照だけなので、承認ゲート（BA-05）に触れない。
+- **1 セッションの呼び出しは 40 回まで**（コードで数え、超えたらエラーを返す）。GA4 の Data API の割り当てを使い切らないため。
+- **この接続元は 1 節のエージェント一覧に入れない。** Claude Code のエージェント定義ではなく、監視アプリの定期実行からも起動しない（運用者が `/voice` で接続したときだけ、SFU の dispatch で動く）。`E-15`（実行記録）にも残らない。対話の記録は `E-12`（`source: voice`）だけである。
 
 ### 2.5 操作対象: 開発環境と本番の Strapi・Mautic・Chatwoot・Umami・n8n（ADR-15・ADR-16・ADR-17。Umami は ADR-25 で廃止）
 

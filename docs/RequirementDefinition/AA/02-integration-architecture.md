@@ -33,7 +33,7 @@ AA-01 で並べたアプリケーションの**間**を扱う。このファイ�
 
 ## 1. 連携点カタログ
 
-種別の定義。`Webhook` = 発信元がイベント時に HTTP を叩く。`API` = 受信先が能動的に取りに行く。`MCP` = MCP ツール経由の呼び出し。`ファイル` = ファイルシステム経由。`ビルド` = ビルド時に取り込んで成果物に焼き込む。 `Stratum` = 採掘のプロトコル（2026-10-03 に追加。`I-26` だけ）。
+種別の定義。`Webhook` = 発信元がイベント時に HTTP を叩く。`API` = 受信先が能動的に取りに行く。`MCP` = MCP ツール経由の呼び出し。`ファイル` = ファイルシステム経由。`ビルド` = ビルド時に取り込んで成果物に焼き込む。 `Stratum` = 採掘のプロトコル（2026-10-03 に追加。`I-26` だけ）。`WebRTC` = 実時間の音声・映像・データのやり取り（シグナリングは wss、メディアは UDP。2026-11-21 に追加。`I-35` `I-36` だけ）。
 
 | # | 発信元 | 種別 | 受信先 | トリガー | ペイロード（E-ID） | 状態 | 冪等性 | 失敗時の扱い |
 |---|---|---|---|---|---|---|---|---|
@@ -69,6 +69,11 @@ AA-01 で並べたアプリケーションの**間**を扱う。このファイ�
 | I-31 | Chatwoot（エージェントボット。2026-10-11 に追加） | Webhook | faq-bot（Lambda の関数 URL。ADR-26） | 受信箱「Web サイト」のメッセージの作成・選択肢の選択・ウィジェットを開いた（`webwidget_triggered`。2026-10-12 に追加）・担当者のマクロ「解決の確認を送る」（`conversation_updated`。2026-10-12 に追加） | `E-10` | `実装済み`（開発環境で確認。本番は未デプロイ） | 有り（会話の `last_non_activity_message` で送信の要否を決める） | 署名・時刻が違えば 401。faq-bot の失敗は 502 で、メッセージのイベントなら Chatwoot が会話を `open` にする（`webwidget_triggered`・`conversation_updated` では何もせず、一覧・ボタンが出ないだけ）（送り直しは 429・500 のときだけ） |
 | I-32 | faq-bot（2026-10-11 に追加） | API | Chatwoot（ボットのトークン。会話の show・会話の作成〈ウィジェットを開いたときの一覧。2026-10-12 に追加〉・メッセージの作成・ラベル・ステータス） | I-31 の受信 | `E-10` | `実装済み`（同上） | 有り（ラベルは付け替え、ステータスは冪等） | 例外にする（I-31 の失敗として扱われる） |
 | I-33 | faq-bot（2026-10-11 に追加） | API | 公開サイト（`faq.json`。Astro のビルドが生成） | コールドスタートと 10 分ごと | — | `実装済み`（同上） | 有り（読むだけ） | 直前の索引を使い続ける。1 度も取れていなければ I-31 の失敗になる |
+| I-34 | ブラウザ（監視アプリの `/voice`。2026-11-21 に追加。ADR-33） | API | 監視アプリの `/api/livekit/token`（同じオリジン） | 運用者が `/voice` で接続する | —（LiveKit のトークン。identity はセッションのメール、ルームは `voice-<uuid>`、TTL 10 分） | `未配線`（コードはできた。本番で動かしていない） | 無い（呼ぶたびに新しいルームのトークンを出す。副作用は無い） | 監視アプリのセッションが無ければ断る（`guardApiRequest`）。本文に `participant_identity`・`room_name` があるか、`agent_name` が `LIVEKIT_AGENT_NAME` と違えば 400。**SFU が停止中でもトークンは出る**ため、接続の段で失敗し、画面に「SFU が停止中」と出す |
+| I-35 | ブラウザ（`/voice`。2026-11-21 に追加） | WebRTC | SFU（`livekit-server`。AWS の EC2。`rtc.comegin.com:443`） | 運用者が接続している間 | 運用者の音声・画面共有・カメラ（送る）、エージェントの音声・文字起こし・カード（受ける）。**どれも `E-ID` の正本にならない** | `未配線`（同上。本番の SFU は未デプロイ） | — | 停止中は接続できない（画面に出す）。メディアは UDP 50000-60000、届かなければ TCP 7881、TURN（3478/udp・443 の TURN/TLS）の順に落ちる |
+| I-36 | 音声 SEO BI エージェント（オンプレ。2026-11-21 に追加） | WebRTC | SFU（同上） | 常時（ジョブの受け付けを待つ）。dispatch（`agent_name="comegin-seo-bi"`）でルームに入る | 同上（向きが逆） | `未配線`（同上） | — | **SFU が停止中のあいだ、接続を再試行し続ける。ログは出るが異常ではない**（TA-05 の項目 25）。**オンプレから外向きにつなぐ**（AWS からオンプレへ入る線を作らない。ADR-21） |
+| I-37 | 音声 SEO BI エージェント（2026-11-21 に追加） | MCP | **OpenSEO**（`http://127.0.0.1:3001/mcp`） | W1（接続した直後。並列で 5〜6 本）と W2（モデルのツール呼び出し） | `E-12` の材料（GSC・GA4 の集計値。会話とカードに使い、`E-12`〈`source: voice`〉には結果 ID と要約だけを残す） | `未配線`（同上） | 有り（参照系だけ） | **許可リスト（無料の参照系 11 本。正本は `openseo/allowlist.py`）に無いツールは呼ばない。** 1 セッション 40 回まで。OpenSEO が落ちていれば「取得できない」と 1 回だけ伝え、数値を推測しない。プロジェクトが 0 件・複数件なら W1 を出さない |
+| I-38 | 音声 SEO BI エージェント（2026-11-21 に追加） | API | **OpenAI**（GPT-Live の wss、Responses のビジョンの HTTPS。米国） | 会話している間（GPT-Live）／`look_at_shared_screen` が呼ばれたとき（ビジョン） | 運用者の音声、裏のモデルへの指示と事実、画面共有の最新 1 フレーム（JPEG）。**訪問者・顧客の個票を送る経路ではない** | `未配線`（同上） | 無い（同じ問いでも毎回課金される） | 切れたらセッションを閉じる。フレームは保存しない。**越境**（DA-05 の 1.7。ADR-33 のリスク受容） |
 
 ### 1.1 `実装済み` が 5 本しかないことの意味
 
@@ -342,6 +347,22 @@ I-08 / I-11 / I-12 / I-18 の 4 本は、再実行で同じ操作が二重に起
 
 仕様は `docs/superpowers/specs/2026-10-11-faq-bot-design.md`。Captain（Chatwoot の AI）は有償ライセンスが要る（`self_hosted_paid?`）ため使わず、Webhook 型のエージェントボットを自作した（`backend/faq-bot`。本番は Lambda。ADR-26）。回答は FAQ の原文だけで、選び方は文字 2-gram の類似度。**訪問者の発言は Chatwoot の外に残さない**（会話にラベル `faq-answered`・`faq-unmatched`・`faq-handoff` を付けるだけで、件数の集計は `conversation-triage` が行う）。**2026-10-12 に、ウィジェットを開いたときにトップページの FAQ を選択肢で出す機能を足した**（`docs/superpowers/specs/2026-10-12-faq-bot-welcome-design.md`。会話が無いか直前の会話が解決済みのときだけ、ボットが会話を作る）。
 
+### 3.12 音声 SEO BI（I-34〜I-38。2026-11-21 に追加）
+
+仕様は `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`、判断は AA-05 の ADR-33。夜の観測が `E-12` に残した GSC・GA4 の数値を、**運用者が音声で対話して読み解く入口**である。W1（接続した直後のブリーフィング）と W2（質疑）の 2 つを持つ。
+
+| 連携 | 手段 | 前提 |
+|---|---|---|
+| I-34 ブラウザ → 監視アプリ | `app/api/livekit/token/route.ts`。`TokenSource.endpoint` の標準の要求・応答の形（`201` で `{ server_url, participant_token }`）。付与する権限は `roomJoin`・`canPublish`・`canSubscribe`・`canPublishData` | 監視アプリのログイン（Google と許可リスト。ADR-23）。監視アプリの環境変数 `LIVEKIT_URL`・`LIVEKIT_API_KEY`・`LIVEKIT_API_SECRET`・`LIVEKIT_AGENT_NAME` |
+| I-35 ブラウザ ⇄ SFU | LiveKit Components React（`useSession`・`SessionProvider`・`ControlBar`・`RoomAudioRenderer` ほか）。マイクは `echoCancellation: true`・`noiseSuppression: false`・`autoGainControl: false`（抑制はエージェント側で行う） | 本番の SFU が起動していること（人が `node cloud/livekit-sfu.mjs start`）と、DNS（`rtc.comegin.com`・`rtc-turn.comegin.com`） |
+| I-36 エージェント ⇄ SFU | LiveKit Agents（Python）。`agent_name="comegin-seo-bi"` の明示の dispatch | API キーとシークレット（SFU は SSM の SecureString、エージェントはオンプレの環境変数ファイル） |
+| I-37 エージェント → OpenSEO | W1 は MCP の Python SDK の streamable HTTP のクライアント（`openseo/client.py`）、W2 は `mcp.MCPToolset`（`allowed_tools` と `tool_result_resolver`） | OpenSEO が常駐していること（`comegin-openseo`）、本番のプロジェクト（`comegin.com`）と GSC・GA4 の接続（TA-07 の 3.7） |
+| I-38 エージェント → OpenAI | GPT-Live（`openai.realtime.GPTLiveModel`）と Responses（ビジョン） | `OPENAI_API_KEY` |
+
+- **I-ID を振った理由。** I-34〜I-36 と I-38 は `E-ID` の正本を運ばない（同意の受け口〈1.3〉に I-ID を振らなかった前例とは扱いが違う）。それでも振ったのは、**AWS とオンプレをまたぐ線（I-35・I-36）と、国外への送信（I-38）を、この表で棚卸しするため**である（ADR-33 の D13）。
+- **数値の出所は I-37 だけ**である。画面のカードはツールの結果から作り、モデルが数値を作って描く経路は無い（ADR-33 の決定 5）。
+- **改善ループへは `E-12`（`source: voice`）で戻る。** 書くのはエージェント自身（`observability/audit.py`）で、監視アプリの作業場の `docs/audits/voice/` に置く。`proposal-writer` が他の `E-12` と同じく根拠に使う。
+
 ## 4. 着手順の提案
 
 3 節の方針を、依存の少ない順に並べる。BA-01 の「測定可能化の順序」と整合させている。
@@ -361,6 +382,8 @@ I-08 / I-11 / I-12 / I-18 の 4 本は、再実行で同じ操作が二重に起
 | **並行** | **I-22 I-23（OpenSEO の調査）** | プロジェクトの作成／月次予算の設定（ADR-10）。**0 にも公開サイトにも依存しない**（MCP の付け替えは済んだ） | **`CAP-02` と `CAP-16` に手段ができる。** `E-01` の候補と検索ボリューム、競合の把握が、記事を 1 本も公開していない今から始められる |
 
 **（2026-10-03 に追加）収益化（`I-26`〜`I-30`）は番号を振らず、「本システムの完成後」に置く。** 着手の可否を決めるのが配線ではなく**承認ゲート G-1〜G-3（弁護士・税理士・AWS の規約。BA-05）**だからである。依存は **0**（`points-api` を AWS に置くため）と、Amazon SNS（`points-api` が直接通知する。`I-21` の n8n は経由しない）。
+
+**（2026-11-21 に追加）音声 SEO BI（`I-34`〜`I-38`）も番号を振らず、並行に置く。** 依存は、**手順 6（`I-15`。GSC）と GA4 の OpenSEO への接続**（数値が無ければ W1 が空になる）と、**SFU のデプロイと起動（人。`cloud/` と `cloud/livekit-sfu.mjs`）**である。**手順 0 には依存しない**（SFU は ECS・ALB を使わない EC2 で、エージェントと OpenSEO はオンプレ）。これが通ると、`CAP-01` に「人が対話で数値を読み解く」手段ができる（BA-02）。
 
 **手順 0（AWS の 5 システムと ALB。ADR-12 の時点では 3 システム）が、観測系のほぼすべての前提になった。** 本番では、ブラウザ側の連携は 1 本残らず ALB の後ろのシステムに依存する（例外は SaaS の PostHog だけ）。旧版ではこの位置に ngrok の常設トンネルがあった。
 

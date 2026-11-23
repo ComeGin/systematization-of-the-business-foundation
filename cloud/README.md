@@ -10,6 +10,8 @@
 
 **ADR-25（2026-10-06）で、Umami をクラウドから外した。** アクセス解析の正本は GA4（SaaS。Google LLC）にし、クラウドに置くものは無い（`stats.` のホストも無い）。外したものは 6 節。
 
+**ADR-33（2026-11-21）で、音声 SEO BI の SFU（`livekit-server`）を EC2 1 台で足した**（`stacks/livekit-sfu.yaml`。ADR-26 の例外。親のパラメータ `LivekitSfuEnabled` が `true` のときだけ作る。既定は `false`）。常駐させず、**起動と停止は人が `node cloud/livekit-sfu.mjs start|stop` で行う**。エージェントはオンプレ。4.20。
+
 収益化（`points-api`・`I-26`〜`I-30`・`E-19` の S3 Object Lock）は作っていない（本システムの完成後。ポート 3106 とフォルダ名を予約しているだけ）。
 
 **設定スクリプト（`setup/`）・オンプレ（`onprem/`）と合わせた本番の全体の順番と、人が行う作業の一覧は [`setup/00-setup-overview.md`](../setup/00-setup-overview.md)。** この README の 4 節は、その各手順の詳細（コマンドと注意）。**クラウドの設定の手順はこの README にまとめる**（2026-11-02。ユーザーの決定）。設定スクリプトが本番のクラウドで止まったときの操作（AWS のデプロイ・admin-auth・Chatwoot・Mautic）は 7 節。オンプレの本番の手順は `onprem/README.md`。
@@ -41,6 +43,8 @@ cloud/
     services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.17）
     services/consent-api.yaml consent-api（Lambda。VPC の中。ALB のターゲットとターゲットグループを持つ。ADR-26。4.18）
     services/admin-auth.yaml  admin-auth（Lambda 2 つ: 本体〈ALB のターゲット〉と運用〈admin-auth-ops〉。VPC の中。ADR-26。4.19）
+    livekit-sfu.yaml         LiveKit の SFU（EC2 1 台。Auto Scaling グループ〈0〜1 台〉・warm pool〈Stopped〉・ライフサイクルフック・Elastic IP・Route 53 の rtc.・rtc-turn.・インスタンスロール。SG は network.yaml。LivekitSfuEnabled=true のときだけ。ADR-33。4.20）
+  livekit-sfu.mjs            SFU の起動・停止・状態（start|stop|status。--profile・--wait・--yes・--help。希望の台数を 0 と 1 で切り替える。人が実行する。4.20）
   images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）。上流の版の正本は images/<製品>/upstream.json
   images/build-push.mjs      docker build と push の包み。ビルドしたコミットを <タグ>-rev-<コミット> のタグに残す（4.7）
 ```
@@ -125,6 +129,7 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 
 - **固定費（時間課金）が 9 割**（Fargate 33%・Aurora 28%・NAT と IPv4 16%・ALB 5%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $507**（それぞれ ＋$55）。
 - **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $268**（Fargate が無い）。
+- **（2026-11-21。ADR-33）上の表に、音声 SEO BI の SFU（4.20）は入っていない。** `LivekitSfuEnabled=true` にしたときだけ増える。止めているあいだは EBS（ルートボリューム 8 GB）と Elastic IP（パブリック IPv4。月 $3.65 前後）だけ。起動しているあいだは EC2（既定の `t4g.small`）の時間課金と、メディアのインターネットへの転送が加わる。見積もりは未実施（5 節）。AWS の外では、OpenAI の GPT-Live（セッションの時間）と Responses（ビジョン）の従量課金が増える。
 - **CloudFront のフラットレートのプランが使えない場合**（Free Tier の期間のアカウントは購読できない。4.3）、CloudFront 用の WAF の分（$5＋ルール 4＋リクエスト）で月 約 $9 増える。
 - 含めていないもの: 消費税、AWS サポートのプラン、新規アカウントの Free Tier のクレジット（あれば最初の月々から差し引かれる）、オンプレ（Strapi・n8n・監視アプリ・OpenSEO）と外部 SaaS（Anthropic・PostHog・GA4・Cal.com・DataForSEO・Google Workspace）。
 - **下げる余地**（いずれも未適用。判断は R1）: Fargate の Compute Savings Plans（Aurora Serverless v2 にはリザーブドインスタンスが効かない）、Fargate の ARM（Graviton。2 つの公式イメージは arm64 に対応。月 $27 前後下がる。2026-10-26 は x86 のままと決めた）、mautic-cron を 0.25 vCPU・0.5 GB に下げる（実測の後）。インターフェースの VPC エンドポイントで NAT を置き換えるのは、エンドポイント 1 つ × 2 AZ で月 $20 前後かかり、この規模では NAT より高い。
@@ -349,6 +354,7 @@ sudo wg show                                             # interface: wg0 と li
 **運用**:
 
 - ENI は別のリソースで、EC2 に差している。**インスタンスの置き換え（AMI やインスタンスタイプの変更）は、新しい EC2 が同じ ENI を使おうとして「使用中」で失敗し、ロールバックする見込み**（未検証）。意図せず鍵が入れ替わることを防ぐ副作用でもある。意図して置き換えるときは、古い EC2 を手で終了（`aws ec2 terminate-instances`）してから `sam deploy` する。ENI・Elastic IP・経路は引き継がれるので、オンプレの `Endpoint` は変わらない。**新しい EC2 の公開鍵（手順 1）でオンプレの設定を作り直し（`./dev/render-conf.sh ... --force`）、`sudo systemctl restart wg-quick@wg0` する。**
+- **ロールは Session Manager の最小権限だけ**（2026-11-23。`AmazonSSMManagedInstanceCore` を外した。TA-06 の 11 節）。`aws ssm start-session` と RDS へのポートフォワードは使えるが、Run Command（`aws ssm send-command`）・State Manager・Patch Manager は使えない（使わない）。**この変更を含む最初のデプロイのあとに、`aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"` で入れることを確かめる**（入れないときは、Fleet Manager でインスタンスが `Online` か〈SSM Agent が `ssm:UpdateInstanceInformation` を呼べているか〉を見る。トンネルそのものはロールに関係なく動き続ける）。
 - OS の更新: SSM Session Manager で入り、`sudo dnf upgrade --security -y`（スワップがあるので t4g.nano でも足りる）。カーネルが更新されたときは再起動（ENI・Elastic IP・秘密鍵・nftables・systemd のユニットは変わらない。短く止まる）。止まっている間は、オンプレの Strapi・n8n が RDS に届かず、Webhook が欠落する（TA-05 の縮退運転）。
 - 停止（ステータスチェックの失敗）は ops トピックに通知される。システム側の障害は自動復旧する（`WireguardSystemRecoverAlarm`）。トンネルそのもの（`latest handshake` の途絶）の監視は作っていない（5 節）。
 
@@ -1609,6 +1615,64 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - 予約同時実行数（`AdminAuthReservedConcurrency`。既定 5）・タイムアウト（10 秒）・アイドルの判定（60 秒）は暫定値。
 - ターゲットグループの名前は固定（4.18 と同じ注意。置き換えの要る変更は名前を変えてデプロイする）。
 
+### 4.20 LiveKit の SFU（音声 SEO BI。EC2。ADR-33）
+
+2026-11-21 に追加。運用者が監視アプリの `/voice` で音声の SEO BI と話すための WebRTC の SFU（`livekit-server` v1.13.11）と Caddy（`livekit/caddyl4` v2.11.3。どちらもダイジェストで固定）を、**EC2 1 台**で動かす（ADR-26 の例外。設計は TA-06 の 3.4）。テンプレートは `stacks/livekit-sfu.yaml`（親に入れ子。SG は `network.yaml` の `LivekitSfuSecurityGroup`）、起動と停止は `livekit-sfu.mjs`、設定の雛形は `backend/livekit-system/prod/`。エージェントはオンプレ（`onprem/README.md` の「常駐させる（音声 SEO BI エージェント）」）で、SFU へ外向きにつなぐ。仕様は `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`。
+
+**作りの要点**:
+
+- **Auto Scaling グループ（0〜1 台）と warm pool（Stopped・ReuseOnScaleIn）。** 停止はインスタンスを消さずに止め、起動はそれを開始する。EBS が残るので、Caddy の TLS の証明書を毎回取り直さない。
+- **`DesiredCapacity` はテンプレートに書かない。** 書くと、`node cloud/deploy.mjs` のたびに手で決めた値が戻る。**SFU を使っているあいだにデプロイしても止まらない**のはこのため。
+- **起動のたびの処理は oneshot の `comegin-livekit-boot`。** user data は最初の 1 回しか動かない。行き先が warm pool なら `CONTINUE` だけを返し、InService なら EIP の付け替え → SSM → `livekit.yaml`・`caddy.yaml` を作る → サービスの起動 → 7880 の応答を待つ → `CONTINUE`。**600 秒以内に終わらなければ `ABANDON` になり、インスタンスが作り直されて証明書が失われる。** そのため `start` は SSM の値があるかを先に確かめる。
+- **開けるのは 80・443・7881/tcp と 3478・50000-60000/udp だけ。7880 と 22 は開けない**（入るときは SSM Session Manager）。
+- DNS（`rtc.`・`rtc-turn.` の A レコード）と Elastic IP も同じスタックで作る（`edge.yaml` と同じ流儀）。
+
+**人が行うこと**（Claude Code はデプロイも起動もしない）:
+
+1. **デプロイ**: `samconfig.toml` の `parameter_overrides` に `LivekitSfuEnabled=true` を足して、`node cloud/deploy.mjs`（4.2）。既定は `false`（止めている間も EBS と EIP の費用がかかるため）。**作成の直後は、warm pool に止まった EC2 が 1 台ある。**
+2. **API キーとシークレットを SSM の SecureString に入れる。** CloudFormation は SecureString を作れないので、人が入れる。値は 32 文字以上で、人が作る（画面に出さない）。**値をコマンドの引数に直接書かない**（`--value "<値>"` と書くと、シェルの履歴とプロセスの一覧に残る）。
+
+   **A. 一時ファイルで渡す（推奨）**: 値は `file://` で渡し、すぐ消す。
+
+   ```bash
+   umask 077                                    # 一時ファイルを本人だけが読める権限で作る
+   KEY_FILE=$(mktemp) SECRET_FILE=$(mktemp)
+   openssl rand -base64 48 | tr -d '/+=\n' | cut -c1-40 > "$KEY_FILE"      # 例: 40 文字の英数字
+   openssl rand -base64 48 | tr -d '/+=\n' | cut -c1-40 > "$SECRET_FILE"
+   aws ssm put-parameter --region ap-northeast-1 --type SecureString --name /comegin/prod/livekit/api-key    --value "file://$KEY_FILE"
+   aws ssm put-parameter --region ap-northeast-1 --type SecureString --name /comegin/prod/livekit/api-secret --value "file://$SECRET_FILE"
+   # 監視アプリとエージェントの環境変数のファイルに同じ値を写してから（エディターで開いて貼る。cat で画面に出さない）、すぐ消す
+   rm -f "$KEY_FILE" "$SECRET_FILE"; unset KEY_FILE SECRET_FILE
+   ```
+
+   **B. `read -rs` で読んで渡す**: 履歴には残らない。**ただし `aws` が動いているあいだ、値は引数としてプロセスの一覧（`ps`）に一時的に見える**（同じマシンにほかの利用者がいるときは A にする）。
+
+   ```bash
+   read -rs LK_SECRET                            # 入力は画面に出ない（作った値を貼る）
+   aws ssm put-parameter --region ap-northeast-1 --type SecureString --name /comegin/prod/livekit/api-secret --value "$LK_SECRET"
+   unset LK_SECRET                               # api-key も同じ手順で入れる
+   ```
+
+   **同じ値を、監視アプリとエージェントの `LIVEKIT_API_KEY`・`LIVEKIT_API_SECRET` に入れる**（`LIVEKIT_URL` は出力の `LivekitUrl`）。値を入れ直したら、監視アプリとエージェントを再起動する。
+3. **起動・停止・状態**（`--profile`〈既定 `comegin-prod-admin`〉・`--wait`〈既定 900 秒〉・`--yes`。詳しくは `--help`）:
+
+   ```bash
+   node cloud/livekit-sfu.mjs status   # 読むだけ
+   node cloud/livekit-sfu.mjs start    # SSM の値を確かめてから希望を 1 にし、InService と https の応答を待つ
+   node cloud/livekit-sfu.mjs stop     # 希望を 0 にし、warm pool の Warmed:Stopped を待つ（インスタンスは消えない）
+   ```
+
+   **初回の `start` は、証明書の取得で数分かかる。** 使い終わったら `stop` する（止め忘れると EC2 の稼働の費用が続く。知らせる仕組みはまだ無い。TA-05 の項目 25）。
+4. **起動テンプレートを変えたら**、止めた状態で warm pool のインスタンスを終了して作り直す。**証明書は取り直しになる**（Let's Encrypt は同じ名前で週 5 回まで）。
+5. **確かめる**: `start` の後、監視アプリの `/voice` で接続し、接続した直後にブリーフィングが始まること。`stop` → `status` で Warmed:Stopped に戻り、もう一度 `start` して、Elastic IP と証明書がそのままで接続できること。
+6. **調べ方**（起動に失敗したとき）: SSM Session Manager で入り、`journalctl -u comegin-livekit-boot -b`、`journalctl -u livekit-server -u livekit-caddy`、`/var/log/livekit-setup.log`（user data の導入）を見る。
+
+**出力**: `LivekitSfuAutoScalingGroupName`（`livekit-sfu.mjs` が使う）・`LivekitSfuPublicIp`（A レコードの値）・`LivekitUrl`（`LIVEKIT_URL`）・`LivekitApiKeyParameterName`・`LivekitApiSecretParameterName`。
+
+- **止めているあいだも費用がかかる**: EBS（ルートボリューム 8 GB）と Elastic IP（パブリック IPv4 の時間課金）。3 節。
+- **SFU が止まっているあいだ、オンプレのエージェントは再接続のログを出し続ける。これは異常ではない**（プロセスは落ちない。TA-05 の項目 25）。監視アプリの `/voice` は「SFU が停止中（`node cloud/livekit-sfu.mjs start`）」と表示する。
+- **1 台なので Redis は持たない。** 複数台にするときは ElastiCache を使う（開発の 6379 は Chatwoot と衝突する）。
+
 ## 5. TODO 一覧
 
 設計書の「未決定事項」のうち、インフラで決まるもの、実機で確かめるもの、他のメンバーの作業待ちのもの。`(未検証)` は一度も実機で動かしていないという意味。
@@ -1635,6 +1699,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | **見積もり** | 費用の見積もり（TA-06 の 9 節）。アラームの数、Container Insights、WAF のログ、WireGuard の EC2 と Elastic IP、インターネットへのデータ転送（RDS の応答・Webhook）を含める。3 節の増減の概算は未確認の単価に基づく | 3 節 |
 | **CSP（ADR-25）** | 公開サイトの `Content-Security-Policy` をどこで付けるか（CloudFront のカスタムの応答ヘッダーポリシーか、Astro 側か）。CloudFront で付けるなら、フラットレートプランの Free で独自の応答ヘッダーポリシーが使えるかを確かめる。GA4 の許可は Google の CSP ガイドの表に合わせる | `cdn.yaml` |
 | **未着手の設計** | 収益化（`points-api`・3106・`E-19` の S3 Object Lock）。オンプレの **Strapi** のハートビートのアラーム（監視アプリと n8n のスケジュール実行のハートビートはある）。`consent-api` の TTL とバックアップ（TA-06 の 11 節） | — |
+| **音声 SEO BI の SFU（ADR-33）** | ①**実機で一度も動かしていない**（warm pool からの起動でライフサイクルフックが待機に入り、`comegin-livekit-boot` が 600 秒以内に `CONTINUE` を返すこと。Elastic IP の付け替え。Caddy の証明書が停止・起動のあとも残ること）。②SSM の SecureString のパラメータの作成と、エージェント・監視アプリへの同じ値の配布（人）。③費用の見積もり（3 節）。④止め忘れのアラーム（2026-11-23 に決定。InService が 3 時間〈`RunningAlarmHours`〉続いたら `ops` に知らせる `RunningTooLongAlarm`。起動の失敗はアラームにせず、`livekit-sfu.mjs start` がその場で知らせる。TA-05 の項目 25。**未デプロイ**） | 4.20、`stacks/livekit-sfu.yaml` |
 
 ## 6. 設計書との差分と判断メモ
 

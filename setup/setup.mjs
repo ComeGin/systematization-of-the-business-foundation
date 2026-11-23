@@ -36,6 +36,8 @@ const MODULES = [
   "frontend/next-js/setup/index.mjs",
   // prod だけ（段階 operate）。監視アプリを本番の値で常駐させる（改善ループの起動元。setup/00-setup-overview.md の P14）
   "frontend/next-js/setup/prod/index.mjs",
+  // dev は開発の SFU・uv・環境変数、prod は段階 operate（監視アプリの後。音声 SEO BI エージェントの常駐。main のチェックアウトから）
+  "backend/livekit-agent/setup/index.mjs",
   "onprem/setup/index.mjs",
   "backend/chatwoot-system/setup/prod/index.mjs",
   "backend/mautic-system/dev/setup/prod/index.mjs",

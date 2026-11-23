@@ -32,9 +32,10 @@ const CYCLE: BreadcrumbGroupProps.Item = { text: "改善ループ", href: "/cycl
 const SETUP_STATUS: BreadcrumbGroupProps.Item = { text: "設定の状況", href: "/setup-status" };
 const CANDIDATES: BreadcrumbGroupProps.Item = { text: "誤った書き込みの候補", href: "/miswrite-candidates" };
 const MODELS: BreadcrumbGroupProps.Item = { text: "実行モデル", href: "/models" };
+const VOICE: BreadcrumbGroupProps.Item = { text: "音声 BI", href: "/voice" };
 
 /** サイドのナビゲーションに出すモジュール。 */
-export const NAVIGATION_ITEMS = [CYCLE, SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, AGENTS, MODELS, CANDIDATES] as const;
+export const NAVIGATION_ITEMS = [CYCLE, SETUP_STATUS, RUNS, { text: "手動の起動", href: "/runs/new" }, JOBS, AGENTS, MODELS, CANDIDATES, VOICE] as const;
 
 export function resolveRoute(pathname: string): RouteMeta {
   const [module, id] = pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
@@ -64,6 +65,10 @@ export function resolveRoute(pathname: string): RouteMeta {
   }
   if (module === "models") {
     return { breadcrumbs: [ROOT, MODELS], activeHref: "/models", help: "models", contentType: "default" };
+  }
+  if (module === "voice") {
+    // ヘルプ（Tools）は持たない。説明は画面のヘッダーに書いてある
+    return { breadcrumbs: [ROOT, VOICE], activeHref: "/voice", help: null, contentType: "default" };
   }
   if (module === "miswrite-candidates") {
     return {

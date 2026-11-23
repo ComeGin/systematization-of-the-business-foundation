@@ -1,149 +1,146 @@
-<a href="https://livekit.io/">
-  <img src="./.github/assets/livekit-mark.png" alt="LiveKit logo" width="100" height="100">
-</a>
+# 音声 SEO BI エージェント（comegin-seo-bi）
 
-# LiveKit Agents starter for Python
+Search Console と GA4 の数値を、SEO マーケターの視点で**音声で**伝える BI の担当者。
+LiveKit Agents（Python）の上で、会話は OpenAI GPT-Live、データは OpenSEO の MCP（`http://127.0.0.1:3001/mcp`）から読む。
 
-A starter project for building voice AI apps with [LiveKit Agents for Python](https://github.com/livekit/agents) and [LiveKit Cloud](https://cloud.livekit.io/).
+- 設計: `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`（モジュール間の契約は 9 節）
+- 計画: `docs/superpowers/plans/2026-11-21-voice-seo-bi.md`
+- 決定: ADR-33（AA-05）。経路は I-34〜I-38
 
-## Getting started
+LiveKit Agents の Python スターター（`agent-starter-python`）から作り替えた。**LiveKit Cloud は使わない**（セルフホストの SFU だけ）。
+そのため LiveKit Inference（Cloud 経由のモデル・turn detector・適応型の割り込み判定・Cloud の雑音抑制）・観測・シミュレーションは使えない。
+スターターの `.github/`・`scenarios.yaml`・`Dockerfile` は Cloud 前提のまま残してあり、ここでは使わない。
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), which manages Python and the project's dependencies.
+## 何をするか
 
-1. Install the [LiveKit CLI](https://docs.livekit.io/intro/basics/cli/) and sign in to LiveKit Cloud:
+| | 内容 |
+|---|---|
+| W1（ブリーフィング） | 接続した直後に、計測の健全性・前の期間との比較・伸びしろを 3 点以内で話す。集計はコードが行い（`bi/briefing.py`）、モデルには事実だけを渡す |
+| W2（質疑） | 問いに応じて、裏のモデルが OpenSEO の**無料の参照系のツールだけ**（許可リストは `openseo/allowlist.py`）を呼んで答える |
+| 画面のカード | ツールの結果から作った表・グラフを、監視アプリの `/voice` に送る（topic `comegin.bi.card`）。数値は必ずツールの実際の結果 |
+| 画面共有の読み取り | 聞かれたときだけ、画面共有（無ければカメラ）の最新の 1 フレームをビジョンモデルに渡す（`look_at_shared_screen`）。保存しない |
+| 記録 | セッションの終わりに、問いの要約・使ったツール・結果 ID を E-12（`source: voice`）として `docs/audits/voice/` に書く |
 
-   - **macOS:** `brew install livekit-cli`
-   - **Linux:** `curl -sSL https://get.livekit.io/cli | bash`
-   - **Windows:** `winget install LiveKit.LiveKitCLI`
+数値をでっち上げない（ツールの結果に無い数字を話さない・描かない）、費用の出るツールを呼ばない、話を短く割り込めるようにする、を守る。
 
-   Sign up for a free [LiveKit Cloud](https://cloud.livekit.io/) account if you don't have one, then link it to the CLI:
+## 構成
+
+```
+src/agent.py                     入口。AgentServer・rtc_session(agent_name)・配線だけ
+src/comegin_voice/
+  config/settings.py             環境変数の検証（失敗時は変数名と理由だけを出して exit 1）
+  voice/persona.py               声のモデル（GPT-Live）の指示
+  voice/session.py               AgentSession（Silero VAD・割り込み）・RoomOptions・GPTLiveModel
+  voice/audio_processing.py      音声強化（WebRTC の APM。ai-coustics・Krisp への切り替え）
+  bi/                            状態・指標・ブリーフィング・裏のモデルの指示
+  openseo/                       許可リスト・W1 用のクライアント・W2 用の MCPToolset
+  vision/                        画面共有の最新フレームと look_at_shared_screen
+  visual_output/cards.py         カードの型と送信
+  observability/                 使用量のログと E-12 の書き出し
+```
+
+GPT-Live は指示が 2 つに分かれる。声のモデルは `voice/persona.py`（話し方・何を委ねるか）、
+裏の Responses のモデルは `bi/analyst.py`（分析の手順・ツールの使い方）。どちらもセッションの途中では変えられない。
+
+## 動かす（開発）
+
+前提: [uv](https://docs.astral.sh/uv/)、Docker、OpenSEO が `127.0.0.1:3001` で動いていること（`onprem/systemd/comegin-openseo.service`）。
+
+1. 開発の SFU を起動する（`livekit-server --dev`。`127.0.0.1:7880`、キーは公開の固定値 `devkey` / `secret`）。
 
    ```console
-   lk cloud auth
+   cd backend/livekit-system
+   docker compose up -d
    ```
 
-1. Create your project from this starter:
+2. 依存を入れ、環境変数を用意する。
 
    ```console
-   lk agent init my-agent --template agent-starter-python
+   cd backend/livekit-agent
+   uv sync
+   cp .env.example .env.local   # LIVEKIT_API_SECRET・OPENAI_API_KEY・VOICE_AUDIT_DIR を入れる
    ```
 
-1. Talk to your agent. Run it in your terminal and speak into your microphone:
+   setup（`node setup/setup.mjs --target dev --only livekit-agent`）を使うときは、`~/.config/comegin/setup/dev.conf` の `VOICE_OPENAI_API_KEY`（音声専用のキー）を書き込む。無ければ `OPENAI_API_KEY` で代用する。
+
+3. OpenSEO に届くことを確かめる。
 
    ```console
-   cd my-agent
-   lk agent console
+   curl -s 127.0.0.1:3001/api/health
    ```
 
-   If you didn't let `lk agent init` install dependencies, run `uv sync` first.
+4. エージェントを起動する。**同じマシンで本番のユニットが動いているときは、先に止める**（ヘルスのポート 8081 が同じでぶつかる。2026-11-23 の決定。TA-01 の 9 節）。
+   `sudo systemctl stop comegin-livekit-agent` で止め、確かめ終わったら `sudo systemctl start comegin-livekit-agent` で戻す。
+   dispatch は明示（`agent_name="comegin-seo-bi"`）なので、部屋に入っただけでは来ない。
+   監視アプリ（`frontend/next-js`。3200）の `/voice` から接続すると、トークンの `room_config` でこのエージェントが呼ばれる。
 
-## What's included
+   ```console
+   uv run src/agent.py dev
+   ```
 
-The starter includes:
+## 動かす（本番。オンプレの常駐）
 
-- A simple [voice AI assistant](https://docs.livekit.io/agents/start/voice-ai/) to extend and customize.
-- A voice pipeline built on [LiveKit Inference](https://docs.livekit.io/agents/models/inference/), which gives you access to [models](https://docs.livekit.io/agents/models/) from top labs with no extra configuration:
-  - The default LLM is Gemma 4 31B, an open-weight model [hosted by LiveKit](https://docs.livekit.io/agents/models/llm/livekit/) and tuned for voice AI.
-  - The default TTS is [Fish Audio S2.1 Pro](https://docs.livekit.io/agents/models/tts/fishaudio/), an expressive and cost-effective voice.
-  - More than 50 other models are available from OpenAI, Cartesia, Deepgram, and other providers.
-  - [Realtime models](https://docs.livekit.io/agents/models/realtime/) such as OpenAI GPT-Live. Many other models are available through the [plugin ecosystem](https://docs.livekit.io/agents/models/#plugins).
-- [Expressive mode](https://docs.livekit.io/agents/models/tts/expressive/), on by default, so your agent's voice carries emotion and pacing that fit the conversation.
-- [Keyterms](https://docs.livekit.io/agents/models/stt/keyterms/), on by default, so speech recognition gets your names, brands, and jargon right, including names it picks up during the conversation, like a caller's.
-- [LiveKit Turn Detector](https://docs.livekit.io/agents/logic/turns/turn-detector/), which knows when the user has finished speaking, in 14 languages.
-- [Adaptive interruption handling](https://docs.livekit.io/agents/logic/turns/adaptive-interruption-handling/), which tells a real interruption from an "uh-huh" or background noise, so your agent doesn't stop talking when it shouldn't.
-- [Background voice cancellation](https://docs.livekit.io/transport/media/noise-cancellation/).
-- Session transcripts, traces, and recordings from LiveKit [Agent Observability](https://docs.livekit.io/testing/observability/).
-- [Simulations](https://docs.livekit.io/testing/simulations/) that test full conversations with your agent, run in CI on every merge to `main`.
-- A `Dockerfile` for [deploying to LiveKit Cloud](https://docs.livekit.io/deploy/agents/).
+- SFU は AWS の EC2（`cloud/stacks/livekit-sfu.yaml`）。起動と停止は人が `node cloud/livekit-sfu.mjs start|stop|status` で行う。
+- エージェントはオンプレのホストで直接動かす（OpenSEO が `127.0.0.1` だけで受けるため、コンテナに入れない）。
+  systemd のユニットは `onprem/systemd/comegin-livekit-agent.service`（`uv run src/agent.py start`）。
+- ヘルスの HTTP は `127.0.0.1:8081`（開発の `uv run src/agent.py dev` と同じ番号。開発で動かすあいだは本番のユニットを止める）。
+- OpenAI のキーは記事のアイキャッチ（監視アプリ）と分ける（2026-11-23。ADR-33）。OpenAI の画面でプロジェクトを分けて発行し、`prod.conf` の `VOICE_OPENAI_API_KEY` に書く（setup が環境変数ファイルの `OPENAI_API_KEY` に写す）。
+- SFU を 3 時間以上起動したままにすると、SNS の `ops` に止め忘れの通知が来る（`stacks/livekit-sfu.yaml` の `RunningTooLongAlarm`）。
+- SFU が止まっている間、エージェントは接続を再試行し続ける。ログは出るが、異常ではない。
 
-The starter works with any [custom web or mobile frontend](https://docs.livekit.io/frontends/) or with [telephony](https://docs.livekit.io/telephony/).
+## 環境変数
 
-## Run the agent
+雛形は `.env.example`。検証は `src/comegin_voice/config/settings.py`。
 
-The `lk agent console`, `lk agent dev`, and `lk agent debugger` commands run your agent on your own machine. To talk to it in your terminal:
+| 変数 | 必須 | 既定 | 内容 |
+|---|---|---|---|
+| `LIVEKIT_URL` | ○ | | SFU の URL（`ws://` か `wss://`）。開発は `ws://127.0.0.1:7880` |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | ○ | | SFU の API キーとシークレット |
+| `OPENAI_API_KEY` | ○ | | GPT-Live・裏のモデル・ビジョン。**音声専用のキー**（アイキャッチと分ける。setup では `VOICE_OPENAI_API_KEY` から写す） |
+| `LIVEKIT_AGENT_NAME` | | `comegin-seo-bi` | dispatch の名前。監視アプリと同じ値にする |
+| `OPENSEO_MCP_URL` | | `http://127.0.0.1:3001/mcp` | ループバックだけを指定できる |
+| `OPENSEO_PROJECT_DOMAIN` | | `comegin.com` | OpenSEO のプロジェクトを選ぶドメイン（0 件・複数件なら縮退） |
+| `GPT_LIVE_VOICE` | | `marin` | 声 |
+| `BACKEND_MODEL` / `VISION_MODEL` | | `gpt-5.6-luna` | 裏の Responses のモデル／画面の読み取りのモデル |
+| `SESSION_MAX_MINUTES` | | `30` | 1 セッションの上限（分） |
+| `MAX_TOOL_CALLS` | | `40` | 1 セッションで OpenSEO を呼ぶ回数の上限 |
+| `MAX_VISION_CALLS` | | `10` | 1 セッションで画面を読む（ビジョンモデルを呼ぶ）回数の上限 |
+| `VOICE_AUDIT_DIR` | | （空） | E-12 の書き先（監視アプリの作業ツリーの `docs/audits/voice` の絶対パス）。空なら書かない |
+| `AUDIO_ENHANCEMENT` | | `apm` | `apm` / `off` / `ai_coustics` / `krisp` |
 
-```console
-lk agent console
-```
+## ノイズと割り込み
 
-To connect it to LiveKit Cloud so a frontend, a phone call, or the [Agent Console](https://docs.livekit.io/testing/agent-console/) can reach it:
+| 機能 | どこで | 方法 |
+|---|---|---|
+| ターンの切れ目 | モデル | GPT-Live が全二重で自分で決める（LiveKit の turn detector は使えない・効かない） |
+| 割り込みで再生を止める | エージェント | ローカルの Silero VAD（`vad` モード、0.5 秒以上の発話）。止まるのは再生だけで、モデルは話し続けた内容も覚えている。人格の指示で「言い直さず短く確認する」にしている |
+| エコー除去 | ブラウザ | `echoCancellation: true`（再生する音が要るので、サーバー側ではできない） |
+| 雑音抑制・低い音のカット | エージェント | `AUDIO_ENHANCEMENT=apm`。WebRTC の APM を `FrameProcessor` に包み、50 ms のフレームを 10 ms ずつ処理する。音量の自動調整はフレームワークの AGC。ブラウザの `noiseSuppression`・`autoGainControl` は切る（二重にかけない） |
+| 話者分離 | エージェント | 有償。`ai_coustics`（`uv sync --extra ai-coustics`、`AI_COUSTICS_API_KEY`）か `krisp`（`uv sync --extra krisp`、`KRISP_VIVA_SDK_LICENSE_KEY`・`KRISP_VIVA_FILTER_MODEL_PATH`）。無いときは起動時に止まる |
 
-```console
-lk agent dev
-```
+## 縮退
 
-To let a coding agent or a script test it one text turn at a time, use the [agent debugger](https://docs.livekit.io/testing/debugger/). Each turn prints the agent's reply along with the tool calls and handoffs behind it:
+- OpenSEO に届かない・プロジェクトが決まらない: その旨を一度だけ話し、W1 を出さない。OpenSEO のツールは渡さない（画面の読み取りだけ）。数値は推測しない。
+- 途中でツールが失敗した: 一度だけそう伝え、別の見方を提案する。
+- 上限: 30 分（1 分前に締めくくりを促す）、無発話 2 分で一度だけ確認し、30 秒で閉じる。閉じると部屋を消す。
 
-```console
-lk agent debugger start
-lk agent debugger say "Hi, what can you do?"
-lk agent debugger stop
-```
+## 既知の制約
 
-In production, run the agent directly:
+- **OpenSEO を再起動したら、音声のセッションを開始し直す。** 会話中に OpenSEO が再起動すると、W2 の MCP の接続（`MCPServerHTTP`）は張り直されない。以後の質疑はツールのエラー（上流の英語の文）を返すだけになり、台帳（E-12 の結果 ID）にも残らない。縮退として受け入れている。
 
-```console
-uv run src/agent.py start
-```
+## 依存を上げるとき
 
-## Frontends and telephony
+- `livekit-agents` は `~=1.8.8`（1.8.x の中）に固定している。上げるときは、`openseo/toolset.py` の `_call_tool` の上書き
+  （許可リストと呼び出し回数の上限をかける場所）が、新しい版の `MCPServerHTTP` でもまだ呼ばれるかを確かめる。
+  呼ばれなくなると、許可リストの外のツールや上限を超えた呼び出しが黙って通る。
+- `[tool.uv]` の `exclude-newer`（公開から 7 日の待ち期間）の日付を、上げる日の 7 日前に進めてから `uv lock` する。
+- 上げたら、`.venv` のソースで GPT-Live・`AudioInputOptions`・`TurnHandlingOptions` の引数が変わっていないかを確かめる。
 
-Pair the agent with a prebuilt frontend starter, or add telephony:
+## 静的検査
 
-| Platform | Link | Description |
-|----------|----------|-------------|
-| **Web** | [`livekit-examples/agent-starter-react`](https://github.com/livekit-examples/agent-starter-react) | Web voice AI assistant with React & Next.js |
-| **iOS/macOS** | [`livekit-examples/agent-starter-swift`](https://github.com/livekit-examples/agent-starter-swift) | Native iOS, macOS, and visionOS voice AI assistant |
-| **Flutter** | [`livekit-examples/agent-starter-flutter`](https://github.com/livekit-examples/agent-starter-flutter) | Cross-platform voice AI assistant app |
-| **React Native** | [`livekit-examples/voice-assistant-react-native`](https://github.com/livekit-examples/voice-assistant-react-native) | Native mobile app with React Native & Expo |
-| **Android** | [`livekit-examples/agent-starter-android`](https://github.com/livekit-examples/agent-starter-android) | Native Android app with Kotlin & Jetpack Compose |
-| **Web Embed** | [`livekit-examples/agent-starter-embed`](https://github.com/livekit-examples/agent-starter-embed) | Voice AI widget for any website |
-| **Telephony** | [Documentation](https://docs.livekit.io/telephony/) | Add inbound or outbound calling to your agent |
-
-For more options, see the [frontend guide](https://docs.livekit.io/frontends/).
-
-## Testing and debugging
-
-Simulations run full multi-turn conversations between a simulated user and your agent on LiveKit Cloud, then judge each transcript. The scenarios live in [`scenarios.yaml`](scenarios.yaml). Run them locally with the CLI:
-
-```console
-lk agent simulate text --scenarios scenarios.yaml
-```
-
-The `Simulations` workflow in [`.github/workflows/simulations.yml`](.github/workflows/simulations.yml) runs the same file on every merge to `main`, and on demand from the Actions tab. It doesn't run on every pull request push because each run uses real inference. See the [simulations guide](https://docs.livekit.io/testing/simulations/) for how to write scenarios and read results.
-
-To check a change turn by turn without a live session, use the [agent debugger](https://docs.livekit.io/testing/debugger/) shown in [Run the agent](#run-the-agent).
-
-To debug a running agent, open it in the [Agent Console](https://docs.livekit.io/testing/agent-console/). It shows events, tool calls, and model timing as you talk to the agent. To stream logs from a deployed agent, run `lk agent logs`.
-
-## Using coding agents
-
-This project works with coding agents like [Claude Code](https://claude.com/product/claude-code), [Cursor](https://www.cursor.com/), and [Codex](https://openai.com/codex/).
-
-**Agent skills.** Install LiveKit's [agent skills](https://docs.livekit.io/reference/developer-tools/agent-skills/), which teach your coding agent to build, debug, test, and deploy LiveKit agents:
+テストは書かない・実行しない（spec の U4）。静的検査だけを行う。
 
 ```console
-lk skills install
+uv run ruff check
+uv run ruff format --check
 ```
-
-To get the latest skills, run `lk skills update`.
-
-**`AGENTS.md`.** Teaches your coding agent LiveKit's best practices for workflows, handoffs, and testing, and has it check its changes with the [agent debugger](https://docs.livekit.io/testing/debugger/).
-
-For more, see the [coding agents guide](https://docs.livekit.io/intro/coding-agents/).
-
-## Using this template for your own project
-
-After you create your own project from this template:
-
-- **Commit `uv.lock`.** The template doesn't track it, but your project should, for reproducible builds. If you deploy to LiveKit Cloud, commit `livekit.toml` too.
-- **Commit the agent skills** and `skills-lock.json`, if you installed them in the project.
-- **Add repository secrets.** Add `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` as [repository secrets](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-what-your-workflow-does/using-secrets-in-github-actions) so the simulations can run in CI.
-
-## Deploying to production
-
-To deploy the agent to LiveKit Cloud, see the [deployment guide](https://docs.livekit.io/deploy/agents/).
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

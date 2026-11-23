@@ -55,17 +55,20 @@ app/api/jobs              GET ジョブ一覧
 app/api/miswrite-candidates  GET 誤った書き込みの候補
 app/api/setup-status      GET 設定の状況 / POST 今すぐ確かめる（Origin の確認は guardApiRequest）
 app/api/setup-status/doc  GET ?file=&heading= 手順書（承認済み main）の 1 節。許可されない・見つからないは 404
+app/api/livekit/token     POST 音声 BI の LiveKit のトークン（I-34。LiveKit の標準のトークンの API の形。下の「音声 BI」）
 app/login                 ログイン前の画面（components/layout/PublicLayout）
 app/(console)/layout.tsx  ログイン後の外枠（components/layout/ConsoleLayout = AppLayoutToolbar）
 app/(console)/<モジュール>/  画面（Server Component。データを読み、components/<モジュール>/ の View に渡す）
 components/layout/        外枠・パンくず・ナビゲーション・Tools（routes.ts がパスから決める）
 components/<モジュール>/   runs・jobs・miswrite-candidates・setup-status。一覧・詳細・新規の View と、Tools に出す help.tsx
+components/voice/         音声 BI（LiveKit Components React。ブラウザだけで描く〈VoiceLoader の ssr: false〉）
+lib/livekit/              カードの型と検証（cards.ts。エージェントの visual_output/cards.py と同じ形）・LIVEKIT_* の読み取り（server-config.ts）
 components/{common,auth}/ モジュールをまたぐ部品（自動の読み直し・設定エラー・遷移）とログイン
 lib/ids.ts                URL から受け取る ID の形の検査
 ```
 
 - **Route Handler はすべてログイン必須**（未ログインは 401）。状態を変える要求（POST）は `Origin` が自分のホストと同じときだけ受ける（403）。
-- 環境変数は `control-plane` の `loadControlPlaneConfig` が検証する。next-js は直接読まない（`BETTER_AUTH_*`・`GOOGLE_*`・`CONTROL_ADMIN_EMAILS` と `CONTROL_DATA_DIR` の解決だけ例外。`lib/auth.ts`）。
+- 環境変数は `control-plane` の `loadControlPlaneConfig` が検証する。next-js は直接読まない（`BETTER_AUTH_*`・`GOOGLE_*`・`CONTROL_ADMIN_EMAILS` と `CONTROL_DATA_DIR` の解決〈`lib/auth.ts`〉と、音声 BI の `LIVEKIT_*`〈`lib/livekit/server-config.ts`〉だけ例外）。
 - `next.config.ts` の `serverExternalPackages` に `control-plane` と `@anthropic-ai/claude-agent-sdk` を入れて、バンドルせず Node の `require` に任せる（`node:sqlite`・Agent SDK・AWS SDK を使うため）。`node:sqlite` は control-plane の側で開き、next-js には import しない。
 - `next build` の間は `instrumentation.ts` は何も起動しない（`NEXT_PHASE`）。
 - 開発サーバーを止めると、実行中のエージェントは打ち切られる。落ち方によっては run が `running` のまま残るが、次の起動時に `failure`（「プロセスの停止または再起動で中断された」）に確定する。
@@ -97,6 +100,7 @@ App layout（AppLayoutToolbar。TopNavigation・SideNavigation・パンくず）
 | `/agents` | 一覧 | Agent（承認済み main の `.claude/agents/*.md`）。役割の一文と使うジョブの数（0 は「なし（手動だけ）」）。読めない定義は理由を上に出す |
 | `/agents/[name]` | 詳細 | Agent 1 件。役割・モデル・接続先ごとのツール（参照／書き込み／不明。書き込みは赤）・使うジョブ・直近の実行（新しい 50 件の中の最大 5 件と中身）・手順（本文を `react-markdown` で） |
 | `/miswrite-candidates` | 一覧 | 誤った書き込みの候補 |
+| `/voice` | 対話 | 音声 BI（2026-11-21）。オンプレの SEO の BI のエージェント（`backend/livekit-agent`）と声・チャットで話す。「開始」で接続し（自動では始めない）、接続直後に GSC・GA4 の要点のブリーフィング、そのあとは質疑。エージェントの状態と声の波形・マイク／カメラ／画面共有のボタン・文字起こしとチャット欄（`lk.chat`）・BI のカード（topic `comegin.bi.card`。表と Cloudscape のグラフ。数値はすべてツールの結果）。下の「音声 BI」 |
 | `/login` | - | Google でのログイン（失敗すると `?error=` 付きで戻り、理由の種類はサーバーのログ `[auth] login refused: …` に残る） |
 
 - **「中身」は、その実行が書いた観測（`fetch.correlation_id` が実行の相関 ID と一致する E-12）だけで決める**（2026-11-06。設計は `docs/superpowers/specs/2026-11-06-job-agent-info-design.md`）。実行が「成功」でも、取得に失敗した観測があれば「取得に失敗 M / N 件」と赤く出す。読んだだけの観測（`targetIds` にあるもの）は数えない。観測の理由（`fetch.note`）と要約はエージェントが書いた文なので、文字のまま出す（HTML・Markdown として解釈しない。500 文字を超えると折りたたむ。`components/common/AgentText.tsx`）
@@ -104,6 +108,36 @@ App layout（AppLayoutToolbar。TopNavigation・SideNavigation・パンくず）
 - **編集の画面は無い。** 境界の型（`backend/control-plane/src/contract.ts`）に更新の API が無く、ジョブの定義は承認済みの `main` から読むだけのため。更新の API ができたら `app/(console)/<モジュール>/[id]/edit/` に足す。
 - **ログインの確認は各ページの `requirePageSession` で行う。** `(console)/layout.tsx` もセッションを読む（ユーザー名を出すため）が、レイアウトは画面遷移で再描画されないので、確認をレイアウトだけに頼らない。
 - 開発サーバーで、Table の `StickyScrollbar` の class の hydration の不一致がコンソールに出ることがある（Cloudscape がスクロールバーの幅を SSR では 0 と見なすため。画面の動作には影響しない）。
+
+## 音声 BI（`/voice`）
+
+設計は `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`（画面は 5.4、カードの型は 5.5）。部品は LiveKit Components React（`@livekit/components-react`・`livekit-client`）、トークンの署名は `livekit-server-sdk`。
+
+- **トークン（`POST /api/livekit/token`）**: ログイン必須・同じオリジンだけ。identity はセッションのメール、ルーム名は `voice-<uuid>`、TTL は 10 分、権限は `roomJoin`・`canPublish`・`canSubscribe`・`canPublishData` だけ。クライアントが `participant_identity`・`room_name`・`participant_name` を送ると 400、`room_config` で頼むエージェントが `LIVEKIT_AGENT_NAME` と違うと 400。環境変数が足りなければ 500（ログには変数名だけ）。
+- **マイク**: `echoCancellation` だけ有効。雑音の抑制と音量の自動調整はエージェント側（WebRTC の APM）で行うので、ブラウザでは切る（二重にかけない）。
+- **SFU に届かないとき**は「SFU が停止中かもしれません（`node cloud/livekit-sfu.mjs start`）」と出す。トークンは SFU が止まっていても発行できる（接続の段で失敗する）。
+- `@livekit/components-styles` は `components/voice/` からだけ読み込む（セレクタは `.lk-*`・`[data-lk-theme]` に閉じているので Cloudscape には効かない）。
+- 音声と、聞かれたときの画面の 1 枚は OpenAI（米国）に渡る（ADR-33）。録音・録画はしない。
+
+| 変数 | 内容 |
+|---|---|
+| `LIVEKIT_URL` | ブラウザが接続する SFU の URL。開発は `ws://127.0.0.1:7880`、本番は `wss://rtc.comegin.com` |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | トークンに署名する鍵（ブラウザには渡さない）。開発の SFU（`--dev`）は公開の固定値 `devkey` / `secret`。本番は SFU の SSM の値と同じ |
+| `LIVEKIT_AGENT_NAME` | dispatch するエージェントの名前（任意。空なら既定 `comegin-seo-bi`。エージェントの `LIVEKIT_AGENT_NAME` と同じ値） |
+
+`URL`・`KEY`・`SECRET` のうち 1 つでも欠けていれば `/voice` は「環境変数が設定されていません」を出す（ほかの画面には影響しない）。`URL`・`KEY`・`SECRET` は「1 つでも設定したら全部要る」の組（`setup/index.mjs` の `GROUPS`）。開発の設定スクリプト（`node setup/setup.mjs --target dev --only next-js`）は、空の項目に開発の SFU の固定値を書く（dev.conf の `LIVEKIT_*` は読まない）。本番（`--target prod` の段階 operate）は、`backend/livekit-agent` と共用の prod.conf の `LIVEKIT_*` を写す（鍵の組が無ければ書かない）。
+
+開発で動かす手順:
+
+```bash
+# 1. 開発の SFU（livekit-server --dev。127.0.0.1:7880・7881/tcp・7882/udp）
+(cd ../../backend/livekit-system && docker compose up -d)
+# 2. エージェント（OpenSEO が 127.0.0.1:3001 で動いていること。環境変数は backend/livekit-agent/README.md）
+(cd ../../backend/livekit-agent && uv sync && uv run src/agent.py dev)
+# 3. 監視アプリを起動し（pnpm dev）、http://127.0.0.1:3200/voice で「開始」
+```
+
+**開発の `/voice` は `http://127.0.0.1:3200` から開く。** ngrok の URL（ADR-23）から開くと、ブラウザが `ws://127.0.0.1:7880` の SFU に届かない（SFU は手元の 127.0.0.1 だけで受け、WebRTC の UDP は ngrok を通らない）。
 
 ## 依存と pnpm の方針
 

@@ -24,6 +24,8 @@ TA（Technology Architecture）層。ロール ID（正本は BA-03）・Capabil
 | **本番** | **Strapi（`E-04` の正本）・Mautic・Chatwoot・n8n（本体と runners。サンドボックスは置かない）**（**2026-10-06 ADR-25: Umami を外した**） | **AWS（ECS on Fargate ＋ RDS・ElastiCache・S3・EFS）。設計は TA-06**（Strapi と n8n は ADR-16 で加えた） | `未着手` |
 | **本番（アクセス解析）** | **GA4**（流入・ページ・参照元の数字の正本。**2026-10-06 に追加。ADR-25**） | **SaaS（Google LLC。米国）。AWS に何も置かない。** タグは gtag.js を公開サイトに直接置き、同意の後だけ読み込む（DD-02 の `I-05`）。読み手はオンプレの OpenSEO（TA-07 の 3.3） | `未着手` |
 | **本番** | **`points-api`**（採掘の貢献量の取り込みと譲渡不可ポイントの付与。自作。`E-17` `E-19` の正本。**2026-10-03 に追加。本システムの完成後**） | **AWS（ECS on Fargate ＋ RDS ＋ S3〈Object Lock〉）。設計は TA-06** | `未着手` |
+| **本番（音声 SEO BI）** | **SFU（`livekit-server`。WebRTC のメディアの中継）**（**2026-11-21 に追加。ADR-33**） | **AWS（EC2 1 台。Auto Scaling グループと warm pool の Stopped。起動と停止は人が `cloud/livekit-sfu.mjs` で行う）。設計は TA-06 の 3.4**。ブラウザから UDP で届く必要があるため（ngrok は UDP を通さない） | `未配線`（テンプレートはある。未デプロイ。親のパラメータ `LivekitSfuEnabled` の既定は `false`） |
+| **ローカル（常駐。音声 SEO BI）** | **音声 SEO BI エージェント**（`backend/livekit-agent`。**2026-11-21 に追加。ADR-33**） | オンプレ（systemd の `comegin-livekit-agent`。**SFU に wss で外向きにつなぐ**ので、AWS からオンプレへ入る線は増えない。OpenSEO と同じホストに置く。TA-07 の 3.8） | `未配線`（コードはできた。ユニットは未設置） |
 | **開発環境** | **上記すべての開発環境**（ローカルの Docker と dev サーバー。**n8n のサンドボックスを含む**） | オンプレミス（開発機のローカルホスト） | `実装済み`（各スタックは起動できる） |
 | **ローカルだけ（道具）** | **Claude Code、自作の MCP サーバ（stdio）、監視アプリ（Next.js。`frontend/next-js`）**、OpenSEO、Lighthouse CI、Astro のビルド | オンプレミス。設計は TA-07。**ADR-15 ではここに Strapi と n8n も置いていたが、ADR-16 で本番を AWS に移した**。**監視アプリは `E-15` の正本（実行記録）を持つ**（ADR-18。1 節の例外） | 監視アプリは `未着手`（雛形と Better Auth の導入のみ） |
 | **利用者環境** | **`miner`（XMRig。採掘のコンテナ）**（**2026-10-03 に追加**。ComeGin は運用しない） | **AWS 以外（無料 DL したソースコードで基盤を立てた利用者のサーバ）**。ComeGin は観測しない。この節の「利用者環境」 | `未着手` |
@@ -162,9 +164,23 @@ flowchart LR
 | **5679** | **n8n（本番。オンプレ。ADR-21）**のエディター・API・MCP。データは AWS の RDS の `n8n`。`127.0.0.1` だけに開く。`n8n-prod` の接続先（`/mcp-server/http`）と、ワークフローの書き出し（`CONTROL_N8N_EXPORT_URL`）の読み先 | `onprem/n8n/compose.yml` | `実装済み`（未起動） |
 | **5680** | **n8n の本番の Webhook の受け口**（リバースプロキシ `webhook-proxy`）。**WireGuard のアドレス `10.99.0.2` だけ**に開き、**POST の `/webhook/*` だけ**を n8n に通す（送信元は `10.99.0.1` だけ）。エディター・API はクラウドから届かない | `onprem/n8n/compose.yml`・`onprem/n8n/proxy/` | `実装済み`（未起動） |
 | 6379 | Chatwoot の Redis | `backend/chatwoot-system/docker-compose.yaml` | `実装済み` |
+| **7880** | **開発の SFU（`livekit-server --dev`）のシグナリング（HTTP・WebSocket）**。`127.0.0.1` だけ。キーは `devkey`・`secret`（2026-11-21 に追加。ADR-33） | `backend/livekit-system`（compose。`network_mode: host`、`--dev --bind 127.0.0.1`） | `未配線` |
+| **7881** | **開発の SFU の ICE/TCP**（UDP が使えないときの経路）。`127.0.0.1` だけ | 同上 | `未配線` |
+| **7882/udp** | **開発の SFU の UDP の多重化**（開発モード。WebRTC のメディア）。`127.0.0.1` だけ | 同上 | `未配線` |
 | 8000 | Mautic（PHP ビルトインサーバー） | `backend/mautic-system/dev/serve.sh` | `実装済み` |
 | 8025 | Mautic の MailHog（UI） | `backend/mautic-system/docker/compose.yaml` | `実装済み` |
 | 8026 | Chatwoot の MailHog（UI） | `backend/chatwoot-system/docker-compose.yaml` | `実装済み` |
+| **8081** | **音声 SEO BI エージェントのヘルス**（LiveKit Agents の既定のヘルスのポート）。`127.0.0.1` だけ。**開発（`uv run src/agent.py dev`）と本番（systemd の `comegin-livekit-agent`）が同じ番号のため、同じマシンで同時に動かすと衝突する。開発で動かすときは本番のユニットを止める**（2026-11-23 に決定。9 節）（2026-11-21 に追加。ADR-33） | `backend/livekit-agent` | `未配線` |
+
+> **（2026-11-21。ADR-33）本番の SFU（AWS の EC2）が開けるポート。** 開発機のポートではないので上の表とは別に書く。セキュリティグループで開けるのは次の 5 つだけで、**7880 と 22 は開けない**（シグナリングは Caddy の 443 の後ろ。運用は SSM Session Manager）。設計は TA-06 の 3.4。
+>
+> | ポート | 用途 |
+> |---|---|
+> | 80/tcp | TLS の証明書の取得（Caddy。Let's Encrypt） |
+> | 443/tcp | シグナリングの wss（`rtc.comegin.com`）と TURN/TLS（`rtc-turn.comegin.com`）。Caddy が SNI で振り分ける |
+> | 7881/tcp | ICE/TCP（UDP が使えないときの経路） |
+> | 3478/udp | TURN/UDP |
+> | 50000-60000/udp | WebRTC のメディア（UDP） |
 
 ### 3100 の衝突と回避策
 
@@ -240,6 +256,9 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 | **23** | （2026-10-03 に追加）**AWS → thirdweb**（`points-api` → thirdweb の API〈HTTPS〉） | 送信 | ポイントの mint・burn | thirdweb の秘密鍵。ポイントのコントラクトへの mint・burn だけ（TA-04 の「収益化の秘匿値と権限」） | `未着手` |
 | **24** | （**2026-10-06 に追加。ADR-25**）**訪問者のブラウザ → Google（GA4。米国）** | 送信（基盤を通らない） | gtag.js の読み込み（`https://www.googletagmanager.com/gtag/js?id=<測定 ID>`）と、ページビュー・セッションの計測の送信（`*.google-analytics.com`）。**同意（`comegin_consent` の `s=granted`）の後だけタグを読み込む**（Consent Mode v2 の basic）。Cookie `_ga`・`_ga_<ID>` を置く。GTM は使わない。設計は DD-02 の `I-05` | 測定 ID（`PUBLIC_GA4_MEASUREMENT_ID`。**秘密値ではない**）。`ad_storage`・`ad_user_data`・`ad_personalization` は常に `denied`。Google シグナル・広告のリンク・ユーザー提供データの収集はオフ。**開発環境では測定 ID を設定せず、タグを出さない** | `未着手` |
 | **25** | （**2026-10-06 に追加。ADR-25**）**オンプレ → Google（Google Analytics Admin API・Data API）** | 送信 | OpenSEO が OAuth で本番のプロパティの集計値（流入・ページ・参照元）を取得する。エージェントは OpenSEO の MCP（`mcp__openseo__get_google_analytics_*`）で読む（TA-07 の 3.3） | OAuth（スコープ `analytics.readonly`。GSC〈経路 12〉と同じ OAuth クライアント。同意は別に取る）。トークンは OpenSEO の DB（Better Auth の account テーブル）に `BETTER_AUTH_SECRET` で暗号化（`middleware/open-seo-main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md`）。**接続するのは本番のプロパティだけ** | `未着手` |
+| **26** | （**2026-11-21 に追加。ADR-33**）**運用者のブラウザ → AWS（SFU の EC2）** | 受信 | 監視アプリの `/voice` からの音声・画面共有・カメラと、エージェントの音声・文字起こし・カードの受け取り（AA-02 の `I-35`）。シグナリングは `wss://rtc.comegin.com`（443）、メディアは UDP 50000-60000、届かなければ TCP 7881・TURN（3478/udp・443 の TURN/TLS） | LiveKit のトークン（監視アプリが発行。TTL 10 分。`I-34`）。TLS は Caddy（Let's Encrypt）。**SFU が停止中のあいだは届かない**（起動と停止は人） | `未配線` |
+| **27** | （**2026-11-21 に追加。ADR-33**）**オンプレ（音声 SEO BI エージェント）→ AWS（SFU の EC2）** | 送信（**外向きの接続**） | エージェントがジョブを待ち受け、dispatch でルームに入る（`I-36`）。シグナリングは wss、メディアは WebRTC。**AWS からオンプレへ入る線ではない**（ADR-21 の「AWS からオンプレへは Webhook だけ」を変えない） | API キーとシークレット（SFU は SSM の SecureString、エージェントはオンプレの環境変数ファイル）。**SFU が停止中のあいだは再接続を試み続ける**（TA-05 の項目 25） | `未配線` |
+| **28** | （**2026-11-21 に追加。ADR-33**）**オンプレ（音声 SEO BI エージェント）→ OpenAI（米国）** | 送信 | GPT-Live（wss。会話している間）と Responses のビジョン（HTTPS。`look_at_shared_screen` のときだけ、最新の 1 フレーム）。運用者の音声・画面共有のフレーム・OpenSEO の結果を圧縮した事実（`I-38`） | `OPENAI_API_KEY`（オンプレの環境変数ファイル）。**訪問者・顧客の個票を送らない**（DA-05 の 1.7） | `未配線` |
 
 **訪問者・顧客の個人データが国外に出るのは経路 8（PostHog）と経路 20（Google Calendar）の 2 本だけである**（**2026-10-06 ADR-24: 経路 22 として「訪問者のブラウザ → Cal.com（SaaS。米国）」が加わり、3 本になった**。以下は ADR-19 の記述）（2026-10-01 に 1 本増えた。8 節、DA-05 の 1.2）。**経路 20 で越境するのは「予定」という複製であり、予約の正本（`E-16`）は `ap-northeast-1` の Cal.com に留まる**（Cal.com はセルフホスト。経路 4 で受けた予約は境界を越えない）。
 
@@ -282,7 +301,7 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 
 ### PostHog を例外とする理由
 
-> **例外の一覧（2026-10-06 に整理。ADR-24。同日の ADR-25 で GA4 を足した）**: 基準の 2 種類のどちらにも当たらないが、ユーザーの決定で SaaS を使うものは次の 4 つ（ADR-24 の時点では 3 つ）。**一覧に載せることで、基準を緩めずに例外を管理する。**
+> **例外の一覧（2026-10-06 に整理。ADR-24。同日の ADR-25 で GA4 を、2026-11-21 の ADR-33 で OpenAI を足し、2026-11-23 に OpenAI の行を「モデルの提供元」〈Anthropic・OpenAI〉にまとめた）**: 基準の 2 種類のどちらにも当たらないが、ユーザーの決定で SaaS を使うものは次の 5 つ（ADR-24 の時点では 3 つ、ADR-25 の時点では 4 つ）。**一覧に載せることで、基準を緩めずに例外を管理する。**
 >
 > | 例外 | 使うもの | 決定 | 例外であることの帰結 |
 > |---|---|---|---|
@@ -290,6 +309,7 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 > | **thirdweb** | サーバウォレット・API・RPC | ユーザーの決定（ADR-20） | 鍵は thirdweb の Vault。次の節 |
 > | **Cal.com**（**2026-10-06 に追加**） | **面談の予約（SaaS の cal.com。完了画面に埋め込む）** | **ユーザーの決定（ADR-24）。ADR-19 のセルフホストを置き換えた** | **`E-16` の正本が外部。氏名・メール・日時が Cal.com, Inc.〈米国〉に渡る（越境）。保持と削除は Cal.com 側。埋め込みは第三者のスクリプト〈Cookie の同意と CSP の見直し〉。偽の予約の防御は Cal.com の設定だけ** |
 > | **GA4**（**2026-10-06 に追加**） | **アクセス解析（流入・ページ・参照元の数字の正本）。gtag.js を直接置く。GTM は使わない** | **ユーザーの決定（ADR-25〈AA-05〉）。Umami〈自前。ADR-12 で AWS に置いた〉を置き換えた** | **アクセス解析の正本が外部。Cookie（`_ga`・`_ga_<ID>`）を使うため同意の対象になり、同意しない訪問者の数は失う。ページの URL・参照元・端末の情報と Cookie の識別子が Google LLC〈米国〉に渡る（越境。経路 24）。反映が 24〜48 時間遅れる（観測の終端を 3 日前にする）。少ない数はしきい値で `null` か行ごと欠ける。読み手はオンプレの OpenSEO だけ（経路 25）** |
+> | **モデルの提供元**（**Anthropic・OpenAI**。**2026-11-21 に OpenAI として追加し、2026-11-23 にまとめた**） | **(1) Anthropic: Claude Code のエージェント〈監視アプリが起動する定期実行と、ローカルの開発〉。(2) OpenAI: 記事のアイキャッチ画像〈Images API。監視アプリの builtin `article-cover`。ADR-32〉。(3) OpenAI: 音声 SEO BI の会話〈GPT-Live〉と画面共有の 1 フレームの読み取り〈Responses のビジョン〉** | **(1) 当初から（ADR-14〜18）。(2) ADR-32。(3) ユーザーの決定（ADR-33〈AA-05〉の U5・U8）** | **どれも事業者〈米国〉に送る（越境）。(1) エージェントのプロンプトと、MCP で読んだ本番のデータ〈個票を含みうる。ツールの結果は E-15 に残さない。ADR-18〉。(2) 記事の題と要約から作るプロンプトだけ。(3) 運用者の音声と画面共有のフレーム〈経路 28。訪問者・顧客の個票は送らない約束。DA-05 の 1.7〉。API キーは使い道ごとに分ける〈(2) と (3) は OpenAI のプロジェクトを分けたキー。setup の `OPENAI_API_KEY` と `VOICE_OPENAI_API_KEY`〉。データの保持と学習への利用は、本番で使い始める前にユーザーが各社の規約で確かめる** |
 >
 > **境界の説明の一文の面談の句は、「面談の予約は Cal.com（SaaS。例外）で受け、予定は Google カレンダーに入れる」に読み替える**（上の「正本のデータを持つ本番…面談の予定は Google カレンダーに入れる」は ADR-19 の記述）。**観測の句は、ADR-25 で「アクセス解析は GA4（例外）、行動観測は PostHog」に読み替える。**
 
@@ -341,3 +361,5 @@ n8n・Chatwoot・Mautic の compose にはいずれも「外部ネットワー�
 - **OpenSEO を開発機の外から使う方法が無い。** Docker 版は無認証（`local_noauth`）であり、トンネルを張らないと決めた（7 節）。運用者が 2 名を超えて別の端末から使いたくなった場合、**ngrok の認証の後ろに置く**か、OpenSEO の Cloudflare 版（Cloudflare Access の認証付き）に移るか、ADR-12 と同じく AWS に置くかを決める必要がある。判断者 `R1`。
 - **（2026-10-06 に ADR-25 で解消）旧版の「Umami を 3000 のままループバックに変更するか」は、本番では解消した**（本番の Umami は ALB の後ろの private サブネットに置く。TA-06）。**開発環境の Umami が `0.0.0.0` にバインドされている問題は残る**（6 節）。対処は TA-04 の 3 節の判断と一体で決める。（以上は旧版の記述。**Umami は ADR-25 で廃止した**）
 - **（2026-10-03 に追加）AWS の規約の解釈（承認ゲート G-3）。** `points-api` が unMineable の API を読みポイントを付与することが、AWS Service Terms 1.25 の "facilitate" にあたるか。あたるなら `points-api` を AWS の外に出す（ADR を起票する）。
+- **（2026-11-21 に追加。2026-11-23 に決着。ADR-33）音声 SEO BI エージェントのヘルスのポート 8081 が、開発と本番で同じ。** → **コードは変えず、開発で動かすときは本番のユニットを止める**（`sudo systemctl stop comegin-livekit-agent`。終わったら `sudo systemctl start comegin-livekit-agent`。`backend/livekit-agent/README.md`）。
+- **（2026-11-21 に追加。2026-11-23 に決着。ADR-33）モデルの提供元（Anthropic・OpenAI）を 8 節の例外の一覧にどう載せるか。** → **「モデルの提供元」という 1 つの種類にまとめ、使い道を並べて書いた**（8 節の一覧の最後の行）。

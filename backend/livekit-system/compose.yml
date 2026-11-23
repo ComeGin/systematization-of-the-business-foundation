@@ -1,0 +1,18 @@
+# 開発用の SFU（livekit-server の開発モード）。音声 SEO BI エージェント（backend/livekit-agent）と監視アプリの /voice が使う。
+# 設計: docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md の 4 節 (e)・5.1（I-35・I-36）。
+#
+# - 開発モード（--dev）の API キーとシークレットは固定の devkey・secret（公開されている値。開発専用で、本番には使わない）。
+# - network_mode: host（WebRTC の UDP をコンテナの NAT に通さないため。LiveKit の推奨）。そのうえで --bind 127.0.0.1 にして、
+#   シグナリング（7880）を 127.0.0.1 だけで受ける（LAN には出さない）。ngrok は UDP を通せないので、外に出す経路は作らない（C8）。
+# - ポート: 7880（API と WebSocket のシグナリング）・7881/tcp（ICE/TCP）・7882/udp（開発モードの UDP の多重化）。
+#   ポートの割り当ては .claude/CLAUDE.md のポート表に従う。
+# - 版はタグとダイジェストで固定する（:latest にしない）。上げるときは本番の雛形（prod/）の版もそろえる。
+#   出典: docker buildx imagetools inspect livekit/livekit-server:v1.13.11（2026-10-25 のビルド。2026-11-21 に確かめた）
+# - データを持たない（ルームはメモリの中だけ）ので、ボリュームは要らない。
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13.11@sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20
+    # 公式イメージの ENTRYPOINT は /livekit-server。ここは引数だけ
+    command: ["--dev", "--bind", "127.0.0.1"]
+    network_mode: host
+    restart: unless-stopped

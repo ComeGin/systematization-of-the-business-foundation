@@ -19,6 +19,7 @@ docs/audits/<source>/<audit_id>.md
 | `ops` | `agent/ops-watcher` | Error Tracking と死活 |
 | `quality` | `agent/quality-checker` | 機械チェックの結果 |
 | `market` | `agent/knowledge-scout` | 競合・SERP の市場データ |
+| `voice` | `agent/voice-seo-bi`（**Claude Code のエージェント定義ではない**。オンプレに常駐する音声 SEO BI エージェント `backend/livekit-agent`。2026-11-21 に追加。ADR-33） | 運用者との対話の要約（問いの要約・使ったツール・結果 ID）。**発話の全文・個人情報・音声・映像は書かない**。書き先は環境変数 `VOICE_AUDIT_DIR`（監視アプリの作業場の `docs/audits/voice/`）。frontmatter は下の「`voice` の書き方」 |
 
 - **1 つの `source` のディレクトリに書くエージェントは 1 本だけ**（AA-03 の 4.3）。採番が衝突しないのはこのためである（DD-01 の 3.6）
 - `audit_id` は `AUD-<西暦>-<月日>-<source>-<連番 4 桁>`（例 `AUD-2026-1004-lighthouse-0001`）。連番は**同じ日・同じ `source` の既存ファイルの最大値 + 1**。ロックは要らない
@@ -56,6 +57,17 @@ raw_ref: ".lighthouse/lhr-1759525200000.json"  # 元データへの参照（任�
 | `fetch.outcome` `fetch.attempts` `fetch.correlation_id` `fetch.measured_at` | 必須 | **`ok` と `empty_but_ok` 以外は `E-13` の `evidence` に使えない** |
 | `fetch.range` | 期間を持つ観測で必須 | GSC は `range.to` が `fetch.measured_at` の 2〜3 日前になる。混同しない |
 | `raw_ref` | 任意 | 個人情報を含むファイルを指さない |
+
+### `voice` の書き方（2026-11-21 に追加。ADR-33）
+
+| 項目 | 値 |
+|---|---|
+| `source` / `created_by` | `voice` / `agent/voice-seo-bi` |
+| `target_ref` | `"OpenSEO project=<id> domain=<domain>"`（音声の対話に当たる E-ID が無いため、読んだ OpenSEO のプロジェクトで指す） |
+| `metrics` | `VOICE-session-seconds`・`VOICE-tool-calls`・`VOICE-tool-errors`・`VOICE-questions`（DA-02 の 4.6） |
+| `fetch.range` | 書かない（対話は期間を持たない。問いごとの期間は本文の要約に書く） |
+| `fetch.correlation_id` | 対話（セッション）の ULID |
+| 本文 | 問いの要約・使ったツール・結果 ID だけ。**発話の全文と個人情報は書かない** |
 
 ## 本文
 

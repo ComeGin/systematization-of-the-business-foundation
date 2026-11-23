@@ -1,4 +1,5 @@
 // 監視アプリ（next-js + control-plane）の設定。環境変数ファイル → pnpm install → Google ログインの設定の確認。
+// 音声 BI（/voice）の LIVEKIT_* は、開発の SFU（backend/livekit-system）の値を空の項目だけに書く（2026-11-21）。
 // 出典: frontend/next-js/README.md（起動・環境変数）、dev/init-env.sh（BETTER_AUTH_SECRET の生成。冪等）、
 //       frontend/next-js/lib/auth.ts（Google だけ。hd・email_verified・許可リスト CONTROL_ADMIN_EMAILS の 3 段。ADR-23）、
 //       node_modules/better-auth の dist/api/routes/sign-in.mjs（POST /api/auth/sign-in/social が Google の認可 URL を返す）・
@@ -32,6 +33,18 @@ export const GROUPS = {
   "本番の Strapi": ["CONTROL_STRAPI_URL", "CONTROL_STRAPI_READ_TOKEN"],
   "配信": ["CONTROL_DEPLOY_BUCKET", "CONTROL_DEPLOY_DISTRIBUTION_ID", "CONTROL_DEPLOY_AWS_PROFILE"],
   "Mautic の読み取り": ["CONTROL_MAUTIC_URL", "CONTROL_MAUTIC_CLIENT_ID", "CONTROL_MAUTIC_CLIENT_SECRET"],
+  // 音声 BI（/voice。2026-11-21）。SFU の URL と、トークンに署名する鍵の組。LIVEKIT_AGENT_NAME は既定（comegin-seo-bi）があるので入れない
+  "音声 BI": ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"],
+};
+
+// 開発の SFU（backend/livekit-system の livekit-server --dev。127.0.0.1:7880）。鍵は --dev の公開の固定値（devkey / secret）で、秘密ではない。
+// エージェント（backend/livekit-agent の setup）と同じく、dev.conf の LIVEKIT_* は読まない（prod.conf だけのキー。setup/setup.conf.example）。
+// 環境変数ファイルで空の項目だけ書く
+export const DEV_LIVEKIT = {
+  LIVEKIT_URL: "ws://127.0.0.1:7880",
+  LIVEKIT_API_KEY: "devkey",
+  LIVEKIT_API_SECRET: "secret",
+  LIVEKIT_AGENT_NAME: "comegin-seo-bi",
 };
 
 const dirOf = (ctx) => join(ctx.W, "frontend/next-js");
@@ -153,6 +166,10 @@ export async function check(ctx) {
   } catch (e) {
     mark(false, "", e.message);
   }
+  // 音声 BI は任意の機能。無ければ /voice が「環境変数が設定されていません」を出すだけ（止めない）
+  const livekitMissing = Object.keys(DEV_LIVEKIT).filter((k) => !env[k]);
+  if (livekitMissing.length) notes.push(`音声 BI（/voice）の環境変数が無い: ${livekitMissing.join("・")}（このモジュールを apply すると開発の SFU の値が入る）`);
+  else notes.push(`音声 BI（/voice）の SFU: ${env.LIVEKIT_URL}（開発の SFU は cd backend/livekit-system && docker compose up -d）`);
 
   const publicUrl = publicUrlOf(env);
   notes.push(`ブラウザで開く URL（BETTER_AUTH_URL）: ${publicUrl}`);
@@ -225,6 +242,8 @@ export async function apply(ctx) {
   // 空のときだけ書く（設定で true を明示したとき・既に値があるときはそのまま）
   const values = { CONTROL_MAIN_CHECKOUT: main, CONTROL_WORKTREE: worktree, CONTROL_WORKTREE_SYNC: ctx.conf.CONTROL_WORKTREE_SYNC || "false" };
   for (const k of OPTIONAL_KEYS) if (ctx.conf[k]) values[k] = ctx.conf[k];
+  // 音声 BI（/voice）。開発の SFU の固定値。既に値がある項目は変えない（writeEnvFile の onlyIfEmpty）
+  Object.assign(values, DEV_LIVEKIT);
   // 誤った書き込みの突き合わせ: 設定に無ければ、chatwoot モジュールの状態（エージェント専用ユーザー）から全部そろうときだけ埋める
   const miswrite = {
     MISWRITE_CHATWOOT_BASE_URL: ctx.conf.CHATWOOT_BASE_URL || "http://127.0.0.1:3100",
