@@ -1,6 +1,8 @@
 id: daily-observe-analytics
-description: "本番の GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計値を E-12（source: analytics）に正規化する（日次の観測 4 本のうちの 1 本）"
-enabled: true
+description: "本番の GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計値を E-12（source: analytics）に正規化する（日次の観測。2026-11-25 から手動）"
+# 2026-11-25 から手動（ユーザーの決定）。本番の Mautic（mautic-web） は毎日 0 時〜7 時 50 分に 0 台になる（cloud/README.md の 4.11）ため、自動では起動しない。
+# 8 時以降に監視アプリの「今すぐ実行」で動かす。cron は enabled が false のあいだ使われない（有効に戻すときの目安）。
+enabled: false
 cron: "0 4 * * *"
 kind: agent
 agent: analytics-reporter
@@ -19,7 +21,7 @@ timeout_sec: 900
 max_turns: 40
 # 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
 overview: |
-  Agent analytics-reporter を起動し、直近 35 日（今日の 3 日前まで）の集計値を読んで E-12（source: analytics）に正規化する。GA4 はセッション数・自然検索の割合・ページビュー、Mautic はフォーム送信の集計、PostHog は記事の公開数と Core Web Vitals の p75。個々のコンタクト・訪問者は読まない。
+  Agent analytics-reporter を起動し、直近 35 日（今日の 3 日前まで）の集計値を読んで E-12（source: analytics）に正規化する。GA4 はセッション数・自然検索の割合・ページビュー、Mautic はフォーム送信の集計、PostHog は記事の公開数と Core Web Vitals の p75。個々のコンタクト・訪問者は読まない。2026-11-25 から手動: 本番の Mautic が 0 時〜7 時 50 分に止まるため、8 時以降に「今すぐ実行」で動かす。
 stage: observe
 io:
   reads:

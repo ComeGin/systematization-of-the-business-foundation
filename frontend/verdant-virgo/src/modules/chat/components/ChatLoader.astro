@@ -2,6 +2,7 @@
 // チャット（Chatwoot）の差し込み口（BaseLayout の <body> の末尾。props なし）。
 // [data-chat-open] の要素（無料相談の「チャットで質問する」）を押すと、同意済みならチャットを開き、未同意なら同意バナーを再表示する
 // （そのバナーで同意したら、そのまま開く）。開けなかったときは押したボタンの近くに案内を出す。
+// 受付時間外（0〜8 時。2026-11-25）はウィジェットを読み込まず、押したら受付時間外の案内を出す（chatwoot.ts・@/modules/service-hours）。
 ---
 
 <script>
@@ -13,11 +14,17 @@
     handleConsentChange,
     loadChatwoot,
     openChat,
+    refreshForServiceHours,
   } from '../lib/chatwoot';
 
   // ウィジェットの読み込みは、最初の描画の後、ブラウザが空いてから（同意済みの訪問者でも）
   whenIdle(() => {
     if (getConsent() === 'granted') loadChatwoot();
+  });
+  // 受付時間（0〜8 時は止める）の変わり目に合わせ直す。開きっぱなしのタブ・裏から戻ったタブでも、0 時にランチャーを隠し、8 時に出す
+  window.setInterval(refreshForServiceHours, 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshForServiceHours();
   });
   onConsentChange(handleConsentChange);
   onConsentBannerOpenRequest(handleBannerOpenRequest);

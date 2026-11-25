@@ -294,11 +294,12 @@ Parameters:
     AllowedPattern: ^(?!latest$).+$
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
-  # 夜間の停止（2026-10-26。ユーザーの決定）。mautic-cron を毎日 22 時〜翌 3 時 45 分（日本時間）に 0 台にする（README の 4.11）。
-  # mautic-web は止めない（夜間の公開サイトのフォームの申し込みを取りこぼさないため）。
-  # 再開は 2026-11-04 に 8 時から 3 時 45 分へ早めた（ユーザーの決定）。
-  # chatwoot-web・chatwoot-worker は 2026-11-12 に対象から外した（ユーザーの決定。mautic-web と同じく止めない）。改善ループの定期実行
-  # （ops/schedules。0〜8 時）が Chatwoot を読み書きし、停止中の ALB の 503 で中断されていたため。このパラメータは Chatwoot に渡さない。
+  # 夜間の停止（2026-10-26。ユーザーの決定）。README の 4.11。
+  # 2026-11-25（ユーザーの決定）から、mautic-web・mautic-cron・chatwoot-web・chatwoot-worker の 4 つを毎日 0 時〜7 時 50 分（日本時間）に 0 台にする。
+  # 費用を優先した。再開を 7 時 50 分にしたのは、タスクの起動とヘルスチェック（数分）を終えて 8 時に受け付けを始めるため。
+  # 止まっているあいだ、公開サイトは 0〜8 時を受付時間外と表示し（frontend/verdant-virgo の service-hours）、Chatwoot・Mautic を使う定期実行は手動にした（ops/README）。
+  # 経緯: 10-26 に chatwoot-web・chatwoot-worker・mautic-cron を 22 時〜8 時で導入、11-04 に再開を 3 時 45 分へ早め、11-12 に Chatwoot を外した（定期実行が 503 で失敗していたため）。
+  # 切り替え（時刻・NightlyStopEnabled・DesiredCount の変更）のデプロイは 8 時〜24 時に行う（夜間に行うと 0 台のまま残ることがある）。
   NightlyStopEnabled:
     Type: String
     Default: 'true'
@@ -307,10 +308,10 @@ Parameters:
       - 'false'
   NightlyStopSchedule:
     Type: String
-    Default: cron(0 22 * * ? *)
+    Default: cron(0 0 * * ? *)
   NightlyStartSchedule:
     Type: String
-    Default: cron(45 3 * * ? *)
+    Default: cron(50 7 * * ? *)
   NightlyStopTimezone:
     Type: String
     Default: Asia/Tokyo
@@ -1148,6 +1149,10 @@ Resources:
     Properties:
       Location: stacks/services/mautic-web.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -1205,6 +1210,10 @@ Resources:
     Properties:
       Location: stacks/services/chatwoot-web.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -1231,6 +1240,10 @@ Resources:
     Properties:
       Location: stacks/services/chatwoot-worker.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds

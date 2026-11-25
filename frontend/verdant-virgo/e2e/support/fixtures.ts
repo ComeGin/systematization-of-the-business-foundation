@@ -7,6 +7,7 @@
 // どちらもホストは環境で変わるので、パス（/form/submit・/v1/consent）だけで捕まえる。
 // 同意の後に読み込まれる解析（GA4・PostHog）とチャット（Chatwoot の SDK）は、開発のプロジェクトを汚さないよう止める。
 import { test as base, type Request, type Route } from "@playwright/test";
+import { keepServiceHoursOpen } from "./service-hours";
 
 /** Mautic の応答の差し替え方 */
 export type MauticMode =
@@ -105,7 +106,16 @@ const isAnalytics = (url: URL) =>
 export const test = base.extend<{
   net: Network;
   allowChat: boolean;
+  serviceHoursOpen: void;
 }>({
+  /** 受付時間外（0〜8 時 JST）に実行したら、時計を同じ日の 12 時にずらす（support/service-hours.ts。月曜 01:15 の weekly-a11y のため） */
+  serviceHoursOpen: [
+    async ({ context }, use) => {
+      await keepServiceHoursOpen(context);
+      await use();
+    },
+    { auto: true },
+  ],
   /** true のとき Chatwoot の SDK を止めない（chat.spec.ts だけ。test.use({ allowChat: true })） */
   allowChat: [false, { option: true }],
   net: [

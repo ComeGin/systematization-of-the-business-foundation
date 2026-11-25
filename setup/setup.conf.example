@@ -167,6 +167,8 @@ MAUTIC_SETUP_CLIENT_ID=
 MAUTIC_SETUP_CLIENT_SECRET=
 # インストールと画面の設定（API・Webhook のキューモードと私設アドレス・CORS・メール）が済んだら yes
 MAUTIC_PROD_SETTINGS_DONE=
+# メールの設定を夜間の停止（0 時〜7 時 50 分）に合わせた（配信停止の文言・Disable trackable urls）ら yes（2026-11-25。cloud/README.md の 4.11）
+MAUTIC_PROD_NIGHT_EMAIL_DONE=
 # オンプレの n8n の Webhook の受け口のアドレス（任意。既定 10.99.0.2。cloud/template.yaml の OnpremPeerAddress と同じ）
 ONPREM_WEBHOOK_HOST=
 

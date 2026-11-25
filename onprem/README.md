@@ -518,7 +518,7 @@ journalctl -u comegin-control -n 50                                     # 起動
 | 月曜 02:30 | `weekly-keyword-research` | **OpenSEO の費用が出る**（1 回の見積もりの上限は 2,000 クレジット） |
 | 火曜・金曜 02:30 | `weekly-content-draft` | **本番の Strapi に下書きを書く**（1 回 1 本・週 2 本）。承認済みの企画（E-03）が無ければ `skipped` |
 | 水曜 02:30 | `weekly-content-plan` | 採用済みの E-01 が無ければ `skipped` |
-| 毎日 04:00 | 観測のエージェント 4 本（`daily-observe-*`） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
+| 毎日 04:00 | 観測のエージェント 2 本（`daily-observe-seo`・`daily-observe-ops`。会話〈`daily-observe-conversations`〉と集計〈`daily-observe-analytics`〉は 2026-11-25 から手動。本番の Chatwoot・Mautic が 0 時〜7 時 50 分に止まるため、8 時以降に今すぐ実行する） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
 | 毎日 04:30 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |
 | 月曜 00:00 | `cycle-open` | 周の 0 日目（起点の月曜）だけ周を開く。それ以外の月曜は `skipped`（「周の <n> 日目」）で正常 |
 | 月曜 00:05 | `cycle-close` | 期間が終わった周だけ閉じる。閉じる周が無い週（周の途中・`cycle-open` が先に閉じた週）は `skipped` で正常。閉じる前に今日の周を開く（冪等） |
@@ -529,11 +529,13 @@ journalctl -u comegin-control -n 50                                     # 起動
 | 毎日 06:30 | `cycle-apply-content` | 承認済みの `content_rewrite` の E-13 が無ければ `skipped` |
 | 毎日 07:00 | `cycle-collect` | 周の項目を集める。`CONTROL_CYCLE_ANCHOR` が無ければ `skipped` |
 | 毎月 1 日 05:00 | `monthly-analysis` | — |
-| 毎日 05:30〜06:15 | `daily-i13-file`・`daily-miswrite-check`・`daily-silence-check`・`daily-n8n-export` | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
+| 毎日 05:30〜06:15 | `daily-i13-file`・`daily-silence-check`・`daily-n8n-export`（`daily-miswrite-check` は 2026-11-25 から手動） | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
 
 **オンプレのマシンは夜（0〜8 時）も動かしておく。** スケジューラは監視アプリのプロセスの中にあり（cron 式は Asia/Tokyo）、マシンが止まっていた時刻の実行は、起動した後に取り戻さない。2026-11-03 は、マシン（VirtualBox の VM）が 11:28 に起動したため、最初の夜の実行（00:00〜06:15）は 1 本も動かなかった。VM の中のアイドル時の休止は無効（`gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout` が `0`）でも、ホストの電源・休止と VM の自動起動はホスト側で設定する（VM の中からは確かめられない）。翌朝に `journalctl -u comegin-control --since "<その日> 00:00" | grep -a 'engine 起動'` で、0〜6 時の実行が出ていることを確かめる。
 
 改善ループの本体はすべて 07:10 までに終わる（`timeout_sec` で打ち切られた場合も。最長の上限は `cycle-collect`。`ops/README.md` の「時刻の決め方」）。`runlog-flush`（写しの送り直し）も 0〜8 時の 15 分ごとで、07:50 までに終わる。昼に動くのは、監視アプリのハートビート（5 分ごと）と写しの再送だけ（どちらも改善の処理ではない）。朝 8 時以降に監視アプリの画面か `journalctl -u comegin-control --since today` で、その夜の結果をまとめて見る。
+
+**本番の n8n の `weekly-inquiry-inventory`（月曜 07:00。Chatwoot の未割り当ての会話を数える）は、2026-11-25 から手動で実行する。** 本番の Chatwoot は 0 時〜7 時 50 分に止まる（`cloud/README.md` の 4.11）ので、公開したままだと 7:00 に Chatwoot の 503 で取得に失敗し、I-21 で「取得の状態」の通知が出る。provision は棚卸しを公開しない（`publish: never`）ので、**本番で公開済みなら n8n の画面で非公開にし、月曜の 8 時以降に画面からワークフローを実行する**（スケジュールのトリガーのままでも、画面からの実行はできる）。
 
 **本番の n8n の 2 本（`weekly-inquiry-inventory` を月曜 09:00 → 07:00、開発だけの `ops-monitor` の証明書の確認を 09:10 → 07:10）は、リポジトリの JSON を直しただけでは本番に入らない。** main に入った後、`node setup/setup.mjs --target prod --only n8n-prod`（provision が同名のワークフローを更新する）を実行する。provision は棚卸しを公開しない（`publish: never`）ので、**本番で公開済みなら n8n の画面で開き直して公開し直す**（公開中の版は、公開し直すまで古い時刻のまま動く）。反映しないと、`daily-n8n-export` が本番の 09:00 の版との差分を PR にして、リポジトリを古い時刻へ戻そうとする。
 

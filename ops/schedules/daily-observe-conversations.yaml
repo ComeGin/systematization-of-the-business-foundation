@@ -1,6 +1,8 @@
 id: daily-observe-conversations
-description: "本番の Chatwoot の未解決の会話を一次切り分けし、社内メモと集計（E-12 の source: conversations）を残す（日次の観測 4 本のうちの 1 本。顧客への送信は許可しない）"
-enabled: true
+description: "本番の Chatwoot の未解決の会話を一次切り分けし、社内メモと集計（E-12 の source: conversations）を残す（日次の観測。2026-11-25 から手動。顧客への送信は許可しない）"
+# 2026-11-25 から手動（ユーザーの決定）。本番の Chatwoot は毎日 0 時〜7 時 50 分に 0 台になる（cloud/README.md の 4.11）ため、自動では起動しない。
+# 8 時以降に監視アプリの「今すぐ実行」で動かす。cron は enabled が false のあいだ使われない（有効に戻すときの目安）。
+enabled: false
 cron: "0 4 * * *"
 kind: agent
 agent: conversation-triage
@@ -19,7 +21,7 @@ timeout_sec: 1200
 max_turns: 80
 # 監視アプリに出す説明（2026-11-06。docs/superpowers/specs/2026-11-06-job-agent-info-design.md の 4 節）
 overview: |
-  Agent conversation-triage を起動し、本番の Chatwoot の未解決（open・pending）の会話を最大 4 ページ読んで一次切り分けする。会話に社内メモ（顧客には届かない）とラベル・優先度を付け、集計を E-12（source: conversations）に残す。本番の Chatwoot は夜間も止めない（2026-11-12）。
+  Agent conversation-triage を起動し、本番の Chatwoot の未解決（open・pending）の会話を最大 4 ページ読んで一次切り分けする。会話に社内メモ（顧客には届かない）とラベル・優先度を付け、集計を E-12（source: conversations）に残す。2026-11-25 から手動: 本番の Chatwoot が 0 時〜7 時 50 分に止まるため、8 時以降に「今すぐ実行」で動かす。
 stage: observe
 io:
   reads:

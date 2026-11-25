@@ -102,13 +102,13 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 
 ### 3.1 見積もり（2026-10-26）
 
-**月 約 $397（税抜き。消費税 10% 込みで約 $437、年 約 $5,240）**（2026-10-27 に PostgreSQL も Aurora Serverless v2 にした後。MySQL の Serverless v2 と Fargate の夜間の停止は 2026-10-26。**2026-11-04 に夜間の停止の再開を 8 時から 3 時 45 分に早めて、月 $16 前後増えた。2026-11-12 に Chatwoot〈chatwoot-web・chatwoot-worker〉を夜間の停止から外して、さらに月 $16 前後増えた**〈4.11 の「夜間の停止」〉）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
+**月 約 $358（税抜き。消費税 10% 込みで約 $394、年 約 $4,730）**（2026-10-27 に PostgreSQL も Aurora Serverless v2 にした後。MySQL の Serverless v2 と Fargate の夜間の停止は 2026-10-26。**2026-11-04 に夜間の停止の再開を 8 時から 3 時 45 分に早めて、月 $16 前後増えた。2026-11-12 に Chatwoot〈chatwoot-web・chatwoot-worker〉を夜間の停止から外して、さらに月 $16 前後増えた。2026-11-25 に mautic-web・mautic-cron・chatwoot-web・chatwoot-worker の 4 つとも 0 時〜7 時 50 分に止めて、月 $39 前後下がった**〈4.11 の「夜間の停止」〉）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
 
 | 区分 | 項目 | 月額（USD） | 前提・単価 |
 |---|---|---:|---|
-| 計算 | ECS Fargate mautic-web（1 vCPU・2 GB、x86、常時） | 44.98 | vCPU $0.05056/時・GB $0.00553/時 |
-| 計算 | ECS Fargate chatwoot-web・chatwoot-worker（計 1.5 vCPU・3 GB、x86、常時。2026-11-12 から夜間も止めない） | 67.47 | 同上 |
-| 計算 | ECS Fargate mautic-cron（0.5 vCPU・1 GB、x86、毎日 22 時〜翌 3 時 45 分は 0 台） | 17.10 | 同上。1 日 18.25 時間（夜間の停止で月 $5 前後下がる。3 つとも止めていた 2026-11-11 までは計 $68.41） |
+| 計算 | ECS Fargate mautic-web（1 vCPU・2 GB、x86、毎日 0 時〜7 時 50 分は 0 台） | 30.30 | vCPU $0.05056/時・GB $0.00553/時。1 日 16 時間 10 分（常時なら $44.98） |
+| 計算 | ECS Fargate chatwoot-web・chatwoot-worker（計 1.5 vCPU・3 GB、x86、毎日 0 時〜7 時 50 分は 0 台。2026-11-12〜11-24 は常時） | 45.45 | 同上。1 日 16 時間 10 分（常時なら $67.47） |
+| 計算 | ECS Fargate mautic-cron（0.5 vCPU・1 GB、x86、毎日 0 時〜7 時 50 分は 0 台） | 15.15 | 同上。1 日 16 時間 10 分（常時なら $22.49。2026-11-24 までは 22 時〜翌 3 時 45 分に止めて $17.10） |
 | 計算 | EC2 t4g.nano（WireGuard）＋EBS gp3 8 GB | 4.71 | $0.0054/時・$0.096/GB 月 |
 | 計算 | Lambda（4 関数。arm64） | 0 | 常時無料枠（月 100 万リクエスト・40 万 GB 秒）に収まる想定 |
 | DB | Aurora PostgreSQL Serverless v2（Chatwoot・admin-auth・Strapi・n8n が共有。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（上限は 2 ACU で月 $219） |
@@ -125,9 +125,9 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 | セキュリティ | Secrets Manager（22 個） | 8.85 | $0.40/個（$8.80）＋API の呼び出し |
 | 運用 | CloudWatch（アラーム 30〈課金はアラームの中のメトリクスの数で 37〉・Container Insights 標準 約 60 メトリクス・ログ 6 GB） | 18.66 | $0.10/アラームのメトリクス・$0.30/メトリクス・$0.76/GB（無料枠を引いた） |
 | 運用 | ECR（計 4 GB）・SES（3,000 通/月）・SNS・ACM | 0.70 | |
-| | **合計** | **397.08** | |
+| | **合計** | **358.43** | |
 
-- **固定費（時間課金）が 9 割**（Fargate 33%・Aurora 28%・NAT と IPv4 16%・ALB 5%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $507**（それぞれ ＋$55）。
+- **固定費（時間課金）が 9 割**（2026-11-25 の夜間の停止の後。Fargate 25%・Aurora 34%・NAT と IPv4 17%・ALB 6%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $468**（それぞれ ＋$55）。
 - **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $268**（Fargate が無い）。
 - **（2026-11-21。ADR-33）上の表に、音声 SEO BI の SFU（4.20）は入っていない。** `LivekitSfuEnabled=true` にしたときだけ増える。止めているあいだは EBS（ルートボリューム 8 GB）と Elastic IP（パブリック IPv4。月 $3.65 前後）だけ。起動しているあいだは EC2（既定の `t4g.small`）の時間課金と、メディアのインターネットへの転送が加わる。見積もりは未実施（5 節）。AWS の外では、OpenAI の GPT-Live（セッションの時間）と Responses（ビジョン）の従量課金が増える。
 - **CloudFront のフラットレートのプランが使えない場合**（Free Tier の期間のアカウントは購読できない。4.3）、CloudFront 用の WAF の分（$5＋ルール 4＋リクエスト）で月 約 $9 増える。
@@ -1141,13 +1141,13 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 | 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。コマンドは 4.17 の「前提」。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
 | 2 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
 
-**夜間の停止（2026-10-26。ユーザーの決定。2026-11-12 に対象を mautic-cron だけにした）**: `mautic-cron` は、毎日 22 時に 0 台にして翌 3 時 45 分に DesiredCount に戻す（日本時間。`mautic-cron.yaml` の `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。`mautic-web`・`chatwoot-web`・`chatwoot-worker` は止めない。
-- **Chatwoot を止めない理由（2026-11-12。ユーザーの決定）**: 改善ループ（`ops/schedules/`。0〜8 時に動かす。`ops/README.md` の「時刻の決め方」）と定期実行が Chatwoot を読み書きし、停止中の ALB の 503 で中断されていた。2026-10-26〜11-11 は `chatwoot-web`・`chatwoot-worker` も止めていた（11-04 までは 8 時まで、その後は 3 時 45 分まで）。費用は月 $16 前後増える（3.1）。Chatwoot を読む定期実行は時刻を選ばない（mautic-web と同じ）。
-- **再開を 3 時 45 分にしている理由（2026-11-04。ユーザーの決定）**: 当時は Chatwoot を読む 2 本（04:00 の `daily-observe-conversations`、05:45 の `daily-miswrite-check`）のため。03:00〜03:30（月曜の RDS の保守の窓）の後に起こす。Chatwoot を外した後も mautic-cron の時刻はそのまま。
-- **夜間の影響**: Mautic のフォームの申し込みは受け付けるが、n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新は 3 時 45 分以降にまとめて処理される。公開サイトのチャットのウィジェット・FAQ ボット・Chatwoot の Webhook（I-12）とメールは夜間も動く。
-- 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`（mautic-cron だけに渡す）。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
-- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**切り替え（`NightlyStopEnabled`・DesiredCount・時刻の変更、Chatwoot を外す 2026-11-12 の変更の最初のデプロイ）は昼（3 時 45 分〜22 時。時刻を変えるときは、変える前の時刻で動いているあいだ）に行う**。夜間に行うと、①`NightlyStopEnabled=false` にしたり、スケジュールを消したり（2026-11-12 の Chatwoot）、DesiredCount を 0 にしたりすると、スケジュールが消えてもタスクの数は 0 のまま残り、朝になっても起動しない（CloudFormation は変わっていない DesiredCount を送り直さない見込み）②DesiredCount を変えると、最小と最大がすぐ昼の台数になり、その夜は止まらない。①になったら `aws ecs update-service --region ap-northeast-1 --cluster <ClusterName> --service comegin-prod-<svc> --desired-count 1` で CloudFormation の値に戻す（設定スクリプトの chatwoot-prod・mautic-prod もこの手順を案内する）。夜間にほかの変更だけを `sam deploy` しても、止めたタスクが起きるかは未確認（起きても次の 22 時に止まり直す）。
-- 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（mautic-cron の希望 0）は鳴らない。**①で 0 台のまま残ったときは、どのアラームも鳴らない**（希望が 0。ALB の 5xx の比率は ALB 自身の 503 を除き、正常でないターゲットの数はターゲットが無いので 0）。気づけるのは設定スクリプトの `--check`（chatwoot-prod の「動いているタスクが 0」）と、改善ループの Chatwoot の失敗だけ。
+**夜間の停止（2026-10-26。ユーザーの決定。2026-11-25 に 4 つとも 0 時〜7 時 50 分にした）**: `mautic-web`・`mautic-cron`・`chatwoot-web`・`chatwoot-worker` を、毎日 0 時に 0 台にして 7 時 50 分に DesiredCount に戻す（日本時間。各サービスのテンプレートの `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。
+- **4 つとも止める理由（2026-11-25。ユーザーの決定）**: 費用を下げるため（月 $39 前後下がる。3.1）。2026-11-12〜11-24 は、改善ループの定期実行が Chatwoot を読み書きするため Chatwoot と mautic-web を止めていなかった。その衝突は、Chatwoot・Mautic を使う定期実行を**手動にする**ことで避けた（`daily-observe-conversations`・`daily-miswrite-check`・`daily-observe-analytics`。8 時以降に監視アプリの「今すぐ実行」で動かす。`daily-propose` の `after` からは会話と集計を外した。`ops/README.md`）。本番の n8n の `weekly-inquiry-inventory`（月曜 7 時に Chatwoot を読む）も手動にする（`onprem/README.md`）。
+- **再開を 7 時 50 分にしている理由**: タスクの起動とヘルスチェック（数分）を終えて、8 時に受け付けを始めるため。公開サイトは 0 時〜8 時を受付時間外として扱う（`frontend/verdant-virgo/src/modules/service-hours`。時刻を変えるときは一緒に直す）。
+- **夜間の影響**: 公開サイトの無料相談のフォームは送信ボタンを押せなくして受付時間外の案内を出し、チャットはウィジェットを読み込まずに案内を出す（夜間の申し込みは取りこぼす。預かって朝に送る仕組みは作らない。設計は `docs/superpowers/specs/2026-11-25-night-stop-chatwoot-mautic-design.md`）。Mautic の API・FAQ ボットも使えない。**メールは夜間でも読める形にする**（2026-11-25。`mautic-prod:night-email`）: ①記事などへのリンクを Mautic の `/r/` で中継しない（Disable trackable urls。流入は UTM で GA4 が測り、Mautic のクリックの数はどこでも使っていない）②配信停止の文言（`{unsubscribe_text}`）に、0 時〜8 時は止まっていることと、`kamegin4@comegin.com` への返信でも受け付けることを書く（特定電子メール法の配信停止の連絡先の表示にもなる。campaign-planner のメールは本文にこのトークンを必ず入れ、control-plane のフックが検査する）。それでも、夜間に配信停止のリンク（List-Unsubscribe のワンクリックを含む）を押すと 503 になり、開封の計測の画像は数えられない。n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新と、Chatwoot の Webhook（I-12）・メールは 7 時 50 分以降にまとめて処理される。ALB は正常なターゲットが無いので 503 を返す（アラームの対象から外してある）。
+- 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`（4 つに同じ値を渡す）。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
+- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**デプロイは 8 時〜24 時に行う。切り替え（`NightlyStopEnabled`・DesiredCount・時刻の変更、4 つにする 2026-11-25 の変更の最初のデプロイ）は、変える前の時刻でも動いているあいだ（2026-11-25 の変更なら 8 時〜22 時）に行う**。夜間に行うと、①`NightlyStopEnabled=false` にしたり、スケジュールを消したり、DesiredCount を 0 にしたりすると、スケジュールが消えてもタスクの数は 0 のまま残り、朝になっても起動しない（CloudFormation は変わっていない DesiredCount を送り直さない見込み）②DesiredCount を変えると、最小と最大がすぐ昼の台数になり、その夜は止まらない。①になったら `aws ecs update-service --region ap-northeast-1 --cluster <ClusterName> --service comegin-prod-<svc> --desired-count 1` で CloudFormation の値に戻す（設定スクリプトの chatwoot-prod・mautic-prod もこの手順を案内する）。夜間にほかの変更だけを `sam deploy` しても、止めたタスクが起きるかは未確認（起きても次の 0 時に止まり直す）。
+- 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（希望 0）は鳴らない。**①で 0 台のまま残ったときは、どのアラームも鳴らない**（希望が 0。ALB の 5xx の比率は ALB 自身の 503 を除き、正常でないターゲットの数はターゲットが無いので 0）。気づけるのは設定スクリプトの `--check`（chatwoot-prod・mautic-prod の「動いているタスクが 0」。8 時を過ぎても 0 なら①）と、朝の公開サイトの送信の失敗だけ。
 - Application Auto Scaling は、サービスにリンクされた IAM ロール（`AWSServiceRoleForApplicationAutoScaling_ECSService`）を使う。初回のデプロイで自動で作られる（デプロイの主体に `iam:CreateServiceLinkedRole` が要る）。
 
 **Aurora Serverless v2 の最大 ACU を変えるとき**: `max_connections` は最大 ACU から決まり（2 ACU で 100 前後〈MySQL〉）、**インスタンスを再起動するまで反映されない**（静的なパラメータ）。`MysqlMaxCapacity`・`PostgresMaxCapacity` を変えて `sam deploy` した後、`aws rds reboot-db-instance --db-instance-identifier comegin-prod-mysql-1`（PostgreSQL は `comegin-prod-postgres-1`）を人が実行する（数十秒止まる）。張り付きは `ACUUtilization` のアラーム（`alarms.yaml`）で知る。Mautic（Apache）の同時処理数の既定は 150 で、2 ACU の接続数の上限を超えうる。`/mtc/event` が多いときに接続が足りなくなったら、最大 ACU を上げる。
@@ -1373,7 +1373,7 @@ Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-
 下の 1〜8 は本番の Chatwoot の管理画面で行うので、先に Chatwoot を動かす（2026-11-01 に追加）。2 つのサービスは 0 台で作られる（`template.yaml` の `ChatwootWebDesiredCount`・`ChatwootWorkerDesiredCount` は既定 0）。順番は 4.11 の表の 1 と同じで、ここでは手順を書き下す。
 
 - **台数は `cloud/samconfig.toml` の `parameter_overrides` で上げる。** `aws ecs update-service --desired-count` で直接変えない（次の `sam deploy` で 0 に戻る。2 節の「重要」）。
-- **昼（3 時 45 分〜22 時）に行うと安全。** 2026-11-12 から Chatwoot に夜間の停止は無いが、外す変更を最初にデプロイするまでは残っている（4.11 の「夜間の停止」）。
+- **8 時〜24 時に行う。** 2026-11-25 から Chatwoot は 0 時〜7 時 50 分に止まる（4.11 の「夜間の停止」）。止まっているあいだは画面も API も使えない。
 - **web を先、worker を後にする。** web（Rails。画面・API・ウィジェット・ALB のヘルスチェック）が動かないと、onboarding も 4.13 の確認もできない。worker（Sidekiq）は、メールの送信・Webhook・エージェントボットへのイベントの送信を処理する。worker が 0 台のあいだは、会話は作られても FAQ ボットにイベントが届かずに答えず、メールも出ない（ジョブは Valkey に溜まり、worker が起動すると処理される）。
 - **1 つ上げるたびにデプロイし、確かめてから次に進む**（4.11）。
 
@@ -1511,7 +1511,7 @@ aws ecs describe-services \
 
    スクリプトは実行の前に形式を確かめる（URL は `https://`、アカウント ID は数字だけ、`FAQ_BOT_WEBHOOK_URL` は `https://<id>.lambda-url.<リージョン>.on.aws/webhook`）。
 
-2. **自動** 設定スクリプトを実行する。Chatwoot が動いているときに行う（2026-11-12 から夜間も止めない。それより前のテンプレートのままなら 22 時〜3 時 45 分は届かない。4.11）。
+2. **自動** 設定スクリプトを実行する。Chatwoot が動いているときに行う（2026-11-25 から 0 時〜7 時 50 分は夜間の停止で届かない。8 時〜24 時に行う。4.11）。
 
    ```bash
    node setup/setup.mjs --target prod --check --only chatwoot-prod   # まず何も変えずに見る
@@ -1535,7 +1535,7 @@ aws ecs describe-services \
    |---|---|
    | `CHATWOOT_ADMIN_TOKEN で…認証できない（401）` | トークンの写し間違い。プロフィール設定から写し直す |
    | `…アカウント N の管理者ではない`／`…担当者（agent）ではない` | 2 つのトークンを逆に書いた、または AI エージェントの役割が「管理者」。設定 → 担当者 で役割を直す |
-   | `本番の Chatwoot に届かない` | Chatwoot が止まっている（夜間の停止を外すデプロイを夜に行って 0 台のまま残った場合を含む。4.11 の「夜間の停止」の①） |
+   | `本番の Chatwoot に届かない` | Chatwoot が止まっている（0 時〜7 時 50 分は夜間の停止。8 時を過ぎても届かないなら、夜間に行ったデプロイで 0 台のまま残った場合を含む。4.11 の「夜間の停止」の①） |
    | `ECS の台数を確かめられない`（`--check` では「? 確かめられない」。2026-11-04 から、ほかに欠けが無ければ ● にしない） | AWS の認証が切れている（`aws sso login`） |
 
 3. **人・端末** FAQ ボットの access_token と secret を Secrets Manager の `comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN`・`CHATWOOT_BOT_SECRET` に入れる（`chatwoot-prod:faq-bot-secrets`）。
@@ -1787,6 +1787,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
 - 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・社内通知・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉と、初期設定に定義を足したとき〈2026-11-09 の社内通知。`mautic-prod:setup-client` で止まる〉だけ、作り直して書く）
 - 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
+- 夜間の停止（2026-11-25）に合わせたメールの設定（配信停止の文言・Disable trackable urls。4.11 の「夜間の停止」）が済んだら `MAUTIC_PROD_NIGHT_EMAIL_DONE=yes`（`mautic-prod:night-email` で止まって案内する）
 
 画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`setup/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。
 API 認証情報は、歯車 → API Credentials → New で Authorization Protocol `OAuth 2`・Redirect URI `https://localhost`（必須の欄だが client_credentials では使わない）。一覧の Public Key がクライアント ID、Secret Key がシークレット。`prod.conf` は `chmod 600` にする。

@@ -43,6 +43,7 @@ import {
 import { submitToMautic } from "../lib/mautic";
 import { markSent, unmarkSent, wasSentToday } from "../lib/dedupe";
 import { jstIsoString } from "../lib/jst";
+import { isOutsideServiceHours } from "@/modules/service-hours";
 import { createFormEvents, dispatchFormSuccess } from "../lib/events";
 import {
   consultPageUrl,
@@ -56,7 +57,8 @@ import CheckboxField from "./CheckboxField";
 type FieldName =
   "company" | "lastname" | "firstname" | "email" | "message" | "privacy";
 type Errors = Partial<Record<FieldName, string>>;
-type Status = "idle" | "submitting" | "failed" | "timeout" | "duplicate";
+type Status =
+  "idle" | "submitting" | "failed" | "timeout" | "duplicate" | "closed";
 
 /** フォーカスを移す順（画面の上から） */
 const FIELD_ORDER: FieldName[] = [
@@ -109,9 +111,44 @@ export default function ContactForm({
   // 水和の前は送信ボタンを押せなくする。押せると、ブラウザが JS 抜きの素のフォームとして送ってしまう（Mautic には届かず入力が消える）
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
+  // 受付時間外（0〜8 時。@/modules/service-hours）。静的な HTML に焼き込まないよう、水和の後にだけ判定し、1 分ごとに更新する
+  // （8 時を過ぎたら押せるようにし、0 時を過ぎたら押せなくする）
+  // タブが表示に戻ったときにも判定し直す（裏に回したタブは、1 分ごとの更新が遅れることがある）。
+  // 時刻で受付時間外に切り替わったことは、常に置いてある role="status" の領域で読み上げる（無効になったボタンには Tab で止まらないため。4.1.3）。
+  // 送信を押して受付時間外と分かったときは案内にフォーカスを移して読ませるので、領域には入れない（2 回読まれないように）
+  const [closed, setClosed] = useState(false);
+  const [closedAnnouncement, setClosedAnnouncement] = useState("");
+  const announcedByFocusRef = useRef(false);
+  useEffect(() => {
+    const update = () => {
+      const outside = isOutsideServiceHours();
+      setClosed(outside);
+      if (outside) {
+        if (!announcedByFocusRef.current)
+          setClosedAnnouncement(
+            `${CONSULT_TEXT.closedTitle}。${CONSULT_TEXT.closedBody}`,
+          );
+      } else {
+        announcedByFocusRef.current = false;
+        setClosedAnnouncement("");
+        setStatus((prev) => (prev === "closed" ? "idle" : prev));
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") update();
+    };
+    update();
+    const timer = window.setInterval(update, 60_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const refs = useRef<Partial<Record<FieldName, HTMLElement | null>>>({});
   const alertRef = useRef<HTMLDivElement>(null);
+  const closedRef = useRef<HTMLDivElement>(null);
 
   const validators: Record<FieldName, () => string | null> = {
     company: () => validateCompany(company),
@@ -146,6 +183,7 @@ export default function ContactForm({
   useEffect(() => {
     if (status === "failed" || status === "timeout" || status === "duplicate")
       alertRef.current?.focus();
+    if (status === "closed") closedRef.current?.focus();
   }, [status]);
 
   const submitting = status === "submitting";
@@ -170,6 +208,15 @@ export default function ContactForm({
       return;
     }
     setShowSummary(false);
+
+    // 送信の直前にも判定し直す（23 時 59 分に開いて 0 時 1 分に押した場合など。1 分ごとの更新を待たない）。
+    // 送らない・二重送信の印を付けない・PostHog のイベントも送らない（§6 のイベントの定義を変えない）
+    if (isOutsideServiceHours()) {
+      announcedByFocusRef.current = true;
+      setClosed(true);
+      setStatus("closed");
+      return;
+    }
 
     const normalizedEmail = email.trim().toLowerCase();
     if (formId === null) {
@@ -253,6 +300,9 @@ export default function ContactForm({
       onFocusCapture={() => events.started()}
       className="grid gap-6"
     >
+      <p role="status" className="sr-only">
+        {closedAnnouncement}
+      </p>
       <fieldset disabled={submitting} className="grid gap-6">
         <FormField
           label={CONSULT_TEXT.companyLabel}
@@ -532,6 +582,25 @@ export default function ContactForm({
             </AlertDescription>
           </Alert>
         )}
+        {/* 受付時間外の案内は、押せなくなる送信ボタンのすぐ上に置く（理由がボタンの近くで分かるように。ほかの送信の案内〈§5.1〉と同じ位置。
+            フォームの下端なので、夜に開いて水和の後に案内が入っても、見えている範囲のレイアウトをずらしにくい） */}
+        {closed && (
+          <Alert
+            ref={closedRef}
+            tabIndex={-1}
+            role="group"
+            aria-labelledby={id("closed-title")}
+            aria-describedby={id("closed-body")}
+          >
+            <Info aria-hidden="true" />
+            <AlertTitle id={id("closed-title")}>
+              {CONSULT_TEXT.closedTitle}
+            </AlertTitle>
+            <AlertDescription id={id("closed-body")}>
+              {CONSULT_TEXT.closedBody}
+            </AlertDescription>
+          </Alert>
+        )}
         <SendStatusAnnouncer
           state={submitting ? "sending" : "idle"}
           sendingText={CONSULT_TEXT.submitting}
@@ -539,9 +608,11 @@ export default function ContactForm({
         <Button
           type="submit"
           size="lg"
-          disabled={submitting || !hydrated}
+          disabled={submitting || !hydrated || closed}
           className="h-11 w-full md:h-10"
-          aria-describedby={id("note")}
+          aria-describedby={
+            closed ? `${id("closed-body")} ${id("note")}` : id("note")
+          }
         >
           <SendStatusMark state={submitting ? "sending" : "idle"} />
           {submitting ? CONSULT_TEXT.submitting : CONSULT_TEXT.submit}
