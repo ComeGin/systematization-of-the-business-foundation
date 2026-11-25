@@ -228,6 +228,9 @@ erDiagram
 | `serp` | DataForSEO（Google の検索結果） | OpenSEO のランク追跡 | 対象キーワードの計測時点の順位 |
 | `site_audit` | OpenSEO のクローラ（自サイト） | OpenSEO の MCP | リンク切れ・タイトル重複・canonical の問題などの件数 |
 | `market` | DataForSEO | OpenSEO の MCP | 検索ボリューム・競合ドメインの順位キーワード・被リンク数 |
+| **`voice`**（2026-11-21 に追加。ADR-33） | **運用者と音声 SEO BI エージェントの対話**（`created_by: agent/voice-seo-bi`） | エージェントが対話の終わりに書く（`docs/audits/voice/`） | 問いの要約、使ったツール、結果 ID。指標は `VOICE-*` の 4 つ（DA-02 の 4.6）。`target_ref` は `OpenSEO project=<id> domain=<domain>`（対話に当たる E-ID が無いため）。**発話の全文・個人情報・音声・映像は書かない**。`fetch.correlation_id` はセッションの ULID |
+
+- **（2026-11-21）`voice` は、ほかの `source` と性質が違う。** データの出所は GSC・GA4（OpenSEO 経由）だが、**残すのは数値の観測ではなく「人が何を気にしたか」**である（`proposal-writer` の起票前チェックの根拠に使う。AA-05 の ADR-33）。数値そのものの正本は `gsc`・`analytics` の `E-12` のままで、`voice` の結論の数値はそれらの再掲にすぎない（指標の正本にしない）。
 
 - **OpenSEO の中のデータは正本にしない。** 保存済みキーワードは `E-01` の候補の作業場、プロジェクトコンテキストは OpenSEO の作業用の記憶であり、いずれも複製先にも正本にも数えない（AA-05 の ADR-09）。`E-12` として取り込んだ時点の値と `ref`（再取得できる問い合わせ）だけを残す。
 - `E-12` の `source` に `posthog` / `umami`（**ADR-25 で廃止**） / `mautic` / `chatwoot` を含めるのは、監査結果を「Lighthouse の結果」に限定せず、あらゆる観測の共通の入れ物にするため（`E-13` の根拠参照先を 1 種類の型に統一できる）。

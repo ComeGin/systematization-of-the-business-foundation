@@ -41,11 +41,11 @@ ops/
 | id | 種類 | 実行 | 内容 |
 |---|---|---|---|
 | `daily-observe-seo` | agent | 毎日 04:00 | `seo-auditor`。GSC の実績（`source: gsc`） |
-| `daily-observe-analytics` | agent | 毎日 04:00 | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
-| `daily-observe-conversations` | agent | 毎日 04:00 | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
+| `daily-observe-analytics` | agent | **2026-11-25 から手動**（8 時以降に「今すぐ実行」）（定義の cron は 04:00） | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
+| `daily-observe-conversations` | agent | **2026-11-25 から手動**（8 時以降に「今すぐ実行」）（定義の cron は 04:00） | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
 | `daily-observe-ops` | agent | 毎日 04:00 | `ops-watcher`。直近 24 時間の例外 |
-| `daily-propose` | agent | 毎日 04:30 | `proposal-writer`。**観測 4 本を `after` で待つ**。起票前チェック 15 項目を通したものだけ起票 |
-| `monthly-analysis` | agent | 毎月 1 日 05:00 | `proposal-writer`。順位・流入・CVR の月次の判断 |
+| `daily-propose` | agent | 毎日 04:30 | `proposal-writer`。**観測 2 本（seo・ops）を `after` で待つ**（2026-11-25 から。会話と集計は手動なので外した）。起票前チェック 15 項目を通したものだけ起票 |
+| `monthly-analysis` | agent | 毎月 1 日 05:00 | `proposal-writer`。順位・流入・CVR の月次の判断（`after` は `daily-observe-seo` だけ。2026-11-25 から集計は手動なので外した） |
 | `weekly-lighthouse` | builtin | 毎週月曜 00:30 | `pnpm lh`（`lighthouse`） |
 | `weekly-observe-lighthouse` | agent | 毎週月曜 01:45 | `seo-auditor`。計測の完了を `after` で待ち、`source: lighthouse` に正規化 |
 | `weekly-a11y` | builtin | 毎週月曜 01:15 | `pnpm a11y:ci`（`a11y`。`astro build` から axe の検査まで）。結果の `.a11y/*.json` を作業ツリーに写す。**`after` を持たない**（Lighthouse の揺れで止めない・古い `dist` を測らない）。`weekly-lighthouse`（01:00 までに終わる）とは時刻で重ねない。**UI を変える提案を自動で起票する前提**（下の注記） |
@@ -58,7 +58,7 @@ ops/
 | `runlog-flush` | builtin | 0〜8 時の 15 分ごと（最後は 07:45） | `E-15` の写しを S3 に追記（送れていない分を送り直す） |
 | `nightly-backup` | builtin | 毎日 07:20 | オンプレにしか無いものを S3 に置く（2026-11-12）。E-15 の SQLite（実行の記録・改善の周と承認・実行モデルの選択）の毎晩のスナップショットと、作業場の観測（E-12）の写し。正本はオンプレのまま。戻し方は `backend/control-plane/README.md` の「バックアップ」 |
 | `daily-i13-file` | builtin | 毎日 05:30 | `I-13`。`draft` の `E-13` から GitHub に PR を作る |
-| `daily-miswrite-check` | builtin | 毎日 05:45 | 誤った書き込みの突き合わせ |
+| `daily-miswrite-check` | builtin | **2026-11-25 から手動**（8 時以降に「今すぐ実行」）（定義の cron は 05:45） | 誤った書き込みの突き合わせ |
 | `daily-silence-check` | builtin | 毎日 06:00 | 沈黙の検出 |
 | `daily-n8n-export` | builtin | 毎日 06:15 | 本番の n8n のワークフローを Public API で読み、差分があれば GitHub に PR（`chore/n8n-export-YYYYMMDD`）。作業ツリーには書かない。**有効化の前に、API キーのスコープ（Enterprise のみ）を人が判断する**（`backend/control-plane/README.md` の n8n-export） |
 | `published-article-check` | builtin | 毎日 00:00（暫定） | 公開された記事の確認。本番の Strapi の公開済みの記事の一覧（新規・更新・削除）を**最後に確かめた配信**と比べ、変わっているか、最後に確かめた配信のコミットから `frontend/verdant-virgo` が変わっていれば、**本番の値で**ビルドと Lighthouse の計測（`pnpm lh`）を行い、配る dist の写し（`<CONTROL_DATA_DIR>/deploy/`）を付けた deploy の項目を周に置く。同じ差分（`frontend/verdant-virgo` を最後に変えたコミットと記事の一覧が同じ）の項目が既にあればビルドしない（公開サイトに関係しないコミットでは作り直さない）。承認前の古い deploy の項目は新しい項目に置き換え（差し戻しの記録の actor は `system`。`docs/cycles` の差し戻しの節には載せない）、OK 済み・実行済み・確かめられなかった（`failed_check`）古い項目があるあいだは新しい項目を作らない（`failed_check` は人が差し戻すまで残る。同じ差分を配信し直すなら、差し戻さずに（failed_check のまま）この項目で「実行した」を押し直す。差し戻した場合は、新しい記事の公開か公開サイト（frontend/verdant-virgo）の変更があったときだけ、次の夜に新しい配信の項目が作られる（変更が無いあいだは作られない）。）。**配信はしない**（人が行う）。`CONTROL_STRAPI_URL`・`CONTROL_STRAPI_READ_TOKEN`・`SITE_URL`・`CONTROL_CYCLE_ANCHOR` が要る |
@@ -72,7 +72,7 @@ ops/
 | `article-cover` | builtin | 月曜以外の 03:00 | アイキャッチの無い記事の下書きに、OpenAI の Images API で画像を作って Strapi にアップロードし、`cover` に設定する（公開版に `cover` があり下書きの `cover` だけが空の記事は、画像を作らず公開版の `cover` を結ぶだけで、費用も枚数にも数えない）。**費用が発生する**（1 回の実行で `CONTROL_COVER_MAX_PER_RUN` 枚まで。既定 3）。`OPENAI_API_KEY` と Strapi の書き込みトークンが要る |
 
 - **`weekly-a11y` を有効にする前に、人が `CONTROL_MAIN_CHECKOUT` の `frontend/verdant-virgo` で `pnpm install` と `pnpm exec playwright install chromium` を済ませておく**（Chromium は実ホームの `~/.cache/ms-playwright` に入り、builtin が `PLAYWRIGHT_BROWSERS_PATH` で渡す。無ければ `skipped`）。**a11y の 2 本（`weekly-a11y`・`weekly-observe-a11y`）を有効にすることが、UI を変える提案（`technical_seo`・`cta_swap`・`experiment_start`）を自動で起票する前提である。** 起票前チェック 15 は、最新の `QC-a11y-serious` が確認できない（`E-12` が無い・`ok` でない・14 日を超えた）ときも 0 ではない扱いにする（検査 8 の `LH-seo` と同じ安全側。AA-04 の 3.8）。有効にした後も、`QC-a11y-serious` が 0 でない間は UI を変える提案が `accessibility` だけになる。有効にする時期は DD-09 の 7 節
-- **観測 4 本は並列で走り、`proposal-writer` だけが `after` で 4 本を待つ。** 並列に走らせると同じ観測から複数の提案が同時に起票されて `proposal_id` の採番が衝突する
+- **観測は並列で走り、`proposal-writer` だけが `after` で待つ**（2026-11-25 から待つのは seo・ops の 2 本。会話と集計は手動）。 並列に走らせると同じ観測から複数の提案が同時に起票されて `proposal_id` の採番が衝突する
 - `seo-auditor` は 3 つの job で動くが、**処理する `source` を job ごとに分けてある**（1 つの `source` のディレクトリに書くエージェントは 1 本だけ。採番が衝突しない）
 - `E-13` の起票（`I-13`）は**エージェントではなく builtin** である。エージェントが PR を作れると承認機構（PR のレビュー）に到達できてしまうため
 - 時刻と間隔は暫定である。見直すときも PR を通す
@@ -100,12 +100,12 @@ ops/
 | 月曜 01:45・02:00 | `weekly-observe-lighthouse`・`weekly-observe-a11y`・`weekly-observe-serp-audit` | 02:15 |
 | 月・火・水・金 02:30 | `weekly-keyword-research`（月）・`weekly-content-draft`（火・金）・`weekly-content-plan`（水） | 02:50 |
 | 日・火〜土 03:00 | `article-cover`（**月曜は 03:00〜03:30 の保守の窓を避けて動かさない**。`timeout_sec` 1200） | 03:20 |
-| 毎日 04:00 | 観測 4 本（`daily-observe-*`。並列） | 04:20 |
-| 毎週火曜 04:00 | `cycle-campaign`（周の 8 日目だけ。観測 4 本と同時刻で、別のエージェント。書き先も別） | 04:30 |
-| 毎日 04:30 | `daily-propose`（観測 4 本を `after` で待つ） | 04:45 |
+| 毎日 04:00 | 観測 2 本（`daily-observe-seo`・`daily-observe-ops`。並列。会話と集計は 2026-11-25 から手動） | 04:20 |
+| 毎週火曜 04:00 | `cycle-campaign`（**無効**。有効にするときは本番の Mautic が止まる 0 時〜7 時 50 分を避ける。周の 8 日目だけ。観測と同時刻で、別のエージェント。書き先も別） | 04:30 |
+| 毎日 04:30 | `daily-propose`（観測 2 本を `after` で待つ） | 04:45 |
 | 火〜土 05:00 | `cycle-apply-code`（`design-implementer`。`daily-i13-file` の前に終わる。毎月 1 日の `monthly-analysis` と時刻が重なる日があるが、書き先が別） | 05:25 |
 | 毎月 1 日 05:00 | `monthly-analysis`（`daily-propose` と同じ `proposal-writer` なので重ねない。採番の衝突を避ける） | 05:15 |
-| 毎日 05:30〜06:15 | `daily-i13-file` → `daily-miswrite-check` → `daily-silence-check` → `daily-n8n-export` | 06:25 |
+| 毎日 05:30〜06:15 | `daily-i13-file` → `daily-silence-check` → `daily-n8n-export`（`daily-miswrite-check` は 2026-11-25 から手動） | 06:25 |
 | 毎日 06:00 | `campaign-asset-upload`（対象が無ければ何もしない。失敗した分を翌日に再試行する） | 06:10 |
 | 毎日 06:30 | `cycle-apply-content`（`content-writer`。E-13 の経路） | 06:50 |
 | 毎日 07:00 | `cycle-collect`（作用のジョブが終わった後に項目を集める） | 07:10 |
@@ -113,7 +113,7 @@ ops/
 | 0〜8 時の 15 分ごと | `runlog-flush`（E-15 の写しの送り直し。最後は 07:45） | 07:50 |
 
 - **改善ループの本体はすべて 07:10 までに終わる**（最長の上限。周のジョブの `cycle-collect`）。8 時までの残りは、機械の遅れや手動の再実行のための余白。`runlog-flush` も 07:50 までに終わる
-- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と mautic-web は夜間も止めない**（2026-11-12。ユーザーの決定。`cloud/README.md` の 4.11 の「夜間の停止」）。Chatwoot・Mautic を読み書きする定期実行は時刻を選ばない。2026-11-11 までは Chatwoot も 22 時〜翌 3 時 45 分（11-04 までは 8 時まで）に止めていて、そのあいだの要求は ALB の 503（control-plane の分類では `invalid_response`）で失敗していた。**夜間に止まるのは mautic-cron だけ**（22 時〜翌 3 時 45 分。`cloud/template.yaml` の `NightlyStopSchedule`・`NightlyStartSchedule`）で、Mautic の Webhook（I-11）・キャンペーン・セグメントの更新が 3 時 45 分以降にまとめて処理される。Mautic の API（mautic-web）は動いているので、定期実行の読み書きには影響しない
+- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と Mautic（mautic-web・mautic-cron）は毎日 0 時〜7 時 50 分に止まる**（2026-11-25。ユーザーの決定。費用を下げるため。`cloud/README.md` の 4.11 の「夜間の停止」）。そのあいだの要求は ALB の 503（control-plane の分類では `invalid_response`）で失敗する。そのため、Chatwoot・Mautic を読み書きする定期実行は**手動**にした（`enabled: false`。スケジューラに登録されず、監視アプリの「今すぐ実行」は使える。8 時以降に動かす）: `daily-observe-conversations`（Chatwoot）・`daily-miswrite-check`（Chatwoot）・`daily-observe-analytics`（Mautic）。`daily-propose` の `after` からは会話と集計を外した（残すと当日の success が無く毎日見送られる。手動で実行した会話・集計の E-12 は 14 日以内なら根拠に使われる）。`cycle-collect`（07:00）は自動のままで、Mautic を読むキャンペーンの項目だけ失敗して飛ばされる（実行は failed）ので、キャンペーンの項目がある日は 8 時以降に今すぐ実行し直す。無効の `cycle-campaign` を有効にするときは、0 時〜7 時 50 分を避ける。本番の n8n の `weekly-inquiry-inventory`（月曜 07:00）も手動にする（`onprem/README.md`）。2026-11-12〜11-24 は Chatwoot と mautic-web を止めていなかった（mautic-cron だけ 22 時〜翌 3 時 45 分）
 - **03:00〜03:30 を空けてある。** RDS の保守の窓（`cloud/stacks/data.yaml` の `DbMaintenanceWindow`。日曜 18:00 UTC＝**月曜 03:00 JST**）と重ねない。日次バックアップ（02:00〜02:30 JST）は書き込みを止めないので重なってもよいが、週次の書き込み（02:30〜）はその後に置いた
 - 順序は以前と同じ（月曜の計測 → 週次の観測 → 日次の観測 → 提案 → 起票・突き合わせ）。`after` は「当日（JST の 0 時から）`success`」なので、0 時より後に並べれば崩れない。`monthly-analysis` は以前は `daily-i13-file` と同時刻（08:00）で起票が翌日に回っていたが、i13 の前に置いたので当日に PR になる
 - 観測の取得範囲は「3 日前まで」「直近 24 時間」の相対指定なので、起動を早めても範囲は変わらない

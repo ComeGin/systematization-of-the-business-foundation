@@ -1,7 +1,8 @@
 id: cycle-campaign
 description: "承認済みの email_campaign の E-13 から、Mautic のキャンペーンの一式を未公開で作る（記事の下書き・メール・キャンペーン・配布ファイルの原稿）。公開・送信・セグメントの作成は人（改善ループの作用のジョブ）"
 enabled: false
-# 周の 8 日目（火曜）の 04:00。起動 + 1800 秒 = 04:30 で、8 時より前。観測 4 本（04:00〜04:20）と同時刻だが、別のエージェントで書き先も別（記事の下書きは本番の Strapi、メール・キャンペーンは本番の Mautic、原稿は作業場の campaign-assets/）。
+# 有効にするときは注意: 2026-11-25 から本番の Mautic は 0 時〜7 時 50 分に止まる（cloud/README.md の 4.11）。04:00 のままでは Mautic に書けないので、8 時以降の時刻にするか、手動（今すぐ実行）で動かす。
+# 周の 8 日目（火曜）の 04:00。起動 + 1800 秒 = 04:30 で、8 時より前。観測（04:00〜04:20）と同時刻だが、別のエージェントで書き先も別（記事の下書きは本番の Strapi、メール・キャンペーンは本番の Mautic、原稿は作業場の campaign-assets/）。
 # daily-propose（04:30）とは重ならない。重ねたくなければ作る人がずらす。campaign-asset-upload（06:00）が after で待つ
 cron: "0 4 * * 2"
 kind: agent
@@ -24,7 +25,7 @@ cycle_days:
 proposal_kinds:
   - email_campaign
 overview: |
-  周の 8 日目だけ、Agent campaign-planner を起動し、承認済みの email_campaign の E-13（1 回の実行で 1 件。監視アプリが PRP: の行で渡す）から、記事の下書き 1 本・Mautic の未公開のメール 1 通とキャンペーン 1 つ・必要なら配布ファイルの原稿（Agent Plugins）を作る。公開・送信・セグメントの作成はしない（できない）。SITE_URL が無いときは何も作らずに止まる。承認済みの E-13 が無い・CONTROL_CYCLE_ANCHOR が無いときは見送る。
+  周の 8 日目だけ、Agent campaign-planner を起動し、承認済みの email_campaign の E-13（1 回の実行で 1 件。監視アプリが PRP: の行で渡す）から、記事の下書き 1 本・Mautic の未公開のメール 1 通とキャンペーン 1 つ・必要なら配布ファイルの原稿（Agent Plugins）を作る。公開・送信・セグメントの作成はしない（できない）。SITE_URL が無いときは何も作らずに止まる。承認済みの E-13 が無い・CONTROL_CYCLE_ANCHOR が無いときは見送る。2026-11-25 から本番の Mautic は 0 時〜7 時 50 分に止まるので、有効にするときは 8 時以降に動かす。
 stage: create
 io:
   reads:

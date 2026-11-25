@@ -62,6 +62,7 @@ flowchart LR
 | n8n | Docker compose（5678）。**サンドボックスを含む** | ECS ＋ RDS（TA-06。**サンドボックスは置かない**。ADR-16） |
 | MCP サーバ・OpenSEO・Lighthouse CI | 今のまま | **本番に置かない**（道具。正本を持たない） |
 | **監視アプリ** | `next dev`（**3200**。4 節） | **本番に置かない** |
+| **音声 SEO BI**（2026-11-21 に追加。ADR-33） | SFU は `backend/livekit-system` の compose（`127.0.0.1` の 7880・7881・7882/udp）、エージェントは `uv run src/agent.py dev`（ヘルス 8081） | **SFU は AWS の EC2**（TA-06 の 3.4。起動と停止は人）、**エージェントはオンプレの systemd**（3.8） |
 
 - **（2026-10-03 に追加）収益化の開発環境。** thirdweb は**開発用のプロジェクト**と **Polygon の Amoy テストネット**を使う。XMRig は **unMineable に繋がないベンチマークの起動だけ**を行い、開発機で採掘しない。`points-api` の開発サーバーは 3106。
 
@@ -83,7 +84,7 @@ flowchart LR
 |---|---|---|
 | 死活 | 各ポートへのヘルスチェック（OpenSEO の `/api/health` など。**旧版の例の Umami の `/api/heartbeat` は ADR-25 で廃止**） | CloudWatch のアラームの状態（TA-05。項目 12〜16） |
 | ハートビート | — | オンプレのハートビートのアラーム（TA-05 の項目 16） |
-| 数値 | — | Claude Code が MCP の本番用の登録と `openseo`（GA4・GSC）で読んだ結果（ADR-15。**ADR-25 で `umami-prod` を `openseo` に置き換えた**） |
+| 数値 | — | Claude Code が MCP の本番用の登録と `openseo`（GA4・GSC）で読んだ結果（ADR-15。**ADR-25 で `umami-prod` を `openseo` に置き換えた**）。**（2026-11-21。ADR-33）`/voice` で、音声 SEO BI エージェントと話して読み解く**（3.8） |
 | エージェント | 実行の履歴・結果・失敗 | — |
 
 ### 3.3 Claude Code への指示の渡し方
@@ -178,6 +179,26 @@ flowchart LR
 
 - **開発機が止まると GA4 も読めない。** 計測そのもの（ブラウザ → Google）は止まらず、GA4 の側にデータは残る。読めないのは止まっている間だけで、観測の期間（直近 35 日・終端は 3 日前）の中なら後から取り直せる。
 - **接続が切れる原因**: 接続した Google アカウントがプロパティの権限を失う・離任する・同意を取り消す。テスト中（Testing）の同意画面では短期で失効しうる（上流の手順書の Troubleshooting）。「内部」にしていれば 7 日の失効は起きない（TA-04 の 8.3）。気づき方は TA-05 の 4 節の項目 21。
+- **（2026-11-21。ADR-33）上の「エージェントが使うツール」は Claude Code のエージェント定義の話である。** 音声 SEO BI エージェント（3.8）も同じ OpenSEO の `/mcp` を GSC・GA4 の参照に使い、`get_google_analytics_key_events`・`get_google_analytics_audience_breakdown`・`get_search_opportunities` も持つ。許可リストの正本はコードの `openseo/allowlist.py`（AA-03 の 2.4.1）。
+
+### 3.8 音声 SEO BI エージェントの常駐（2026-11-21 に追加。ADR-33）
+
+**運用者が監視アプリの `/voice` で音声の SEO BI と話すための、オンプレに常駐するエージェント**（`backend/livekit-agent`。LiveKit Agents の Python）。3.2 の「数値」の構想を、対話の形で実現する（AA-05 の ADR-33）。
+
+| 項目 | 値 |
+|---|---|
+| 動かし方（本番） | systemd のユニット `comegin-livekit-agent`（雛形は `onprem/systemd/comegin-livekit-agent.service`）。`Type=simple`、`uv run --locked --no-dev src/agent.py start`、`Restart=on-failure`。**動かすのは承認済みの `main` のチェックアウトの `backend/livekit-agent`**（ADR-18。監視アプリ `comegin-control` と同じ考え方）。**`Requires=` は付けず、`After=comegin-openseo` で順番だけそろえる。** `TimeoutStopSec=150`。止めるときは、新しいジョブを受けずに会話の終わりを最大 60 秒待ち（drain）、終わらなければ会話を打ち切って後片付け（`E-12` の書き出し）の応答を最大 30 秒、プロセスの終了を最大 30 秒待つ。**最悪は 60＋30＋30＝120 秒で、ふだんは 90 秒前後**（止めるのは会話の無いときにする）。設置は人が行う（`onprem/README.md` の「常駐させる（音声 SEO BI エージェント）」） |
+| 動かし方（開発） | `backend/livekit-system` の compose で開発の SFU（`127.0.0.1:7880`）を起こし、`backend/livekit-agent` で `uv run src/agent.py dev` |
+| 置き場 | **コンテナに入れず、オンプレのホストで直接動かす**（OpenSEO が `127.0.0.1:3001` だけで受け、Host が localhost 系でないと 403 を返すため。host-relay は `/mcp` を通さない） |
+| ヘルス | `127.0.0.1:8081`（TA-01 の 5 節） |
+| つなぐ先 | SFU（本番は AWS の EC2。**wss で外向き**。TA-01 の経路 27）、OpenSEO（`127.0.0.1:3001/mcp`。参照のみ）、OpenAI（経路 28） |
+| 起動のされ方 | SFU の dispatch（`agent_name="comegin-seo-bi"`）。**監視アプリの定期実行からは起動しない**。運用者が `/voice` で接続したときだけルームに入る |
+| 環境変数 | ファイルは `backend/livekit-agent/.env.local`（`src/agent.py` が読む。600。setup のモジュール `livekit-agent` が作る）。変数は `LIVEKIT_URL`・`LIVEKIT_API_KEY`・`LIVEKIT_API_SECRET`・`OPENAI_API_KEY`・`OPENSEO_MCP_URL`（既定 `http://127.0.0.1:3001/mcp`）・`OPENSEO_PROJECT_DOMAIN`（既定 `comegin.com`）・`GPT_LIVE_VOICE`・`BACKEND_MODEL`・`VISION_MODEL`・`SESSION_MAX_MINUTES`・`VOICE_AUDIT_DIR`・`AUDIO_ENHANCEMENT`（既定 `apm`）。雛形は `backend/livekit-agent/.env.example` |
+| 記録 | セッションの終わりに `E-12`（`source: voice`）を `VOICE_AUDIT_DIR`（監視アプリの作業場の `docs/audits/voice/`）に書く。音声と映像は残さない。**`E-15`（実行記録）には残らない**（監視アプリが起動したエージェントではないため） |
+
+- **`Requires=` を付けない理由。** SFU が止まっていても、OpenSEO が止まっていても、エージェントのプロセスは動き続けてよい。SFU が止まっているあいだは再接続を試み続ける（**ログは出るが異常ではない**。TA-05 の項目 25）。OpenSEO が止まっていれば、接続した運用者に「取得できない」と 1 回だけ伝える。
+- **監視アプリ（`comegin-control`）と互いに依存しない。** 監視アプリは `/voice` の画面とトークンの発行（I-34）を持つだけで、エージェントを起動しない。
+- **夜（JST 0〜8 時）の定期実行とは関係しない。** 使うのは運用者が話すときだけである。ただし OpenSEO と GA4 の Data API の割り当てを共有するため、夜の観測と同じ時間に長く話すと割り当てを食い合いうる（1 セッションの MCP の呼び出しは 40 回まで）。
 
 ## 4. ポート
 

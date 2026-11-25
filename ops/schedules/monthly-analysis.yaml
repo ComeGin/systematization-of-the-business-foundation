@@ -5,9 +5,10 @@ cron: "0 5 1 * *"
 kind: agent
 agent: proposal-writer
 builtin: null
+# after は seo だけ（2026-11-25 のユーザーの決定。daily-propose と同じ判断）。daily-observe-analytics は手動にしたので、after に残すと
+# 当日（毎月 1 日）の success が無く毎月見送られる（after は schedule の起動にだけ効く）。手動で実行した集計の E-12 は、そのまま根拠に使われる。
 after:
   - daily-observe-seo
-  - daily-observe-analytics
 prompt: |
   月次の分析として、docs/audits/ の gsc・serp・analytics の E-12 を前月と比べ、順位・流入・CVR に実在する悪化や不足があるかを判断する。
 

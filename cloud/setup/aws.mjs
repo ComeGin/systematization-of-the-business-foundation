@@ -118,10 +118,10 @@ export function dbInitSteps(engines) {
 // ---------------------------------------------------------------------------
 
 /**
- * 夜間の停止があるサービス（cloud/template.yaml の NightlyStop*。22 時〜翌 3 時 45 分に 0 台）。
- * chatwoot-web・chatwoot-worker は 2026-11-12 に外した（ユーザーの決定。mautic-web と同じく止めない）
+ * 夜間の停止があるサービス（cloud/template.yaml の NightlyStop*。0 時〜7 時 50 分に 0 台）。
+ * 2026-11-25 のユーザーの決定で 4 つとも止める（2026-11-12〜11-24 は mautic-cron だけ）
  */
-export const NIGHTLY_STOP_SERVICES = new Set(["mautic-cron"]);
+export const NIGHTLY_STOP_SERVICES = new Set(["mautic-web", "mautic-cron", "chatwoot-web", "chatwoot-worker"]);
 
 /**
  * サービスの台数。param は親のパラメータ（CloudFormation の DesiredCount。昼の台数）、running は今動いているタスクの数。
@@ -137,8 +137,8 @@ export async function serviceCounts(ctx, main, svc, param) {
 /** 動いているべきなのに running が 0 のサービスへの警告文（夜間の停止があるサービスにはその可能性を添える） */
 export function notRunningNote(c) {
   const why = NIGHTLY_STOP_SERVICES.has(c.svc)
-    ? "0 なら夜間の停止〈既定 22 時〜翌 3 時 45 分〉の最中。昼なら ECS のサービスのイベントとタスク数のアラームを見る"
-    : "このサービスに夜間の停止は無い。0 なら夜間の停止を外すデプロイを夜に行って 0 台のまま残った見込み。0 でなければ ECS のサービスのイベントとタスク数のアラームを見る";
+    ? "0 なら夜間の停止〈既定 0 時〜7 時 50 分〉の最中。8 時を過ぎても 0 なら、夜間に行ったデプロイで 0 台のまま残った見込みか、ECS のサービスのイベントとタスク数のアラームを見る"
+    : "このサービスに夜間の停止は無い。ECS の desiredCount が 0 なら夜間の停止を外すデプロイを夜に行って 0 台のまま残った見込み。0 でなければ ECS のサービスのイベントとタスク数のアラームを見る";
   return `comegin-${ENV_NAME}-${c.svc} は DesiredCount ${c.desiredParam} だが、動いているタスクが 0（ECS の desiredCount ${c.desired}。${why}）`;
 }
 
@@ -146,8 +146,8 @@ export function notRunningNote(c) {
 export function notRunningSteps(c) {
   const svc = `comegin-${ENV_NAME}-${c.svc}`;
   const first = NIGHTLY_STOP_SERVICES.has(c.svc)
-    ? `ECS の desiredCount が 0（今は ${c.desired}）で、時刻が 22 時〜翌 3 時 45 分なら夜間の停止の最中。3 時 45 分を過ぎてから同じコマンドを実行し直すか、このまま進めると判断して yes`
-    : `ECS の desiredCount が 0（今は ${c.desired}）なら、夜間の停止の最中に停止を外すデプロイをして 0 台のまま残っている（2026-11-12 から ${c.svc} は止めない。cloud/README.md の 4.11）。CloudFormation の値（${c.desiredParam}）に戻す: aws ecs update-service --region ${REGION} --cluster ${STACK} --service ${svc} --desired-count ${c.desiredParam}`;
+    ? `ECS の desiredCount が 0（今は ${c.desired}）で、時刻が 0 時〜7 時 50 分なら夜間の停止の最中。8 時を過ぎてから（起動に数分かかる）同じコマンドを実行し直すか、このまま進めると判断して yes。8 時を過ぎても desiredCount が 0 なら、夜間に行ったデプロイで 0 台のまま残っている（cloud/README.md の 4.11）。CloudFormation の値（${c.desiredParam}）に戻す: aws ecs update-service --region ${REGION} --cluster ${STACK} --service ${svc} --desired-count ${c.desiredParam}`
+    : `ECS の desiredCount が 0（今は ${c.desired}）なら、夜間の停止の最中に停止を外すデプロイをして 0 台のまま残っている（このサービスに夜間の停止は無い。cloud/README.md の 4.11）。CloudFormation の値（${c.desiredParam}）に戻す: aws ecs update-service --region ${REGION} --cluster ${STACK} --service ${svc} --desired-count ${c.desiredParam}`;
   return [
     first,
     `それ以外なら、サービスのイベントを見る:aws ecs describe-services --region ${REGION} --cluster ${STACK} --services ${svc} --query 'services[0].events[:10].[createdAt,message]' --output table`,

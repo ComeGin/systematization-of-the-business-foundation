@@ -17,6 +17,7 @@ import {
   type Request,
   type Route,
 } from "@playwright/test";
+import { keepServiceHoursOpen } from "../../support/service-hours";
 import { calcomStub, type CalcomMode } from "./calcom-stub";
 import { deleteConsentRecord } from "./devstack";
 import { DEV, E2E_BASE_URL, allowedOrigin } from "./env";
@@ -175,6 +176,7 @@ export const test = base.extend<
     looksHuman: boolean;
     humanBrowser: void;
     atelierPaused: void;
+    serviceHoursOpen: void;
     traffic: Traffic;
     cleanup: Cleanup;
   },
@@ -204,6 +206,15 @@ export const test = base.extend<
           // sessionStorage が使えないフレーム（第三者の iframe など）は何もしない
         }
       });
+      await use();
+    },
+    { auto: true },
+  ],
+
+  /** 受付時間外（0〜8 時 JST）に実行したら、時計を同じ日の 12 時にずらす（../../support/service-hours.ts。夜に実行しても送信・チャットのテストが動くように） */
+  serviceHoursOpen: [
+    async ({ context }, use) => {
+      await keepServiceHoursOpen(context);
       await use();
     },
     { auto: true },

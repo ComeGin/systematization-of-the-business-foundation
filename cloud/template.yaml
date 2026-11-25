@@ -121,6 +121,15 @@ Metadata:
           - FaqMatchLow
           - FaqMatchMargin
       - Label:
+          default: LiveKit の SFU（音声 SEO BI。stacks/livekit-sfu.yaml。既定では作らない）
+        Parameters:
+          - LivekitSfuEnabled
+          - LivekitHost
+          - LivekitTurnHost
+          - LivekitSfuInstanceType
+          - LivekitSfuAmiSsmId
+          - LivekitSfuFixedAmiId
+      - Label:
           default: 通知と監視
         Parameters:
           - HeartbeatAlarmActionsEnabled
@@ -285,11 +294,12 @@ Parameters:
     AllowedPattern: ^(?!latest$).+$
     ConstraintDescription: latest は使えない。バージョンのタグで固定する。
     Default: v4.18.0-1
-  # 夜間の停止（2026-10-26。ユーザーの決定）。mautic-cron を毎日 22 時〜翌 3 時 45 分（日本時間）に 0 台にする（README の 4.11）。
-  # mautic-web は止めない（夜間の公開サイトのフォームの申し込みを取りこぼさないため）。
-  # 再開は 2026-11-04 に 8 時から 3 時 45 分へ早めた（ユーザーの決定）。
-  # chatwoot-web・chatwoot-worker は 2026-11-12 に対象から外した（ユーザーの決定。mautic-web と同じく止めない）。改善ループの定期実行
-  # （ops/schedules。0〜8 時）が Chatwoot を読み書きし、停止中の ALB の 503 で中断されていたため。このパラメータは Chatwoot に渡さない。
+  # 夜間の停止（2026-10-26。ユーザーの決定）。README の 4.11。
+  # 2026-11-25（ユーザーの決定）から、mautic-web・mautic-cron・chatwoot-web・chatwoot-worker の 4 つを毎日 0 時〜7 時 50 分（日本時間）に 0 台にする。
+  # 費用を優先した。再開を 7 時 50 分にしたのは、タスクの起動とヘルスチェック（数分）を終えて 8 時に受け付けを始めるため。
+  # 止まっているあいだ、公開サイトは 0〜8 時を受付時間外と表示し（frontend/verdant-virgo の service-hours）、Chatwoot・Mautic を使う定期実行は手動にした（ops/README）。
+  # 経緯: 10-26 に chatwoot-web・chatwoot-worker・mautic-cron を 22 時〜8 時で導入、11-04 に再開を 3 時 45 分へ早め、11-12 に Chatwoot を外した（定期実行が 503 で失敗していたため）。
+  # 切り替え（時刻・NightlyStopEnabled・DesiredCount の変更）のデプロイは 8 時〜24 時に行う（夜間に行うと 0 台のまま残ることがある）。
   NightlyStopEnabled:
     Type: String
     Default: 'true'
@@ -298,10 +308,10 @@ Parameters:
       - 'false'
   NightlyStopSchedule:
     Type: String
-    Default: cron(0 22 * * ? *)
+    Default: cron(0 0 * * ? *)
   NightlyStartSchedule:
     Type: String
-    Default: cron(45 3 * * ? *)
+    Default: cron(50 7 * * ? *)
   NightlyStopTimezone:
     Type: String
     Default: Asia/Tokyo
@@ -521,6 +531,40 @@ Parameters:
     Type: String
     Default: '0.1'
     Description: faq-bot が答えるときの 1 位と 2 位の差の下限
+  # ---- LiveKit の SFU（音声 SEO BI。計画 docs/superpowers/plans/2026-11-21-voice-seo-bi.md の D8。stacks/livekit-sfu.yaml）
+  # 既定は false（作らない。既存のデプロイを変えない）。true にしてデプロイすると、ASG（希望 0）と warm pool に止まった EC2 が 1 台・EIP・
+  # rtc.・rtc-turn. の A レコードができる。起動と停止は人が node cloud/livekit-sfu.mjs start|stop で行う（cloud/README.md）。
+  LivekitSfuEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: LiveKit の SFU（EC2 の ASG・warm pool・EIP・DNS・SG）を作るか。止めている間も EBS と EIP の費用がかかる。
+  LivekitHost:
+    Type: String
+    Default: rtc.comegin.com
+    Description: LiveKit のシグナリング（wss）のホスト名。HostedZoneId のゾーンに A レコードを作る。
+  LivekitTurnHost:
+    Type: String
+    Default: rtc-turn.comegin.com
+    Description: LiveKit の TURN/TLS のホスト名（LivekitHost と別。Caddy が 443 で SNI により振り分ける）。
+  LivekitSfuInstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedPattern: ^t4g\..+$
+    ConstraintDescription: arm64（Graviton）のインスタンスタイプにする（AMI が arm64）。
+  # 親では String（SSM の名前のまま子に渡す。WireguardAmiSsmId と同じ理由）
+  LivekitSfuAmiSsmId:
+    Type: String
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: SFU の AMI の SSM パラメータの名前（Amazon Linux 2023・arm64）。LivekitSfuFixedAmiId が空のときだけ使う。
+  LivekitSfuFixedAmiId:
+    Type: String
+    Default: ''
+    AllowedPattern: ^$|^ami-[0-9a-f]{8,17}$
+    ConstraintDescription: AMI の ID（ami-...）か、空。
+    Description: SFU の AMI の ID。空でなければ LivekitSfuAmiSsmId より優先する（新しい AMI で起動テンプレートの版が変わるのを避ける）。
 
 # Fargate の CPU とメモリの組み合わせの検査（変更セットを作る前に止める。タスク定義の登録で失敗させない）。
 # 出典: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html（Task CPU and memory。Linux）。
@@ -888,6 +932,11 @@ Rules:
           - !Ref ChatwootWorkerMemory
         AssertDescription: ChatwootWorkerCpu=4096 のとき ChatwootWorkerMemory は 8192〜30720（1024 刻み）
 
+Conditions:
+  CreateLivekitSfu: !Equals
+    - !Ref LivekitSfuEnabled
+    - 'true'
+
 Resources:
   # デプロイしたコミットの記録（上の DeployedCommit）。値が変わるたびに更新され、変更セットに必ず 1 件出る。
   # 読むのは describe-stacks の Parameters で、この SSM パラメータ自体は読まない（権限を広げないため）。
@@ -912,6 +961,7 @@ Resources:
         WireguardIngressCidr: !Ref WireguardIngressCidr
         OnpremWebhookPort: !Ref OnpremWebhookPort
         OnpremPeerAddress: !Ref OnpremPeerAddress
+        LivekitSfuEnabled: !Ref LivekitSfuEnabled
 
   EcrStack:
     Type: AWS::Serverless::Application
@@ -1075,12 +1125,34 @@ Resources:
         AmiSsmId: !Ref WireguardAmiSsmId
         FixedAmiId: !Ref WireguardFixedAmiId
 
+  # ---- LiveKit の SFU（音声 SEO BI。D8）。EC2 の ASG（0〜1 台）と warm pool（Stopped）。SG は network.yaml。既定では作らない。
+  LivekitSfuStack:
+    Type: AWS::Serverless::Application
+    Condition: CreateLivekitSfu
+    Properties:
+      Location: stacks/livekit-sfu.yaml
+      Parameters:
+        EnvName: !Ref EnvName
+        PublicSubnetIds: !GetAtt NetworkStack.Outputs.PublicSubnetIds
+        SecurityGroupId: !GetAtt NetworkStack.Outputs.LivekitSfuSecurityGroupId
+        HostedZoneId: !Ref HostedZoneId
+        LivekitHost: !Ref LivekitHost
+        LivekitTurnHost: !Ref LivekitTurnHost
+        InstanceType: !Ref LivekitSfuInstanceType
+        AmiSsmId: !Ref LivekitSfuAmiSsmId
+        FixedAmiId: !Ref LivekitSfuFixedAmiId
+        OpsAlertTopicArn: !GetAtt ObservabilityStack.Outputs.OpsAlertTopicArn
+
   # ---- サービス（T1-3）。DesiredCount は 0 が初期値。README の順に上げる。
   MauticWebService:
     Type: AWS::Serverless::Application
     Properties:
       Location: stacks/services/mautic-web.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -1138,6 +1210,10 @@ Resources:
     Properties:
       Location: stacks/services/chatwoot-web.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -1164,6 +1240,10 @@ Resources:
     Properties:
       Location: stacks/services/chatwoot-worker.yaml
       Parameters:
+        NightlyStopEnabled: !Ref NightlyStopEnabled
+        NightlyStopSchedule: !Ref NightlyStopSchedule
+        NightlyStartSchedule: !Ref NightlyStartSchedule
+        NightlyStopTimezone: !Ref NightlyStopTimezone
         EnvName: !Ref EnvName
         ClusterArn: !GetAtt ClusterStack.Outputs.ClusterArn
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -1345,6 +1425,28 @@ Outputs:
   WireguardInstanceId:
     Description: SSM Session Manager で入る EC2 のインスタンス ID
     Value: !GetAtt WireguardStack.Outputs.InstanceId
+
+  # LiveKit の SFU（LivekitSfuEnabled=true のときだけ。cloud/livekit-sfu.mjs と cloud/README.md が使う）。
+  LivekitSfuAutoScalingGroupName:
+    Condition: CreateLivekitSfu
+    Description: cloud/livekit-sfu.mjs が set-desired-capacity する ASG
+    Value: !GetAtt LivekitSfuStack.Outputs.AutoScalingGroupName
+  LivekitSfuPublicIp:
+    Condition: CreateLivekitSfu
+    Description: SFU の Elastic IP（rtc.・rtc-turn. の A レコードの値）
+    Value: !GetAtt LivekitSfuStack.Outputs.PublicIp
+  LivekitUrl:
+    Condition: CreateLivekitSfu
+    Description: 監視アプリとエージェントの LIVEKIT_URL
+    Value: !GetAtt LivekitSfuStack.Outputs.LivekitUrl
+  LivekitApiKeyParameterName:
+    Condition: CreateLivekitSfu
+    Description: LiveKit の API キーを入れる SSM パラメータ（SecureString。人が入れる）
+    Value: !GetAtt LivekitSfuStack.Outputs.ApiKeyParameterName
+  LivekitApiSecretParameterName:
+    Condition: CreateLivekitSfu
+    Description: LiveKit の API シークレットを入れる SSM パラメータ（SecureString。32 文字以上。人が入れる）
+    Value: !GetAtt LivekitSfuStack.Outputs.ApiSecretParameterName
 
   # オンプレの資格情報（IAM ユーザー。アクセスキーは作らない。README の 4.5）。
   OnpremStrapiMediaUserName:

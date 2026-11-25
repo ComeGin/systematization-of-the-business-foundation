@@ -303,6 +303,8 @@ export const STEPS = [
         overviewText: "`node setup/setup.mjs --target prod --only mautic-prod`", probe: mod("mautic-prod", "apps"), docs: [] },
       { id: "P8.cron-count", title: "MauticCronDesiredCount を 1 にして node cloud/deploy.mjs", who: "人・端末", kind: "検査",
         overviewText: "`MauticCronDesiredCount=1`", probe: mod("mautic-prod", "apps"), docs: cloud("4.11"), stopId: "mautic-prod:ecs-cron" },
+      { id: "P8.night-email", title: "メールの設定を夜間の停止に合わせ、MAUTIC_PROD_NIGHT_EMAIL_DONE=yes", who: "人・画面", kind: "申告",
+        overviewText: "メールの設定を夜間の停止に合わせる", probe: NONE, docs: cloud("4.11"), stopId: "mautic-prod:night-email" },
     ],
   },
   {

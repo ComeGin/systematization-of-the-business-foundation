@@ -2,7 +2,7 @@
 
 AA（Application Architecture）層。ID はそれぞれの正本の定義をそのまま使う（索引は [`docs/README.md` の「ID の採番と正本」](../../README.md)）。**`ADR-xx` の採番の正本は本ファイルである。**
 
-AA-01 から AA-04 で下した判断のうち、**後から「なぜそうしたのか」を問われる 32 件**を、文脈 / 選択肢 / 決定 / 理由 / 帰結の形式で残す。DA が既に決めた事項については、AA の視点から追認し、AA でしか見えない観点を足す。
+AA-01 から AA-04 で下した判断のうち、**後から「なぜそうしたのか」を問われる 33 件**を、文脈 / 選択肢 / 決定 / 理由 / 帰結の形式で残す。DA が既に決めた事項については、AA の視点から追認し、AA でしか見えない観点を足す。
 
 各決定に状態を付す。`決定済み` = 覆すには新しい根拠が要る。`暫定` = 実データが取れた時点で見直す前提。`未決定` = 決めていない。
 
@@ -442,6 +442,8 @@ ADR-02 と ADR-03 で、**`sanitize()` と `ACCESS_LEVEL` を MCP 層に置く�
 ## ADR-10 OpenSEO の MCP をリスク受容し、費用の上限で縛る
 
 **状態: `決定済み`（リスク受容）** — `R1` の 2026-09-18 の決定。
+
+> **2026-11-21 の注記（ADR-33）。決定 1・2 を改訂した。** OpenSEO に、Claude Code のエージェント定義の外から接続する元が 1 つ増えた（オンプレに常駐する音声の SEO BI エージェント `backend/livekit-agent`。AA-03 の 2.4.1）。**このエージェントの許可リストの正本は、エージェント定義の `tools` ではなくコードの `backend/livekit-agent/src/comegin_voice/openseo/allowlist.py`** である（Git の管理下。変更は PR）。載せるのは無料の参照系だけで、決定 3・4（前払い残高・月次予算）の外には出ない。下の「接続するエージェントを 3 本に限る」は ADR-25（`analytics-reporter` を足して 4 本）の前の記述である。
 
 ### 文脈
 
@@ -1265,6 +1267,8 @@ ADR-25 で受け入れる点（1〜7）と、それ以外の影響を分けて�
 2. **ECS に残す**: 上流の製品（Mautic・Chatwoot の Web・Worker・cron）と、常駐が要る自作の部品。
 3. **適用**: faq-bot（新規。VPC の外の Lambda と関数 URL）。consent-api と admin-auth（既存）は ALB の配下のまま、ターゲットを `ip` から `lambda` に替え、VPC の中の Lambda にする（それぞれ別の仕様で進める）。points-api（未着手）は着手時にこの基準で判断する。
 
+> **2026-11-21 の注記（ADR-33）。例外を 1 つ足した。** 音声の SEO BI の SFU（`livekit-server`）は、Lambda でも ECS でもなく **EC2 1 台**（Auto Scaling グループと warm pool。`cloud/stacks/livekit-sfu.yaml`）で動かす。UDP の広いポートの範囲（50000-60000）を直接受け、接続を持ち続けるためである。常駐はさせず、**起動と停止は人が手で行う**（使わないあいだは warm pool の Stopped）。前例は WireGuard の EC2（ADR-21）。
+
 ### 理由
 
 - 呼ばれないあいだ費用がかからない。
@@ -1692,6 +1696,110 @@ performance の判定:
 - 配布する Plugin の更新の運用（版を上げたとき、前の版の記事・ファイルをどう扱うか）。判断者 `R1` `R2`。
 - **AA-03 の編成表への反映。** AA-03 は 12 本で設計していた（本ファイルの「12 本」の記述と AA-03 の各節は、その時点の本数のまま）。`campaign-planner` を足して定義は 13 本になった。AA-03 の 2 節の接続表・権限表（Mautic の `read_write` と Strapi の下書き、`WebSearch`・`WebFetch`）に行を足すのは、本番で 1 周を通した後にまとめて行う。判断者 `R1`。
 
+## ADR-33 音声で話せる SEO の BI の担当を置く。SFU（LiveKit）は AWS の EC2、エージェントと OpenSEO はオンプレ、会話は OpenAI GPT-Live
+
+**状態: `決定済み`**（2026-11-21。ユーザーの決定〈U1〜U8〉と計画の決定〈D1〜D13〉。仕様は `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`、計画は `docs/superpowers/plans/2026-11-21-voice-seo-bi.md`。**ADR-10 の決定 1・2 を改訂し、ADR-26 に例外を 1 つ足す。** ADR-21 の「AWS からオンプレへ届くのは n8n の Webhook だけ」は変えない）
+
+### 文脈
+
+- 夜の観測（`analytics-reporter`・`seo-auditor`）は、GSC・GA4 の数値を `E-12` に残している。**しかし人がそれを対話で読み解く入口が無い**（TA-07 の 3.2 の「数値」の構想、`CAP-01` の `未配線`）。
+- 音声で話すには WebRTC の SFU が要る。**メディアは UDP で、ブラウザから SFU へ直接届く必要がある。ngrok は UDP を通せない**（仕様の C8）。
+- OpenSEO は `local_noauth` で、`127.0.0.1:3001` だけで受ける。Host が localhost 系でないと 403 を返す（C6）。**OpenSEO を読む側は、オンプレの同じホストに置くしかない。**
+- ユーザーが選んだ会話のモデル GPT-Live には、次の性質がある（livekit-docs の `/agents/models/realtime/gpt-live`）。
+  - 音声専用で、映像・画像は裏のモデルにも渡せない（C1）。
+  - ハンドオフすると新しいセッションになり、声と指示を途中で変えられない（C2）。
+  - 指示が 2 つに分かれる（声のモデルと、推論とツールを担う裏のモデル。C3）。
+  - 割り込みでは再生が止まるだけで、モデルは話し続ける（C5）。
+- セルフホストの LiveKit では LiveKit Inference が使えない。Krisp・ai-coustics（Cloud 経由）・turn detector も使えない（C4）。
+
+**失敗とは**（仕様の 1 節）: 数値をでっち上げる（ツールの結果に無い数字を話す・描く）、費用の出るツールを呼ぶ、話が長い・割り込めない、計測の不具合を見落として誤った解釈を話す。
+
+### 選択肢
+
+| 選択肢 | 内容 | 採否 |
+|---|---|---|
+| 会話を gpt-realtime にし、映像を常に見せる | `video_input=True` で映像を流し続ける | 不採用（U8。ユーザーが GPT-Live を選んだ〈U5〉。映像は聞かれたときだけで足りる。常に送ると送る量と費用が増える） |
+| LiveKit Cloud を使う | SFU・Inference・観測を SaaS で使う | 不採用（U1。ユーザーがセルフホストを選んだ。TA-01 の 8 節の基準に当たらない SaaS を増やさない） |
+| SFU をオンプレに置く | 開発機で SFU を動かす | 不採用（ブラウザからオンプレへ UDP の入る線を開くことになり、ADR-21 の「AWS からオンプレへは Webhook だけ」が崩れる。ngrok は UDP を通さない） |
+| SFU を ECS（Fargate）に置く | ADR-26 の流儀に合わせる | 不採用（UDP の広いポートの範囲〈50000-60000〉を直接受ける必要があり、ロードバランサーの後ろのタスクに合わない） |
+| **SFU は EC2（ASG と warm pool。起動と停止は人）。エージェントと OpenSEO はオンプレで、エージェントは wss で外向きにつなぐ。会話は GPT-Live。映像は聞かれたときだけビジョンモデル** | ADR-21 の線を変えずに、UDP を AWS で受ける | **採用** |
+
+### 決定
+
+1. **配置**（U1・D8・D10）。
+   - SFU（`livekit-server`）は AWS の EC2 1 台に置く。Auto Scaling グループと warm pool で管理する（`cloud/stacks/livekit-sfu.yaml`）。
+   - エージェント（`backend/livekit-agent`。dispatch の名前 `comegin-seo-bi`）はオンプレのホストで systemd（`comegin-livekit-agent`）で常駐させる。**wss で外向きに SFU へつなぐ**（I-36）。
+   - エージェントは OpenSEO（`127.0.0.1:3001/mcp`）に直接つなぐ（I-37）。コンテナに入れない（C6）。
+   - **AWS からオンプレへ入る線は増えない。**
+2. **画面**（U2・U7）。
+   - 監視アプリ（`frontend/next-js`）に `/voice` を足す。部品は LiveKit Components React。
+   - トークンは監視アプリの `/api/livekit/token` が発行する（I-34）。守りは監視アプリのセッション（Google ログインと許可リスト。ADR-23）。identity はセッションのメールで、ルームは `voice-<uuid>`、TTL は 10 分。
+3. **会話**（U5・D1・D6・D7・D11）。
+   - 音声エージェントは 1 体（C2）。
+   - **W1（接続した直後のブリーフィング）は、コードで MCP を並列に呼んで指標を計算し、モデルには事実だけを渡す。** W2（質疑）は、裏のモデルが MCP のツールを呼ぶ。
+   - 画面のチャット欄の入力も受ける。
+   - 割り込みは Silero VAD で再生を止める。上限は 30 分・無発話・MCP の呼び出し 40 回（コードで数える）。
+4. **OpenSEO の許可リスト**（D2・D3）。
+   - **無料の参照系 11 本**（`get_search_console_performance`・`inspect_urls`・`get_google_analytics_organic_overview`・`get_google_analytics_organic_landing_pages`・`get_google_analytics_page_performance`・`get_google_analytics_traffic_acquisition`・`get_google_analytics_key_events`・`get_google_analytics_audience_breakdown`・`get_google_analytics_measurement_health`・`get_search_opportunities`・`get_project_context`）と、内部専用の `list_projects`（モデルには見せない）。
+   - **正本はコードの `backend/livekit-agent/src/comegin_voice/openseo/allowlist.py`。** MCPToolset の `allowed_tools` と、W1 のクライアント（許可リストに無いツールは呼ばずに例外）の 2 か所で効かせる。
+   - 書き込み系（`save_keywords`・`update_project_context`・`create_*`）と、費用の出るツールは載せない。
+5. **画面への出力**（D4）。MCP の結果は、モデルには圧縮した事実で返し、画面にはカード（表・折れ線・棒。topic `comegin.bi.card`）で送る。**モデルが数値を作って描くツールは作らない**（画面の数値はすべてツールの実際の結果になる）。
+6. **映像の入力**（U8・D5）。関数ツール `look_at_shared_screen` が、聞かれたときだけ画面共有（無ければカメラ）の**最新の 1 フレーム**を OpenAI Responses のビジョンモデルに渡し、事実の文を返す。**フレームは保存しない。**
+7. **ノイズ対策**（U3）。
+   - ブラウザは `echoCancellation` だけを有効にする。
+   - エージェント側で WebRTC の APM（雑音の抑制・低い音のカット）をかけ、音量の自動調整はフレームワークの機能を使う。
+   - 話者分離（ai-coustics・Krisp）は有償のライセンスが要るため、切り替えの口（`AUDIO_ENHANCEMENT`）だけを用意する。
+8. **SFU の運用**（U6・D8a〜D8f）。
+   - ASG は `MinSize: 0`・`MaxSize: 1`。`DesiredCapacity` はテンプレートに書かない（デプロイのたびに 0 に戻るのを避ける）。
+   - warm pool は `PoolState: Stopped`。**停止はインスタンスを削除せずに止める**（EBS が残るので、TLS の証明書を取り直さない）。
+   - 起動のたびの処理は systemd の oneshot（`comegin-livekit-boot`）が行う（user data は最初の 1 回しか動かないため。仕様の 4 節 (h)）。行き先が warm pool なら `CONTINUE` だけを返し、InService なら Elastic IP の付け替え → SSM から `livekit.yaml`・`caddy.yaml` を作る → サービスの起動 → 7880 の応答を待つ → `CONTINUE`。**失敗すると `ABANDON` でインスタンスが作り直され、証明書が失われる**ため、`start` は SSM の値があるかを先に確かめる。
+   - 開けるポートは 80・443・7881/tcp と 3478・50000-60000/udp だけ（7880 と 22 は開けない）。運用は SSM Session Manager。
+   - 版は `livekit-server` v1.13.11 と Caddy（`livekit/caddyl4` v2.11.3）。どちらもダイジェストで固定する。
+   - スタックは親のパラメータ `LivekitSfuEnabled`（既定 `false`）が `true` のときだけ作る。
+   - **起動と停止は人が `node cloud/livekit-sfu.mjs start|stop|status` で行う。Claude Code は実行しない。**
+9. **改善ループへの接続**（D12）。
+   - セッションの終わりに、問いの要約・使ったツール・結果 ID を `E-12`（`source: voice`。`created_by: agent/voice-seo-bi`）として `docs/audits/voice/` に書く。`target_ref` は `OpenSEO project=<id> domain=<domain>`、指標は `VOICE-*` の 4 つ（DA-02 の 4.6）。**発話の全文と個人情報は書かない。**
+   - **音声と映像は残さない。** `E-13` は起票しない（起票は `proposal-writer` だけ。AA-03 の 1.1）。
+10. **ID**（D13）。新しい連携点は `I-34`〜`I-38`（AA-02）。**Capability は新設せず、`CAP-01` に足す**（BA-02）。
+
+### 受容したリスク
+
+| 受容したリスク | 具体的に起こりうること | 担保・約束 |
+|---|---|---|
+| **音声と画面のフレームが OpenAI（米国）に渡る**（I-38） | 運用者の声（話者の個人データ）と、画面共有に映ったものが OpenAI に届く。画面に個票が映っていれば、それも渡る | **訪問者・顧客のデータを送る経路ではない**（DA-05 の 1.7）。映像は聞かれたときの最新 1 フレームだけで、こちらでは保存しない。**画面共有に個票（Mautic のコンタクト・Chatwoot の会話・フォームの本文）を映さない**（運用の約束。仕組みでは守れない） |
+| **OpenSEO に、Claude のエージェント定義の外からの接続元が増える**（**ADR-10 の決定 1・2 の改訂**） | エージェント定義の許可リストの外で OpenSEO を呼ぶプロセスが、オンプレに常駐する。**コードの許可リストを書き換えれば、費用の出るツールにも届く**（OpenSEO は無認証で、同じ `/mcp` に有料のツールがある） | **許可リストの正本はコードの `openseo/allowlist.py`**（Git の管理下。変更は PR で、`main` に入ってから本番に置く）。`allowed_tools` とクライアントの検査の 2 か所で効かせる。載せるのは無料の参照系だけ。最後の歯止めは ADR-10 の決定 3（DataForSEO の前払い残高）のまま |
+| **SFU の EC2 を ADR-26 の例外にする** | EC2 の OS の更新・証明書・ASG の運用が要る。起動したまま止め忘れると、稼働時間の費用が続く | 起動と停止を人が行い、使わないあいだは warm pool の Stopped（費用は EBS と Elastic IP だけ）。SSM で運用し、22 番を開けない。インスタンスロールに許すのは、この Elastic IP の付け替え・この ASG の `CompleteLifecycleAction`・SSM の 2 つのパラメータ（API キーとシークレット）の読み取り・Session Manager の最小権限（`ssm:UpdateInstanceInformation` と `ssmmessages` の 4 操作）だけ。**`AmazonSSMManagedInstanceCore` は付けない**（`ssm:GetParameter` を `Resource: "*"` で許し、インターネットに開いた SFU からアカウントのすべての SSM パラメータを読めてしまうため。TA-06 の 3.4） |
+
+### 理由
+
+- **ADR-21 の線を変えない。** エージェントは外向きに SFU へつなぐため、AWS からオンプレへ入る線は Webhook の 1 本のままである。
+- **数値のでっち上げを、モデルの能力ではなく構造で防ぐ。** W1 の比較はコードが行い、画面に出る数値はツールの結果からしか作らない（D1・D4）。
+- **費用の出るツールに届かない。** 許可リストを無料の参照系だけにすれば、DataForSEO の費用は 0 になる（C7）。参照だけなので、承認ゲート（BA-05）にも触れない。
+- **映像は聞かれたときだけで足りる。** GA4・GSC の画面を共有して「このグラフの谷は何？」と聞く使い方を想定した（D5）。
+
+### 帰結
+
+- **新しい部品**: `backend/livekit-agent`（自作）、`backend/livekit-system`（開発の SFU の compose と、本番の設定の雛形。設定・運用のみ）、`cloud/stacks/livekit-sfu.yaml`、`cloud/livekit-sfu.mjs`、`onprem/systemd/comegin-livekit-agent.service`、監視アプリの `/voice` と `/api/livekit/token`。
+- **新しいポート**: 7880・7881/tcp・7882/udp（開発の SFU。`127.0.0.1`）と 8081（エージェントのヘルス。`127.0.0.1`）。本番の EC2 では 80・443・7881/tcp と 3478・50000-60000/udp（TA-01 の 5 節）。
+- **新しい費用**: GPT-Live（セッションの時間で課金）、Responses（ビジョン）、EC2 の稼働時間。**止めているあいだも EBS と Elastic IP（パブリック IPv4 の時間課金）がかかる**（TA-06 の 3.4）。
+- **境界を越える通信が 3 本増える**（TA-01 の 7 節の経路 26〜28）。国外に出る先に OpenAI が加わる（DA-05 の 1.7）。
+- **AA-03 の 2.4 は、Claude Code のエージェント定義の表のまま**にし、このエージェントの許可リストは別の小節（2.4.1）に置く。AA-03 の 2.4 で「誰にも持たせない」とした `get_google_analytics_key_events`・`get_google_analytics_audience_breakdown`・`get_search_opportunities` は、**このエージェントにだけ許す**（対話で読み解くために使い、`E-12` の指標の正本にはしない）。
+- **ADR-10 の再検討の契機「OpenSEO をループバックの外から使いたくなったとき」には当たらない**（エージェントは OpenSEO と同じホストで、ループバックでつなぐ）。
+- **状態は `未配線`**（コードはできたが、本番では動かしていない。SFU のデプロイ・DNS・キー・systemd のユニットの設置は人が行う）。
+
+### 未決定事項
+
+**2026-11-23 に、下の 8 項目すべてを推奨案のとおりに決めた**（ユーザー〈`R1` `R2` `R3` を兼ねる〉）。残る未決定事項は無い（OpenAI の規約の確認は、決定ではなくユーザーの作業として残る）。
+
+- **（決着）このエージェントが話す CVR と、DA-02 の CVR の区別。** GA4 の数値は「キーイベント」「キーイベント率（GA4）」と言い、「CVR」「コンバージョン率」とは言わない。CV の正本は Mautic のフォームの送信で（DA-02 の 1.2）、GA4 からは分からない。「CVR は？」と聞かれたら、GA4 のキーイベント率は言えるが正式な CVR は Mautic の集計で見る、と答える。裏のモデルの指示（`bi/analyst.py`）に入れた。
+- **（決着）`E-12`（`source: voice`）に書く「問い」に個人情報が入りうる。** 今の処理で受け入れる: 問いは要約の句だけにし、URL・`@`・電話番号の形を含む要約は捨て、メールと電話の形は伏せ字にする（`observability/questions.py`・`audit.py`）。人の名前は機械では見つけられないので、**「顧客の名前を口にしない・画面共有に個票を映さない」を運用の約束にする**（DA-05 の 1.7）。保持期間はほかの `E-12` と同じ（30 日で作業場から外れ、S3 に写る。`docs/audits/README.md`）。
+- **（決着）OpenAI の API のデータの扱いの確認と、API キーの分け方。** 音声とフレームの保持の期間・学習への利用の有無は、**ユーザーが OpenAI の規約の一次の資料で確かめる**（Claude は確かめていない。本番で使い始める前に）。**API キーは記事のアイキャッチ（ADR-32）と分ける**: OpenAI の画面でプロジェクトを分けて発行し、setup の `VOICE_OPENAI_API_KEY` に書く（使用量を分けて見られ、片方だけを止められる）。空のときは共用の `OPENAI_API_KEY` で代用し、本番の setup が分けるよう案内する。
+- **（決着）SFU の監視。** 止め忘れは、**SFU が InService のまま 3 時間（`RunningAlarmHours`。毎正時で区切った 1 時間を丸ごと数える）続いたら SNS の `ops` に知らせる**アラームを 1 本だけ置く（`stacks/livekit-sfu.yaml` の `RunningTooLongAlarm`。ASG の `GroupInServiceInstances`。止めれば OK に戻り、それも知らせる）。起動の失敗（ライフサイクルフックの `ABANDON`）のアラームは作らない（`cloud/livekit-sfu.mjs start` が InService まで待ち、ならなければその場で失敗を出す）。TA-05 の項目 25。
+- **（決着）割り込みの設定の効き**（`resume_false_interruption`）。G-2 でログを見て確かめ、効かなければ外す（仕様の 4 節 (c)）。判断事項ではなく、確かめ方を決めたもの。
+- **（決着）話者分離の契約**（ai-coustics か Krisp。費用が要る）。**今は契約しない。** G-2 で APM（無料）だけを試し、ほかの人の声で誤って割り込まれることが多ければ考え直す。切り替えの口（`AUDIO_ENHANCEMENT`）は残す。
+- **（決着。TA-01 の 9 節から）ヘルスのポート 8081 が開発と本番で同じ。** コードは変えず、**開発で動かすときは本番のユニットを止める**（`sudo systemctl stop comegin-livekit-agent`。終わったら `start`）。
+- **（決着。TA-01 の 9 節から）モデルの提供元の扱い。** TA-01 の 8 節の例外の一覧では、Anthropic と OpenAI を「モデルの提供元」という 1 つの種類にまとめ、使い道（Claude Code のエージェント・記事のアイキャッチ・音声 SEO BI）を並べて書く。
+
 ## 決定の一覧
 
 | ID | 決定 | 状態 | 覆すのに必要な根拠 |
@@ -1728,6 +1836,7 @@ performance の判定:
 | **ADR-30** | **SES のバウンス（恒久的なものだけ）と苦情を、SES の設定セット → EventBridge（既定のバス）→ Lambda `ses-feedback`（VPC の外。ADR-26）→ Mautic の REST API で「連絡しない（DNC）」に返す（バウンスは理由 2、苦情は理由 1）。Mautic のプラグイン・オンプレの n8n は使わない。専用の Mautic の API 認証情報。宛先のアドレスをログ・通知に出さない。実装は未着手（それまでは SES の抑制リストが送信を止める）** | **`決定済み`（2026-10-28。ユーザーが判断を委任）** | Mautic の上流が SES の通知を本体で受けるようになること、またはイベントの量が Lambda の費用・同時実行数で扱えなくなること |
 | **ADR-31** | **改善ループを 2 週間の周（起点は `CONTROL_CYCLE_ANCHOR`）で回し、承認を監視アプリの「改善ループ」画面で行う（項目の種類 6・状態 7。確認項目のチェックボックスをすべて入れたときだけ OK。承認は見た版〈`expectedUpdatedAt`〉に結びつく）。OK の後は手順とコマンドの表示まで、実行は人（TA-07 の 9 節の「承認して配信」は置かない）。AB テストは作らない（`experiment_start` は起票しない）。エージェント専用の作業場を置き、同期は未追跡の観測・提案の写しだけのときに行う。反映は配信・送信を確かめた日の周に数え、0 件なら SNS で知らせる。ADR-04・ADR-17・ADR-18 は変えない** | **`決定済み`（2026-11-09。ユーザーの判断と実装時の裁定）** | 画面の確認が形だけになり承認の質が落ちること、手順の表示では人の実行が滞り反映が増えないこと、または 14 日の周が R2 の承認の量に合わないこと |
 | **ADR-32** | **キャンペーンの記事とファイルを Strapi を正本にして公開サイトから配り、Mautic のメールは UTM つきのリンクだけにする（メールとキャンペーンは完成品を未公開で作り、公開＝送信の開始は人。`campaign-planner` 〈13 本目〉）。zip と PDF は 20 MB を上限にビルド時に `dist/` へ取り込む（ADR-11 の「画像以外は失敗」・DD-05 の 1.5.3 を置き換え）。ソースコードは Agent Plugins 1.0 の Plugin（スキーマの写しで検証）・ライセンスの既定は MIT・個人情報を扱わせない。読み手は介護・障がい福祉の法人・事業所。Strapi のアップロードの許可に `application/zip` を足す。アイキャッチ画像は OpenAI SDK で作る（画質 `medium` 固定・失敗の記憶・書き込みトークンは公開の権限なし）。E-13 に `email_campaign` を足す** | **`決定済み`（2026-11-09。ユーザーの判断と実装時の裁定）** | 配布ファイルがビルドの時間・`dist/` の大きさで許容できなくなること、Agent Plugins の仕様の変更、または Strapi の書き込みトークンで記事を公開できてしまうこと |
+| **ADR-33** | **音声で話せる SEO の BI の担当（`backend/livekit-agent`。GPT-Live 1 体。W1 はコードで集計して事実だけを渡し、W2 はモデルが MCP を呼ぶ）を置く。SFU（`livekit-server`）は AWS の EC2 1 台（ASG・warm pool の Stopped。起動と停止は人が `cloud/livekit-sfu.mjs` で行う。ADR-26 の例外）、エージェントと OpenSEO はオンプレ（systemd の `comegin-livekit-agent`。wss で外向き）。画面は監視アプリの `/voice`（LiveKit Components React）。OpenSEO の許可リストは無料の参照系 11 本で、正本はコードの `openseo/allowlist.py`（ADR-10 の決定 1・2 の改訂）。映像は聞かれたときだけ最新 1 フレームをビジョンモデルへ。対話は `E-12`（`source: voice`）に残す。音声とフレームが OpenAI（米国）に渡る（リスク受容）** | **`決定済み`（2026-11-21。U1〜U8・D1〜D13）** | 数値のでっち上げ・費用の出るツールの呼び出しが 1 件でも起きること、OpenAI への越境が許容できなくなること、または SFU の EC2 の運用の負担が対話の価値を上回ること |
 
 ## 未決定事項
 
@@ -1751,3 +1860,4 @@ performance の判定:
 - **（2026-10-19 に追加。ADR-29）** Mixamo の利用条件（正確な制限とクレジットの要否）と Aceternity の無料の部品のライセンスを、公開前にユーザーが一次の資料で確かめる。光の表現と §5.5-6 の関係、見直しの条件の直帰率の基準、アバターの手触りの直し（中身は次のセッションで聞く）。ブランドガイドラインの正本への例外の反映（文案は `docs/proposals/brand-guideline-web-motion-exception.md`。ユーザー）。詳細は ADR-29 の未決定事項と `docs/BasicDesign/DesignSpec/website/05-motion-spec.md` の 7 節。
 - **（2026-11-09 に追加。ADR-31）** 承認の記録の保持期間（E-15 と合わせる）、本番で 1 周を通した結果による確認項目の文言と周の長さ（14 日）の見直し。判断者 `R1` `R2`。詳細は ADR-31 の未決定事項。
 - **（2026-11-09 に追加。ADR-32）** Strapi 5 で「記事の更新はできるが公開はできない」トークンが作れるか（作れなければ人がファイルを記事に結ぶ運用）、ダウンロードのリンクの専用の部品が要るか、配布する Plugin の版を上げたときの扱い。判断者 `R1` `R2`。詳細は ADR-32 の未決定事項。
+- **（2026-11-21 に追加。ADR-33。2026-11-23 にすべて決着）** CVR の言い分け・`E-12` の問いの個人情報・OpenAI のキーの分離・SFU の止め忘れのアラーム・話者分離の契約・8081 の衝突・モデルの提供元の扱いを、推奨案のとおりに決めた。**残るのは、OpenAI の規約でのデータの保持と学習への利用の確認（ユーザーが一次の資料で行う）だけ**。詳細は ADR-33 の未決定事項。

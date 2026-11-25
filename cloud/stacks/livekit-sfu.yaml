@@ -1,0 +1,569 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  LiveKit の SFU（livekit-server と Caddy。EC2 を Auto Scaling グループで 0〜1 台、warm pool は Stopped）。
+  起動と停止は人が cloud/livekit-sfu.mjs で行う。計画 2026-11-21-voice-seo-bi の D8。
+# テンプレートの Description は 1024 バイトまで（日本語は 1 文字 3 バイト）。詳しい説明は以下のコメント。
+# 設計: docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md（4 節 (h)・5.6）、docs/superpowers/plans/2026-11-21-voice-seo-bi.md（D8a〜D8f）。
+#
+# - UDP のポートの範囲（50000-60000）を扱うため ECS ではなく EC2（ADR-26 の例外。前例は stacks/wireguard.yaml）。
+# - ASG は MinSize 0・MaxSize 1。DesiredCapacity はテンプレートに書かない（書くと、デプロイのたびに作成時の値へ戻され、
+#   手で起動した SFU が止まるおそれがある。AWS のドキュメントでは DesiredCapacity は作成時の初期値）。作成時の希望は MinSize の 0。
+# - warm pool（PoolState: Stopped・ReuseOnScaleIn: true）。停止（希望 0）ではインスタンスを消さずに止め、起動（希望 1）で開始する。
+#   EBS が残るので、Caddy の証明書（/opt/livekit/caddy_data）を毎回取り直さない。スタックを作った直後は、warm pool に
+#   止まったインスタンスが 1 台だけある（MaxGroupPreparedCapacity を書かないので、MaxSize の 1 まで用意する）。
+# - user data は warm pool に入る最初の起動で 1 回だけ動く（warm pool から起動したときは動かない。spec の 4 節 (h)）。
+#   そこで user data は導入（docker・イメージ・systemd のユニット）だけを行い、起動のたびの処理は systemd の oneshot
+#   （comegin-livekit-boot.service）が行う: IMDSv2 で自分の ID → EIP の付け直し → SSM から livekit.yaml を作る →
+#   livekit-server と Caddy を起動 → complete-lifecycle-action CONTINUE（待機中でなければ無視）。
+#   起動の行き先が warm pool（Warmed:Stopped）のときは、設定を作らずに CONTINUE だけを返す（SSM の値がまだ無くてもデプロイできる）。
+# - EC2_INSTANCE_LAUNCHING のライフサイクルフック（600 秒、既定の動作は ABANDON）。oneshot が失敗すると 600 秒後に ABANDON に
+#   なり、インスタンスは終了して作り直される（EBS と証明書が失われる）。cloud/livekit-sfu.mjs start は、希望を 1 にする前に
+#   SSM の値があるかを確かめる（無いまま起動して、作り直しを繰り返さないため）。
+# - SG は network.yaml（SG はすべてそこにまとめる流儀。LivekitSfuSecurityGroup）。22 番は開けない。運用は SSM Session Manager。
+# - インスタンスロールに許すのは 4 つだけ（すべて下の自前の管理ポリシー 1 本）: この EIP の付け替え・この ASG の CompleteLifecycleAction・
+#   SSM の 2 つのパラメータの読み取り・SSM Session Manager の最小権限。
+#   AWS 管理の AmazonSSMManagedInstanceCore は付けない（ssm:GetParameter(s) を Resource "*" で許すので、インターネットに開いた
+#   この EC2 から、アカウントのすべてのパラメータ〈aws/ssm の鍵の SecureString を含む〉が読めてしまう。2026-11-21 のレビュー）。
+#   そのため Run Command・State Manager などの Session Manager 以外の Systems Manager の機能は使えない（使わない）。
+# - API キーとシークレットは SSM の SecureString（/comegin/<env>/livekit/api-key・api-secret）。CloudFormation は SecureString を
+#   作れないので、このスタックは名前だけを出力し、値は人が put-parameter で入れる（cloud/README.md に手順。テンプレートに秘密を書かない）。
+#   既定の鍵（aws/ssm）で暗号化するなら、ロールに kms:Decrypt は要らない（AWS 管理の鍵のキーポリシーが SSM 経由の復号を許す）。
+#   自前の KMS の鍵で入れるときは、その鍵の kms:Decrypt をロールに足す。
+# - DNS は Route 53（edge.yaml の流儀）。rtc.・rtc-turn. の A レコードを EIP に向ける。
+# - 止めている間も費用がかかるのは EBS（gp3 8 GiB）と EIP（パブリック IPv4 の時間課金）。
+# 重要: 起動テンプレート（UserData・AMI・型）を変えても、warm pool に止まっているインスタンスは古い版のまま。反映するには、
+#   止めた状態で warm pool のインスタンスを終了させる（作り直される。証明書は取り直しになる）。手順は cloud/README.md。
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+    Description: public サブネットの ID（network.yaml の PublicSubnetIds）。
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: network.yaml の LivekitSfuSecurityGroupId
+  HostedZoneId:
+    Type: String
+    Description: LivekitHost・LivekitTurnHost の Route 53 ホストゾーン（作成済み）。
+  LivekitHost:
+    Type: String
+    Default: rtc.comegin.com
+    Description: シグナリングの wss のホスト名（監視アプリの LIVEKIT_URL・エージェントの LIVEKIT_URL は wss://<この値>）。
+  LivekitTurnHost:
+    Type: String
+    Default: rtc-turn.comegin.com
+    Description: TURN/TLS のホスト名（LivekitHost と別にする。Caddy が SNI で振り分ける）。
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedPattern: ^t4g\..+$
+    ConstraintDescription: arm64（Graviton）のインスタンスタイプにする（AMI が arm64）。
+  AmiSsmId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: AMI の SSM パラメータの名前（Amazon Linux 2023・arm64）。FixedAmiId が空のときだけ使う。
+  FixedAmiId:
+    Type: String
+    Default: ''
+    AllowedPattern: ^$|^ami-[0-9a-f]{8,17}$
+    Description: AMI の ID を固定する。空でなければ AmiSsmId より優先する（新しい AMI で起動テンプレートの版が変わるのを避けるため）。
+  # 版はタグとダイジェストで固定する（:latest にしない）。開発の backend/livekit-system/compose.yml と同じ版にそろえる。
+  # 出典: docker buildx imagetools inspect（2026-11-21）。livekit-server v1.13.11 は 2026-10-25、caddyl4 v2.11.3 は 2026-06-04 のビルド。
+  LivekitImage:
+    Type: String
+    Default: livekit/livekit-server:v1.13.11@sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20
+    AllowedPattern: ^[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$
+    ConstraintDescription: <イメージ>:<タグ>@sha256:<ダイジェスト> の形（latest にしない）。
+  CaddyImage:
+    Type: String
+    Default: livekit/caddyl4:v2.11.3@sha256:9dd090159a6042a907dbff0ce9dda27a21d2a559dc7b03b60a8e6b1b60b8348e
+    AllowedPattern: ^[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$
+    ConstraintDescription: <イメージ>:<タグ>@sha256:<ダイジェスト> の形（latest にしない）。
+  OpsAlertTopicArn:
+    Type: String
+    Description: observability.yaml の OpsAlertTopicArn（止め忘れのアラームの通知先）
+  RunningAlarmHours:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    MaxValue: 24
+    Description: SFU が InService のまま、この時間（時。毎正時で区切った 1 時間を丸ごと数える）続いたら ops に知らせる（止め忘れ）。
+
+Conditions:
+  UseFixedAmi: !Not [!Equals [!Ref FixedAmiId, '']]
+
+Resources:
+  # ---------------------------------------------------------------- IAM（EC2 のロール）
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'comegin-${EnvName}-livekit-sfu'
+      # Description は ASCII と Latin-1 だけ（CreateRole の制約。日本語を入れると作成が失敗する）
+      Description: LiveKit SFU EC2. Session Manager (minimal), EIP reassociation, lifecycle completion and the API key parameters only.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      # AmazonSSMManagedInstanceCore は付けない（冒頭の説明。全パラメータを読めてしまうため）。Session Manager は下のポリシーで許す
+
+  # インラインポリシーは使わず、管理ポリシーをロールにアタッチする（cfn-guard の IAM_NO_INLINE_POLICY_CHECK。wireguard.yaml と同じ）。
+  InstancePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'comegin-${EnvName}-livekit-sfu'
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # SSM Session Manager の最小権限（SSM Agent の登録とセッションのチャネル）。出典: AWS Systems Manager のユーザーガイド
+          # 「Create a custom IAM role for Session Manager」（2026-11-21 に確かめた。KMS によるセッションの暗号化は使わないので kms:Decrypt は無し）。
+          # ec2messages:*（Run Command 用）は Session Manager には要らないので付けない。これらの操作はリソースで絞れない（"*" だけ）
+          - Sid: SessionManagerOnly
+            Effect: Allow
+            Action:
+              - ssm:UpdateInstanceInformation
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+            Resource: '*'
+          # EIP の付け直し（起動のたび。--allow-reassociation なので何度しても同じ結果）。
+          # EIP はこのスタックの 1 つだけ。付け先はこの SFU の起動テンプレートがタグを付けたインスタンスと ENI だけ。
+          - Sid: AssociateThisElasticIp
+            Effect: Allow
+            Action: ec2:AssociateAddress
+            Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:elastic-ip/${ElasticIp.AllocationId}'
+          - Sid: AssociateToThisSfuOnly
+            Effect: Allow
+            Action: ec2:AssociateAddress
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+              - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*'
+            Condition:
+              StringEquals:
+                aws:ResourceTag/comegin:livekit-sfu: !Ref EnvName
+          # 起動時のライフサイクルフックを完了させる（この ASG だけ）。ASG の名前は固定（起動テンプレートと ASG の循環参照を避けるため !Ref しない）
+          - Sid: CompleteThisLifecycleHook
+            Effect: Allow
+            Action: autoscaling:CompleteLifecycleAction
+            Resource: !Sub 'arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/comegin-${EnvName}-livekit-sfu'
+          # API キーとシークレット（SecureString。値は人が入れる）
+          - Sid: ReadApiKeyParameters
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/comegin/${EnvName}/livekit/api-key'
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/comegin/${EnvName}/livekit/api-secret'
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub 'comegin-${EnvName}-livekit-sfu'
+      Roles:
+        - !Ref InstanceRole
+
+  # ---------------------------------------------------------------- Elastic IP と DNS
+  # ASG では ENI を固定できないため、EIP を起動のたびに oneshot が付け直す（計画の D8d）。
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu' }
+
+  SignalRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref LivekitHost
+      Type: A
+      TTL: '300'
+      ResourceRecords:
+        - !Ref ElasticIp
+
+  TurnRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref LivekitTurnHost
+      Type: A
+      TTL: '300'
+      ResourceRecords:
+        - !Ref ElasticIp
+
+  # ---------------------------------------------------------------- 起動テンプレート
+  # public サブネットは MapPublicIpOnLaunch: false（network.yaml）なので、起動直後に AWS の API（SSM・EC2）と dnf・Docker Hub に
+  # 届くよう、自動のパブリック IP を付ける。oneshot が EIP を付けると、自動のパブリック IP は外れる（EIP に置き換わる）。
+  # UserData の中の ${...} は CloudFormation が展開する。シェルの変数は $NAME の形で書く（波括弧を使わない。wireguard.yaml と同じ）。
+  # livekit.yaml と caddy.yaml の雛形の正本は backend/livekit-system/prod/*.template（変えるときは両方そろえる）。
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'comegin-${EnvName}-livekit-sfu'
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu' }
+      LaunchTemplateData:
+        ImageId: !If [UseFixedAmi, !Ref FixedAmiId, !Ref AmiSsmId]
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            DeleteOnTermination: true
+            Groups:
+              - !Ref SecurityGroupId
+        MetadataOptions:
+          HttpTokens: required
+          HttpEndpoint: enabled
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 8
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        # comegin:livekit-sfu はロールの AssociateAddress の条件に使う（インスタンスと ENI の両方に付ける）
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu' }
+              - { Key: 'comegin:livekit-sfu', Value: !Ref EnvName }
+          - ResourceType: network-interface
+            Tags:
+              - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu' }
+              - { Key: 'comegin:livekit-sfu', Value: !Ref EnvName }
+          - ResourceType: volume
+            Tags:
+              - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu' }
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            # 導入だけ（warm pool に入る最初の起動で 1 回だけ動く）。起動のたびの処理は最後に有効にする comegin-livekit-boot.service。
+            set -euo pipefail
+            exec > >(tee -a /var/log/livekit-setup.log) 2>&1
+
+            dnf install -y docker
+            command -v aws >/dev/null || dnf install -y awscli-2
+            systemctl enable --now docker
+
+            install -d -m 755 /opt/livekit
+            install -d -m 700 /opt/livekit/caddy_data
+
+            # イメージは起動のたびではなく、ここで 1 回だけ取得する（EBS に残る。warm pool からの起動を速くする）
+            docker pull ${LivekitImage}
+            docker pull ${CaddyImage}
+
+            # livekit-server と Caddy。どちらも有効にしない（WantedBy を持たない）。起動は comegin-livekit-boot が行う
+            # （設定ファイルを作ってから上げるため。warm pool に入る最初の起動では上げない）。
+            # ホストのネットワークを使う（WebRTC の UDP を NAT に通さない。LiveKit の推奨）。ログは journald（journalctl -u <ユニット>）。
+            cat > /etc/systemd/system/livekit-server.service <<'UNIT'
+            [Unit]
+            Description=LiveKit server (SFU)
+            Requires=docker.service
+            After=docker.service
+            [Service]
+            ExecStartPre=-/usr/bin/docker rm -f livekit-server
+            ExecStart=/usr/bin/docker run --rm --name livekit-server --network host --log-driver journald --ulimit nofile=500000:500000 -v /opt/livekit/livekit.yaml:/etc/livekit.yaml:ro ${LivekitImage} --config /etc/livekit.yaml
+            ExecStop=/usr/bin/docker stop livekit-server
+            Restart=on-failure
+            RestartSec=5
+            UNIT
+            cat > /etc/systemd/system/livekit-caddy.service <<'UNIT'
+            [Unit]
+            Description=Caddy for LiveKit (TLS for wss and TURN/TLS, routed by SNI)
+            Requires=docker.service
+            After=docker.service
+            [Service]
+            ExecStartPre=-/usr/bin/docker rm -f livekit-caddy
+            ExecStart=/usr/bin/docker run --rm --name livekit-caddy --network host --log-driver journald -v /opt/livekit/caddy.yaml:/etc/caddy.yaml:ro -v /opt/livekit/caddy_data:/data ${CaddyImage} run --config /etc/caddy.yaml --adapter yaml
+            ExecStop=/usr/bin/docker stop livekit-caddy
+            Restart=on-failure
+            RestartSec=5
+            UNIT
+
+            # 起動のたびの処理（spec の 4 節 (h)）。失敗したら終了コード 1 で終え、ライフサイクルフックは 600 秒後に ABANDON になる。
+            # 秘密値（シークレット）は画面にもログにも出さない。コマンドの引数にも載せない（変数からヒアドキュメントでファイルへ書く）。
+            cat > /usr/local/sbin/comegin-livekit-boot <<'BOOT'
+            #!/bin/bash
+            set -euo pipefail
+            REGION=${AWS::Region}
+            ASG_NAME=comegin-${EnvName}-livekit-sfu
+            HOOK_NAME=comegin-livekit-launching
+            ALLOCATION_ID=${ElasticIp.AllocationId}
+            NODE_IP=${ElasticIp}
+            LIVEKIT_HOST=${LivekitHost}
+            TURN_HOST=${LivekitTurnHost}
+            KEY_PARAM=/comegin/${EnvName}/livekit/api-key
+            SECRET_PARAM=/comegin/${EnvName}/livekit/api-secret
+
+            TOKEN=$(curl -sf -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 600" http://169.254.169.254/latest/api/token)
+            imds() { curl -sf -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+            INSTANCE_ID=$(imds instance-id)
+            PRIVATE_IP=$(imds local-ipv4)
+
+            # 行き先の状態（Warmed:Stopped か InService）。起動の直後は出るまで少しかかるので、最長 300 秒待つ
+            # （ユニットの TimeoutStartSec 540 秒・フックの 600 秒の中に、この後の処理〈最長で約 3 分〉が収まる長さ）。
+            # 300 秒たっても出なければ、どちらとも決めずに exit 1 で止める（フックは 600 秒で ABANDON になり、インスタンスは作り直される）。
+            # InService として進めると、warm pool に入る最初の起動でも SSM を読みに行き、値がまだ無ければ失敗して作り直しを繰り返しうる。
+            # Warmed として CONTINUE を返すと、起動（希望 1）のときに設定もサービスも無いまま InService になり、気づきにくい。
+            # 止めれば journalctl -u comegin-livekit-boot に理由が残り、cloud/livekit-sfu.mjs start は InService を待ちきれずに失敗として知らせる。
+            TARGET=""
+            for i in $(seq 1 150); do
+              TARGET=$(imds autoscaling/target-lifecycle-state || true)
+              [ -n "$TARGET" ] && break
+              sleep 2
+            done
+            echo "livekit-boot: instance $INSTANCE_ID, target lifecycle state: $TARGET"
+            if [ -z "$TARGET" ]; then
+              echo "livekit-boot: FAILED to read autoscaling/target-lifecycle-state from IMDS within 300 seconds. Not configuring anything (the lifecycle hook will ABANDON)." >&2
+              exit 1
+            fi
+
+            complete_hook() {
+              local out
+              for i in 1 2 3 4 5; do
+                if out=$(aws autoscaling complete-lifecycle-action --region "$REGION" --auto-scaling-group-name "$ASG_NAME" \
+                      --lifecycle-hook-name "$HOOK_NAME" --instance-id "$INSTANCE_ID" --lifecycle-action-result CONTINUE 2>&1); then
+                  echo "livekit-boot: lifecycle action completed (CONTINUE)"
+                  return 0
+                fi
+                # 待機中でない（手での再起動・2 回目の実行）なら、完了させるものが無い。無視する
+                if grep -q "No active Lifecycle Action" <<<"$out"; then
+                  echo "livekit-boot: no lifecycle action is waiting (ignored)"
+                  return 0
+                fi
+                echo "livekit-boot: complete-lifecycle-action failed (attempt $i): $out" >&2
+                sleep 5
+              done
+              return 1
+            }
+
+            case "$TARGET" in
+              Warmed:*)
+                # warm pool に入る起動。設定は作らず、サービスも上げない（止められるだけなので）
+                complete_hook
+                exit 0
+                ;;
+              InService)
+                ;;
+              *)
+                # 想定していない行き先（Standby など）。何も作らずに止める
+                echo "livekit-boot: unexpected target lifecycle state: $TARGET. Not configuring anything." >&2
+                exit 1
+                ;;
+            esac
+
+            # 1. EIP を付け直す（付け替えの瞬間に応答が失われうるので、何度か繰り返す。何度しても同じ結果）
+            ASSOCIATED=no
+            for i in 1 2 3 4 5 6; do
+              if aws ec2 associate-address --region "$REGION" --allocation-id "$ALLOCATION_ID" --instance-id "$INSTANCE_ID" --allow-reassociation >/dev/null; then
+                ASSOCIATED=yes
+                break
+              fi
+              sleep 5
+            done
+            [ "$ASSOCIATED" = yes ] || { echo "livekit-boot: FAILED to associate the Elastic IP" >&2; exit 1; }
+
+            # 2. SSM から API キーとシークレットを読み、livekit.yaml を作る（値は出さない）
+            API_KEY=$(aws ssm get-parameter --region "$REGION" --name "$KEY_PARAM" --with-decryption --query Parameter.Value --output text) \
+              || { echo "livekit-boot: FAILED to read $KEY_PARAM (put the value first: cloud/README.md)" >&2; exit 1; }
+            API_SECRET=$(aws ssm get-parameter --region "$REGION" --name "$SECRET_PARAM" --with-decryption --query Parameter.Value --output text) \
+              || { echo "livekit-boot: FAILED to read $SECRET_PARAM (put the value first: cloud/README.md)" >&2; exit 1; }
+            if ! [[ "$API_KEY" =~ ^[A-Za-z0-9_-]{3,64}$ ]]; then
+              echo "livekit-boot: the API key in $KEY_PARAM has an invalid format (letters, digits, _ and - only)" >&2; exit 1
+            fi
+            if ! [[ "$API_SECRET" =~ ^[A-Za-z0-9_+/=-]{32,}$ ]]; then
+              echo "livekit-boot: the API secret in $SECRET_PARAM must be 32 or more characters of [A-Za-z0-9_+/=-]" >&2; exit 1
+            fi
+
+            ( umask 077
+              cat > /opt/livekit/livekit.yaml.tmp <<LKCONF
+            port: 7880
+            bind_addresses:
+              - ""
+            logging:
+              level: info
+              json: false
+            rtc:
+              tcp_port: 7881
+              port_range_start: 50000
+              port_range_end: 60000
+              use_external_ip: false
+              node_ip: $NODE_IP
+            turn:
+              enabled: true
+              domain: $TURN_HOST
+              tls_port: 5349
+              udp_port: 3478
+              external_tls: true
+            keys:
+              "$API_KEY": "$API_SECRET"
+            LKCONF
+              mv /opt/livekit/livekit.yaml.tmp /opt/livekit/livekit.yaml )
+            unset API_SECRET
+
+            cat > /opt/livekit/caddy.yaml.tmp <<CADDYCONF
+            logging:
+              logs:
+                default:
+                  level: INFO
+            storage:
+              "module": "file_system"
+              "root": "/data"
+            apps:
+              tls:
+                certificates:
+                  automate:
+                    - $LIVEKIT_HOST
+                    - $TURN_HOST
+              layer4:
+                servers:
+                  main:
+                    listen: [":443"]
+                    routes:
+                      - match:
+                          - tls:
+                              sni:
+                                - "$TURN_HOST"
+                        handle:
+                          - handler: tls
+                          - handler: proxy
+                            upstreams:
+                              - dial: ["$PRIVATE_IP:5349"]
+                      - match:
+                          - tls:
+                              sni:
+                                - "$LIVEKIT_HOST"
+                        handle:
+                          - handler: tls
+                            connection_policies:
+                              - alpn: ["http/1.1"]
+                          - handler: proxy
+                            upstreams:
+                              - dial: ["127.0.0.1:7880"]
+            CADDYCONF
+            mv /opt/livekit/caddy.yaml.tmp /opt/livekit/caddy.yaml
+
+            # 3. サービスを上げ、livekit-server が 7880 で応えるまで待つ（証明書の取得は待たない。cloud/livekit-sfu.mjs が https で確かめる）
+            systemctl restart livekit-server.service livekit-caddy.service
+            UP=no
+            for i in $(seq 1 60); do
+              if curl -sf -o /dev/null http://127.0.0.1:7880/; then UP=yes; break; fi
+              sleep 2
+            done
+            [ "$UP" = yes ] || { echo "livekit-boot: livekit-server did not answer on 127.0.0.1:7880 (journalctl -u livekit-server)" >&2; exit 1; }
+
+            # 4. ライフサイクルフックを完了させる（InService へ進む）
+            complete_hook
+            echo "livekit-boot: done"
+            BOOT
+            chmod 700 /usr/local/sbin/comegin-livekit-boot
+
+            # docker.service の後・ネットワークの後に動く。cloud-final の後には並べない（この user data は cloud-final の中で動くので、
+            # After=cloud-final.service にすると、下の systemctl enable --now が自分の終わりを待って止まる）
+            cat > /etc/systemd/system/comegin-livekit-boot.service <<'UNIT'
+            [Unit]
+            Description=ComeGin LiveKit SFU boot (EIP, config from SSM, start services, complete the lifecycle hook)
+            Requires=docker.service
+            After=docker.service network-online.target
+            Wants=network-online.target
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/usr/local/sbin/comegin-livekit-boot
+            TimeoutStartSec=540
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+
+            systemctl daemon-reload
+            systemctl enable --now comegin-livekit-boot.service
+            echo "livekit setup: done"
+
+  # ---------------------------------------------------------------- Auto Scaling グループ
+  # DesiredCapacity を書かない（上の冒頭の説明）。ライフサイクルフックは ASG の中で定義する（warm pool の最初の起動より前にあるように）。
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub 'comegin-${EnvName}-livekit-sfu'
+      MinSize: '0'
+      MaxSize: '1'
+      VPCZoneIdentifier: !Ref PublicSubnetIds
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      LifecycleHookSpecificationList:
+        - LifecycleHookName: comegin-livekit-launching
+          LifecycleTransition: autoscaling:EC2_INSTANCE_LAUNCHING
+          HeartbeatTimeout: 600
+          DefaultResult: ABANDON
+      # 止め忘れのアラーム（下の RunningTooLongAlarm）が読む。グループのメトリクスは 1 分ごと・追加料金なし（EC2 Auto Scaling の
+      # ユーザーガイド「Amazon CloudWatch metrics for Amazon EC2 Auto Scaling」）。warm pool の Stopped は InService に数えない
+      MetricsCollection:
+        - Granularity: 1Minute
+          Metrics:
+            - GroupInServiceInstances
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu', PropagateAtLaunch: true }
+
+  # 停止はインスタンスを削除しない（ユーザーの決定 U6）。希望 0 で Warmed:Stopped に戻り、希望 1 で開始する。
+  WarmPool:
+    Type: AWS::AutoScaling::WarmPool
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      MinSize: 0
+      PoolState: Stopped
+      InstanceReusePolicy:
+        ReuseOnScaleIn: true
+
+  # ---------------------------------------------------------------- 止め忘れのアラーム（TA-05 の項目 25。2026-11-23 に R1 が決定）
+  # SFU が InService のまま RunningAlarmHours 時間続いたら ops に知らせる。止めれば（希望 0 → warm pool の Stopped）OK に戻り、それも知らせる。
+  # 1 時間ごとの最小値が 1 以上 = その 1 時間ずっと動いていた。期間は毎正時で区切るので、知らせるのは起動から N〜N+1 時間のあいだ。
+  # 起動の失敗（ライフサイクルフックの ABANDON）のアラームは作らない: 起動は人が cloud/livekit-sfu.mjs start で行い、start は
+  # InService になるまで待って（既定 900 秒。--wait で変える）、ならなければ失敗を表示する。失敗はその場で分かる（費用はこのアラーム 1 本分）。訪問者には影響しないので、重大度は ops と同じ扱い。
+  RunningTooLongAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'comegin-${EnvName}-livekit-sfu-running-too-long'
+      AlarmDescription: !Sub 'LiveKit の SFU が ${RunningAlarmHours} 時間以上 InService のまま。使っていなければ node cloud/livekit-sfu.mjs stop で止める（稼働の費用が続く）。'
+      Namespace: AWS/AutoScaling
+      MetricName: GroupInServiceInstances
+      Dimensions:
+        - { Name: AutoScalingGroupName, Value: !Ref AutoScalingGroup }
+      Statistic: Minimum
+      Period: 3600
+      EvaluationPeriods: !Ref RunningAlarmHours
+      DatapointsToAlarm: !Ref RunningAlarmHours
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      # データが無い（メトリクスの収集の前など）は止まっているとみなす
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions: [!Ref OpsAlertTopicArn]
+      OKActions: [!Ref OpsAlertTopicArn]
+
+Outputs:
+  AutoScalingGroupName:
+    Description: cloud/livekit-sfu.mjs が set-desired-capacity する ASG
+    Value: !Ref AutoScalingGroup
+  PublicIp:
+    Description: SFU の Elastic IP（rtc.・rtc-turn. の A レコードの値）
+    Value: !Ref ElasticIp
+  LivekitUrl:
+    Description: 監視アプリとエージェントの LIVEKIT_URL
+    Value: !Sub 'wss://${LivekitHost}'
+  ApiKeyParameterName:
+    Description: API キーを入れる SSM パラメータの名前（SecureString。人が put-parameter で入れる。このスタックは作らない）
+    Value: !Sub '/comegin/${EnvName}/livekit/api-key'
+  ApiSecretParameterName:
+    Description: API シークレットを入れる SSM パラメータの名前（SecureString。32 文字以上。このスタックは作らない）
+    Value: !Sub '/comegin/${EnvName}/livekit/api-secret'

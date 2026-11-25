@@ -9,6 +9,7 @@ import {
   checkPathAccess,
   checkWriteAccess,
   createPreToolUseGuard,
+  inspectAgentSpecific,
   inspectToolCall,
 } from "../../src/runner/hooks.js";
 import { tempDir, writeAt } from "../helpers/runner.js";
@@ -276,6 +277,56 @@ describe("inspectToolCall", () => {
 
     it("入力: Grep の glob に .. があれば拒否する", () => {
       expect(inspectToolCall("Grep", { pattern: "x", glob: "../*.ts" }, paths)).toBe("patterns must not contain '..'");
+    });
+  });
+});
+
+describe("inspectAgentSpecific（campaign-planner のメールの作成）", () => {
+  const TOOL = "mcp__mautic-prod__mautic_create_record";
+  const email = (overrides: Record<string, unknown> = {}) => ({
+    resource: "emails",
+    data: { name: "n", subject: "s", customHtml: "<p>本文</p><p>{unsubscribe_text}</p>", emailType: "template", isPublished: false, ...overrides },
+  });
+
+  describe("正常系", () => {
+    it("本文に配信停止の文言のトークン {unsubscribe_text} があるテンプレートのメールは許す", () => {
+      expect(inspectAgentSpecific("campaign-planner", TOOL, email(), paths)).toBeNull();
+    });
+
+    it("data が JSON の文字列でも、トークンがあれば許す", () => {
+      expect(inspectAgentSpecific("campaign-planner", TOOL, { resource: "emails", data: JSON.stringify(email().data) }, paths)).toBeNull();
+    });
+
+    it("ほかのエージェントにはこの検査をしない", () => {
+      expect(inspectAgentSpecific("lead-ops", TOOL, email({ customHtml: "<p>本文</p>" }), paths)).toBeNull();
+    });
+  });
+
+  describe("異常系", () => {
+    it("入力: 本文に {unsubscribe_text} が無いメールは拒否する（Mautic が List-Unsubscribe を付けず、夜間の案内も入らない）", () => {
+      expect(inspectAgentSpecific("campaign-planner", TOOL, email({ customHtml: "<p>本文</p>" }), paths)).toBe(
+        "Mautic emails must include the {unsubscribe_text} token in customHtml",
+      );
+    });
+
+    it("入力: {unsubscribe_url} だけでは拒否する（夜間の案内を書いた設定の文言が入らない）", () => {
+      expect(inspectAgentSpecific("campaign-planner", TOOL, email({ customHtml: "<a href=\"{unsubscribe_url}\">停止</a>" }), paths)).toBe(
+        "Mautic emails must include the {unsubscribe_text} token in customHtml",
+      );
+    });
+
+    it("空入力: customHtml が無い・空文字・文字列でないメールは拒否する", () => {
+      for (const customHtml of [undefined, "", 123]) {
+        expect(inspectAgentSpecific("campaign-planner", TOOL, email({ customHtml }), paths)).toBe(
+          "Mautic emails must include the {unsubscribe_text} token in customHtml",
+        );
+      }
+    });
+
+    it("入力: emailType が template でないときは、トークンより先にその理由で拒否する", () => {
+      expect(inspectAgentSpecific("campaign-planner", TOOL, email({ emailType: "list", customHtml: "<p>本文</p>" }), paths)).toBe(
+        "Mautic emails must be created with emailType template",
+      );
     });
   });
 });

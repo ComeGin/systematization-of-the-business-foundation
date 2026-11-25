@@ -55,6 +55,25 @@ function settingsSteps(ctx) {
   ];
 }
 
+/**
+ * 夜間の停止（2026-11-25。mautic-web は 0 時〜7 時 50 分に 0 台）に合わせたメールの設定（cloud/README.md の 4.11）。画面で行い、申告する。
+ * - 配信停止の文言（{unsubscribe_text}）: 配信停止のリンクに加え、夜間は止まっていることと、メールの返信でも受け付けることを書く
+ *   （campaign-planner のメールは本文にこのトークンを必ず入れる。control-plane のフックが検査する）
+ * - クリックの計測のリンクをやめる（Disable trackable urls）: メールのリンクを Mautic の /r/ で中継すると、夜間は開けない。
+ *   流入は UTM で GA4 が測り、Mautic のクリックの数はどこでも使っていない
+ */
+export const NIGHT_UNSUBSCRIBE_TEXT =
+  '配信の停止は<a href="|URL|">こちら</a>から。0時から8時まではシステムを停止しているため、8時以降に開くか、kamegin4@comegin.com まで「配信停止」とご返信ください。';
+
+function nightEmailSteps(ctx) {
+  return [
+    `${baseOf(ctx)}/s/config/edit を管理者で開き（右上の歯車 → Configuration → 左の Email Settings）、見出し Unsubscribe Settings の「Text for the {unsubscribe_text} token」の中身を消して、次の文に置き換える: ${NIGHT_UNSUBSCRIBE_TEXT}`,
+    "同じ Email Settings の見出し Message Settings にある「Disable trackable urls」を Yes にする（メールのリンクを Mautic の /r/ で中継しない。0 時〜7 時 50 分は Mautic が止まっていて中継のリンクが開けないため。流入は UTM で GA4 が測る）",
+    "右上の Save（または Save & Close）で保存する",
+    "~/.config/comegin/setup/prod.conf に MAUTIC_PROD_NIGHT_EMAIL_DONE=yes を書き、同じコマンドを実行し直す（設定は EFS の config/local.php にあり、外から確かめられないため申告制）",
+  ];
+}
+
 export async function check(ctx) {
   const notes = [];
   let ok = true;
@@ -84,6 +103,7 @@ export async function check(ctx) {
     const missing = SETUP_RESULT_KEYS.filter((key) => !ctx.state.has(key));
     mark(setupFinished(ctx), "初期設定は済み（初期設定用の API 認証情報は prod.conf から消してある。P15 のとおり。やり直すときだけ書き直す）", ctx.state.has("MAUTIC_FORM_ID_CONSULT") ? `初期設定に足した定義がまだ（${missing.join("・")} が状態に無い）。初期設定用の API 認証情報を作り直して prod.conf に書き、apply する` : "MAUTIC_SETUP_CLIENT_ID・MAUTIC_SETUP_CLIENT_SECRET が prod.conf に無い");
   } else if (state === "enabled") mark(Boolean(await fetchToken({ ...ctx, mauticBase: baseOf(ctx) }, id, secret)), "初期設定用の API 認証情報でトークンを取れる", "初期設定用の API 認証情報でトークンを取れない");
+  mark(yes(ctx.value("MAUTIC_PROD_NIGHT_EMAIL_DONE")), "夜間の停止に合わせたメールの設定（配信停止の文言・クリックの計測のリンクをやめる）は済みと申告されている", "夜間の停止に合わせたメールの設定が済んだと申告されていない（MAUTIC_PROD_NIGHT_EMAIL_DONE=yes。cloud/README.md の 4.11）");
   for (const key of ["MAUTIC_FORM_ID_CONSULT", "MAUTIC_SEGMENT_ID_MQL"]) mark(ctx.state.has(key), `${key} は状態にある（${ctx.state.get(key)}）`, `${key} がまだ状態に無い（apply で作る）`);
   return settleAwsUnavailable({ ok, notes }, awsDown);
 }
@@ -145,4 +165,9 @@ export async function apply(ctx) {
     ]));
   }
   if (cron.running === 0) await ctx.confirm("not-running-cron", notRunningNote(cron), notRunningSteps(cron));
+
+  // 最後に置く（manual は止まるので、ほかの確認を先に済ませる）
+  if (!yes(ctx.value("MAUTIC_PROD_NIGHT_EMAIL_DONE"))) {
+    ctx.manual("night-email", "本番の Mautic のメールの設定を夜間の停止（0 時〜7 時 50 分）に合わせる（配信停止の文言・クリックの計測のリンクをやめる）", nightEmailSteps(ctx));
+  }
 }

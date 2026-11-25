@@ -52,6 +52,15 @@ Parameters:
     Type: String
     Default: 10.99.0.2
     Description: オンプレ側の WireGuard のアドレス（Webhook の宛先）。Chatwoot の SG の出口をここの OnpremWebhookPort だけに絞るのに使う。
+  # LiveKit の SFU（livekit-sfu.yaml。計画 2026-11-21-voice-seo-bi の D8e）。false のあいだは SG を作らない（既存のデプロイを変えない）。
+  LivekitSfuEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: LiveKit の SFU の SG を作るか（親の LivekitSfuEnabled と同じ値を渡す）。
+
+Conditions:
+  CreateLivekitSfu: !Equals [!Ref LivekitSfuEnabled, 'true']
 
 Resources:
   # ---------------------------------------------------------------- VPC
@@ -315,6 +324,29 @@ Resources:
       Tags:
         - { Key: Name, Value: !Sub 'comegin-${EnvName}-wireguard' }
 
+  # LiveKit の SFU（livekit-sfu.yaml の EC2。ADR-26 の例外）。ingress は LiveKit の VM での構成（/transport/self-hosting/vm）のとおり:
+  # 80/tcp（Caddy の証明書の取得。HTTP-01）・443/tcp（wss と TURN/TLS。Caddy が SNI で振り分ける）・7881/tcp（ICE/TCP）・
+  # 3478/udp（TURN/UDP）・50000-60000/udp（WebRTC のメディア）。ブラウザ（どこからでも）とオンプレのエージェント（送信元が固定でない）が
+  # つなぐので、送信元は 0.0.0.0/0（cfn-guard の「0.0.0.0/0 への ingress」の指摘は意図した例外）。7880（シグナリングの素の口）と 22 は開けない。
+  # egress はすべて許す: WebRTC の ICE は SFU からもクライアントの候補（任意の IP・ポートの UDP）へ確認を送るため、宛先を絞れない。
+  # ほかに SSM・dnf・Docker Hub・Let's Encrypt（443）を使う。1 台なので Redis は持たない（6379 は開けない）。
+  LivekitSfuSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateLivekitSfu
+    Properties:
+      GroupDescription: LiveKit SFU EC2 (signaling, TURN and WebRTC media)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: ACME HTTP-01 for Caddy certificates }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: WSS signaling and TURN/TLS routed by SNI }
+        - { IpProtocol: tcp, FromPort: 7881, ToPort: 7881, CidrIp: 0.0.0.0/0, Description: WebRTC ICE over TCP }
+        - { IpProtocol: udp, FromPort: 3478, ToPort: 3478, CidrIp: 0.0.0.0/0, Description: TURN over UDP }
+        - { IpProtocol: udp, FromPort: 50000, ToPort: 60000, CidrIp: 0.0.0.0/0, Description: WebRTC media over UDP }
+      SecurityGroupEgress:
+        - { IpProtocol: '-1', CidrIp: 0.0.0.0/0, Description: ICE checks to client candidates and SSM and package and image registries and ACME }
+      Tags:
+        - { Key: Name, Value: !Sub 'comegin-${EnvName}-livekit-sfu' }
+
   # DB 作成・マイグレーションなど、運用者が RunTask で 1 回だけ起動するタスク用（ops-tasks.yaml）。
   OpsTasksSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -481,6 +513,9 @@ Outputs:
     Value: !Ref ConsentApiSecurityGroup
   WireguardSecurityGroupId:
     Value: !Ref WireguardSecurityGroup
+  LivekitSfuSecurityGroupId:
+    Condition: CreateLivekitSfu
+    Value: !Ref LivekitSfuSecurityGroup
   OpsTasksSecurityGroupId:
     Value: !Ref OpsTasksSecurityGroup
   MysqlSecurityGroupId:

@@ -7,7 +7,7 @@ ADR-21（`docs/RequirementDefinition/AA/05-application-decisions.md`）に従い
 | `wireguard/` | オンプレと AWS の VPC をつなぐ WireGuard のオンプレ側。設定の雛形・鍵の生成・手順（[README](wireguard/README.md)） |
 | `strapi/` | 本番の Strapi の compose。`backend/strapi-system` の Dockerfile でビルドし、RDS の `strapi` と S3 のメディアのバケットを使う |
 | `n8n/` | 本番の n8n の compose（本体・runners・Webhook の受け口のリバースプロキシ）。RDS の `n8n` を使う |
-| `systemd/` | 起動時に WireGuard のあとで Strapi・n8n を上げるユニットと、監視アプリ（`comegin-control`）・OpenSEO（`comegin-openseo`。WireGuard に依存しない）を常駐させるユニットの雛形（インストールは人が行う） |
+| `systemd/` | 起動時に WireGuard のあとで Strapi・n8n を上げるユニットと、監視アプリ（`comegin-control`）・OpenSEO（`comegin-openseo`。WireGuard に依存しない）・音声 SEO BI エージェント（`comegin-livekit-agent`。2026-11-21。ADR-33。WireGuard に依存しない。main のチェックアウトから動かす）を常駐させるユニットの雛形（インストールは人が行う） |
 
 ## 構成
 
@@ -165,6 +165,44 @@ node setup/setup.mjs --target prod --phase operate --only openseo
 - **環境変数ファイルの `BETTER_AUTH_SECRET` を変えない**（保存済みのトークンの暗号鍵。変えると接続が全部切れる）。
 - **トンネルを張らない**（`local_noauth` で認証が無い。費用の出るツールも同じ `/mcp` にある）。別の端末から画面を開くときは `ssh -L 3001:127.0.0.1:3001` を使い、ブラウザでは `http://localhost:3001` を開く（Google の OAuth のリダイレクト URI に合わせる）。
 - 夜（JST 0〜8 時）もマシンが動いていること（監視アプリと同じ。「監視アプリ（改善ループ）を本番で動かす」の 5）。
+
+### 常駐させる（音声 SEO BI エージェント）
+
+音声で話せる SEO の BI の担当（`backend/livekit-agent`。LiveKit Agents の Python）も、オンプレで常駐させる（2026-11-21 に、この節を追加。ADR-33。設計は `docs/RequirementDefinition/TA/07-onprem-control-plane.md` の 3.8）。運用者が監視アプリの `/voice` で接続すると、AWS の SFU から dispatch（`agent_name="comegin-seo-bi"`）を受けてルームに入り、OpenSEO の MCP（`127.0.0.1:3001/mcp`。無料の参照系だけ）を読んで話す。
+
+- **動かすのは承認済みの main のチェックアウトの `backend/livekit-agent`**（ADR-18。監視アプリ `comegin-control` と同じ）。環境変数のファイルは、そのチェックアウトの `backend/livekit-agent/.env.local`（`src/agent.py` が読む。600。setup が作る）。
+- **コンテナに入れず、このマシンで直接動かす。** OpenSEO は `127.0.0.1:3001` だけで受け、Host が localhost 系でないと 403 を返すため。
+- **SFU へは外向きにつなぐ**（wss）。AWS からこのマシンへ入る線は増えない（ADR-21）。WireGuard も使わない。受けるのはヘルスの `127.0.0.1:8081` だけ。
+- **`Requires=` を付けていない**（`After=comegin-openseo` で順番だけそろえる）。SFU（AWS）や OpenSEO が止まっていても、エージェントは動き続ける。**SFU が止まっているあいだは再接続のログが出続けるが、異常ではない**（プロセスは落ちない。SFU は使うときだけ人が起動する。`cloud/README.md` の 4.20）。
+- 監視アプリ（`comegin-control`）とも互いに依存しない。
+
+人が行うこと（Claude Code は `/etc` に書き込まない・起動しない）:
+
+```bash
+# 前提: OpenSEO が常駐している（上の「常駐させる（OpenSEO）」。本番のプロジェクト comegin.com と GSC・GA4 が接続済み）。
+#       本番の SFU のスタックがデプロイ済みで、SSM に API キーとシークレットが入っている（cloud/README.md の 4.20）
+# 1. 雛形を /etc/systemd/system に写し、User・WorkingDirectory・ExecStart の uv のパス（command -v uv）・Environment の PATH を差し替える
+sudo install -m 644 systemd/comegin-livekit-agent.service /etc/systemd/system/
+sudoedit /etc/systemd/system/comegin-livekit-agent.service
+sudo systemctl daemon-reload
+# 2. 依存（uv sync --locked --no-dev）と環境変数のファイルを用意する（足りない値は手順を出して止まる）
+node setup/setup.mjs --target prod --phase operate --only livekit-agent
+# 3. 常駐させる
+sudo systemctl enable --now comegin-livekit-agent
+systemctl status comegin-livekit-agent                 # active (running) なら正しい
+journalctl -u comegin-livekit-agent -n 50 --no-pager   # SFU が止まっていれば、再接続のログが出続ける（異常ではない）
+# 4. SFU を起動して（cloud/README.md の 4.20）、監視アプリの /voice で接続する。接続した直後にブリーフィングが始まれば通っている
+```
+
+**チェックアウトを更新した後は、setup（手順 2）をもう一度実行してから `sudo systemctl restart comegin-livekit-agent` する**（依存と環境変数のファイルをそろえるため）。
+
+守ること:
+
+- **止める・restart するのは会話の無いときにする。** `TimeoutStopSec=150`。止めると、新しいジョブを受けずに会話の終わりを最大 60 秒待ち（drain）、それでも終わらなければ会話（最長 30 分）を打ち切って、終わりの処理（usage のログ・`E-12` の書き出し）の応答を最大 30 秒、プロセスの終了を最大 30 秒待つ。**最悪は 60＋30＋30＝120 秒で、ふだんは 90 秒前後**。
+- **開発（`uv run src/agent.py dev`）と同時に動かさない。** ヘルスのポート 8081 が同じで衝突する。開発で試すときは `sudo systemctl stop comegin-livekit-agent` してから行い、終わったら `start` で戻す。
+- **秘密値（`LIVEKIT_API_SECRET`・`OPENAI_API_KEY`）を画面とログに出さない。** ユニットにも書かない。
+- **画面共有に個票（Mautic のコンタクト・Chatwoot の会話・フォームの本文）を映さない。** 聞かれたときの画面の 1 フレームは OpenAI（米国）に渡る（ADR-33 のリスク受容）。
+- 対話の要約（`E-12`。`source: voice`）は `VOICE_AUDIT_DIR`（監視アプリの作業場の `docs/audits/voice/`）に書かれる。未設定なら書かれない（起動のときに警告が 1 回出る）。
 
 ## 監視アプリ（改善ループ）を本番で動かす
 
@@ -480,7 +518,7 @@ journalctl -u comegin-control -n 50                                     # 起動
 | 月曜 02:30 | `weekly-keyword-research` | **OpenSEO の費用が出る**（1 回の見積もりの上限は 2,000 クレジット） |
 | 火曜・金曜 02:30 | `weekly-content-draft` | **本番の Strapi に下書きを書く**（1 回 1 本・週 2 本）。承認済みの企画（E-03）が無ければ `skipped` |
 | 水曜 02:30 | `weekly-content-plan` | 採用済みの E-01 が無ければ `skipped` |
-| 毎日 04:00 | 観測のエージェント 4 本（`daily-observe-*`） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
+| 毎日 04:00 | 観測のエージェント 2 本（`daily-observe-seo`・`daily-observe-ops`。会話〈`daily-observe-conversations`〉と集計〈`daily-observe-analytics`〉は 2026-11-25 から手動。本番の Chatwoot・Mautic が 0 時〜7 時 50 分に止まるため、8 時以降に今すぐ実行する） | E-12 が `docs/audits/` に出るか。`success` か `skipped` か |
 | 毎日 04:30 | `daily-propose` | 起票前チェックを通った E-13 が draft で出るか（根拠が少なければ出なくて正常） |
 | 月曜 00:00 | `cycle-open` | 周の 0 日目（起点の月曜）だけ周を開く。それ以外の月曜は `skipped`（「周の <n> 日目」）で正常 |
 | 月曜 00:05 | `cycle-close` | 期間が終わった周だけ閉じる。閉じる周が無い週（周の途中・`cycle-open` が先に閉じた週）は `skipped` で正常。閉じる前に今日の周を開く（冪等） |
@@ -491,11 +529,13 @@ journalctl -u comegin-control -n 50                                     # 起動
 | 毎日 06:30 | `cycle-apply-content` | 承認済みの `content_rewrite` の E-13 が無ければ `skipped` |
 | 毎日 07:00 | `cycle-collect` | 周の項目を集める。`CONTROL_CYCLE_ANCHOR` が無ければ `skipped` |
 | 毎月 1 日 05:00 | `monthly-analysis` | — |
-| 毎日 05:30〜06:15 | `daily-i13-file`・`daily-miswrite-check`・`daily-silence-check`・`daily-n8n-export` | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
+| 毎日 05:30〜06:15 | `daily-i13-file`・`daily-silence-check`・`daily-n8n-export`（`daily-miswrite-check` は 2026-11-25 から手動） | builtin。i13 と n8n-export は GitHub に PR を作ることがある |
 
 **オンプレのマシンは夜（0〜8 時）も動かしておく。** スケジューラは監視アプリのプロセスの中にあり（cron 式は Asia/Tokyo）、マシンが止まっていた時刻の実行は、起動した後に取り戻さない。2026-11-03 は、マシン（VirtualBox の VM）が 11:28 に起動したため、最初の夜の実行（00:00〜06:15）は 1 本も動かなかった。VM の中のアイドル時の休止は無効（`gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout` が `0`）でも、ホストの電源・休止と VM の自動起動はホスト側で設定する（VM の中からは確かめられない）。翌朝に `journalctl -u comegin-control --since "<その日> 00:00" | grep -a 'engine 起動'` で、0〜6 時の実行が出ていることを確かめる。
 
 改善ループの本体はすべて 07:10 までに終わる（`timeout_sec` で打ち切られた場合も。最長の上限は `cycle-collect`。`ops/README.md` の「時刻の決め方」）。`runlog-flush`（写しの送り直し）も 0〜8 時の 15 分ごとで、07:50 までに終わる。昼に動くのは、監視アプリのハートビート（5 分ごと）と写しの再送だけ（どちらも改善の処理ではない）。朝 8 時以降に監視アプリの画面か `journalctl -u comegin-control --since today` で、その夜の結果をまとめて見る。
+
+**本番の n8n の `weekly-inquiry-inventory`（月曜 07:00。Chatwoot の未割り当ての会話を数える）は、2026-11-25 から手動で実行する。** 本番の Chatwoot は 0 時〜7 時 50 分に止まる（`cloud/README.md` の 4.11）ので、公開したままだと 7:00 に Chatwoot の 503 で取得に失敗し、I-21 で「取得の状態」の通知が出る。provision は棚卸しを公開しない（`publish: never`）ので、**本番で公開済みなら n8n の画面で非公開にし、月曜の 8 時以降に画面からワークフローを実行する**（スケジュールのトリガーのままでも、画面からの実行はできる）。
 
 **本番の n8n の 2 本（`weekly-inquiry-inventory` を月曜 09:00 → 07:00、開発だけの `ops-monitor` の証明書の確認を 09:10 → 07:10）は、リポジトリの JSON を直しただけでは本番に入らない。** main に入った後、`node setup/setup.mjs --target prod --only n8n-prod`（provision が同名のワークフローを更新する）を実行する。provision は棚卸しを公開しない（`publish: never`）ので、**本番で公開済みなら n8n の画面で開き直して公開し直す**（公開中の版は、公開し直すまで古い時刻のまま動く）。反映しないと、`daily-n8n-export` が本番の 09:00 の版との差分を PR にして、リポジトリを古い時刻へ戻そうとする。
 
@@ -640,6 +680,7 @@ docker compose logs --tail 3000 --no-log-prefix webhook-proxy | grep -a -v _prox
 - **オンプレのマシン・回線・WireGuard・`webhook-proxy`・n8n のどれかが止まると、クラウドの Mautic・Chatwoot からの Webhook が届かず欠落する**（`I-11` `I-12`）。Mautic の Webhook の再送の有無は未確認（縮退運転は DD-07 で扱う）。2026-11-03 に、マシンの起動の直後（n8n が起動する前）に Mautic のキューの送信が `502`、I-11・I-12 が未公開のあいだに Chatwoot と Mautic の送信が `404` になったのを、`webhook-proxy` のログで見た。**Chatwoot は送り直さない**ので、この間の会話の開始の通知は欠けている。マシンを起動するときは、WireGuard → Strapi → n8n が上がってから Mautic・Chatwoot のイベントが来る順になるとは限らない。
 - 訪問者に届くサービス（Astro・Mautic・Chatwoot・`consent-api`・`admin-auth`・`faq-bot`）は止まらない（Cal.com は ADR-24 で SaaS になり、クラウドに置かないので、この一覧に入らない）。
 - OpenSEO が止まると、SEO と GA4 の夜の観測（`daily-observe-seo`・`daily-observe-analytics`・`weekly-observe-serp-audit`）とキーワード調査が、その回の分だけ欠ける（取り戻さない）。公開サイトと訪問者には影響しない。OpenSEO の中のデータ（プロジェクト・接続）はオンプレの Docker のボリュームにだけあり、マシンを失うと作り直しになる（「常駐させる（OpenSEO）」）。
+- 音声 SEO BI エージェント（`comegin-livekit-agent`）が止まると、監視アプリの `/voice` で接続してもエージェントが入ってこない（2026-11-21）。公開サイト・訪問者・夜の定期実行には影響しない。OpenSEO が止まっていると、エージェントは「取得できない」と 1 回だけ伝え、数値を話さない。
 - Strapi が止まると、記事の制作・ビルドが止まる（公開済みのページは Astro に焼き込み済みなので止まらない）。データは RDS・S3 にあるので、マシンを失っても消えない（暗号化キー・鍵類を控えてあれば復旧できる）。
 
 ## 秘匿ファイルとキー

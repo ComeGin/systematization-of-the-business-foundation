@@ -10,6 +10,8 @@
 
 **ADR-25（2026-10-06）で、Umami をクラウドから外した。** アクセス解析の正本は GA4（SaaS。Google LLC）にし、クラウドに置くものは無い（`stats.` のホストも無い）。外したものは 6 節。
 
+**ADR-33（2026-11-21）で、音声 SEO BI の SFU（`livekit-server`）を EC2 1 台で足した**（`stacks/livekit-sfu.yaml`。ADR-26 の例外。親のパラメータ `LivekitSfuEnabled` が `true` のときだけ作る。既定は `false`）。常駐させず、**起動と停止は人が `node cloud/livekit-sfu.mjs start|stop` で行う**。エージェントはオンプレ。4.20。
+
 収益化（`points-api`・`I-26`〜`I-30`・`E-19` の S3 Object Lock）は作っていない（本システムの完成後。ポート 3106 とフォルダ名を予約しているだけ）。
 
 **設定スクリプト（`setup/`）・オンプレ（`onprem/`）と合わせた本番の全体の順番と、人が行う作業の一覧は [`setup/00-setup-overview.md`](../setup/00-setup-overview.md)。** この README の 4 節は、その各手順の詳細（コマンドと注意）。**クラウドの設定の手順はこの README にまとめる**（2026-11-02。ユーザーの決定）。設定スクリプトが本番のクラウドで止まったときの操作（AWS のデプロイ・admin-auth・Chatwoot・Mautic）は 7 節。オンプレの本番の手順は `onprem/README.md`。
@@ -41,6 +43,8 @@ cloud/
     services/faq-bot.yaml    faq-bot（Lambda。VPC の外。関数 URL。ADR-26。4.17）
     services/consent-api.yaml consent-api（Lambda。VPC の中。ALB のターゲットとターゲットグループを持つ。ADR-26。4.18）
     services/admin-auth.yaml  admin-auth（Lambda 2 つ: 本体〈ALB のターゲット〉と運用〈admin-auth-ops〉。VPC の中。ADR-26。4.19）
+    livekit-sfu.yaml         LiveKit の SFU（EC2 1 台。Auto Scaling グループ〈0〜1 台〉・warm pool〈Stopped〉・ライフサイクルフック・Elastic IP・Route 53 の rtc.・rtc-turn.・インスタンスロール。SG は network.yaml。LivekitSfuEnabled=true のときだけ。ADR-33。4.20）
+  livekit-sfu.mjs            SFU の起動・停止・状態（start|stop|status。--profile・--wait・--yes・--help。希望の台数を 0 と 1 で切り替える。人が実行する。4.20）
   images/<製品>/Dockerfile   RDS の CA を足した派生イメージ（mautic・chatwoot。4.7）。上流の版の正本は images/<製品>/upstream.json
   images/build-push.mjs      docker build と push の包み。ビルドしたコミットを <タグ>-rev-<コミット> のタグに残す（4.7）
 ```
@@ -98,13 +102,13 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 
 ### 3.1 見積もり（2026-10-26）
 
-**月 約 $397（税抜き。消費税 10% 込みで約 $437、年 約 $5,240）**（2026-10-27 に PostgreSQL も Aurora Serverless v2 にした後。MySQL の Serverless v2 と Fargate の夜間の停止は 2026-10-26。**2026-11-04 に夜間の停止の再開を 8 時から 3 時 45 分に早めて、月 $16 前後増えた。2026-11-12 に Chatwoot〈chatwoot-web・chatwoot-worker〉を夜間の停止から外して、さらに月 $16 前後増えた**〈4.11 の「夜間の停止」〉）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
+**月 約 $358（税抜き。消費税 10% 込みで約 $394、年 約 $4,730）**（2026-10-27 に PostgreSQL も Aurora Serverless v2 にした後。MySQL の Serverless v2 と Fargate の夜間の停止は 2026-10-26。**2026-11-04 に夜間の停止の再開を 8 時から 3 時 45 分に早めて、月 $16 前後増えた。2026-11-12 に Chatwoot〈chatwoot-web・chatwoot-worker〉を夜間の停止から外して、さらに月 $16 前後増えた。2026-11-25 に mautic-web・mautic-cron・chatwoot-web・chatwoot-worker の 4 つとも 0 時〜7 時 50 分に止めて、月 $39 前後下がった**〈4.11 の「夜間の停止」〉）。単価は AWS の Pricing API の東京リージョン（`ap-northeast-1`）の値（2026-10-26 に取得）、数量はこのテンプレートの既定値、使用量は立ち上げ期の想定（下の表の「前提」）。月 730 時間で換算。
 
 | 区分 | 項目 | 月額（USD） | 前提・単価 |
 |---|---|---:|---|
-| 計算 | ECS Fargate mautic-web（1 vCPU・2 GB、x86、常時） | 44.98 | vCPU $0.05056/時・GB $0.00553/時 |
-| 計算 | ECS Fargate chatwoot-web・chatwoot-worker（計 1.5 vCPU・3 GB、x86、常時。2026-11-12 から夜間も止めない） | 67.47 | 同上 |
-| 計算 | ECS Fargate mautic-cron（0.5 vCPU・1 GB、x86、毎日 22 時〜翌 3 時 45 分は 0 台） | 17.10 | 同上。1 日 18.25 時間（夜間の停止で月 $5 前後下がる。3 つとも止めていた 2026-11-11 までは計 $68.41） |
+| 計算 | ECS Fargate mautic-web（1 vCPU・2 GB、x86、毎日 0 時〜7 時 50 分は 0 台） | 30.30 | vCPU $0.05056/時・GB $0.00553/時。1 日 16 時間 10 分（常時なら $44.98） |
+| 計算 | ECS Fargate chatwoot-web・chatwoot-worker（計 1.5 vCPU・3 GB、x86、毎日 0 時〜7 時 50 分は 0 台。2026-11-12〜11-24 は常時） | 45.45 | 同上。1 日 16 時間 10 分（常時なら $67.47） |
+| 計算 | ECS Fargate mautic-cron（0.5 vCPU・1 GB、x86、毎日 0 時〜7 時 50 分は 0 台） | 15.15 | 同上。1 日 16 時間 10 分（常時なら $22.49。2026-11-24 までは 22 時〜翌 3 時 45 分に止めて $17.10） |
 | 計算 | EC2 t4g.nano（WireGuard）＋EBS gp3 8 GB | 4.71 | $0.0054/時・$0.096/GB 月 |
 | 計算 | Lambda（4 関数。arm64） | 0 | 常時無料枠（月 100 万リクエスト・40 万 GB 秒）に収まる想定 |
 | DB | Aurora PostgreSQL Serverless v2（Chatwoot・admin-auth・Strapi・n8n が共有。最小 0.5 ACU・最大 2 ACU） | 54.75 | $0.15/ACU 時。最小のまま動く想定（上限は 2 ACU で月 $219） |
@@ -121,10 +125,11 @@ global（us-east-1）→ 本番（親）→ global（2 回目。DistributionArn 
 | セキュリティ | Secrets Manager（22 個） | 8.85 | $0.40/個（$8.80）＋API の呼び出し |
 | 運用 | CloudWatch（アラーム 30〈課金はアラームの中のメトリクスの数で 37〉・Container Insights 標準 約 60 メトリクス・ログ 6 GB） | 18.66 | $0.10/アラームのメトリクス・$0.30/メトリクス・$0.76/GB（無料枠を引いた） |
 | 運用 | ECR（計 4 GB）・SES（3,000 通/月）・SNS・ACM | 0.70 | |
-| | **合計** | **397.08** | |
+| | **合計** | **358.43** | |
 
-- **固定費（時間課金）が 9 割**（Fargate 33%・Aurora 28%・NAT と IPv4 16%・ALB 5%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $507**（それぞれ ＋$55）。
+- **固定費（時間課金）が 9 割**（2026-11-25 の夜間の停止の後。Fargate 25%・Aurora 34%・NAT と IPv4 17%・ALB 6%）。トラフィックが 10 倍になっても、合計は大きくは変わらない（ALB の LCU・WAF のリクエスト・転送が増える）。**Aurora の 2 つが平均 1 ACU で動くと月 約 $468**（それぞれ ＋$55）。
 - **立ち上げ直後（サービスの DesiredCount が 0 のあいだ）は月 約 $268**（Fargate が無い）。
+- **（2026-11-21。ADR-33）上の表に、音声 SEO BI の SFU（4.20）は入っていない。** `LivekitSfuEnabled=true` にしたときだけ増える。止めているあいだは EBS（ルートボリューム 8 GB）と Elastic IP（パブリック IPv4。月 $3.65 前後）だけ。起動しているあいだは EC2（既定の `t4g.small`）の時間課金と、メディアのインターネットへの転送が加わる。見積もりは未実施（5 節）。AWS の外では、OpenAI の GPT-Live（セッションの時間）と Responses（ビジョン）の従量課金が増える。
 - **CloudFront のフラットレートのプランが使えない場合**（Free Tier の期間のアカウントは購読できない。4.3）、CloudFront 用の WAF の分（$5＋ルール 4＋リクエスト）で月 約 $9 増える。
 - 含めていないもの: 消費税、AWS サポートのプラン、新規アカウントの Free Tier のクレジット（あれば最初の月々から差し引かれる）、オンプレ（Strapi・n8n・監視アプリ・OpenSEO）と外部 SaaS（Anthropic・PostHog・GA4・Cal.com・DataForSEO・Google Workspace）。
 - **下げる余地**（いずれも未適用。判断は R1）: Fargate の Compute Savings Plans（Aurora Serverless v2 にはリザーブドインスタンスが効かない）、Fargate の ARM（Graviton。2 つの公式イメージは arm64 に対応。月 $27 前後下がる。2026-10-26 は x86 のままと決めた）、mautic-cron を 0.25 vCPU・0.5 GB に下げる（実測の後）。インターフェースの VPC エンドポイントで NAT を置き換えるのは、エンドポイント 1 つ × 2 AZ で月 $20 前後かかり、この規模では NAT より高い。
@@ -349,6 +354,7 @@ sudo wg show                                             # interface: wg0 と li
 **運用**:
 
 - ENI は別のリソースで、EC2 に差している。**インスタンスの置き換え（AMI やインスタンスタイプの変更）は、新しい EC2 が同じ ENI を使おうとして「使用中」で失敗し、ロールバックする見込み**（未検証）。意図せず鍵が入れ替わることを防ぐ副作用でもある。意図して置き換えるときは、古い EC2 を手で終了（`aws ec2 terminate-instances`）してから `sam deploy` する。ENI・Elastic IP・経路は引き継がれるので、オンプレの `Endpoint` は変わらない。**新しい EC2 の公開鍵（手順 1）でオンプレの設定を作り直し（`./dev/render-conf.sh ... --force`）、`sudo systemctl restart wg-quick@wg0` する。**
+- **ロールは Session Manager の最小権限だけ**（2026-11-23。`AmazonSSMManagedInstanceCore` を外した。TA-06 の 11 節）。`aws ssm start-session` と RDS へのポートフォワードは使えるが、Run Command（`aws ssm send-command`）・State Manager・Patch Manager は使えない（使わない）。**この変更を含む最初のデプロイのあとに、`aws ssm start-session --region ap-northeast-1 --target "$(OUT WireguardInstanceId)"` で入れることを確かめる**（入れないときは、Fleet Manager でインスタンスが `Online` か〈SSM Agent が `ssm:UpdateInstanceInformation` を呼べているか〉を見る。トンネルそのものはロールに関係なく動き続ける）。
 - OS の更新: SSM Session Manager で入り、`sudo dnf upgrade --security -y`（スワップがあるので t4g.nano でも足りる）。カーネルが更新されたときは再起動（ENI・Elastic IP・秘密鍵・nftables・systemd のユニットは変わらない。短く止まる）。止まっている間は、オンプレの Strapi・n8n が RDS に届かず、Webhook が欠落する（TA-05 の縮退運転）。
 - 停止（ステータスチェックの失敗）は ops トピックに通知される。システム側の障害は自動復旧する（`WireguardSystemRecoverAlarm`）。トンネルそのもの（`latest handshake` の途絶）の監視は作っていない（5 節）。
 
@@ -1135,13 +1141,13 @@ n8n 自身は止まったことを知らせられないので、n8n は 5 分ご
 | 1 | `ChatwootWebDesiredCount=1` → `ChatwootWorkerDesiredCount=1` | `db:chatwoot_prepare` のあと。SMTP の Secret を入れてから。コマンドは 4.17 の「前提」。**Webhook の送信先（4.2.1）は、オンプレの n8n の受け口が起動してから設定する** |
 | 2 | `MauticWebDesiredCount=1` → `MauticCronDesiredCount=1` | イメージと初期設定のあと。**cron は 1 に固定**（2 つ動くとキャンペーンとメールが二重になる） |
 
-**夜間の停止（2026-10-26。ユーザーの決定。2026-11-12 に対象を mautic-cron だけにした）**: `mautic-cron` は、毎日 22 時に 0 台にして翌 3 時 45 分に DesiredCount に戻す（日本時間。`mautic-cron.yaml` の `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。`mautic-web`・`chatwoot-web`・`chatwoot-worker` は止めない。
-- **Chatwoot を止めない理由（2026-11-12。ユーザーの決定）**: 改善ループ（`ops/schedules/`。0〜8 時に動かす。`ops/README.md` の「時刻の決め方」）と定期実行が Chatwoot を読み書きし、停止中の ALB の 503 で中断されていた。2026-10-26〜11-11 は `chatwoot-web`・`chatwoot-worker` も止めていた（11-04 までは 8 時まで、その後は 3 時 45 分まで）。費用は月 $16 前後増える（3.1）。Chatwoot を読む定期実行は時刻を選ばない（mautic-web と同じ）。
-- **再開を 3 時 45 分にしている理由（2026-11-04。ユーザーの決定）**: 当時は Chatwoot を読む 2 本（04:00 の `daily-observe-conversations`、05:45 の `daily-miswrite-check`）のため。03:00〜03:30（月曜の RDS の保守の窓）の後に起こす。Chatwoot を外した後も mautic-cron の時刻はそのまま。
-- **夜間の影響**: Mautic のフォームの申し込みは受け付けるが、n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新は 3 時 45 分以降にまとめて処理される。公開サイトのチャットのウィジェット・FAQ ボット・Chatwoot の Webhook（I-12）とメールは夜間も動く。
-- 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`（mautic-cron だけに渡す）。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
-- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**切り替え（`NightlyStopEnabled`・DesiredCount・時刻の変更、Chatwoot を外す 2026-11-12 の変更の最初のデプロイ）は昼（3 時 45 分〜22 時。時刻を変えるときは、変える前の時刻で動いているあいだ）に行う**。夜間に行うと、①`NightlyStopEnabled=false` にしたり、スケジュールを消したり（2026-11-12 の Chatwoot）、DesiredCount を 0 にしたりすると、スケジュールが消えてもタスクの数は 0 のまま残り、朝になっても起動しない（CloudFormation は変わっていない DesiredCount を送り直さない見込み）②DesiredCount を変えると、最小と最大がすぐ昼の台数になり、その夜は止まらない。①になったら `aws ecs update-service --region ap-northeast-1 --cluster <ClusterName> --service comegin-prod-<svc> --desired-count 1` で CloudFormation の値に戻す（設定スクリプトの chatwoot-prod・mautic-prod もこの手順を案内する）。夜間にほかの変更だけを `sam deploy` しても、止めたタスクが起きるかは未確認（起きても次の 22 時に止まり直す）。
-- 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（mautic-cron の希望 0）は鳴らない。**①で 0 台のまま残ったときは、どのアラームも鳴らない**（希望が 0。ALB の 5xx の比率は ALB 自身の 503 を除き、正常でないターゲットの数はターゲットが無いので 0）。気づけるのは設定スクリプトの `--check`（chatwoot-prod の「動いているタスクが 0」）と、改善ループの Chatwoot の失敗だけ。
+**夜間の停止（2026-10-26。ユーザーの決定。2026-11-25 に 4 つとも 0 時〜7 時 50 分にした）**: `mautic-web`・`mautic-cron`・`chatwoot-web`・`chatwoot-worker` を、毎日 0 時に 0 台にして 7 時 50 分に DesiredCount に戻す（日本時間。各サービスのテンプレートの `NightlyStopScalableTarget`。Application Auto Scaling のスケジュール）。
+- **4 つとも止める理由（2026-11-25。ユーザーの決定）**: 費用を下げるため（月 $39 前後下がる。3.1）。2026-11-12〜11-24 は、改善ループの定期実行が Chatwoot を読み書きするため Chatwoot と mautic-web を止めていなかった。その衝突は、Chatwoot・Mautic を使う定期実行を**手動にする**ことで避けた（`daily-observe-conversations`・`daily-miswrite-check`・`daily-observe-analytics`。8 時以降に監視アプリの「今すぐ実行」で動かす。`daily-propose` の `after` からは会話と集計を外した。`ops/README.md`）。本番の n8n の `weekly-inquiry-inventory`（月曜 7 時に Chatwoot を読む）も手動にする（`onprem/README.md`）。
+- **再開を 7 時 50 分にしている理由**: タスクの起動とヘルスチェック（数分）を終えて、8 時に受け付けを始めるため。公開サイトは 0 時〜8 時を受付時間外として扱う（`frontend/verdant-virgo/src/modules/service-hours`。時刻を変えるときは一緒に直す）。
+- **夜間の影響**: 公開サイトの無料相談のフォームは送信ボタンを押せなくして受付時間外の案内を出し、チャットはウィジェットを読み込まずに案内を出す（夜間の申し込みは取りこぼす。預かって朝に送る仕組みは作らない。設計は `docs/superpowers/specs/2026-11-25-night-stop-chatwoot-mautic-design.md`）。Mautic の API・FAQ ボットも使えない。**メールは夜間でも読める形にする**（2026-11-25。`mautic-prod:night-email`）: ①記事などへのリンクを Mautic の `/r/` で中継しない（Disable trackable urls。流入は UTM で GA4 が測り、Mautic のクリックの数はどこでも使っていない）②配信停止の文言（`{unsubscribe_text}`）に、0 時〜8 時は止まっていることと、`kamegin4@comegin.com` への返信でも受け付けることを書く（特定電子メール法の配信停止の連絡先の表示にもなる。campaign-planner のメールは本文にこのトークンを必ず入れ、control-plane のフックが検査する）。それでも、夜間に配信停止のリンク（List-Unsubscribe のワンクリックを含む）を押すと 503 になり、開封の計測の画像は数えられない。n8n（I-11）への Webhook・リードの通知（R3）・キャンペーン・セグメントの更新と、Chatwoot の Webhook（I-12）・メールは 7 時 50 分以降にまとめて処理される。ALB は正常なターゲットが無いので 503 を返す（アラームの対象から外してある）。
+- 止める・戻す時刻は親のパラメータ `NightlyStopSchedule`・`NightlyStartSchedule`（cron 式）・`NightlyStopTimezone`、止めないなら `NightlyStopEnabled=false`（4 つに同じ値を渡す）。**DesiredCount が 0 のサービスには作らない**（朝に勝手に起動しないため）。
+- 台数を変えるのは Application Auto Scaling で、CloudFormation の DesiredCount は昼の台数のまま。**デプロイは 8 時〜24 時に行う。切り替え（`NightlyStopEnabled`・DesiredCount・時刻の変更、4 つにする 2026-11-25 の変更の最初のデプロイ）は、変える前の時刻でも動いているあいだ（2026-11-25 の変更なら 8 時〜22 時）に行う**。夜間に行うと、①`NightlyStopEnabled=false` にしたり、スケジュールを消したり、DesiredCount を 0 にしたりすると、スケジュールが消えてもタスクの数は 0 のまま残り、朝になっても起動しない（CloudFormation は変わっていない DesiredCount を送り直さない見込み）②DesiredCount を変えると、最小と最大がすぐ昼の台数になり、その夜は止まらない。①になったら `aws ecs update-service --region ap-northeast-1 --cluster <ClusterName> --service comegin-prod-<svc> --desired-count 1` で CloudFormation の値に戻す（設定スクリプトの chatwoot-prod・mautic-prod もこの手順を案内する）。夜間にほかの変更だけを `sam deploy` しても、止めたタスクが起きるかは未確認（起きても次の 0 時に止まり直す）。
+- 実行中のタスク数のアラームは「希望の数 − 実行中の数」なので、夜間（希望 0）は鳴らない。**①で 0 台のまま残ったときは、どのアラームも鳴らない**（希望が 0。ALB の 5xx の比率は ALB 自身の 503 を除き、正常でないターゲットの数はターゲットが無いので 0）。気づけるのは設定スクリプトの `--check`（chatwoot-prod・mautic-prod の「動いているタスクが 0」。8 時を過ぎても 0 なら①）と、朝の公開サイトの送信の失敗だけ。
 - Application Auto Scaling は、サービスにリンクされた IAM ロール（`AWSServiceRoleForApplicationAutoScaling_ECSService`）を使う。初回のデプロイで自動で作られる（デプロイの主体に `iam:CreateServiceLinkedRole` が要る）。
 
 **Aurora Serverless v2 の最大 ACU を変えるとき**: `max_connections` は最大 ACU から決まり（2 ACU で 100 前後〈MySQL〉）、**インスタンスを再起動するまで反映されない**（静的なパラメータ）。`MysqlMaxCapacity`・`PostgresMaxCapacity` を変えて `sam deploy` した後、`aws rds reboot-db-instance --db-instance-identifier comegin-prod-mysql-1`（PostgreSQL は `comegin-prod-postgres-1`）を人が実行する（数十秒止まる）。張り付きは `ACUUtilization` のアラーム（`alarms.yaml`）で知る。Mautic（Apache）の同時処理数の既定は 150 で、2 ACU の接続数の上限を超えうる。`/mtc/event` が多いときに接続が足りなくなったら、最大 ACU を上げる。
@@ -1367,7 +1373,7 @@ Lambda（VPC の外。関数 URL）。仕様は `docs/superpowers/specs/2026-10-
 下の 1〜8 は本番の Chatwoot の管理画面で行うので、先に Chatwoot を動かす（2026-11-01 に追加）。2 つのサービスは 0 台で作られる（`template.yaml` の `ChatwootWebDesiredCount`・`ChatwootWorkerDesiredCount` は既定 0）。順番は 4.11 の表の 1 と同じで、ここでは手順を書き下す。
 
 - **台数は `cloud/samconfig.toml` の `parameter_overrides` で上げる。** `aws ecs update-service --desired-count` で直接変えない（次の `sam deploy` で 0 に戻る。2 節の「重要」）。
-- **昼（3 時 45 分〜22 時）に行うと安全。** 2026-11-12 から Chatwoot に夜間の停止は無いが、外す変更を最初にデプロイするまでは残っている（4.11 の「夜間の停止」）。
+- **8 時〜24 時に行う。** 2026-11-25 から Chatwoot は 0 時〜7 時 50 分に止まる（4.11 の「夜間の停止」）。止まっているあいだは画面も API も使えない。
 - **web を先、worker を後にする。** web（Rails。画面・API・ウィジェット・ALB のヘルスチェック）が動かないと、onboarding も 4.13 の確認もできない。worker（Sidekiq）は、メールの送信・Webhook・エージェントボットへのイベントの送信を処理する。worker が 0 台のあいだは、会話は作られても FAQ ボットにイベントが届かずに答えず、メールも出ない（ジョブは Valkey に溜まり、worker が起動すると処理される）。
 - **1 つ上げるたびにデプロイし、確かめてから次に進む**（4.11）。
 
@@ -1505,7 +1511,7 @@ aws ecs describe-services \
 
    スクリプトは実行の前に形式を確かめる（URL は `https://`、アカウント ID は数字だけ、`FAQ_BOT_WEBHOOK_URL` は `https://<id>.lambda-url.<リージョン>.on.aws/webhook`）。
 
-2. **自動** 設定スクリプトを実行する。Chatwoot が動いているときに行う（2026-11-12 から夜間も止めない。それより前のテンプレートのままなら 22 時〜3 時 45 分は届かない。4.11）。
+2. **自動** 設定スクリプトを実行する。Chatwoot が動いているときに行う（2026-11-25 から 0 時〜7 時 50 分は夜間の停止で届かない。8 時〜24 時に行う。4.11）。
 
    ```bash
    node setup/setup.mjs --target prod --check --only chatwoot-prod   # まず何も変えずに見る
@@ -1529,7 +1535,7 @@ aws ecs describe-services \
    |---|---|
    | `CHATWOOT_ADMIN_TOKEN で…認証できない（401）` | トークンの写し間違い。プロフィール設定から写し直す |
    | `…アカウント N の管理者ではない`／`…担当者（agent）ではない` | 2 つのトークンを逆に書いた、または AI エージェントの役割が「管理者」。設定 → 担当者 で役割を直す |
-   | `本番の Chatwoot に届かない` | Chatwoot が止まっている（夜間の停止を外すデプロイを夜に行って 0 台のまま残った場合を含む。4.11 の「夜間の停止」の①） |
+   | `本番の Chatwoot に届かない` | Chatwoot が止まっている（0 時〜7 時 50 分は夜間の停止。8 時を過ぎても届かないなら、夜間に行ったデプロイで 0 台のまま残った場合を含む。4.11 の「夜間の停止」の①） |
    | `ECS の台数を確かめられない`（`--check` では「? 確かめられない」。2026-11-04 から、ほかに欠けが無ければ ● にしない） | AWS の認証が切れている（`aws sso login`） |
 
 3. **人・端末** FAQ ボットの access_token と secret を Secrets Manager の `comegin/prod/faq-bot/CHATWOOT_BOT_TOKEN`・`CHATWOOT_BOT_SECRET` に入れる（`chatwoot-prod:faq-bot-secrets`）。
@@ -1609,6 +1615,64 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - 予約同時実行数（`AdminAuthReservedConcurrency`。既定 5）・タイムアウト（10 秒）・アイドルの判定（60 秒）は暫定値。
 - ターゲットグループの名前は固定（4.18 と同じ注意。置き換えの要る変更は名前を変えてデプロイする）。
 
+### 4.20 LiveKit の SFU（音声 SEO BI。EC2。ADR-33）
+
+2026-11-21 に追加。運用者が監視アプリの `/voice` で音声の SEO BI と話すための WebRTC の SFU（`livekit-server` v1.13.11）と Caddy（`livekit/caddyl4` v2.11.3。どちらもダイジェストで固定）を、**EC2 1 台**で動かす（ADR-26 の例外。設計は TA-06 の 3.4）。テンプレートは `stacks/livekit-sfu.yaml`（親に入れ子。SG は `network.yaml` の `LivekitSfuSecurityGroup`）、起動と停止は `livekit-sfu.mjs`、設定の雛形は `backend/livekit-system/prod/`。エージェントはオンプレ（`onprem/README.md` の「常駐させる（音声 SEO BI エージェント）」）で、SFU へ外向きにつなぐ。仕様は `docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md`。
+
+**作りの要点**:
+
+- **Auto Scaling グループ（0〜1 台）と warm pool（Stopped・ReuseOnScaleIn）。** 停止はインスタンスを消さずに止め、起動はそれを開始する。EBS が残るので、Caddy の TLS の証明書を毎回取り直さない。
+- **`DesiredCapacity` はテンプレートに書かない。** 書くと、`node cloud/deploy.mjs` のたびに手で決めた値が戻る。**SFU を使っているあいだにデプロイしても止まらない**のはこのため。
+- **起動のたびの処理は oneshot の `comegin-livekit-boot`。** user data は最初の 1 回しか動かない。行き先が warm pool なら `CONTINUE` だけを返し、InService なら EIP の付け替え → SSM → `livekit.yaml`・`caddy.yaml` を作る → サービスの起動 → 7880 の応答を待つ → `CONTINUE`。**600 秒以内に終わらなければ `ABANDON` になり、インスタンスが作り直されて証明書が失われる。** そのため `start` は SSM の値があるかを先に確かめる。
+- **開けるのは 80・443・7881/tcp と 3478・50000-60000/udp だけ。7880 と 22 は開けない**（入るときは SSM Session Manager）。
+- DNS（`rtc.`・`rtc-turn.` の A レコード）と Elastic IP も同じスタックで作る（`edge.yaml` と同じ流儀）。
+
+**人が行うこと**（Claude Code はデプロイも起動もしない）:
+
+1. **デプロイ**: `samconfig.toml` の `parameter_overrides` に `LivekitSfuEnabled=true` を足して、`node cloud/deploy.mjs`（4.2）。既定は `false`（止めている間も EBS と EIP の費用がかかるため）。**作成の直後は、warm pool に止まった EC2 が 1 台ある。**
+2. **API キーとシークレットを SSM の SecureString に入れる。** CloudFormation は SecureString を作れないので、人が入れる。値は 32 文字以上で、人が作る（画面に出さない）。**値をコマンドの引数に直接書かない**（`--value "<値>"` と書くと、シェルの履歴とプロセスの一覧に残る）。
+
+   **A. 一時ファイルで渡す（推奨）**: 値は `file://` で渡し、すぐ消す。
+
+   ```bash
+   umask 077                                    # 一時ファイルを本人だけが読める権限で作る
+   KEY_FILE=$(mktemp) SECRET_FILE=$(mktemp)
+   openssl rand -base64 48 | tr -d '/+=\n' | cut -c1-40 > "$KEY_FILE"      # 例: 40 文字の英数字
+   openssl rand -base64 48 | tr -d '/+=\n' | cut -c1-40 > "$SECRET_FILE"
+   aws ssm put-parameter --region ap-northeast-1 --type SecureString --name /comegin/prod/livekit/api-key    --value "file://$KEY_FILE"
+   aws ssm put-parameter --region ap-northeast-1 --type SecureString --name /comegin/prod/livekit/api-secret --value "file://$SECRET_FILE"
+   # 監視アプリとエージェントの環境変数のファイルに同じ値を写してから（エディターで開いて貼る。cat で画面に出さない）、すぐ消す
+   rm -f "$KEY_FILE" "$SECRET_FILE"; unset KEY_FILE SECRET_FILE
+   ```
+
+   **B. `read -rs` で読んで渡す**: 履歴には残らない。**ただし `aws` が動いているあいだ、値は引数としてプロセスの一覧（`ps`）に一時的に見える**（同じマシンにほかの利用者がいるときは A にする）。
+
+   ```bash
+   read -rs LK_SECRET                            # 入力は画面に出ない（作った値を貼る）
+   aws ssm put-parameter --region ap-northeast-1 --type SecureString --name /comegin/prod/livekit/api-secret --value "$LK_SECRET"
+   unset LK_SECRET                               # api-key も同じ手順で入れる
+   ```
+
+   **同じ値を、監視アプリとエージェントの `LIVEKIT_API_KEY`・`LIVEKIT_API_SECRET` に入れる**（`LIVEKIT_URL` は出力の `LivekitUrl`）。値を入れ直したら、監視アプリとエージェントを再起動する。
+3. **起動・停止・状態**（`--profile`〈既定 `comegin-prod-admin`〉・`--wait`〈既定 900 秒〉・`--yes`。詳しくは `--help`）:
+
+   ```bash
+   node cloud/livekit-sfu.mjs status   # 読むだけ
+   node cloud/livekit-sfu.mjs start    # SSM の値を確かめてから希望を 1 にし、InService と https の応答を待つ
+   node cloud/livekit-sfu.mjs stop     # 希望を 0 にし、warm pool の Warmed:Stopped を待つ（インスタンスは消えない）
+   ```
+
+   **初回の `start` は、証明書の取得で数分かかる。** 使い終わったら `stop` する（止め忘れると EC2 の稼働の費用が続く。知らせる仕組みはまだ無い。TA-05 の項目 25）。
+4. **起動テンプレートを変えたら**、止めた状態で warm pool のインスタンスを終了して作り直す。**証明書は取り直しになる**（Let's Encrypt は同じ名前で週 5 回まで）。
+5. **確かめる**: `start` の後、監視アプリの `/voice` で接続し、接続した直後にブリーフィングが始まること。`stop` → `status` で Warmed:Stopped に戻り、もう一度 `start` して、Elastic IP と証明書がそのままで接続できること。
+6. **調べ方**（起動に失敗したとき）: SSM Session Manager で入り、`journalctl -u comegin-livekit-boot -b`、`journalctl -u livekit-server -u livekit-caddy`、`/var/log/livekit-setup.log`（user data の導入）を見る。
+
+**出力**: `LivekitSfuAutoScalingGroupName`（`livekit-sfu.mjs` が使う）・`LivekitSfuPublicIp`（A レコードの値）・`LivekitUrl`（`LIVEKIT_URL`）・`LivekitApiKeyParameterName`・`LivekitApiSecretParameterName`。
+
+- **止めているあいだも費用がかかる**: EBS（ルートボリューム 8 GB）と Elastic IP（パブリック IPv4 の時間課金）。3 節。
+- **SFU が止まっているあいだ、オンプレのエージェントは再接続のログを出し続ける。これは異常ではない**（プロセスは落ちない。TA-05 の項目 25）。監視アプリの `/voice` は「SFU が停止中（`node cloud/livekit-sfu.mjs start`）」と表示する。
+- **1 台なので Redis は持たない。** 複数台にするときは ElastiCache を使う（開発の 6379 は Chatwoot と衝突する）。
+
 ## 5. TODO 一覧
 
 設計書の「未決定事項」のうち、インフラで決まるもの、実機で確かめるもの、他のメンバーの作業待ちのもの。`(未検証)` は一度も実機で動かしていないという意味。
@@ -1635,6 +1699,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 | **見積もり** | 費用の見積もり（TA-06 の 9 節）。アラームの数、Container Insights、WAF のログ、WireGuard の EC2 と Elastic IP、インターネットへのデータ転送（RDS の応答・Webhook）を含める。3 節の増減の概算は未確認の単価に基づく | 3 節 |
 | **CSP（ADR-25）** | 公開サイトの `Content-Security-Policy` をどこで付けるか（CloudFront のカスタムの応答ヘッダーポリシーか、Astro 側か）。CloudFront で付けるなら、フラットレートプランの Free で独自の応答ヘッダーポリシーが使えるかを確かめる。GA4 の許可は Google の CSP ガイドの表に合わせる | `cdn.yaml` |
 | **未着手の設計** | 収益化（`points-api`・3106・`E-19` の S3 Object Lock）。オンプレの **Strapi** のハートビートのアラーム（監視アプリと n8n のスケジュール実行のハートビートはある）。`consent-api` の TTL とバックアップ（TA-06 の 11 節） | — |
+| **音声 SEO BI の SFU（ADR-33）** | ①**実機で一度も動かしていない**（warm pool からの起動でライフサイクルフックが待機に入り、`comegin-livekit-boot` が 600 秒以内に `CONTINUE` を返すこと。Elastic IP の付け替え。Caddy の証明書が停止・起動のあとも残ること）。②SSM の SecureString のパラメータの作成と、エージェント・監視アプリへの同じ値の配布（人）。③費用の見積もり（3 節）。④止め忘れのアラーム（2026-11-23 に決定。InService が 3 時間〈`RunningAlarmHours`〉続いたら `ops` に知らせる `RunningTooLongAlarm`。起動の失敗はアラームにせず、`livekit-sfu.mjs start` がその場で知らせる。TA-05 の項目 25。**未デプロイ**） | 4.20、`stacks/livekit-sfu.yaml` |
 
 ## 6. 設計書との差分と判断メモ
 
@@ -1722,6 +1787,7 @@ VPC の中の Lambda 2 つ。本体（`comegin-<env>-admin-auth`。ALB のター
 - インストール（`/installer`）、API の有効化、Webhook のキューモード（`command_process`）と私設アドレスの許可（`10.99.0.2` だけ。オンプレのアドレスを変えたら `prod.conf` の `ONPREM_WEBHOOK_HOST`）、CORS（本番の公開サイトのオリジンだけ）、メール（SES の SMTP）
 - 初期設定用の API 認証情報（管理者が作る）を `MAUTIC_SETUP_CLIENT_ID=`・`MAUTIC_SETUP_CLIENT_SECRET=` に書く（エージェント用の `MAUTIC_CLIENT_*`・analytics-reporter 用の `MAUTIC_RO_CLIENT_*` とは別の認証情報にする。どれも上流の権限は管理者〈`onprem/README.md` の「本番の MCP」〉。初期設定が終わったら `prod.conf` と画面から消す〈`setup/00-setup-overview.md` の P15〉。消した後は、フォーム consult・自動返信・社内通知・セグメント mql の ID が状態にそろっていれば、`mautic-prod` は初期設定を飛ばして cron の台数だけを確かめる。初期設定をやり直すとき〈画面でフォームを消したなど〉と、初期設定に定義を足したとき〈2026-11-09 の社内通知。`mautic-prod:setup-client` で止まる〉だけ、作り直して書く）
 - 済んだら `MAUTIC_PROD_SETTINGS_DONE=yes`（設定は EFS の中で、外から確かめられないため申告制）
+- 夜間の停止（2026-11-25）に合わせたメールの設定（配信停止の文言・Disable trackable urls。4.11 の「夜間の停止」）が済んだら `MAUTIC_PROD_NIGHT_EMAIL_DONE=yes`（`mautic-prod:night-email` で止まって案内する）
 
 画面ごとの値・インストーラーの不具合（DB のパスワード欄を空で送ると 1045）の対処・つまずいたときの表は、`setup/00-setup-overview.md` の P8 にある（2026-10-30 に本番で通した手順）。
 API 認証情報は、歯車 → API Credentials → New で Authorization Protocol `OAuth 2`・Redirect URI `https://localhost`（必須の欄だが client_credentials では使わない）。一覧の Public Key がクライアント ID、Secret Key がシークレット。`prod.conf` は `chmod 600` にする。

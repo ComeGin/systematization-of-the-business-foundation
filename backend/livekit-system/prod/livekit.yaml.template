@@ -1,0 +1,44 @@
+# 本番の SFU（EC2。cloud/stacks/livekit-sfu.yaml）の livekit-server の設定の雛形。
+# 実物は EC2 の /opt/livekit/livekit.yaml で、起動のたびに systemd の oneshot（comegin-livekit-boot）が作り直す。
+# 雛形の正本はこのファイルで、cloud/stacks/livekit-sfu.yaml の UserData の中に同じ内容を写してある（変えるときは両方そろえる）。
+# 秘密値（API キーとシークレット）はここにもテンプレートにも書かない。起動のたびに SSM の SecureString から読む。
+#
+# 置き換える値（oneshot が埋める）:
+#   $NODE_IP      … Elastic IP（クライアントに知らせる自分の公開 IP）
+#   $TURN_HOST    … TURN/TLS のホスト名（既定 rtc-turn.comegin.com。証明書は Caddy が取る）
+#   $API_KEY      … SSM の /comegin/<env>/livekit/api-key
+#   $API_SECRET   … SSM の /comegin/<env>/livekit/api-secret（32 文字以上）
+#
+# 出典（2026-11-21 に確かめた）:
+#   - LiveKit の公式の生成器（github.com/livekit/deploy の generate/production.go）の本番の設定:
+#     port 7880・rtc.tcp_port 7881・50000-60000/udp・turn（external_tls: true、tls_port 5349、udp_port 3478）
+#   - config-sample.yaml（livekit/livekit）: node_ip は use_external_ip を false にしたときだけ効く
+#   - /transport/self-hosting/deployment・/transport/self-hosting/ports-firewall
+#
+# 公式の生成器との違い:
+#   - use_external_ip（STUN で公開 IP を調べる）ではなく node_ip に Elastic IP を書く。EIP は oneshot が付け直した直後で、
+#     STUN の結果が付け替えの前後で揺れないようにするため（1 台で EIP が固定なので、書いてしまうほうが確実）。
+#   - Redis を持たない（1 台。複数台にするときは ElastiCache を足す。計画の D8e）。
+#
+# TURN/TLS は Caddy（caddy.yaml.template）が 443 で TLS を終端し、平文で $PRIVATE_IP:5349 に渡す（external_tls: true）。
+# クライアントには 443 の TURN/TLS として知らされる。7880 は Caddy から 127.0.0.1 で受けるだけで、SG では開けない。
+port: 7880
+bind_addresses:
+  - ""
+logging:
+  level: info
+  json: false
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: false
+  node_ip: $NODE_IP
+turn:
+  enabled: true
+  domain: $TURN_HOST
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: true
+keys:
+  "$API_KEY": "$API_SECRET"

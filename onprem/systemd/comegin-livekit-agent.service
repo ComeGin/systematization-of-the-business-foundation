@@ -1,0 +1,39 @@
+# 音声 SEO BI エージェント（backend/livekit-agent。agent_name=comegin-seo-bi）を常駐させる systemd ユニットの雛形（2026-11-21）。
+# 設計: docs/superpowers/specs/2026-11-21-voice-seo-bi-design.md の 5.7、計画 docs/superpowers/plans/2026-11-21-voice-seo-bi.md の D10。
+# インストールは人が行う（onprem/README.md・setup の livekit-agent モジュール〈--target prod --phase operate〉が手順を案内する）。ここでは /etc には何も書かない。
+#
+# 動かすのは承認済みの main のチェックアウト（CONTROL_MAIN_CHECKOUT）の backend/livekit-agent（ADR-18。監視アプリ comegin-control と同じ考え方）。
+# 差し替える箇所: User・WorkingDirectory・ExecStart の uv のパス（`command -v uv` で確かめる）・Environment の PATH。
+# 初回と、チェックアウトを更新したときは、setup（node setup/setup.mjs --target prod --phase operate --only livekit-agent）で
+# uv sync --locked --no-dev と環境変数ファイル（.env.local。src/agent.py が読む）を済ませてから sudo systemctl restart comegin-livekit-agent する。
+# 秘密値（LIVEKIT_API_SECRET・OPENAI_API_KEY）はここに書かない（環境変数ファイルは 600）。
+#
+# エージェントは AWS の SFU（wss://rtc.comegin.com）へ外向きにつなぐだけで、受けるのはヘルスの 127.0.0.1:8081 だけ。
+# SFU は人が node cloud/livekit-sfu.mjs start|stop で起動・停止する。止まっている間、エージェントは接続を再試行し続けてログを出すが、異常ではない
+# （プロセスは落ちないので Restart は効かない。TA-05）。
+# OpenSEO（comegin-openseo。127.0.0.1:3001）が止まっていても起動はする（質問されたときに「取得できない」と伝えて縮退する）ので、
+# Requires= は付けない（comegin-control と同じく、他のユニットに引きずられて止まらないようにする）。After= で順番だけそろえる。
+
+[Unit]
+Description=ComeGin voice SEO BI agent (LiveKit Agents worker, on-premises)
+Wants=network-online.target
+After=network-online.target comegin-openseo.service
+
+[Service]
+Type=simple
+User=kamegin
+WorkingDirectory=/home/kamegin/ComeGin/main-checkout/backend/livekit-agent
+Environment=PATH=/home/kamegin/.local/bin:/usr/local/bin:/usr/bin:/bin
+# --locked: uv.lock と違う依存で動かさない（uv run が黙って依存を入れ替えないように）。--no-dev: 本番では開発の依存を使わない
+ExecStart=/home/kamegin/.local/bin/uv run --locked --no-dev src/agent.py start
+# 止めるとき（SIGTERM）の動き: livekit-agents が新しい会話を断り、実行中の会話の終わりを最長 60 秒待つ（drain_timeout=60）→
+# 終わらなければ打ち切り、会話のプロセスに終了を頼む（ShutdownRequest の応答を最長 30 秒待つ。この間に終わりの処理
+# 〈usage のログ・E-12 の書き出し〉を行う）→ プロセスが終わるのを最長 30 秒待つ（supervised_proc の close_timeout は 2 段で使われる）。
+# 最悪で 60＋30＋30＝120 秒なので、余裕を見て 150 秒（これを過ぎると systemd が SIGKILL し、E-12 が書かれないことがある）。
+# 会話の途中（最長 30 分）で止めると、その会話は打ち切られる。止めるのは会話の無いときにする
+TimeoutStopSec=150
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

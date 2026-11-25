@@ -18,6 +18,8 @@ AA-05 の ADR-16 で、**正本のデータを持つシステムをすべて AWS
 > **（2026-10-06）ADR-24: Cal.com も ECS から外れた**（SaaS の cal.com を使う。ユーザーの決定による例外）。**ECS の `calcom` サービス・RDS の `calcom` データベース・ALB の `cal.comegin.com` のルールと許可リスト・ACM の `cal.comegin.com`・WAF の Cal.com 向けのレート制限・Secrets Manager の Cal.com の鍵・開発ポート 3105 は作らない。** ECS に残るのは Mautic・Chatwoot・Umami と `consent-api`・`admin-auth`。**本文の Cal.com の記述（3.1・3.2・3.3・4.1・4.3・5.1・5.3・5.4・5.5・7・9・10・11）は ADR-19 の記述で、この注記を優先する。**
 >
 > **（2026-10-06）ADR-25〈AA-05〉: Umami を廃止し、ECS から外した。** アクセス解析の正本は GA4（SaaS。Google LLC）で、**AWS に何も置かない**（タグはブラウザから Google に直接届く。TA-01 の経路 24）。**ECS の `umami` サービス・RDS の `umami` データベースとユーザー・ALB の `stats.comegin.com` のルールと許可リスト（5.3 の `/script.js`・`/api/send`）と機械向けの `/mcp`（5.4）・ACM の `stats.comegin.com`・ECR の Umami のイメージ（`cloud/images/umami`）・Secrets Manager の Umami の値（`APP_SECRET` ほか）・Umami のアラーム・`cloud/stacks/services/umami.yaml` を外した。** 本番の MCP の登録 `umami-prod` も無くなった（GA4 はオンプレの OpenSEO の MCP で読む。TA-07 の 3.3）。**ECS に残るのは Mautic・Chatwoot と `consent-api`・`admin-auth`**（`points-api` は本システムの完成後）。**本文の Umami の記述（2・3.1・3.2・3.3・4.1・4.3・5.1・5.3・5.4・7・9・10・11 と決定の表）は ADR-12〜ADR-21 の記述で、この注記を優先する。**
+>
+> **（2026-11-21）ADR-33〈AA-05〉: 音声 SEO BI の SFU（`livekit-server`）を EC2 1 台で置く（3.4）。** ECS・ALB・RDS は使わない（ADR-26 の例外。前例は WireGuard の EC2）。**常駐させず、起動と停止は人が `cloud/livekit-sfu.mjs` で行う**（Auto Scaling グループの希望の台数を 0 と 1 で切り替え、止めるときはインスタンスを消さずに warm pool の Stopped に戻す）。エージェントはオンプレに置き、SFU へは外向きにつなぐ（TA-07 の 3.8）。
 
 ## 1. 検証の状態
 
@@ -118,6 +120,33 @@ flowchart LR
 - **Strapi と n8n は起動時に自分で DB を移行する。** どちらもタスクを 1 に固定するため（3.1）、移行が並行して走ることはない。
 - **Cal.com も起動時に自分で DB を移行する**（Prisma の移行。2026-10-01 に追加）。タスクを 1 に固定するため並行して走らないが、**起動時の移行は実装時に実際の挙動を確かめる**（イメージが移行を含むか、別のコマンドが要るかで手順が変わる。11 節）。`consent-api` は DB を持たないため移行が無い。
 - **（2026-10-12）`admin-auth` の移行は、運用の Lambda（`admin-auth-ops`）の `{"action":"migrate"}` で行う**（ADR-26。1 回だけのタスクの代わり。予約同時実行数 1 で、並行して走らない）。許可リストの初期値もここで入る。
+
+### 3.4 音声 SEO BI の SFU（EC2。2026-11-21 に追加。ADR-33）
+
+**WebRTC の SFU（`livekit-server`）と Caddy を EC2 1 台で動かす。** テンプレートは `cloud/stacks/livekit-sfu.yaml`（親の `template.yaml` に入れ子。セキュリティグループは `network.yaml` の `LivekitSfuSecurityGroup`）、起動と停止は `cloud/livekit-sfu.mjs`、設定の雛形（`livekit.yaml`・`caddy.yaml`）は `backend/livekit-system/prod/`。**親のパラメータ `LivekitSfuEnabled` が `true` のときだけ作る（既定は `false`）。** ECS（Fargate）にしないのは、UDP の広いポートの範囲（50000-60000）を直接受ける必要があるためである（ADR-26 の例外）。
+
+| 要素 | 設定 | 理由 |
+|---|---|---|
+| 起動テンプレート | AL2023 の arm64（`LivekitSfuFixedAmiId` で AMI を固定できる）。型は既定で `t4g.small`（`LivekitSfuInstanceType`）。IMDSv2 を必須、ルートボリューム 8 GB を暗号化。user data で docker を入れ、`livekit-server` と Caddy のユニットを置く | WireGuard の EC2（`stacks/wireguard.yaml`）と同じ流儀 |
+| 版 | `livekit/livekit-server` v1.13.11、Caddy は `livekit/caddyl4` v2.11.3。**どちらもダイジェストで固定** | 起動のたびに版が変わらないように |
+| Auto Scaling グループ | 0〜1 台。**`DesiredCapacity` はテンプレートに書かない**。public サブネットに置く | 書くと、デプロイのたびに手で決めた値が戻り、起動していた SFU が止まる |
+| warm pool | `PoolState: Stopped`、`InstanceReusePolicy.ReuseOnScaleIn: true` | **停止（希望 0）でインスタンスを消さずに止め、起動（希望 1）でそれを開始する。** EBS が残るので、Caddy の TLS の証明書（`/opt/livekit/caddy_data`）を毎回取り直さない（Let's Encrypt の週 5 回の制限を避ける）。起動も速い |
+| ライフサイクルフック | `EC2_INSTANCE_LAUNCHING`。タイムアウト 600 秒、既定の動作は `ABANDON` | **user data は最初の 1 回しか動かない**（AWS の「Use lifecycle hooks with a warm pool」）。起動のたびに oneshot の `comegin-livekit-boot.service` が動く（下） |
+| Elastic IP と DNS | スタックで EIP を 1 つ確保し、Route 53 の A レコード `rtc.comegin.com`（シグナリングの wss）・`rtc-turn.comegin.com`（TURN/TLS）を同じスタックで作る（`edge.yaml` と同じ流儀） | ASG では ENI を固定できないため、起動のたびに付け直す |
+| セキュリティグループ | 80・443・7881/tcp と 3478・50000-60000/udp だけ（TA-01 の 5 節）。**7880 と 22 は開けない** | シグナリングは Caddy の 443 の後ろ。運用は SSM Session Manager |
+| 秘密値 | API キーとシークレットは SSM の SecureString（`/comegin/<env>/livekit/api-key`・`api-secret`）。**CloudFormation は SecureString を作れないので、人が入れる** | テンプレートとイメージに秘密値を入れない |
+| インスタンスロール | この EIP の `AssociateAddress`、この ASG の `CompleteLifecycleAction`、SSM の 2 つのパラメータの読み取り、Session Manager の最小権限（`ssm:UpdateInstanceInformation` と `ssmmessages:CreateControlChannel`・`CreateDataChannel`・`OpenControlChannel`・`OpenDataChannel`。リソースでは絞れないので `"*"`）の 4 つだけ。**`AmazonSSMManagedInstanceCore` は付けない** | 最小権限。`AmazonSSMManagedInstanceCore` は `ssm:GetParameter` を `Resource: "*"` で許すため、インターネットに開いた SFU からアカウントのすべての SSM パラメータを読めてしまう（2026-11-21 のレビュー）。Session Manager の最小権限の出典は AWS Systems Manager のユーザーガイド「Create a custom IAM role for Session Manager」。`ec2messages` を付けないので Run Command・State Manager は使えないが、Session Manager で入ることはできる |
+| Redis | 持たない（1 台のため） | 複数台にするときは ElastiCache を使う（開発の 6379 は Chatwoot と衝突する） |
+
+**起動のたびの処理（`comegin-livekit-boot`）**:
+
+- 行き先が warm pool（`Warmed:Stopped`）のときは、設定を作らずに `CONTINUE` だけを返す（SSM の値がまだ無くてもデプロイできる）。
+- InService のときは、EIP の付け替え → SSM から `livekit.yaml`・`caddy.yaml` を作る → `livekit-server`・Caddy の起動 → 7880 の応答を待つ → `CONTINUE`。
+- **失敗すると `ABANDON` になり、インスタンスが作り直されて証明書が失われる。** そのため `cloud/livekit-sfu.mjs start` は、SSM の値があるかを先に確かめる。
+
+- **起動と停止は人が行う。** `node cloud/livekit-sfu.mjs start|stop|status`（`--profile`・`--wait`・`--yes`）。**Claude Code は実行しない**（BA-05）。手順は `cloud/README.md` の 4.20。
+- **止めているあいだも費用がかかる**のは EBS と Elastic IP（パブリック IPv4 の時間課金）である（9 節）。
+- **止まっているのは通常の状態**で、監視の扱いは TA-05 の項目 25。
 
 ## 4. データストア
 
@@ -462,6 +491,8 @@ sequenceDiagram
 
 ## 9. 費用
 
+> **（2026-11-21）ADR-33: 音声 SEO BI の SFU の分が増える**（3.4。`LivekitSfuEnabled=true` にしたときだけ。既定は `false`）。**止めているあいだ**は EBS（ルートボリューム）と Elastic IP（パブリック IPv4。1 つ月 $3.65 前後）だけ。**起動しているあいだ**は EC2（既定の `t4g.small`）の時間課金と、インターネットへのデータ転送（メディア）が加わる。最新の見積りは `cloud/README.md` の 3 節。AWS の外では、OpenAI の GPT-Live（セッションの時間）と Responses（ビジョン）の従量課金が増える。
+
 > **（2026-10-06）ADR-21: ECS のサービスが 2 つ（Strapi・n8n）減り、WireGuard の EC2（`t4g.nano`）・Elastic IP・EBS が増える。** 最新の見積りは `cloud/README.md`。この節の Strapi・n8n の Fargate の費用は ADR-16 の見積りである。
 >
 > **（2026-10-06）ADR-25: Umami の分（Fargate の 1 タスク・RDS の `umami` の容量・ECR の 1 リポジトリ・Secrets Manager の値・アラーム・ALB のルール）が減る。** GA4 は無料の範囲で使い（標準のプロパティ）、AWS の費用は増えない。下の表の「11 サービス」「約 18 個」は Umami を含む旧版の数である。
@@ -515,6 +546,8 @@ sequenceDiagram
 **2026-10-01 に 3 つめの差が加わった**: **Google Calendar の連携先**である。開発環境の Cal.com が本番のカレンダーを指すと、**試験の予約が実際の予定として入る**（他の開発環境が本番のデータに触れない作りになっているのと揃えるため、カレンダーも分ける）。**開発用のカレンダーを用意するのは人間の作業**であり、分けないまま動かさない。
 
 ## 11. 未決定事項
+
+- **（2026-11-21 に追加。2026-11-23 に決着）WireGuard の EC2（`stacks/wireguard.yaml`）のロールの `AmazonSSMManagedInstanceCore`。** ~~SFU（3.4）と同じく Session Manager の最小権限に絞るか~~ → **絞った**（`R1` が判断を任せた。2026-11-23）。ロールに許すのは、Session Manager の最小権限（`ssm:UpdateInstanceInformation` と `ssmmessages` の 4 操作）と、WireGuard の 2 つの公開鍵のパラメータの読み書きだけになった。理由は SFU と同じ（`AmazonSSMManagedInstanceCore` は `ssm:GetParameter` を `Resource: "*"` で許し、インターネットに開いた EC2 からアカウントのすべての SSM パラメータを読めてしまう）。この EC2 で使う Systems Manager の機能は Session Manager（ログインと RDS へのポートフォワード）だけで、Run Command・State Manager・Patch Manager・Inventory は使っていないので、運用の手順は変わらない。**次の親スタックのデプロイで効く**（ロールの更新はインスタンスを置き換えない。デプロイのあとに `aws ssm start-session` で入れることを確かめる。`cloud/README.md` の 4.2.1）。
 
 > **（2026-10-06）ADR-21: 「n8n の Webhook を VPC の中で届ける方法」は解決した**（WireGuard の固定のアドレス `10.99.0.2:5680`。AA-02 の 5 節）。**Strapi・n8n の ECS・ALB に関する項目は、オンプレに移ったため前提が消えた。** 残件は、Mautic・Chatwoot がプライベートアドレス宛・`http://` の送信先を受け付けるか（runbook の B4）。
 

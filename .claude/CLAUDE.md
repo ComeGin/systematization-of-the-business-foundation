@@ -20,10 +20,11 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 |---|---|---|
 | 上流をそのまま取り込み | `backend/mautic-system`（Mautic 本体 6,831 ファイル）、`middleware/open-seo-main`（OpenSEO 1,399 ファイル） | 上流のコード。独自の追加は `dev/` 配下のスクリプトのみ。**Umami は ADR-25（2026-10-06）で廃止した**（`middleware/umami-master`・`middleware/umami` は削除済み。アクセス解析の正本は GA4、PostHog は AB テスト・例外の監視・記事のイベント・実測の Core Web Vitals）。`mautic-system/CLAUDE.md` は**上流 Mautic 付属のもので、このリポジトリの方針ではない** |
 | 自作（MCP サーバ） | `backend/chatwoot-mcp`、`backend/mautic-mcp` | このリポジトリの主要な自作コード |
-| 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n`、`middleware/ga4`（2026-10-06。ADR-25） | 公式イメージを動かすための compose と環境変数のテンプレートだけ。`middleware/ga4` は SaaS（GA4）の設定の記録と setup だけで、動かすものは無い（本番のプロパティだけ。開発ではタグを出さない） |
+| 自作（設定・運用のみ） | `backend/chatwoot-system`、`middleware/n8n`、`middleware/ga4`（2026-10-06。ADR-25）、`backend/livekit-system`（2026-11-21。ADR-33） | 公式イメージを動かすための compose と環境変数のテンプレートだけ。`middleware/ga4` は SaaS（GA4）の設定の記録と setup だけで、動かすものは無い（本番のプロパティだけ。開発ではタグを出さない）。`backend/livekit-system` は開発の SFU（`livekit-server` v1.13.11 の `--dev` の compose）と、本番の EC2 の `prod/livekit.yaml.template`・`prod/caddy.yaml.template`（Caddy は `livekit/caddyl4` v2.11.3。どちらもダイジェストで固定） |
 | 自作（アプリ） | `backend/strapi-system`、`frontend/verdant-virgo` | スキャフォールド + 独自の差分 |
 | 自作（サービス。2026-10-04 着手） | `backend/consent-api`、`backend/admin-auth` | 本番はどちらも ALB 配下の Lambda（VPC の中。ADR-26。2026-10-12）。consent-api は DB を持たず Valkey だけ。admin-auth は Better Auth を OIDC Provider にして ALB の `authenticate-oidc` の IdP にし、運用（migrate・ALB の登録）は別の Lambda（admin-auth-ops） |
 | 自作（サービス。2026-10-11 着手） | `backend/faq-bot` | Chatwoot の受信箱「Web サイト」で FAQ に答えるエージェントボット。**本番は Lambda（VPC の外。関数 URL。ADR-26）**、開発は Node の HTTP サーバー（3107）。FAQ は Astro の `faq.json`（`frontend/verdant-virgo/src/modules/faq-export`）を読む。データの置き場は持たない |
+| 自作（エージェント。2026-11-21 着手） | `backend/livekit-agent` | 音声で話せる SEO の BI の担当（LiveKit Agents の Python。uv。会話は OpenAI GPT-Live）。OpenSEO の MCP を**無料の参照系だけ**で読み（許可リストの正本は `src/comegin_voice/openseo/allowlist.py`）、画面にカードを送り、対話の要約を `docs/audits/voice/`（`E-12`）に残す。**Claude Code のエージェント定義ではない**。本番はオンプレの systemd（`comegin-livekit-agent`。承認済みの main のチェックアウトから動かす。環境変数は `backend/livekit-agent/.env.local`。setup のモジュールは `livekit-agent`）で、AWS の EC2 の SFU に外向きにつなぐ（起動と停止は人。`cloud/livekit-sfu.mjs`）。画面は監視アプリの `/voice`。設計は ADR-33（`docs/RequirementDefinition/AA/05-application-decisions.md`）。2026-11-21 の取り込み時点の `.github/`・`scenarios.yaml` は LiveKit Cloud 前提のスターターの残りで、動かさない |
 | 自作（管制。2026-10-04 着手） | `backend/control-plane`（ライブラリ）＋ `frontend/next-js`（監視アプリ） | `E-15` の記録（作業ツリーの外の SQLite）・定期実行・Agent SDK でのエージェント起動・`I-13` の起票。**control-plane は next-js が取り込んで 1 プロセスで動かす**。境界の型は `backend/control-plane/src/contract.ts` |
 | 自作（IaC・定義） | `cloud/`（AWS SAM。クラウドに置く製品と例外とデータの置き場。デプロイ手順は `cloud/README.md`）、`onprem/`（ADR-21。オンプレの本番の Strapi・n8n と WireGuard の構成）、`middleware/n8n/workflows/`（ワークフローの JSON）、`ops/`（定期実行の定義と MCP の登録表）、リポジトリ直下の `.claude/agents/`（エージェント定義 13 本） | 定期実行の定義とエージェント定義は、監視アプリが**承認済みの `main` のチェックアウトから**読む（ADR-18）。作業ツリーで書き換えても次の実行には効かない |
 
@@ -58,6 +59,10 @@ SaaS 販売事業の「事業経営基盤」のうち、**マーケティング�
 | 5679 | n8n（**本番。オンプレ**。ADR-21。データは AWS の RDS。`127.0.0.1` だけに開く。構成は `onprem/n8n`） |
 | 5680 | n8n の本番の Webhook の受け口（リバースプロキシ。**WireGuard のアドレスだけ**に開き、`/webhook/*` だけを 5679 に通す。エディター・API はクラウドから届かない） |
 | 6380 | consent-api の開発の Valkey（`127.0.0.1` だけ。consent-api の結合テストが Lambda の入口から直接つなぐ） |
+| 7880 | 開発の SFU（`backend/livekit-system` の `livekit-server --dev`）のシグナリング（HTTP・WebSocket。`127.0.0.1` だけ。キーは `devkey`・`secret`）。本番の SFU は AWS の EC2（443 の wss。`rtc.comegin.com`）で、このポートを使わない。ADR-33 |
+| 7881 | 開発の SFU の ICE/TCP（UDP が使えないとき。`127.0.0.1` だけ）。本番の EC2 も 7881/tcp を開ける |
+| 7882/udp | 開発の SFU の UDP の多重化（開発モードの WebRTC のメディア。`127.0.0.1` だけ）。本番の EC2 は 80・443/tcp・7881/tcp・3478/udp（TURN）・50000-60000/udp（メディア）だけを開ける（7880 と 22 は開けない） |
+| 8081 | 音声 SEO BI エージェント（`backend/livekit-agent`）のヘルス（`127.0.0.1` だけ。LiveKit Agents の既定）。**開発（`uv run src/agent.py dev`）と本番の systemd（`comegin-livekit-agent`）で同じ番号**なので、同じマシンで同時に動かさない |
 | 8000 / 8025 | Mautic（PHP ビルトインサーバー）/ MailHog |
 
 Chatwoot・n8n のホスト側ポートは `127.0.0.1` にバインドしてある。外部公開は ngrok などホスト側のトンネルで行い、
@@ -124,6 +129,9 @@ docker compose up -d
 dev/serve.sh
 dev/stop.sh            # serve.sh で起動したもの（PHP・Webhook の定期実行・MySQL と MailHog）を止める。--keep-docker で PHP だけ
 dev/reset.sh --help    # DB を消して再インストールする破壊的スクリプト
+
+# backend/livekit-system（開発の SFU。127.0.0.1 の 7880・7881/tcp・7882/udp。音声 SEO BI。ADR-33）
+cd backend/livekit-system && docker compose up -d
 
 # middleware/host-relay（開発環境だけ。コンテナ〈n8n・Chatwoot〉から、ホストの 127.0.0.1 の Mautic・MailHog・n8n・Chatwoot・OpenSEO〈health だけ〉に届くようにする中継）
 docker compose up -d

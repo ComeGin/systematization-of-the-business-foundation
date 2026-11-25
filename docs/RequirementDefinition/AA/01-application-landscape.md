@@ -196,6 +196,36 @@ flowchart LR
 - **エージェントはこの図に現れない。** 付与・消化・付与率の変更・送金はどのエージェントにも与えない（AA-03 の 2.6）。
 - **`miner` は ComeGin の運用対象ではない。** 配布するのは導入時に公式のリリースを**ハッシュを固定して**取得する定義だけで、実行ファイルは配布物に含めない（AWS の S3・CloudFront からも配布しない）。
 
+## 5.6 C4 Lv2 コンテナ図（音声 SEO BI。2026-11-21 に追加）
+
+運用者が、夜の観測の数値（GSC・GA4）を音声で対話して読み解く入口（AA-05 の ADR-33。連携は AA-02 の 3.12）。
+
+```mermaid
+C4Container
+    title Lv2 音声 SEO BI
+    Person(team, "運用チーム", "R1 - R4")
+    System_Boundary(op, "オンプレ") {
+        Container(mon, "監視アプリ /voice", "Next.js / 3200", "トークンの発行と画面")
+        Container(va, "音声 SEO BI エージェント", "Python / systemd", "W1 と W2")
+        Container(seo, "OpenSEO", "Docker / 3001", "GSC と GA4 の集計値")
+    }
+    Container(sfu, "SFU", "livekit-server / AWS EC2", "メディアの中継")
+    Container_Ext(oai, "OpenAI", "SaaS 米国", "GPT-Live と Responses")
+    Rel(team, mon, "I-34 トークン")
+    Rel(team, sfu, "I-35 音声と画面共有")
+    Rel(va, sfu, "I-36 外向きに接続")
+    Rel(va, seo, "I-37 MCP 参照のみ")
+    Rel(va, oai, "I-38 音声とフレーム")
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
+
+**As-Is 注記。** 図の線はすべて `未配線`（2026-11-21 にコードはできたが、本番では動かしていない）。本番の SFU は未デプロイで、エージェントの systemd のユニットも置いていない。開発では、SFU を `backend/livekit-system` の compose（`127.0.0.1:7880`）で動かし、ブラウザ・監視アプリ・エージェント・OpenSEO を開発機の中で完結させる。
+
+- **SFU だけが AWS にある。** ブラウザから UDP で届く必要があり、ngrok では中継できないため（ADR-33）。**エージェントは SFU に外向きにつなぐ**ので、AWS からオンプレへ入る線は増えない（ADR-21）。
+- **OpenSEO への線は参照だけ**である。許可リストは無料の参照系 11 本で、正本はコードの `openseo/allowlist.py`（AA-03 の 2.4.1）。
+- **画面（ブラウザ）は運用チームの端末**で、訪問者は関わらない。OpenAI に渡るのは運用者の音声と画面共有のフレームで、訪問者・顧客の個票を送る経路ではない（DA-05 の 1.7）。
+- **改善ループへの戻り道（`E-12`〈`source: voice`〉の書き出し）は図に描いていない**（ファイルの書き込みで、アプリケーションをまたがないため）。
+
 ## 6. アプリケーション一覧
 
 「担う Capability」は BA-02 の主担当を実現手段の側から割り当てたもので、BA の担当ロールを書き換えるものではない。
@@ -228,6 +258,9 @@ flowchart LR
 | **Cal.com**（`backend/calcom-system` を想定。**（2026-10-06）ADR-24: Cal.com は SaaS（cal.com）に変わった。****ECS・RDS の `calcom`・`cal.comegin.com`・開発ポート 3105・`backend/calcom-system` は作らない。配置は外部（ユーザーの決定による例外）。ADR-19 の記述は次のとおり旧版。** **上流の取り込みではなく公式イメージ ＋ compose**。2026-10-01 に追加） | **オンライン面談の予約**（商談プロセスの段 2。BA-04）。訪問者が ComeGin の Google Calendar の空き時間から枠を選ぶ。**無料相談の完了画面に埋め込む**（`I-25`）。**セルフホスト**（ADR-19） | `CAP-12` | **`E-16`**（予約。正本）／`E-09`（email で突合） | 3105（開発） | **AWS**（ECS on Fargate ＋ RDS for PostgreSQL の共有インスタンス。`cal.comegin.com`〈案〉。TA-06 の 3.1） | `未着手`（**ライセンスと公式イメージの確認が先**。TA-06 の 11 節） |
 | **consent-api**（`backend/consent-api` を想定。**自作**。2026-10-01 に追加） | **Cookie 同意の状態を受け取り、ElastiCache に記録する**（DD-02 の 8 節）。**訪問者のリクエストを直接受ける唯一の自作のコード**（`admin-auth` は管理者だけが触る） | `CAP-10` `CAP-15` | —（同意の記録。**対応する E-ID が無い**ため AA-02 のカタログに載せない。DD-02 の 8.5） | 3104（開発） | **AWS**（VPC の中の Lambda〈ALB のターゲット。ADR-26。2026-10-12〉＋ ElastiCache。`consent.comegin.com`〈案〉。TA-06 の 4.8） | `未着手`（コード未作成） |
 | **faq-bot**（`backend/faq-bot`。**自作**。2026-10-11 に追加） | Chatwoot の受信箱「Web サイト」で、訪問者の質問に Web サイトの FAQ の原文で答えるエージェントボット。答えられなければラベルを付けて担当者に引き継ぐ（`docs/superpowers/specs/2026-10-11-faq-bot-design.md`） | `CAP-12` | `I-31` `I-32` `I-33` | 3107（開発） | **AWS**（**Lambda。VPC の外。関数 URL**。ADR-26） | `実装済み`（開発環境。本番は未デプロイ） |
+| **音声 SEO BI エージェント**（`backend/livekit-agent`。**自作**。2026-11-21 に追加） | 運用者と音声で対話する SEO の BI の担当（LiveKit Agents。会話は GPT-Live 1 体）。W1 は接続した直後に GSC・GA4 の要点を話し、W2 は問いに応じて OpenSEO の MCP（無料の参照系だけ）を呼んで答える。画面にカードを送り、対話の要約を `E-12`（`source: voice`）に残す（ADR-33） | `CAP-01` | `E-12`（`source: voice`） | 8081（ヘルス。`127.0.0.1`） | **オンプレ**（systemd の `comegin-livekit-agent`。SFU に wss で外向きに接続） | `未配線`（コードはできた。本番で動かしていない） |
+| **SFU**（`livekit-server`。**上流の公式イメージ**。設定は `backend/livekit-system`。2026-11-21 に追加） | WebRTC のメディアの中継（運用者のブラウザとエージェントの間）。開発は `livekit-server --dev` の compose、本番は EC2 1 台 | `CAP-01` | —（メディアを中継するだけで、保存しない） | 7880・7881・7882/udp（開発。`127.0.0.1`） | 開発: オンプレ／**本番: AWS**（**EC2 1 台。Auto Scaling グループと warm pool の Stopped。起動と停止は人**。ADR-26 の例外。ADR-33） | `未配線`（開発の compose はある。本番は未デプロイ） |
+| **OpenAI**（API。2026-11-21 に追加） | 音声 SEO BI の会話（GPT-Live）と、画面共有の 1 フレームの読み取り（Responses のビジョン）。**記事のアイキャッチ画像（ADR-32。監視アプリの builtin `article-cover`）も同じ事業者の API** | `CAP-01`（`CAP-05` のアイキャッチ） | 運用者の音声・画面共有のフレーム（**訪問者・顧客の個票を含めない**） | — | **SaaS（米国）** | `未配線`（音声 SEO BI） |
 | **Amazon SES** | **顧客向けメールの送信。** Mautic の配信・フォームの自動返信、Chatwoot のメール（ADR-12。社内向けの通知は SNS のまま） | `CAP-11` `CAP-12` | `E-09` `E-10`（宛先と本文） | — | **AWS（`ap-northeast-1`）** | `未着手`（**サンドボックスのまま**。本番アクセスの申請が必要。TA-06 の 6 節） |
 | **miner**（利用者のサーバ。2026-10-03 に追加） | XMRig のコンテナ。既定は停止で、`MINER_ENABLED=true` のときだけ起動する。接続先は `rx.unmineable.com:3333`、`user` は `POL:<ComeGin のアドレス>.<利用者 ID>`。ボリュームを持たず、ネットワークの宛先は unMineable だけ | `CAP-17` | （unMineable の中で `E-18` になる） | — | **利用者環境**（ComeGin は運用しない） | 未着手 |
 | **points-api**（`backend/points-api` を想定。**自作**。2026-10-03 に追加） | 貢献量の取り込み、付与量の計算、付与・消化の指示、日次の突き合わせと S3 への写し。利用者ポータル（オプトイン・残高）と管理画面（承認・消化・付与率・円換算表。ALB の関門の後ろ） | `CAP-17` `CAP-18` | `E-17` `E-18` `E-19` `E-20` | 3106 | AWS（ECS on Fargate。TA-06） | 未着手 |
@@ -241,6 +274,7 @@ flowchart LR
 
 - **Cal.com と `consent-api` は ADR-19 で増えた**（2026-10-01）。**`consent-api` は自作**であり、`admin-auth` と同じく `.claude/CLAUDE.md` の「自作コードと vendor 取り込みの区別」の表に加える対象になる（コード作成時）。**Cal.com は上流の製品**で、`chatwoot-system` と `middleware/n8n` と同じく**公式イメージを動かすための compose と環境変数のテンプレートだけ**を持つ（上流のソースは取り込まない）。
 - **Cal.com だけが「訪問者が触れる上流の製品」として新しく増えた。** Umami（ADR-25 で廃止）・Chatwoot・Mautic と同じ扱いになるが、**予約の正本（`E-16`）が自分たちの管理下にある一方、予約が成立すると Google Calendar へ予定の複製が出て越境する**（ADR-19 の決定 3、DA-05 の 1.2.2）。
+- **（2026-11-21）音声 SEO BI エージェントと SFU は ADR-33 で増えた。** エージェントは自作（`backend/livekit-agent`）、SFU は上流の公式イメージを動かす設定だけ（`backend/livekit-system`）で、どちらも `.claude/CLAUDE.md` の「自作コードと vendor 取り込みの区別」の表に載せた。**エージェントは Claude Code のエージェント定義（`.claude/agents/`）ではない**ため、AA-03 の 1 節の一覧には入れず、OpenSEO の許可リストを AA-03 の 2.4.1 に分けて書いた。**配置が外部の行が 1 つ増えた**（OpenAI。TA-01 の 8 節の例外の一覧）。
 - **`admin-auth` は ADR-13 で増えた自作のアプリケーション**であり、`.claude/CLAUDE.md` の「自作コードと vendor 取り込みの区別」の表に加える対象になる（コード作成時）。**管理画面への通信は `admin-auth` を通らない**（ログインのときだけ関わる）ため、E-ID を運ぶ連携を持たず、AA-02 の連携点カタログにも載せない。
 - **状態が `実装済み` なのは 6 つだけ**（Strapi・Lighthouse CI・chatwoot-mcp・mautic-mcp・Claude Code・DataForSEO）。このうち事業の価値に直接触れているのは Strapi のみで、他の 5 つは道具か土台にあたる。DataForSEO は OpenSEO からの問い合わせが成立しているだけで、OpenSEO 自体はまだどのエージェントにも繋がっていない（`未配線`）。
 - **ポートが重複している行が 1 組ある**（Chatwoot 本体と mautic-mcp の HTTP がともに 3100）。同時に HTTP で起動しない運用でしのぐか、`PORT` を変えるかを決める必要がある。
@@ -253,7 +287,7 @@ BA-02 の 18 Capability を、実現手段の側から埋め戻す。**担う手
 
 | Capability | 主たるアプリケーション | 補助 | 状態 |
 |---|---|---|---|
-| `CAP-01` 事業戦略・KPI 管理 | GA4 + PostHog + Mautic（指標の取得。Umami は ADR-25 で GA4 に置き換え） | Claude Code（集計と草案） | `未配線` |
+| `CAP-01` 事業戦略・KPI 管理 | GA4 + PostHog + Mautic（指標の取得。Umami は ADR-25 で GA4 に置き換え） | Claude Code（集計と草案）＋ **音声 SEO BI エージェント**（GSC・GA4 の数値を運用者が対話で読み解く。SFU・OpenAI。2026-11-21。ADR-33） | `未配線` |
 | `CAP-02` キーワード戦略 | Strapi（`api::keyword.keyword`。正本） | **OpenSEO**（キーワード調査・検索ボリューム・GSC の実績） | `未配線` |
 | `CAP-03` コンテンツ企画 | Strapi（`api::content-plan.content-plan`） | Claude Code | `未着手` |
 | `CAP-04` コンテンツ制作 | Claude Code + strapi-mcp | Strapi の管理画面 | `未配線` |

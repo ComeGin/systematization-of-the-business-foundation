@@ -57,7 +57,53 @@ import { join } from "node:path";
 import { REGION, STACK, awsJson, describeStack, outputOf, requireMainStack } from "../../../../cloud/setup/aws.mjs";
 import { registerSecret } from "../../../../setup/lib/core.mjs";
 import { commitDrift, describeChanges } from "../../../../setup/lib/drift.mjs";
-import { DEFAULT_HOSTED_DOMAIN, GROUPS, LOCAL_URL, probe, publicUrlOf, validateGroups, verifyGoogle } from "../index.mjs";
+import { prodValueProblems as livekitValueProblems } from "../../../../backend/livekit-agent/setup/index.mjs";
+import { DEFAULT_HOSTED_DOMAIN, DEV_LIVEKIT, GROUPS, LOCAL_URL, probe, publicUrlOf, validateGroups, verifyGoogle } from "../index.mjs";
+
+// 音声 BI（/voice）の SFU の既定の URL（cloud の親スタックの出力 LivekitUrl と同じ。setup/setup.conf.example の「音声 SEO BI エージェント」）
+const DEFAULT_LIVEKIT_URL = "wss://rtc.comegin.com";
+const LIVEKIT_KEYS = Object.keys(DEV_LIVEKIT); // LIVEKIT_URL・LIVEKIT_API_KEY・LIVEKIT_API_SECRET・LIVEKIT_AGENT_NAME
+/** 鍵の組。check では値ではなく SHA-256 のダイジェスト同士で比べる */
+const LIVEKIT_SECRET_KEYS = new Set(["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"]);
+
+/**
+ * 音声 BI の LIVEKIT_* を、prod.conf からチェックアウトの環境変数ファイルに書く値にする（apply と check で同じ値を使う）。
+ * 4 つとも空なら 4 つとも空文字（前に写した値が残らないよう、空にする。/voice は「環境変数が設定されていません」を出す）。
+ * 1 つでもあれば、URL と名前は既定で補う。鍵の組は prod.conf のまま（欠けていれば undefined。prodValues が missing で止める）
+ */
+export function livekitValuesOf(conf) {
+  if (!LIVEKIT_KEYS.some((k) => conf[k])) return Object.fromEntries(LIVEKIT_KEYS.map((k) => [k, ""]));
+  return {
+    LIVEKIT_URL: conf.LIVEKIT_URL || DEFAULT_LIVEKIT_URL,
+    LIVEKIT_API_KEY: conf.LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET: conf.LIVEKIT_API_SECRET,
+    LIVEKIT_AGENT_NAME: conf.LIVEKIT_AGENT_NAME || DEV_LIVEKIT.LIVEKIT_AGENT_NAME,
+  };
+}
+
+const digestOf = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+
+/**
+ * check 用。チェックアウトの環境変数ファイル（env）が prod.conf の期待値と同じか。notes に出す文を返す（ok は落とさない。任意の機能）。
+ * 鍵の値は出さない（違うキーの名前だけ）。鍵はダイジェスト同士で比べる
+ */
+export function livekitNotes(conf, env) {
+  const expected = livekitValuesOf(conf);
+  const notes = [];
+  // prod.conf の値の形（apply では missing で止まる。check では「!」だけ）
+  if (expected.LIVEKIT_API_KEY !== "") for (const problem of livekitValueProblems(expected)) notes.push(`! 音声 BI（/voice）の prod.conf: ${problem}`);
+  // チェックアウトの環境変数ファイルが、apply が書く値と同じか（鍵はダイジェスト同士）
+  const differs = LIVEKIT_KEYS.filter((k) =>
+    LIVEKIT_SECRET_KEYS.has(k) ? digestOf(expected[k]) !== digestOf(env[k]) : (expected[k] ?? "") !== (env[k] ?? ""),
+  );
+  if (differs.length) {
+    const why = expected.LIVEKIT_API_KEY === "" ? "prod.conf から消えたのに残っている" : "prod.conf と違う";
+    notes.push(`! 音声 BI（/voice）の ${differs.join("・")} が、チェックアウトの環境変数ファイルで${why}（apply で写して restart する）`);
+  }
+  if (notes.length) return notes;
+  if (!expected.LIVEKIT_API_KEY) return ["音声 BI（/voice）は未設定（任意。使うときは prod.conf に LIVEKIT_API_KEY・LIVEKIT_API_SECRET を書く）"];
+  return [`音声 BI（/voice）の SFU: ${expected.LIVEKIT_URL}・エージェント ${expected.LIVEKIT_AGENT_NAME}（prod.conf と同じ）`];
+}
 
 export const meta = { id: "next-js-prod", title: "監視アプリ（本番。改善ループの常駐）", targets: ["prod"], phases: ["operate"], after: [] };
 
@@ -449,6 +495,21 @@ export async function prodValues(ctx, main, file) {
     for (const k of github) if (ctx.conf[k]) values[k] = ctx.conf[k];
     values.GITHUB_REPOSITORY ??= await repositoryFromOrigin(ctx);
   }
+  // 音声 BI（/voice。任意の機能。2026-11-21）。LIVEKIT_* は backend/livekit-agent と共用の prod.conf のキー（同じ SFU・同じ鍵の組。
+  // setup/setup.conf.example の「音声 SEO BI エージェント」）。4 つとも空なら空文字を書く（前に写した値を残さない）。
+  // 処理が始まるのは 4 つのどれか 1 つでもあるとき（URL や名前だけを書いても始まり、鍵の組が無いので止まる。書きかけを見逃さないための意図どおりの動き）。
+  // 鍵の組（API_KEY・API_SECRET）が欠けていれば missing で止める（GROUPS の「音声 BI」の検査より先に、何が要るかを案内するため）。
+  // 値の形は、SFU の comegin-livekit-boot が受け付ける形（エージェントの setup の prodValueProblems と同じ検査）。違えば書く前に止める（値は出さない）
+  const livekit = livekitValuesOf(ctx.conf);
+  if (livekit.LIVEKIT_API_KEY !== "") {
+    if (!livekit.LIVEKIT_API_KEY || !livekit.LIVEKIT_API_SECRET) {
+      missing.push(`${["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"].filter((k) => !ctx.conf[k]).join("・")}（音声 BI。LIVEKIT_* を 1 つでも書いたら鍵の組が要る。SFU の SSM〈/comegin/prod/livekit/api-key・api-secret〉と同じ値）`);
+    }
+    for (const problem of livekitValueProblems(livekit)) missing.push(`${problem}（音声 BI。prod.conf を直す）`);
+  }
+  // 鍵の組は伏せ字に登録してから値に入れる（コマンドの出力に紛れても出さない）
+  for (const k of LIVEKIT_SECRET_KEYS) if (livekit[k]) registerSecret(livekit[k]);
+  Object.assign(values, livekit);
   const groupKeys = GROUPS["I-13 の起票"];
   const set = groupKeys.filter((k) => values[k]);
   if (set.length && set.length < groupKeys.length) missing.push(`${groupKeys.filter((k) => !values[k]).join("・")}（I-13 の起票。1 つでも書いたら 4 つとも要る。fine-grained PAT は Contents と Pull requests を Read and write）`);
@@ -961,6 +1022,8 @@ export async function check(ctx) {
     else notes.push(`ブラウザで開く URL（BETTER_AUTH_URL）: ${written}`);
     exposed = exposureWarning(written);
     if (exposed) notes.push(`! ${exposed}`);
+    // 音声 BI（/voice）は任意の機能。notes に出すだけで ok は落とさない（開発と同じ）。鍵の値は出さない（ダイジェストで比べ、違うキーの名前だけ）
+    notes.push(...livekitNotes(ctx.conf, env));
   }
   if (valueProblems.length) item("prod-values", "action", valueProblems.join("／"), "prod-values");
   else if (exposed) item("prod-values", "warn", exposed);
@@ -1107,6 +1170,7 @@ export async function apply(ctx) {
       "改善の提案を PR にしない（起票を skipped のままにする）と判断したときだけ、書かずに yes",
     ]);
   if (!env.CONTROL_N8N_EXPORT_API_KEY) ctx.log("n8n の書き出し（daily-n8n-export）は未設定（キーのスコープを人が判断してから CONTROL_N8N_EXPORT_* を prod.conf に書く）");
+  if (!env.LIVEKIT_API_KEY) ctx.log("音声 BI（/voice）は未設定（使うときは prod.conf に LIVEKIT_API_KEY・LIVEKIT_API_SECRET を書く。setup/setup.conf.example の「音声 SEO BI エージェント」）");
 
   // 6. systemd
   const unit = await unitState(ctx);

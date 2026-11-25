@@ -143,6 +143,8 @@ const STRAPI_HUMAN_ONLY_TOOL = /^mcp__strapi(?:-[a-z0-9-]+)?__(publish|unpublish
 
 /** campaign-planner の書き込み先（作業ツリーの直下からの相対）。配布ファイルの原稿だけ */
 export const CAMPAIGN_PLANNER_WRITE_ROOT = "campaign-assets";
+/** campaign-planner のメールの本文に必ず入れる、配信停止の文言のトークン（Mautic の設定の「Text for the {unsubscribe_text} token」に置き換わる） */
+export const UNSUBSCRIBE_TEXT_TOKEN = "{unsubscribe_text}";
 /** design-implementer の書き込み先 */
 export const DESIGN_IMPLEMENTER_WRITE_ROOT = "frontend/verdant-virgo/src";
 
@@ -213,11 +215,17 @@ function checkCampaignEvents(events: unknown): string | null {
 /**
  * メールはキャンペーンから送るテンプレートのメール（emailType が template）で、送信先のセグメント（lists）を持たないものだけ（I5）。
  * emailType が list のメールは、公開するとセグメントへ一斉に送れる（キャンペーンの承認を経ない送信の経路になる）。
- * lists は省略か空の配列だけを許す
+ * lists は省略か空の配列だけを許す。
+ * 本文（customHtml）には配信停止の文言のトークン {unsubscribe_text} を必ず入れる（2026-11-25）。Mautic は本文にこのトークン（か {unsubscribe_url}）が
+ * 無いと List-Unsubscribe の見出しも付けない（MailHelper::isUnsubscribeHeadersRequired）。文言は本番の Mautic の設定にあり、
+ * 0〜8 時は Mautic が止まっていること・メールで配信停止を受け付けることを書いてある（cloud/README.md の 4.11）
  */
 function checkTemplateEmail(data: Record<string, unknown>): string | null {
   if (data.emailType !== "template") return "Mautic emails must be created with emailType template";
   if (data.lists !== undefined && !(Array.isArray(data.lists) && data.lists.length === 0)) return "Mautic emails must not have lists";
+  if (typeof data.customHtml !== "string" || !data.customHtml.includes(UNSUBSCRIBE_TEXT_TOKEN)) {
+    return `Mautic emails must include the ${UNSUBSCRIBE_TEXT_TOKEN} token in customHtml`;
+  }
   return null;
 }
 
@@ -255,7 +263,7 @@ function inspectCampaignPlanner(toolName: string, toolInput: unknown, paths: Gua
 
 /**
  * エージェント固有の追加の拒否。理由（モデルに返す英語の短文）か null。inspectToolCall が通ったあとに呼ぶ。
- * - campaign-planner: Mautic は emails・campaigns の未公開の作成だけ（emails は emailType が template で lists が無いもの、
+ * - campaign-planner: Mautic は emails・campaigns の未公開の作成だけ（emails は emailType が template で lists が無く、本文に {unsubscribe_text} があるもの、
  *   campaigns のイベントは CAMPAIGN_EVENT_TYPES_ALLOWED だけ）、
  *   更新・削除は不可。ファイルの書き込みは campaign-assets/ の下だけ。Strapi の公開・削除系は不可。
  * - design-implementer: ファイルの書き込みは frontend/verdant-virgo/src/ の下だけ。

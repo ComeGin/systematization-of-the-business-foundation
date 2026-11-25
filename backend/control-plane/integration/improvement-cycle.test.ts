@@ -440,7 +440,7 @@ describe("改善ループの 1 周（結合）", () => {
               const email = templateEmailData({
                 name: itName("cycle-email"),
                 subject: "運営指導に備える記録の電子化",
-                html: `<p>記録の電子化の要点をまとめました。</p><p><a href="${articleUrlC}?utm_source=mautic&utm_medium=email&utm_campaign=${ids.campaign}">記事を読む</a></p>`,
+                html: `<p>記録の電子化の要点をまとめました。</p><p><a href="${articleUrlC}?utm_source=mautic&utm_medium=email&utm_campaign=${ids.campaign}">記事を読む</a></p><p>{unsubscribe_text}</p>`,
               });
               await campaign.guard(options, "mcp__mautic-prod__mautic_create_record", { resource: "emails", data: email });
               created.email = await createMauticRecord("emails", email);

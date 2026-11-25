@@ -1,6 +1,7 @@
 // Chatwoot のウィジェット（DD-02 の 4 節、01-content-spec.md §1.5・§8）。
 // - 同意の後にだけ SDK を読み込む（K3）。PUBLIC_CHATWOOT_BASE・PUBLIC_CHATWOOT_WEBSITE_TOKEN が未設定なら読み込まない。
 // - 同意バナーを表示している間はランチャーを隠す（K4）。隠すのは SDK の toggleBubbleVisibility で行い、DOM を直接消さない（§8.1）。
+// - 受付時間外（0〜8 時。Chatwoot を止めている。@/modules/service-hours）は読み込まず、「チャットで質問する」を押したら案内を出す（2026-11-25）。
 // - 撤回したらウィジェットを隠す（DD-02 の 3.4 の 3）。以後のページでは読み込まない。
 // - 読み込みの失敗はサイト本体に影響させない（4 節「表示されないだけ」）。
 // - 読み込んだ後、ランチャー・閉じるボタン・iframe に読み上げ用の名前を補い、開閉のときにフォーカスを移す（widget-a11y.ts。
@@ -10,6 +11,8 @@ import {
   isConsentBannerVisible,
   openConsentBanner,
 } from "@/modules/consent/client";
+import { isOutsideServiceHours } from "@/modules/service-hours";
+import { CHAT_CLOSED_NOTICE } from "./messages";
 import { installWidgetA11y } from "./widget-a11y";
 
 interface ChatwootApi {
@@ -46,10 +49,13 @@ function config(): { baseUrl: string; websiteToken: string } | null {
   return baseUrl && websiteToken ? { baseUrl, websiteToken } : null;
 }
 
-/** ランチャーの表示を、同意とバナーの状態に合わせる */
+/** ランチャーの表示を、同意とバナーの状態と受付時間に合わせる（0 時より前に読み込んだランチャーも、受付時間外は隠して閉じる） */
 export function syncChatBubble(): void {
   if (state !== "ready" || !window.$chatwoot) return;
-  const show = getConsent() === "granted" && !isConsentBannerVisible();
+  const show =
+    getConsent() === "granted" &&
+    !isConsentBannerVisible() &&
+    !isOutsideServiceHours();
   window.$chatwoot.toggleBubbleVisibility(show ? "show" : "hide");
   if (!show) window.$chatwoot.toggle("close");
 }
@@ -59,15 +65,20 @@ function clearNotice(): void {
 }
 
 /**
- * チャットを開けなかったときの案内（押したボタンの直後に出す）。文言は §5.1 の送信失敗の文に合わせた（仕様書に無い。03-handoff へ申し送り）。
+ * 押したボタンの直後に出す案内。before と after のあいだに連絡先のメールのリンクを置く。
  * role="status" の要素を先に置いてから文を入れ、支援技術に読み上げさせる。
  */
-function showFailureNotice(near: HTMLElement | null): void {
+function showNotice(
+  near: HTMLElement | null,
+  before: string,
+  after: string,
+  tone: "error" | "info",
+): void {
   clearNotice();
   const notice = document.createElement("p");
   notice.id = NOTICE_ID;
   notice.setAttribute("role", "status");
-  notice.className = "phrase mt-2 text-sm text-destructive";
+  notice.className = `phrase mt-2 text-sm ${tone === "error" ? "text-destructive" : "text-muted-foreground"}`;
   (near ?? document.body).insertAdjacentElement(
     near ? "afterend" : "beforeend",
     notice,
@@ -77,12 +88,24 @@ function showFailureNotice(near: HTMLElement | null): void {
     link.href = `mailto:${SUPPORT_EMAIL}`;
     link.className = "text-text-link underline hover:text-text-link-hover";
     link.textContent = SUPPORT_EMAIL;
-    notice.append(
-      "チャットを表示できませんでした。",
-      link,
-      " までメールでご連絡ください。",
-    );
+    notice.append(before, link, after);
   });
+}
+
+/** チャットを開けなかったときの案内。文言は §5.1 の送信失敗の文に合わせた（仕様書に無い。03-handoff へ申し送り） */
+function showFailureNotice(near: HTMLElement | null): void {
+  showNotice(
+    near,
+    "チャットを表示できませんでした。",
+    " までメールでご連絡ください。",
+    "error",
+  );
+}
+
+/** 受付時間外の案内（01-content-spec.md §8。2026-11-25）。文の中の連絡先をリンクにする */
+function showClosedNotice(near: HTMLElement | null): void {
+  const [before, after] = CHAT_CLOSED_NOTICE.split(SUPPORT_EMAIL);
+  showNotice(near, before, after ?? "", "info");
 }
 
 /** 開く待ちをやめて案内を出す（読み込みの失敗・設定が無い・時間切れ） */
@@ -110,6 +133,8 @@ export function loadChatwoot(): void {
     syncChatBubble();
     return;
   }
+  // 受付時間外は読み込まない（Chatwoot に要求を出さない）。state は idle のままにし、8 時を過ぎて押されたら読み込む
+  if (isOutsideServiceHours()) return;
   state = "loading";
   window.chatwootSettings = {
     position: "right",
@@ -157,6 +182,14 @@ export function loadChatwoot(): void {
  */
 export function openChat(opener?: HTMLElement | null): void {
   const requester = opener ?? null;
+  // 受付時間外は、同意を求めず・読み込まずに案内を出す（0 時より前に読み込んだウィジェットも、サーバーが止まっていて使えない）
+  if (isOutsideServiceHours()) {
+    window.clearTimeout(openTimer);
+    openRequester = null;
+    syncChatBubble();
+    showClosedNotice(requester);
+    return;
+  }
   if (getConsent() !== "granted") {
     pendingAfterConsent = requester;
     openConsentBanner(requester);
@@ -177,6 +210,15 @@ export function openChat(opener?: HTMLElement | null): void {
         : "PUBLIC_CHATWOOT_BASE か PUBLIC_CHATWOOT_WEBSITE_TOKEN が未設定",
     );
   }
+}
+
+/**
+ * 受付時間の変わり目に合わせ直す（ChatLoader が 1 分ごとと、タブが表示に戻ったときに呼ぶ）。
+ * 同意済みなら、8 時を過ぎていれば読み込み（読み込み済みならランチャーを出し）、0 時を過ぎていればランチャーを隠す。
+ */
+export function refreshForServiceHours(): void {
+  if (getConsent() === "granted") loadChatwoot();
+  else syncChatBubble();
 }
 
 /** 同意の変化（ChatLoader から呼ぶ）。チャットのボタンから出したバナーで同意したら、そのまま開く */

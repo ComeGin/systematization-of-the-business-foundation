@@ -199,6 +199,7 @@ P12 ビルドと配信〔未検査〕 ─ P13 google ─ P14 operate: 改善ル�
   - `prod.conf` は `chmod 600`（ほかのユーザーが読めると、スクリプトが手順を出して `yes` を待つ）
 - [ ] **人・端末** `node setup/setup.mjs --target prod --only mautic-prod`（途中で止まったら、直してから `--from mautic-prod`）→ **自動**（カスタム項目 3 つ・フォーム consult・自動返信のメール・社内通知〈`kamegin4@comegin.com` へ。個人情報を載せない。2026-11-09〉・セグメント mql。作り済みのものは名前で見つけて飛ばす）
 - [ ] **人・端末** 初期設定の後に `MauticCronDesiredCount=1` を書いて `node cloud/deploy.mjs`（**1 に固定**。2 つ動くとメールが二重になる。1 でなければ `ecs-cron` で止まる）— cloud 4.11
+- [ ] **人・画面** メールの設定を夜間の停止に合わせる（2026-11-25。mautic-web は 0 時〜7 時 50 分に止まる）: 歯車 → Configuration → Email Settings の Unsubscribe Settings で「Text for the {unsubscribe_text} token」を配信停止のリンクと夜間の案内の文（`mautic-prod:night-email` で止まったときに出る文。`backend/mautic-system/dev/setup/prod/index.mjs` の `NIGHT_UNSUBSCRIBE_TEXT`）に置き換え、Message Settings の「Disable trackable urls」を Yes → Save → **〔申告〕** `MAUTIC_PROD_NIGHT_EMAIL_DONE=yes` — cloud 4.11
 
 インストーラーで 1045 になったときのコマンド（秘密値は画面にもシェルの履歴にも出ない。コンテナの中の環境変数で書き直す）:
 
@@ -396,6 +397,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | `ADMIN_AUTH_PROD_READY=yes` | migrate と register-alb-client が `{"ok":true}` で、Google でログインして戻れた | cloud 7.2 |
 | `FAQ_BOT_SECRETS_STORED=<指紋>` | FAQ ボットの 2 つの値を Secrets Manager に入れた（ボットを作り直したら入れ直す） | cloud 7.3 |
 | `MAUTIC_PROD_SETTINGS_DONE=yes` | インストールと画面の設定（API・Webhook・CORS・メール）が済んだ | cloud 7.4 |
+| `MAUTIC_PROD_NIGHT_EMAIL_DONE=yes` | メールの設定を夜間の停止に合わせた（配信停止の文言・Disable trackable urls。2026-11-25） | cloud 4.11 |
 
 `OPENSEO_GSC_CONNECTED`・`OPENSEO_GA4_CONNECTED` は 2026-11-04 に申告制をやめた（OpenSEO の MCP の無料のツールで接続を確かめる。manual 7.6）。書いてあっても使わない。
 
@@ -412,7 +414,7 @@ node setup/setup.mjs --target prod --phase operate     # frontend.mjs の --phas
 | SES の TLS を必須のままにするか | `REQUIRE` | TLS で受けられない宛先が業務に要るか | cloud 4.9 |
 | バウンス・苦情を Mautic に返す Lambda（ADR-30）をいつ作るか | 設計だけ決定済み・未実装 | 顧客へのキャンペーンの送信を始める時期（その前が望ましい） | AA-05 の ADR-30 |
 | SES の Mail type を Marketing に改めるか | Transactional（2026-10-28 のユーザーの決定） | Mautic のキャンペーンの一斉送信が大半になったか | cloud 4.9.2 |
-| 費用を下げる手段（Savings Plans・Fargate の ARM・mautic-cron の縮小・夜間の停止の時刻） | どれも未適用（夜間の停止は mautic-cron だけ有効。Chatwoot は 2026-11-12 から止めない） | 1〜2 か月の実績 | cloud 3.1 |
+| 費用を下げる手段（Savings Plans・Fargate の ARM・mautic-cron の縮小・夜間の停止の時刻） | 夜間の停止は有効（2026-11-25 から mautic-web・mautic-cron・chatwoot-web・chatwoot-worker の 4 つを 0 時〜7 時 50 分。Chatwoot・Mautic を使う定期実行は手動）。ほかは未適用 | 1〜2 か月の実績 | cloud 3.1 |
 | 公開サイトの CSP をどこで付けるか | 付けていない | CloudFront の応答ヘッダーか Astro か | cloud 5 |
 
 ### DB のコストの比較（後で判断する）

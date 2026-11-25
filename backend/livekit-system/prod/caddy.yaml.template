@@ -1,0 +1,56 @@
+# 本番の SFU（EC2）の Caddy の設定の雛形（Caddyfile ではなく YAML。公式の生成器と同じく --adapter yaml で読む）。
+# 実物は EC2 の /opt/livekit/caddy.yaml で、起動のたびに systemd の oneshot（comegin-livekit-boot）が作り直す。
+# 雛形の正本はこのファイルで、cloud/stacks/livekit-sfu.yaml の UserData の中に同じ内容を写してある（変えるときは両方そろえる）。
+#
+# 役割: 443/tcp を 1 つのポートで受け、TLS の SNI でホスト名を見分けて振り分ける（caddy-l4 の layer4 アプリ）。
+#   - $LIVEKIT_HOST（既定 rtc.comegin.com）… シグナリングの wss。TLS を終端して 127.0.0.1:7880（livekit-server）へ
+#   - $TURN_HOST（既定 rtc-turn.comegin.com）… TURN/TLS。TLS を終端して $PRIVATE_IP:5349 へ（livekit.yaml の external_tls: true）
+#   証明書は 2 つのホスト名とも Caddy が Let's Encrypt から自動で取る（HTTP-01。80/tcp を開けておく）。
+#   証明書は /opt/livekit/caddy_data（EBS）に残るので、warm pool の停止・起動では取り直さない（週 5 回の制限を避ける。計画の D8c）。
+#
+# 置き換える値（oneshot が埋める）:
+#   $LIVEKIT_HOST・$TURN_HOST … ホスト名（スタックのパラメータ）
+#   $PRIVATE_IP               … この EC2 のプライベート IP（IMDSv2 の local-ipv4）
+#
+# 出典（2026-11-21 に確かめた）: LiveKit の公式の生成器（github.com/livekit/deploy の generate/templates/caddy.go・updateip.go）。
+#   TURN の宛先を 127.0.0.1 ではなくプライベート IP にするのは、公式の updateip.go と同じ理由
+#   （TURN が中継元として 127.0.0.1 を返すと Firefox が受け付けない。livekit の config-sample.yaml の turn.proxy_protocol の説明）。
+# イメージは livekit/caddyl4（公式。caddy-l4 入り）。版は cloud/stacks/livekit-sfu.yaml の CaddyImage で固定する。
+logging:
+  logs:
+    default:
+      level: INFO
+storage:
+  "module": "file_system"
+  "root": "/data"
+apps:
+  tls:
+    certificates:
+      automate:
+        - $LIVEKIT_HOST
+        - $TURN_HOST
+  layer4:
+    servers:
+      main:
+        listen: [":443"]
+        routes:
+          - match:
+              - tls:
+                  sni:
+                    - "$TURN_HOST"
+            handle:
+              - handler: tls
+              - handler: proxy
+                upstreams:
+                  - dial: ["$PRIVATE_IP:5349"]
+          - match:
+              - tls:
+                  sni:
+                    - "$LIVEKIT_HOST"
+            handle:
+              - handler: tls
+                connection_policies:
+                  - alpn: ["http/1.1"]
+              - handler: proxy
+                upstreams:
+                  - dial: ["127.0.0.1:7880"]

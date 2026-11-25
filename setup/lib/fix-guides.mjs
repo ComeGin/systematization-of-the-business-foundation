@@ -24,7 +24,7 @@ const syncWorktree = (paths) =>
   `開発のリポジトリ（samconfig.toml・onprem の環境変数ファイルがある作業ツリー）を origin/main にそろえる: 作業中の変更はコミットか git stash で退ける → git fetch origin → git switch main && git pull --ff-only → git status で ${paths} に未コミットの変更が無いことを確かめる（あると包みのスクリプトが止まる。main 以外の HEAD でデプロイ・ビルドすると、記録が origin/main の履歴に無く「!」になる）`;
 
 const ECS_AFTER_DEPLOY =
-  "デプロイの後、ECS のサービスが動いているかを確かめる: node setup/setup.mjs --target prod --check --only cloud,chatwoot-prod（デプロイは昼〈3 時 45 分〜22 時〉に行う。夜間にデプロイすると Chatwoot が 0 台のまま残ることがあり、そのときは表示される aws ecs update-service … --desired-count で CloudFormation の値に戻す。cloud/README.md の 4.11）";
+  "デプロイの後、ECS のサービスが動いているかを確かめる: node setup/setup.mjs --target prod --check --only cloud,chatwoot-prod,mautic-prod（デプロイは 8 時〜24 時に行う。夜間〈0 時〜7 時 50 分は夜間の停止〉にデプロイすると Chatwoot・Mautic が 0 台のまま残ることがあり、そのときは表示される aws ecs update-service … --desired-count で CloudFormation の値に戻す。cloud/README.md の 4.11）";
 
 const DEPLOY_DEFAULT = [
   syncWorktree("cloud/・backend/faq-bot・backend/consent-api・backend/admin-auth"),
