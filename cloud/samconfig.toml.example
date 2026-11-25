@@ -32,6 +32,10 @@ parameter_overrides = [
   "RunLogAdminPrincipalArns=arn:aws:iam::123456789012:user/REPLACE-ME",
   "CloudFrontCertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/REPLACE-ME",
   "CloudFrontWebAclArn=arn:aws:wafv2:us-east-1:123456789012:global/webacl/REPLACE-ME",
+  # 夜間の停止の時刻（README の 4.11。2026-11-25 から 0 時〜7 時 50 分）。既存のスタックでは、テンプレートの既定値を変えても
+  # ここに書かない限り前の値（22 時〜8 時）のまま残る。空白を含む値は、値全体を \" で囲む（囲まないと sam が "cron(0" に切る）
+  "NightlyStopSchedule=\"cron(0 0 * * ? *)\"",
+  "NightlyStartSchedule=\"cron(50 7 * * ? *)\"",
 ]
 
 # ---------------------------------------------------------------- us-east-1（CloudFront 用の ACM と WAF）

@@ -82,6 +82,26 @@ export function overrideValue(overrides, name) {
   return undefined;
 }
 
+/**
+ * 値に空白があるのに、値全体を引用符（"..." か '...'）で囲んでいない要素の名前（値は返さない）。
+ * SAM CLI の --parameter-overrides（と samconfig.toml の parameter_overrides）は、引用符の無い値を空白で切る
+ * （SAM CLI 1.154.0 の samcli/cli/types.py の CfnParameterOverridesType。囲んだ引用符は外してから渡す）。
+ * "NightlyStopSchedule=cron(0 0 * * ? *)" は値が "cron(0" になり、Application Auto Scaling が
+ * 「Invalid schedule expression」で拒否する（2026-11-25 の本番のデプロイの失敗）。正しくは "NightlyStopSchedule=\"cron(0 0 * * ? *)\""
+ */
+export function unquotedSpaceNames(overrides) {
+  const names = [];
+  for (const item of overrides) {
+    const eq = item.indexOf("=");
+    if (eq <= 0) continue;
+    const value = item.slice(eq + 1);
+    if (!/\s/.test(value)) continue;
+    const wrapped = value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")));
+    if (!wrapped) names.push(item.slice(0, eq));
+  }
+  return names;
+}
+
 /** 既存の DeployedCommit= を除いてから、末尾に DeployedCommit=<sha> を足した新しい配列（元の配列は変えない） */
 export function withDeployedCommit(overrides, sha) {
   if (!SHA.test(sha)) throw new Error("DeployedCommit に渡すコミットが 40 桁の16進でない");

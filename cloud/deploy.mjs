@@ -31,7 +31,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { headCommit, outsideMainWarning, uncommittedPaths } from "../setup/lib/drift.mjs";
 import { isDirectRun, realRun } from "./lib/exec.mjs";
-import { parameterOverrides, withDeployedCommit } from "./lib/samconfig.mjs";
+import { parameterOverrides, unquotedSpaceNames, withDeployedCommit } from "./lib/samconfig.mjs";
 
 /** sam build が必要な Lambda のコード（cloud/stacks/services/*.yaml の CodeUri）。デプロイ（default）に含まれるので未コミットを確かめる */
 const LAMBDA_PACKAGES = ["backend/faq-bot", "backend/consent-api", "backend/admin-auth"];
@@ -59,6 +59,16 @@ export async function runDeploy({ env, repoDir, run, readSamconfig, log = consol
         `ドット区切りのキー〈deploy.parameters.parameter_overrides = …〉で書いてある、のどれか）。` +
         `このまま sam deploy すると DeployedCommit だけが渡り、ほかのパラメータは前の値のまま残る。` +
         `${table} の表に parameter_overrides = [ "Key=Value", ... ] の形で書いてから実行し直す（cloud/README.md の 4.2）`,
+    );
+  }
+
+  // 空白を含む値（cron 式など）を引用符で囲まずに書くと、sam が空白で切って壊れた値を渡し、デプロイの途中で失敗して戻される
+  // （2026-11-25。NightlyStopSchedule が "cron(0" になった）。sam を呼ぶ前に止める。値は出さない
+  const unquoted = unquotedSpaceNames(base);
+  if (unquoted.length > 0) {
+    throw new Error(
+      `cloud/samconfig.toml の ${table} の parameter_overrides に、空白を含むのに引用符で囲んでいない値がある: ${unquoted.join("・")}。` +
+        `sam は引用符の無い値を空白で切る。値全体を \\" で囲んで書く（例: "NightlyStopSchedule=\\"cron(0 0 * * ? *)\\""。cloud/README.md の 2 節の「重要」）`,
     );
   }
 

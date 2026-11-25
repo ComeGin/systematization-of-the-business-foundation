@@ -300,6 +300,8 @@ Parameters:
   # 止まっているあいだ、公開サイトは 0〜8 時を受付時間外と表示し（frontend/verdant-virgo の service-hours）、Chatwoot・Mautic を使う定期実行は手動にした（ops/README）。
   # 経緯: 10-26 に chatwoot-web・chatwoot-worker・mautic-cron を 22 時〜8 時で導入、11-04 に再開を 3 時 45 分へ早め、11-12 に Chatwoot を外した（定期実行が 503 で失敗していたため）。
   # 切り替え（時刻・NightlyStopEnabled・DesiredCount の変更）のデプロイは 8 時〜24 時に行う（夜間に行うと 0 台のまま残ることがある）。
+  # 既存のスタックには既定値が届かない（SAM CLI が samconfig.toml に無いパラメータを UsePreviousValue で渡す）。時刻は samconfig.toml に
+  # "NightlyStopSchedule=\"cron(0 0 * * ? *)\"" のように引用符で囲んで書く（囲まないと sam が空白で切る。README の 2 節の「重要」。2026-11-25）。
   NightlyStopEnabled:
     Type: String
     Default: 'true'
