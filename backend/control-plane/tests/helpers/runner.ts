@@ -102,6 +102,7 @@ export function makeJob(overrides: Partial<ScheduleDefinition> = {}): ScheduleDe
     prompt: null,
     cycleDays: null,
     proposalKinds: null,
+    dailyManual: false,
     ...overrides,
   };
 }

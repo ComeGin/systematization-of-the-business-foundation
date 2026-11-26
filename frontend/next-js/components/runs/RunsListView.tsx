@@ -38,6 +38,7 @@ export function RunsListView({
   hasOlder,
   pageSize,
   observations,
+  notice,
 }: {
   runs: RunRecord[];
   outcome: RunOutcome | null;
@@ -45,6 +46,8 @@ export function RunsListView({
   hasOlder: boolean;
   pageSize: number;
   observations: Record<string, RunObservations>;
+  /** 表の上に出すもの（最新のページの「毎日の運用」） */
+  notice?: React.ReactNode;
 }) {
   const router = useRouter();
   const follow = useFollow();
@@ -52,6 +55,7 @@ export function RunsListView({
   return (
     <>
       <AutoRefresh active={before === null && runs.some((run) => run.status === "running")} />
+      {notice ? <div style={{ marginBlockEnd: 20 }}>{notice}</div> : null}
       <RunsTable
         variant="full-page"
         runs={runs}

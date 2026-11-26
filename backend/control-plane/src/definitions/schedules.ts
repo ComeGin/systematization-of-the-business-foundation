@@ -66,6 +66,8 @@ const ScheduleFileSchema = z
     overview: z.unknown().optional(),
     stage: z.unknown().optional(),
     io: z.unknown().optional(),
+    // 毎日、人が手動で起動するジョブ（画面の「毎日の運用」に並べる。2026-11-26）。表示だけの欄
+    daily_manual: z.unknown().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.kind === "agent") {
@@ -88,12 +90,16 @@ const IoSchema = z
     does_not_write: z.array(z.string()).default([]),
   })
   .nullable();
+const DailyManualSchema = z.boolean().nullable();
 
 /**
- * 表示のための欄（overview・stage・io）。形が違う欄は null にして WARN に欄の名前だけを出す（値は出さない）。
+ * 表示のための欄（overview・stage・io・daily_manual）。形が違う欄は null（daily_manual は false）にして WARN に欄の名前だけを出す（値は出さない）。
  * 誤りで定義ごと読めなくなると、本番のジョブが黙って止まるため（2026-11-09。最終レビューの指摘）
  */
-function displayFields(file: string, value: { overview?: unknown; stage?: unknown; io?: unknown }): Pick<JobDefinition, "overview" | "stage" | "io"> {
+function displayFields(
+  file: string,
+  value: { overview?: unknown; stage?: unknown; io?: unknown; daily_manual?: unknown },
+): Pick<JobDefinition, "overview" | "stage" | "io" | "dailyManual"> {
   const warn = (field: string) => logLine("WARN", "schedules", `${file}: 表示のための欄 ${field} を読めないので出さない（ジョブは動かす）`);
   const overview = OverviewSchema.safeParse(value.overview ?? null);
   if (!overview.success) warn("overview");
@@ -101,11 +107,14 @@ function displayFields(file: string, value: { overview?: unknown; stage?: unknow
   if (!stage.success) warn("stage");
   const io = IoSchema.safeParse(value.io ?? null);
   if (!io.success) warn("io");
+  const dailyManual = DailyManualSchema.safeParse(value.daily_manual ?? null);
+  if (!dailyManual.success) warn("daily_manual");
   const text = overview.success ? overview.data?.trim() : "";
   return {
     overview: text ? text : null,
     stage: stage.success ? stage.data : null,
     io: io.success && io.data ? { reads: io.data.reads, writes: io.data.writes, doesNotWrite: io.data.does_not_write } : null,
+    dailyManual: dailyManual.success ? dailyManual.data === true : false,
   };
 }
 

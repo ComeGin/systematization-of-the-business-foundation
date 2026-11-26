@@ -46,6 +46,7 @@ describe("GET /api/jobs", () => {
             io: null,
             cycleDays: null,
             proposalKinds: null,
+            dailyManual: false,
           },
           nextRunAt: "2026-10-06T09:00:00+09:00",
           lastRun: null,

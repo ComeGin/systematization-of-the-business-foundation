@@ -144,6 +144,7 @@ export function makeJob(id: string, agent: string | null, overrides: Partial<Job
       io: null,
       cycleDays: null,
       proposalKinds: null,
+      dailyManual: false,
       ...overrides,
     },
     nextRunAt: null,

@@ -138,6 +138,11 @@ export interface JobDefinition {
   stage: JobStage | null;
   /** 入出力。書かれていなければ null */
   io: JobIo | null;
+  /**
+   * 毎日、人が手動で起動するジョブか（yaml の daily_manual。2026-11-26）。画面の「毎日の運用」に並べるためだけの欄で、
+   * 起動の可否には使わない。本番の Chatwoot・Mautic が夜間に止まるため手動にしたジョブに付ける。書かれていなければ false
+   */
+  dailyManual: boolean;
 }
 
 /** ツールの参照／書き込みの目安（表示だけに使う。権限の判定には使わない）。 */

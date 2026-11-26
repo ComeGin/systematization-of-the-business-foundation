@@ -32,6 +32,7 @@ export default async function JobPage(props: PageProps<"/jobs/[jobId]">) {
       runLimit={RUN_LIMIT}
       observations={observations}
       agent={agent}
+      now={new Date().toISOString()}
     />
   );
 }

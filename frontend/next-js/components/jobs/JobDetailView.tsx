@@ -21,6 +21,7 @@ import { ContentStatus } from "@/components/runs/ContentStatus";
 import { ObservationsTable } from "@/components/runs/ObservationsTable";
 import { RunStatus } from "@/components/runs/RunStatus";
 import { RunsTable } from "@/components/runs/RunsTable";
+import { DailyOpsJobAlert } from "./DailyOpsPanel";
 import { dependentsOf, EnabledStatus, ioItems, jobKindLabel, NOT_WRITTEN, STAGES, stageLabel } from "./job-format";
 
 function Lines({ value }: { value: ReturnType<typeof ioItems> }) {
@@ -56,6 +57,7 @@ export function JobDetailView({
   runLimit,
   observations,
   agent,
+  now,
 }: {
   job: JobStatus;
   jobs: JobDefinition[];
@@ -63,6 +65,8 @@ export function JobDetailView({
   runLimit: number;
   observations: Record<string, RunObservations>;
   agent: AgentInfo | null;
+  /** サーバーが描いた時刻（ISO 8601）。「毎日の運用」の今日・夜間の判定に使う */
+  now: string;
 }) {
   const follow = useFollow();
   const { definition, lastRun } = job;
@@ -100,6 +104,7 @@ export function JobDetailView({
     >
       <AutoRefresh active={runs.some((run) => run.status === "running")} />
       <SpaceBetween size="l">
+        <DailyOpsJobAlert job={job} now={now} />
         <Container header={<Header variant="h2">① 処理の概要</Header>}>
           <SpaceBetween size="s">
             <Box variant="p">

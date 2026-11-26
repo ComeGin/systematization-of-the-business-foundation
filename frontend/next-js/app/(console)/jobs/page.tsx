@@ -1,4 +1,5 @@
 import { ConfigErrorView } from "@/components/common/ConfigErrorView";
+import { DailyOpsPanel } from "@/components/jobs/DailyOpsPanel";
 import { JobsListView } from "@/components/jobs/JobsListView";
 import { getControlPlaneState } from "@/lib/control-plane";
 import { requirePageSession } from "@/lib/session";
@@ -12,5 +13,5 @@ export default async function JobsPage() {
   const runIds = jobs.flatMap((job) => (job.lastRun ? [job.lastRun.runId] : []));
   const observations =
     runIds.length === 0 ? {} : Object.fromEntries((await state.plane.listRunObservations(runIds)).map((o) => [o.runId, o]));
-  return <JobsListView jobs={jobs} observations={observations} />;
+  return <JobsListView jobs={jobs} observations={observations} notice={<DailyOpsPanel jobs={jobs} now={new Date().toISOString()} />} />;
 }

@@ -32,6 +32,7 @@ function definition(overrides: Partial<JobDefinition> = {}): JobDefinition {
     io: null,
     cycleDays: null,
     proposalKinds: null,
+    dailyManual: false,
     ...overrides,
   };
 }

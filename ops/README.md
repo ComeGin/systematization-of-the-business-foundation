@@ -31,8 +31,9 @@ ops/
 | `overview` | 任意。監視アプリのジョブの画面の「① 処理の概要」。2〜4 文で、何を起動し、何を読んで何をまとめるか、何をしないか。**事実だけ**（Agent の `.md`・`prompt`・builtin のコードに書いてあること）。時刻は書かない（`cron` が正本） |
 | `stage` | 任意。改善ループの中の段階。`measure`（計測）・`observe`（観測）・`propose`（提案）・`file`（起票）・`create`（制作）・`check`（点検）・`maintain`（保守）・`monitor`（監視）のどれか |
 | `io` | 任意。「② 入出力」。`reads`（読むもの）・`writes`（書くもの）・`does_not_write`（書かないもの。誤解されやすいものだけ）の文字列の配列。待つ／待たれるジョブは `after` から画面が作るので書かない |
+| `daily_manual` | 任意（既定 `false`。2026-11-26）。`true` なら、監視アプリの実行記録とジョブの一覧の上の「毎日の運用」に並び、当日の実行の有無と「手動で起動」が出る。**表示だけ**で、起動の可否には使わない。夜間に本番が止まるために `enabled: false` にした、毎日人が動かすジョブに付ける |
 
-- `overview`・`stage`・`io` は 2026-11-06 に足した（設計は `docs/superpowers/specs/2026-11-06-job-agent-info-design.md` の 4 節）。**すべて任意**で、無くても定義は読める。**形が違う（8 値以外の `stage`、文字列でない `io` の要素など）ときは、その欄だけ画面に出さず、ジョブは動かす**（監視アプリのログに WARN で欄の名前だけが出る。2026-11-09。表示のための欄の誤りで本番のジョブを止めないため）。定義の中身（何をするか）を変えたときは、この 3 つも同じ PR で直す
+- `overview`・`stage`・`io` は 2026-11-06 に、`daily_manual` は 2026-11-26 に足した（設計は `docs/superpowers/specs/2026-11-06-job-agent-info-design.md` の 4 節）。**すべて任意**で、無くても定義は読める。**形が違う（8 値以外の `stage`、文字列でない `io` の要素など）ときは、その欄だけ画面に出さず、ジョブは動かす**（監視アプリのログに WARN で欄の名前だけが出る。2026-11-09。表示のための欄の誤りで本番のジョブを止めないため）。定義の中身（何をするか）を変えたときは、この 3 つも同じ PR で直す
 
 前回の実行が終わっていなければ、起動を見送って `skipped` を理由つきで記録する。
 
@@ -41,8 +42,8 @@ ops/
 | id | 種類 | 実行 | 内容 |
 |---|---|---|---|
 | `daily-observe-seo` | agent | 毎日 04:00 | `seo-auditor`。GSC の実績（`source: gsc`） |
-| `daily-observe-analytics` | agent | **2026-11-25 から手動**（8 時以降に「今すぐ実行」）（定義の cron は 04:00） | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
-| `daily-observe-conversations` | agent | **2026-11-25 から手動**（8 時以降に「今すぐ実行」）（定義の cron は 04:00） | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
+| `daily-observe-analytics` | agent | **2026-11-25 から手動**（8 時以降に「手動で起動」。画面の「毎日の運用」）（定義の cron は 04:00） | `analytics-reporter`。GA4（OpenSEO 経由）・Mautic（参照専用）・PostHog の集計 |
+| `daily-observe-conversations` | agent | **2026-11-25 から手動**（8 時以降に「手動で起動」。画面の「毎日の運用」）（定義の cron は 04:00） | `conversation-triage`。未解決の会話の一次切り分け（社内メモのみ） |
 | `daily-observe-ops` | agent | 毎日 04:00 | `ops-watcher`。直近 24 時間の例外 |
 | `daily-propose` | agent | 毎日 04:30 | `proposal-writer`。**観測 2 本（seo・ops）を `after` で待つ**（2026-11-25 から。会話と集計は手動なので外した）。起票前チェック 15 項目を通したものだけ起票 |
 | `monthly-analysis` | agent | 毎月 1 日 05:00 | `proposal-writer`。順位・流入・CVR の月次の判断（`after` は `daily-observe-seo` だけ。2026-11-25 から集計は手動なので外した） |
@@ -58,7 +59,7 @@ ops/
 | `runlog-flush` | builtin | 0〜8 時の 15 分ごと（最後は 07:45） | `E-15` の写しを S3 に追記（送れていない分を送り直す） |
 | `nightly-backup` | builtin | 毎日 07:20 | オンプレにしか無いものを S3 に置く（2026-11-12）。E-15 の SQLite（実行の記録・改善の周と承認・実行モデルの選択）の毎晩のスナップショットと、作業場の観測（E-12）の写し。正本はオンプレのまま。戻し方は `backend/control-plane/README.md` の「バックアップ」 |
 | `daily-i13-file` | builtin | 毎日 05:30 | `I-13`。`draft` の `E-13` から GitHub に PR を作る |
-| `daily-miswrite-check` | builtin | **2026-11-25 から手動**（8 時以降に「今すぐ実行」）（定義の cron は 05:45） | 誤った書き込みの突き合わせ |
+| `daily-miswrite-check` | builtin | **2026-11-25 から手動**（8 時以降に「手動で起動」。画面の「毎日の運用」）（定義の cron は 05:45） | 誤った書き込みの突き合わせ |
 | `daily-silence-check` | builtin | 毎日 06:00 | 沈黙の検出 |
 | `daily-n8n-export` | builtin | 毎日 06:15 | 本番の n8n のワークフローを Public API で読み、差分があれば GitHub に PR（`chore/n8n-export-YYYYMMDD`）。作業ツリーには書かない。**有効化の前に、API キーのスコープ（Enterprise のみ）を人が判断する**（`backend/control-plane/README.md` の n8n-export） |
 | `published-article-check` | builtin | 毎日 00:00（暫定） | 公開された記事の確認。本番の Strapi の公開済みの記事の一覧（新規・更新・削除）を**最後に確かめた配信**と比べ、変わっているか、最後に確かめた配信のコミットから `frontend/verdant-virgo` が変わっていれば、**本番の値で**ビルドと Lighthouse の計測（`pnpm lh`）を行い、配る dist の写し（`<CONTROL_DATA_DIR>/deploy/`）を付けた deploy の項目を周に置く。同じ差分（`frontend/verdant-virgo` を最後に変えたコミットと記事の一覧が同じ）の項目が既にあればビルドしない（公開サイトに関係しないコミットでは作り直さない）。承認前の古い deploy の項目は新しい項目に置き換え（差し戻しの記録の actor は `system`。`docs/cycles` の差し戻しの節には載せない）、OK 済み・実行済み・確かめられなかった（`failed_check`）古い項目があるあいだは新しい項目を作らない（`failed_check` は人が差し戻すまで残る。同じ差分を配信し直すなら、差し戻さずに（failed_check のまま）この項目で「実行した」を押し直す。差し戻した場合は、新しい記事の公開か公開サイト（frontend/verdant-virgo）の変更があったときだけ、次の夜に新しい配信の項目が作られる（変更が無いあいだは作られない）。）。**配信はしない**（人が行う）。`CONTROL_STRAPI_URL`・`CONTROL_STRAPI_READ_TOKEN`・`SITE_URL`・`CONTROL_CYCLE_ANCHOR` が要る |
@@ -113,7 +114,7 @@ ops/
 | 0〜8 時の 15 分ごと | `runlog-flush`（E-15 の写しの送り直し。最後は 07:45） | 07:50 |
 
 - **改善ループの本体はすべて 07:10 までに終わる**（最長の上限。周のジョブの `cycle-collect`）。8 時までの残りは、機械の遅れや手動の再実行のための余白。`runlog-flush` も 07:50 までに終わる
-- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と Mautic（mautic-web・mautic-cron）は毎日 0 時〜7 時 50 分に止まる**（2026-11-25。ユーザーの決定。費用を下げるため。`cloud/README.md` の 4.11 の「夜間の停止」）。そのあいだの要求は ALB の 503（control-plane の分類では `invalid_response`）で失敗する。そのため、Chatwoot・Mautic を読み書きする定期実行は**手動**にした（`enabled: false`。スケジューラに登録されず、監視アプリの「今すぐ実行」は使える。8 時以降に動かす）: `daily-observe-conversations`（Chatwoot）・`daily-miswrite-check`（Chatwoot）・`daily-observe-analytics`（Mautic）。`daily-propose` の `after` からは会話と集計を外した（残すと当日の success が無く毎日見送られる。手動で実行した会話・集計の E-12 は 14 日以内なら根拠に使われる）。`cycle-collect`（07:00）は自動のままで、Mautic を読むキャンペーンの項目だけ失敗して飛ばされる（実行は failed）ので、キャンペーンの項目がある日は 8 時以降に今すぐ実行し直す。無効の `cycle-campaign` を有効にするときは、0 時〜7 時 50 分を避ける。本番の n8n の `weekly-inquiry-inventory`（月曜 07:00）も手動にする（`onprem/README.md`）。2026-11-12〜11-24 は Chatwoot と mautic-web を止めていなかった（mautic-cron だけ 22 時〜翌 3 時 45 分）
+- **本番の Chatwoot（chatwoot-web・chatwoot-worker）と Mautic（mautic-web・mautic-cron）は毎日 0 時〜7 時 50 分に止まる**（2026-11-25。ユーザーの決定。費用を下げるため。`cloud/README.md` の 4.11 の「夜間の停止」）。そのあいだの要求は ALB の 503（control-plane の分類では `invalid_response`）で失敗する。そのため、Chatwoot・Mautic を読み書きする定期実行は**手動**にした（`enabled: false`。スケジューラに登録されず、監視アプリのジョブの「手動で起動」は使える。8 時以降に動かす。`daily_manual: true` を付け、監視アプリの実行記録・ジョブの画面の上の「毎日の運用」に並べる）: `daily-observe-conversations`（Chatwoot）・`daily-miswrite-check`（Chatwoot）・`daily-observe-analytics`（Mautic）。`daily-propose` の `after` からは会話と集計を外した（残すと当日の success が無く毎日見送られる。手動で実行した会話・集計の E-12 は 14 日以内なら根拠に使われる）。`cycle-collect`（07:00）は自動のままで、Mautic を読むキャンペーンの項目だけ失敗して飛ばされる（実行は failed）ので、キャンペーンの項目がある日は 8 時以降に今すぐ実行し直す。無効の `cycle-campaign` を有効にするときは、0 時〜7 時 50 分を避ける。本番の n8n の `weekly-inquiry-inventory`（月曜 07:00）も手動にする（`onprem/README.md`）。2026-11-12〜11-24 は Chatwoot と mautic-web を止めていなかった（mautic-cron だけ 22 時〜翌 3 時 45 分）
 - **03:00〜03:30 を空けてある。** RDS の保守の窓（`cloud/stacks/data.yaml` の `DbMaintenanceWindow`。日曜 18:00 UTC＝**月曜 03:00 JST**）と重ねない。日次バックアップ（02:00〜02:30 JST）は書き込みを止めないので重なってもよいが、週次の書き込み（02:30〜）はその後に置いた
 - 順序は以前と同じ（月曜の計測 → 週次の観測 → 日次の観測 → 提案 → 起票・突き合わせ）。`after` は「当日（JST の 0 時から）`success`」なので、0 時より後に並べれば崩れない。`monthly-analysis` は以前は `daily-i13-file` と同時刻（08:00）で起票が翌日に回っていたが、i13 の前に置いたので当日に PR になる
 - 観測の取得範囲は「3 日前まで」「直近 24 時間」の相対指定なので、起動を早めても範囲は変わらない
